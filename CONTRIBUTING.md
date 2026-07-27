@@ -8,6 +8,41 @@ Contributions may improve the CLI implementation, public SDK, product
 requirements, architecture decisions, examples, command conventions, tests, or
 supporting public-source research.
 
+## Building and testing
+
+The repository contains three independently buildable Go modules: the shell at
+the repository root, the public SDK in `sdk/`, and the reference module in
+`examples/reference-module/`. `go.work` composes the unpublished modules for
+local development. Committed `replace` directives are prohibited; a test
+enforces this.
+
+```shell
+go build ./...                      # shell
+go test ./...                       # shell, including acceptance tests
+(cd sdk && GOWORK=off go test ./...)  # SDK without workspace composition
+```
+
+The shell, protocol, SDK, and module versions move independently and are
+injected at build time:
+
+```shell
+go build -ldflags "\
+  -X github.com/wso2/wso2-cli/internal/version.shellVersion=0.1.0 \
+  -X github.com/wso2/wso2-cli/internal/version.protocolVersion=1" ./cmd/wso2
+
+cd examples/reference-module && go build -ldflags "\
+  -X main.moduleVersion=0.1.0 \
+  -X github.com/wso2/wso2-cli/sdk/module.SDKVersion=0.1.0" ./cmd/wso2-module-reference
+```
+
+Every Go file begins with the Apache-2.0 license header, followed by a blank
+line so the header does not become package documentation. A test in
+`internal/boundaries` enforces both.
+
+Tests never read or write real WSO2 user state. The shell resolves all local
+state below one root, overridden with `WSO2_HOME`, and the test-only fixture
+installer refuses to write into `~/.wso2`.
+
 ## Documentation standards
 
 Contributions must:

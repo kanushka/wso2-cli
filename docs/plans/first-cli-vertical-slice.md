@@ -92,10 +92,15 @@ The initial layout is:
 ├── internal/
 │   ├── app/
 │   ├── auth/
+│   ├── boundaries/
 │   ├── context/
+│   ├── exit/
 │   ├── modules/
+│   │   └── fixture/
 │   ├── output/
 │   ├── rpc/
+│   ├── semver/
+│   ├── state/
 │   └── version/
 ├── sdk/
 │   ├── go.mod
@@ -104,12 +109,20 @@ The initial layout is:
 │   ├── protocol/
 │   ├── result/
 │   └── testkit/
+├── test/
+│   └── acceptance/
 └── examples/
     └── reference-module/
         ├── go.mod
         └── cmd/
             └── wso2-module-reference/
 ```
+
+`internal/boundaries` holds the build-boundary tests, `internal/exit` owns the
+exit classes of section 8, `internal/modules/fixture` is the test-only fixture
+installer of section 5, `internal/semver` implements receipt compatibility
+ranges, `internal/state` locates the shell-owned state root, and
+`test/acceptance` holds the black-box runs of increment 5.
 
 Dependency rules:
 

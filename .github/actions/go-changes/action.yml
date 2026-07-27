@@ -1,0 +1,55 @@
+name: Detect affected Go modules
+description: Select the shell and SDK modules affected by a pull request
+
+outputs:
+  shell:
+    description: Whether the shell module must be validated
+    value: ${{ steps.detect.outputs.shell }}
+  sdk:
+    description: Whether the SDK module must be validated
+    value: ${{ steps.detect.outputs.sdk }}
+
+runs:
+  using: composite
+  steps:
+    - id: detect
+      shell: bash
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        set -euo pipefail
+
+        shell_changed=false
+        sdk_changed=false
+
+        if [[ -z "$BASE_SHA" || -z "$HEAD_SHA" ]]; then
+          echo "The pull request base or head commit is unavailable." >&2
+          exit 1
+        fi
+
+        while IFS= read -r path; do
+          case "$path" in
+            .github/actions/go-changes/*|.github/workflows/pr-checks.yml|go.work|go.work.sum|.golangci.yml|.golangci.yaml)
+              shell_changed=true
+              sdk_changed=true
+              ;;
+            sdk/*)
+              shell_changed=true
+              sdk_changed=true
+              ;;
+            examples/reference-module/*)
+              # The shell's own boundary and acceptance tests build the
+              # reference module, so a reference-module change is validated by
+              # the shell checks.
+              shell_changed=true
+              ;;
+            *.go|go.mod|go.sum|cmd/*|internal/*|test/*)
+              shell_changed=true
+              ;;
+          esac
+        done < <(git diff --name-only --diff-filter=ACMRD "$BASE_SHA...$HEAD_SHA")
+
+        echo "shell=$shell_changed" >> "$GITHUB_OUTPUT"
+        echo "sdk=$sdk_changed" >> "$GITHUB_OUTPUT"
+        echo "Selected modules: shell=$shell_changed sdk=$sdk_changed"
