@@ -1,0 +1,211 @@
+// Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+syntax = "proto3";
+
+// Package wso2.cli.module.v1 is version 1 of the WSO2 CLI module contract: the
+// messages the shell and a product module exchange over the module process's
+// inherited standard input and standard output.
+//
+// Each frame on the wire is an unsigned-varint byte length followed by one
+// encoded Envelope. Module standard output carries these frames only; module
+// standard error carries bounded diagnostics, and only the shell writes
+// user-facing output. See docs/adr/0002-module-transport.md and
+// docs/adr/0003-shell-owned-output.md.
+//
+// Compatibility rules for this package:
+//
+//   - unknown fields are preserved and ignored, so a field may be added within
+//     this version;
+//   - an unknown Envelope message kind fails closed rather than being skipped;
+//     and
+//   - a required capability the peer does not recognize fails closed.
+package wso2.cli.module.v1;
+
+option go_package = "github.com/wso2/wso2-cli/sdk/protocol/contractv1;contractv1";
+
+// Envelope wraps every message on the wire so framing, invocation binding, and
+// message dispatch are uniform in both directions.
+message Envelope {
+  // invocation_id binds a message to one shell invocation. The shell mints it
+  // and sends it first in Welcome; every message after the handshake must
+  // repeat it, and a peer that omits or changes it is a protocol failure.
+  //
+  // Hello precedes the handshake, so it is the only message that leaves this
+  // field empty.
+  string invocation_id = 1;
+
+  // correlation_id pairs a response with its request for message kinds that
+  // may be interleaved. A terminal message leaves it empty.
+  string correlation_id = 2;
+
+  // message is the semantic payload. An envelope carrying no known payload
+  // fails closed.
+  oneof message {
+    Hello hello = 10;
+    Welcome welcome = 11;
+    Invoke invoke = 12;
+    // Field numbers 13, 14, and 15 are held for the authentication broker
+    // exchange (AcquireAccess, AccessGranted, AccessDenied), which is added by
+    // a later slice increment.
+    Result result = 16;
+    Problem problem = 17;
+  }
+}
+
+// Hello is the first message a module sends. It states who is actually running
+// so the shell can compare runtime identity with the module receipt it
+// resolved.
+message Hello {
+  ModuleIdentity module = 1;
+
+  // protocol_versions are the module-contract versions this module can speak,
+  // newest first. The shell selects one and reports it in Welcome.
+  repeated uint32 protocol_versions = 2;
+
+  // required_capabilities name optional protocol behaviour the module cannot
+  // run without. A capability the shell does not recognize fails closed, so a
+  // module can never silently lose a behaviour it depends on.
+  repeated string required_capabilities = 3;
+}
+
+// ModuleIdentity is the identity of the executing module.
+message ModuleIdentity {
+  // namespace is the single top-level command name this module owns.
+  string namespace = 1;
+  // version is the module's own release version.
+  string version = 2;
+  // sdk_version is the SDK release the module was built against.
+  string sdk_version = 3;
+}
+
+// Welcome answers Hello. It closes the handshake by fixing the protocol version
+// and the invocation identity for everything that follows.
+message Welcome {
+  // protocol_version is the single version both sides speak for this
+  // invocation.
+  uint32 protocol_version = 1;
+
+  ShellIdentity shell = 2;
+}
+
+// ShellIdentity is the identity of the shell that launched the module. A module
+// may report it in diagnostics but must not vary its result on it.
+message ShellIdentity {
+  string version = 1;
+  // platform is the "os/arch" pair the shell runs on.
+  string platform = 2;
+}
+
+// Invoke asks the module to run one product command. Exactly one Invoke is sent
+// per invocation, and the module answers with exactly one terminal Result or
+// Problem.
+message Invoke {
+  // namespace repeats the namespace the shell resolved, so a module that owns
+  // more than one build cannot act on a command routed to another module.
+  string namespace = 1;
+
+  // command_path is the command within the namespace, without the namespace
+  // itself. "wso2 reference status" arrives as ["status"].
+  repeated string command_path = 2;
+
+  // arguments are the remaining user arguments, unparsed by the shell.
+  repeated string arguments = 3;
+
+  // output_mode tells the module which rendering the shell will perform. It is
+  // advisory: a module may use it to skip work whose only purpose is display.
+  // It never permits a module to format or write user output itself.
+  OutputMode output_mode = 4;
+
+  InvocationPolicy policy = 5;
+
+  // context is the non-secret invocation context. It never carries credential
+  // material.
+  InvocationContext context = 6;
+}
+
+// OutputMode is the rendering the shell will apply to a Result.
+enum OutputMode {
+  OUTPUT_MODE_UNSPECIFIED = 0;
+  // OUTPUT_MODE_TABLE renders a human-readable table.
+  OUTPUT_MODE_TABLE = 1;
+  // OUTPUT_MODE_JSON renders deterministic JSON.
+  OUTPUT_MODE_JSON = 2;
+}
+
+// InvocationPolicy is the shell policy in force for this invocation.
+message InvocationPolicy {
+  // deadline_millis is the time the shell will wait for a terminal message
+  // before it closes the protocol stream and terminates the module. Zero means
+  // the shell applies its own default.
+  uint32 deadline_millis = 1;
+
+  // interactive reports whether a terminal is attached. The architecture proof
+  // never prompts, so a module must not depend on it.
+  bool interactive = 2;
+}
+
+// InvocationContext is the non-secret context the command runs against.
+//
+// It names the target and identifies the credential arrangement, but it carries
+// no credential value and no reference to one. A module obtains access only
+// through the shell's authentication broker.
+message InvocationContext {
+  // name is the selected context's name.
+  string name = 1;
+  // organization_id is the organization the command targets. It is empty until
+  // the shell owns a context store.
+  string organization_id = 2;
+}
+
+// Result is a module's terminal success. The module returns semantic fields and
+// the shell alone renders them, so table and JSON output cannot disagree.
+message Result {
+  // schema identifies the semantic shape, such as "reference.status/v1". It
+  // lets the shell and downstream tools recognize a result without parsing it.
+  string schema = 1;
+
+  // fields are the result's values in presentation order. The shell renders
+  // them in this order in every output mode.
+  repeated ResultField fields = 2;
+}
+
+// ResultField is one named value of a result.
+message ResultField {
+  // name is the stable machine name, used as the JSON key.
+  string name = 1;
+  // label is the human-readable column or row label. It falls back to name.
+  string label = 2;
+  // value is the rendered value. The architecture proof carries only strings.
+  string value = 3;
+}
+
+// Problem is a typed, safe-to-render failure. It may travel in either
+// direction, and it must never carry credential material: the shell renders
+// message and recovery verbatim.
+message Problem {
+  // category is the stable failure class, such as "product_service". The shell
+  // maps it to an exit class; an unrecognized category is treated as a module
+  // process failure rather than a success.
+  string category = 1;
+  // code is a stable machine-readable identifier such as
+  // "reference.status_unavailable".
+  string code = 2;
+  // message states what failed, without secret detail.
+  string message = 3;
+  // recovery states what the user can do next. It may be empty.
+  string recovery = 4;
+}
