@@ -177,6 +177,15 @@ func validateRelativeExecutable(executable string) error {
 			fmt.Sprintf("module receipt declares an absolute executable path %q", executable),
 			pathEscapeRecovery)
 	}
+	// A drive-relative path such as "c:module" is not absolute by Go's
+	// definition, so it would survive the check above and then name a volume
+	// rather than a path inside the version directory. Only paths relative to
+	// that directory are accepted.
+	if hasVolumeName(executable) {
+		return receiptProblem("modules.receipt_path_escape",
+			fmt.Sprintf("module receipt declares a volume-relative executable path %q", executable),
+			pathEscapeRecovery)
+	}
 	// Reject an escaping path before any filesystem access, so a receipt can
 	// never redirect execution outside its own immutable version directory.
 	cleaned := filepath.Clean(filepath.FromSlash(executable))
@@ -186,6 +195,20 @@ func validateRelativeExecutable(executable string) error {
 			pathEscapeRecovery)
 	}
 	return nil
+}
+
+// hasVolumeName reports whether the path begins with a Windows volume name,
+// such as "c:" or `\\host\share`. The check runs on every platform so a receipt
+// is rejected consistently wherever it is inspected.
+func hasVolumeName(path string) bool {
+	if strings.HasPrefix(path, `\\`) || strings.HasPrefix(path, "//") {
+		return true
+	}
+	if len(path) >= 2 && path[1] == ':' {
+		letter := path[0]
+		return ('a' <= letter && letter <= 'z') || ('A' <= letter && letter <= 'Z')
+	}
+	return false
 }
 
 func validateDigest(digest string) error {

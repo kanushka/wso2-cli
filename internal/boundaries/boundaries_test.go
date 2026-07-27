@@ -23,10 +23,15 @@
 package boundaries_test
 
 import (
+	"encoding/json"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -69,7 +74,12 @@ const licenseHeader = `// Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com).
 func TestEveryGoFileCarriesTheLicenseHeader(t *testing.T) {
 	root := repoRoot(t)
 
-	for _, path := range goFiles(t, root) {
+	var paths []string
+	for _, module := range goModules {
+		paths = append(paths, goFiles(t, filepath.Join(root, module))...)
+	}
+
+	for _, path := range paths {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("cannot read %s: %v", path, err)
@@ -125,49 +135,72 @@ func TestNoCommittedModuleReplacesALocalCheckout(t *testing.T) {
 
 func TestTheSDKAndReferenceModuleCannotImportShellInternals(t *testing.T) {
 	root := repoRoot(t)
-	shellInternal := regexp.MustCompile(`"github\.com/wso2/wso2-cli/internal[/"]`)
+	const shellInternalPrefix = "github.com/wso2/wso2-cli/internal"
 
 	for _, module := range []string{"sdk", "examples/reference-module"} {
-		moduleRoot := filepath.Join(root, module)
-		err := filepath.WalkDir(moduleRoot, func(path string, entry os.DirEntry, err error) error {
+		for _, path := range goFiles(t, filepath.Join(root, module)) {
+			// The import declarations are parsed rather than matched as text:
+			// a raw-string import literal is still an import, and a path
+			// mentioned in a comment is not.
+			file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
 			if err != nil {
-				return err
+				t.Fatalf("cannot parse %s: %v", path, err)
 			}
-			if entry.IsDir() || !strings.HasSuffix(path, ".go") {
-				return nil
+			relative, _ := filepath.Rel(root, path)
+			for _, imported := range file.Imports {
+				importPath, err := strconv.Unquote(imported.Path.Value)
+				if err != nil {
+					t.Fatalf("%s has an unreadable import literal %s", relative, imported.Path.Value)
+				}
+				if importPath == shellInternalPrefix || strings.HasPrefix(importPath, shellInternalPrefix+"/") {
+					t.Errorf("%s imports the shell internal package %q; %s must depend on public packages only",
+						relative, importPath, module)
+				}
 			}
-			data, readErr := os.ReadFile(path)
-			if readErr != nil {
-				return readErr
-			}
-			if shellInternal.Match(data) {
-				relative, _ := filepath.Rel(root, path)
-				t.Errorf("%s imports a shell internal package; %s must depend on public packages only", relative, module)
-			}
-			return nil
-		})
-		if err != nil {
-			t.Fatalf("walking %s: %v", moduleRoot, err)
 		}
 	}
 }
 
 func TestTheReferenceModuleDependsOnThePublicSDKOnly(t *testing.T) {
-	// A module that imports only the public SDK can move to another
-	// repository without changing its imports.
-	root := repoRoot(t)
-	data, err := os.ReadFile(filepath.Join(root, "examples", "reference-module", "go.mod"))
-	if err != nil {
-		t.Fatalf("cannot read the reference module go.mod: %v", err)
-	}
-	text := string(data)
+	// A module that requires only the public SDK can move to another repository
+	// without changing its imports. The requirements are read from the module
+	// graph rather than matched as text, so block syntax and comments cannot
+	// change the outcome.
+	required := requiredModules(t, filepath.Join(repoRoot(t), "examples", "reference-module"))
 
-	if !strings.Contains(text, "github.com/wso2/wso2-cli/sdk") {
-		t.Fatal("the reference module does not require the public SDK")
+	if !slices.Contains(required, "github.com/wso2/wso2-cli/sdk") {
+		t.Errorf("the reference module does not require the public SDK; it requires %v", required)
 	}
-	if strings.Contains(text, "github.com/wso2/wso2-cli v") {
-		t.Fatal("the reference module requires the shell module; it must depend on the public SDK only")
+	if slices.Contains(required, "github.com/wso2/wso2-cli") {
+		t.Errorf("the reference module requires the shell module; it must depend on the public SDK only")
 	}
+}
+
+// requiredModules reports the module paths one module requires, read from its
+// go.mod through the Go tool.
+func requiredModules(t *testing.T, moduleDir string) []string {
+	t.Helper()
+	command := exec.Command("go", "mod", "edit", "-json")
+	command.Dir = moduleDir
+	command.Env = os.Environ()
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("go mod edit -json in %s failed: %v", moduleDir, err)
+	}
+
+	var parsed struct {
+		Require []struct {
+			Path string `json:"Path"`
+		} `json:"Require"`
+	}
+	if err := json.Unmarshal(output, &parsed); err != nil {
+		t.Fatalf("cannot read the module requirements of %s: %v", moduleDir, err)
+	}
+	paths := make([]string, 0, len(parsed.Require))
+	for _, requirement := range parsed.Require {
+		paths = append(paths, requirement.Path)
+	}
+	return paths
 }
 
 func TestTheWorkspaceComposesEveryModule(t *testing.T) {
@@ -187,34 +220,32 @@ func TestTheWorkspaceComposesEveryModule(t *testing.T) {
 	}
 }
 
-// goFiles lists every Go source file tracked in the repository, across all
-// three modules.
-func goFiles(t *testing.T, root string) []string {
+// goFiles lists every Go source file below a directory, without descending into
+// another of this repository's modules.
+func goFiles(t *testing.T, directory string) []string {
 	t.Helper()
+	root := repoRoot(t)
 	var paths []string
-	for _, module := range goModules {
-		err := filepath.WalkDir(filepath.Join(root, module), func(path string, entry os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if entry.IsDir() {
-				// Nested modules are walked under their own entry.
-				if path != filepath.Join(root, module) && isModuleRoot(root, path) {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if strings.HasSuffix(path, ".go") {
-				paths = append(paths, path)
+	err := filepath.WalkDir(directory, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if path != directory && isModuleRoot(root, path) {
+				return filepath.SkipDir
 			}
 			return nil
-		})
-		if err != nil {
-			t.Fatalf("walking %s: %v", module, err)
 		}
+		if strings.HasSuffix(path, ".go") {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking %s: %v", directory, err)
 	}
 	if len(paths) == 0 {
-		t.Fatal("found no Go files to check")
+		t.Fatalf("found no Go files below %s", directory)
 	}
 	return paths
 }

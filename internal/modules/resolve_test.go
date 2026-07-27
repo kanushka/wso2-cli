@@ -213,6 +213,16 @@ func TestResolveRejectsBrokenInstallations(t *testing.T) {
 			wantCode: "modules.receipt_path_escape",
 		},
 		{
+			name:     "receipt naming a drive-relative executable",
+			module:   fixture.Module{Namespace: "reference", Version: "0.1.0", ExecutablePathOverride: `c:module`},
+			wantCode: "modules.receipt_path_escape",
+		},
+		{
+			name:     "receipt naming a UNC executable",
+			module:   fixture.Module{Namespace: "reference", Version: "0.1.0", ExecutablePathOverride: `\\host\share\module`},
+			wantCode: "modules.receipt_path_escape",
+		},
+		{
 			name:   "tampered executable",
 			module: fixture.Module{Namespace: "reference", Version: "0.1.0"},
 			breakage: func(t *testing.T, store modules.Store) {
@@ -314,6 +324,23 @@ func TestResolveRejectsAnInvalidNamespaceAsUsage(t *testing.T) {
 	}
 	if typed.Category != problem.CategoryUsage || typed.Code != "modules.invalid_namespace" {
 		t.Fatalf("problem = %+v, want a usage problem with code modules.invalid_namespace", typed)
+	}
+}
+
+func TestReadActiveRejectsAnInvalidNamespaceWhereThePathIsBuilt(t *testing.T) {
+	// Path construction is where the invariant belongs: no caller may reach the
+	// filesystem with an unvalidated namespace, even without going through
+	// Resolve.
+	store := modules.NewStore(filepath.Join(t.TempDir(), "modules"))
+
+	_, err := store.ReadActive("../escape")
+
+	var typed problem.Problem
+	if !errors.As(err, &typed) {
+		t.Fatalf("ReadActive returned %v, want a typed problem", err)
+	}
+	if typed.Code != "modules.invalid_namespace" {
+		t.Fatalf("problem code = %s, want modules.invalid_namespace", typed.Code)
 	}
 }
 

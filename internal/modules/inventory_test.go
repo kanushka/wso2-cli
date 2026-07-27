@@ -79,8 +79,22 @@ func TestInventoryReportsBrokenInstallationsWithoutHidingTheRest(t *testing.T) {
 				if err := fixture.WriteRawReceipt(store.Root(), "broken", "0.1.0", []byte("{{")); err != nil {
 					t.Fatalf("WriteRawReceipt returned %v", err)
 				}
+				if err := fixture.Activate(store.Root(), "broken", "0.1.0"); err != nil {
+					t.Fatalf("Activate returned %v", err)
+				}
 			},
 			wantCode: "modules.receipt_malformed",
+		},
+		{
+			// Inventory must not report a module whose receipt changed after
+			// activation, even though it never hashes the executable.
+			name: "receipt rewritten after activation",
+			breakage: func(t *testing.T, store modules.Store) {
+				if err := fixture.WriteRawReceipt(store.Root(), "broken", "0.1.0", []byte("{{")); err != nil {
+					t.Fatalf("WriteRawReceipt returned %v", err)
+				}
+			},
+			wantCode: "modules.receipt_digest_mismatch",
 		},
 		{
 			name: "no active version",
@@ -103,6 +117,9 @@ func TestInventoryReportsBrokenInstallationsWithoutHidingTheRest(t *testing.T) {
 				}
 				if err := fixture.WriteRawReceipt(store.Root(), "broken", "0.1.0", data); err != nil {
 					t.Fatalf("WriteRawReceipt returned %v", err)
+				}
+				if err := fixture.Activate(store.Root(), "broken", "0.1.0"); err != nil {
+					t.Fatalf("Activate returned %v", err)
 				}
 			},
 			wantCode: "modules.receipt_namespace_mismatch",

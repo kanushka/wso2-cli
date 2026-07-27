@@ -82,28 +82,8 @@ func (s Store) Resolve(namespace string, shell ShellIdentity) (Resolved, error) 
 		return Resolved{}, err
 	}
 
-	receiptPath := s.ReceiptPath(namespace, active.Version)
-	receiptDigest, err := FileDigest(receiptPath)
-	switch {
-	case os.IsNotExist(err):
-		return Resolved{}, receiptProblem("modules.receipt_missing",
-			fmt.Sprintf("the active version %s of the %q module has no receipt", active.Version, namespace),
-			reinstallRecovery)
-	case err != nil:
-		return Resolved{}, receiptProblem("modules.receipt_unreadable",
-			fmt.Sprintf("the receipt of the %q module cannot be read", namespace), reinstallRecovery)
-	}
-	if receiptDigest != active.ReceiptSHA256 {
-		return Resolved{}, receiptProblem("modules.receipt_digest_mismatch",
-			fmt.Sprintf("the receipt of the %q module does not match the digest recorded in its active-version pointer", namespace),
-			reinstallRecovery)
-	}
-
-	receipt, err := ReadReceipt(receiptPath)
+	receipt, err := s.readVerifiedReceipt(namespace, active)
 	if err != nil {
-		return Resolved{}, err
-	}
-	if err := checkReceiptMatchesActive(namespace, active.Version, receipt); err != nil {
 		return Resolved{}, err
 	}
 
@@ -178,11 +158,8 @@ func (s Store) inventoryEntry(namespace string) (Installed, error) {
 	if err != nil {
 		return Installed{}, err
 	}
-	receipt, err := ReadReceipt(s.ReceiptPath(namespace, active.Version))
+	receipt, err := s.readVerifiedReceipt(namespace, active)
 	if err != nil {
-		return Installed{}, err
-	}
-	if err := checkReceiptMatchesActive(namespace, active.Version, receipt); err != nil {
 		return Installed{}, err
 	}
 	return Installed{
@@ -191,6 +168,38 @@ func (s Store) inventoryEntry(namespace string) (Installed, error) {
 		Platform:  receipt.Platform,
 		Receipt:   receipt,
 	}, nil
+}
+
+// readVerifiedReceipt loads the receipt of the version the pointer activated and
+// proves it is that exact document: the digest is computed over the bytes that
+// are then decoded, so what the shell trusts is what it checked. Both resolution
+// and inventory go through here, so neither can report a receipt the
+// active-version pointer never activated.
+func (s Store) readVerifiedReceipt(namespace string, active Active) (Receipt, error) {
+	data, err := os.ReadFile(s.ReceiptPath(namespace, active.Version))
+	switch {
+	case os.IsNotExist(err):
+		return Receipt{}, receiptProblem("modules.receipt_missing",
+			fmt.Sprintf("the active version %s of the %q module has no receipt", active.Version, namespace),
+			reinstallRecovery)
+	case err != nil:
+		return Receipt{}, receiptProblem("modules.receipt_unreadable",
+			fmt.Sprintf("the receipt of the %q module cannot be read", namespace), reinstallRecovery)
+	}
+	if BytesDigest(data) != active.ReceiptSHA256 {
+		return Receipt{}, receiptProblem("modules.receipt_digest_mismatch",
+			fmt.Sprintf("the receipt of the %q module does not match the digest recorded in its active-version pointer", namespace),
+			reinstallRecovery)
+	}
+
+	receipt, err := DecodeReceipt(data)
+	if err != nil {
+		return Receipt{}, err
+	}
+	if err := checkReceiptMatchesActive(namespace, active.Version, receipt); err != nil {
+		return Receipt{}, err
+	}
+	return receipt, nil
 }
 
 // checkReceiptMatchesActive proves the receipt describes the installation the

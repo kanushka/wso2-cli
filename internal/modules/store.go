@@ -69,6 +69,10 @@ func (s Store) Root() string {
 	return s.root
 }
 
+// The path builders below take an already-validated namespace: ReadActive,
+// Resolve, and Namespaces are the only ways a namespace enters the store, and
+// each validates before building a path.
+
 // NamespaceDir reports the directory owning one namespace's installations.
 func (s Store) NamespaceDir(namespace string) string {
 	return filepath.Join(s.root, namespace)
@@ -113,6 +117,12 @@ func (s Store) Namespaces() ([]string, error) {
 
 // ReadActive loads and validates the active-version pointer for a namespace.
 func (s Store) ReadActive(namespace string) (Active, error) {
+	if !namespacePattern.MatchString(namespace) {
+		return Active{}, problem.New(problem.CategoryUsage, "modules.invalid_namespace",
+			fmt.Sprintf("%q is not a valid module namespace", namespace)).
+			WithRecovery("Run wso2 version to see the installed modules.")
+	}
+
 	data, err := os.ReadFile(s.ActivePath(namespace))
 	switch {
 	case os.IsNotExist(err):

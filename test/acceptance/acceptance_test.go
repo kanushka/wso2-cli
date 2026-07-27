@@ -101,7 +101,9 @@ func TestVersionDoesNotLaunchTheInstalledModule(t *testing.T) {
 	// The installed executable is a canary: running it would create a marker
 	// file. Version reporting must read the receipt only.
 	marker := filepath.Join(t.TempDir(), "module-was-launched")
-	canary := "#!/bin/sh\ntouch " + marker + "\n"
+	// The marker path is quoted so a temporary directory containing a space
+	// cannot make this test fail for an unrelated reason.
+	canary := "#!/bin/sh\ntouch '" + marker + "'\n"
 	if _, err := fixture.Install(state.ModuleStore(stateRoot), fixture.Module{
 		Namespace:        "reference",
 		Version:          testModuleVersion,
