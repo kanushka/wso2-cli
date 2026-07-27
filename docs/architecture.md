@@ -3,7 +3,7 @@
 **Status:** Working draft  
 **Date:** 2026-07-24  
 **Related:** [Product requirements](product-requirements.md),
-[implementation roadmap](../roadmap.md)
+[first CLI vertical slice](plans/first-cli-vertical-slice.md)
 
 ## 1. Design summary
 
@@ -147,20 +147,21 @@ The SDK provides:
   `--verbose`;
 - access to selected context and invocation policy;
 - authentication-broker client;
-- typed result rendering for table, JSON, and YAML;
-- typed problem and exit-code mapping;
+- typed result and problem definitions with authoring helpers;
 - automatic secret redaction;
 - command-schema description and completion metadata;
 - health and conformance hooks;
 - test fixtures and golden-output helpers.
 
-The public SDK API should remain substantially smaller than its implementation.
+The shell owns final table, JSON, and YAML rendering plus problem-to-exit-code
+mapping. The public SDK API should remain substantially smaller than its
+implementation.
 
 ### 4.6 Authentication broker
 
 The root process owns authentication policy and long-lived interactive state.
-A module communicates with an invocation-scoped broker over an inherited pipe
-or descriptor.
+A module communicates with an invocation-scoped broker through the module
+contract on its inherited standard input and standard output streams.
 
 The broker:
 
@@ -281,6 +282,13 @@ logs go to standard error; machine output goes to standard output.
 
 Every production module implements protocol version 1 through the SDK.
 
+The shell and a module exchange length-delimited Protobuf messages over the
+module process's inherited standard input and standard output. Module standard
+output is protocol-only, module standard error is reserved for bounded
+diagnostics, and only the shell writes user-facing standard output. See
+[ADR 0002](adr/0002-module-transport.md) and
+[ADR 0003](adr/0003-shell-owned-output.md).
+
 ### 5.1 Identity
 
 The module reports:
@@ -321,13 +329,15 @@ For normal execution:
 
 1. the root parses built-in flags and identifies the product namespace;
 2. it resolves and verifies the active module;
-3. it selects the invocation context and creates a private broker channel;
+3. it selects the invocation context and creates an invocation-scoped broker
+   session;
 4. it launches the module with sanitized environment and original product
    arguments;
 5. the SDK completes the identity/protocol handshake;
 6. the module runs its product command and requests authentication if required;
-7. the SDK renders the result or problem consistently;
-8. the process exits with the centrally defined exit class.
+7. the module returns a typed result or problem;
+8. the shell renders output or diagnostics and exits with the centrally
+   defined exit class.
 
 This retains normal CLI-process execution rather than converting every product
 operation into a generic JSON-RPC method.
@@ -741,8 +751,8 @@ This validates both the ideal authoring model and the difficult migration path.
 ## 13. Testing strategy
 
 This section defines the system-wide testing strategy. The ordered test gates
-for the first vertical slice are maintained in the
-[implementation roadmap](../roadmap.md).
+for the first architecture proof are maintained in the
+[first CLI vertical-slice plan](plans/first-cli-vertical-slice.md).
 
 ### Unit tests
 
@@ -813,15 +823,16 @@ The next design session should settle, in order:
 
 1. exact module lifecycle command semantics;
 2. release manifest and registry ownership;
-3. module protocol and SDK public API;
+3. remaining module message semantics and the SDK public API;
 4. context/auth broker API;
 5. output/problem schema and exit-code table;
 6. namespace and pilot-module selection;
 7. rollout and standalone-CLI compatibility policy.
 
-Implementation sequencing and milestone acceptance are maintained only in the
-[implementation roadmap](../roadmap.md). Phase lists in research documents are
-recommendations or evidence backlogs, not parallel delivery plans.
+The approved architecture proof has its own bounded
+[implementation plan](plans/first-cli-vertical-slice.md). Later delivery work
+requires a separate reviewed plan. Phase lists in research documents remain
+recommendations, not implementation authority.
 
 ## 16. Research
 
@@ -831,5 +842,7 @@ recommendations or evidence backlogs, not parallel delivery plans.
 - [Azure CLI, AWS CLI, and Google Cloud CLI comparison](research/cloud-cli-comparison.md)
 - [Module architecture options](research/module-architecture-options.md)
 - [Root CLI installation and distribution](research/root-cli-installation-distribution.md)
-- [Research roadmap](../research/roadmap.md)
-- [Implementation roadmap](../roadmap.md)
+
+## 17. Implementation plan
+
+- [First CLI vertical-slice plan](plans/first-cli-vertical-slice.md)

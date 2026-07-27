@@ -16,6 +16,17 @@ Read these documents first:
    trust boundaries, module model, and runtime behavior.
 3. [Architecture decisions](adr/) record durable repository-wide
    decisions and their consequences.
+4. [Domain glossary](../CONTEXT.md) defines the preferred language and
+   conceptual boundaries.
+
+## Implementation plans
+
+- [First CLI vertical slice](plans/first-cli-vertical-slice.md) defines the
+  approved architecture proof, its exclusions, implementation order, and
+  acceptance gate.
+
+Plans are bounded execution documents. They do not override product
+requirements or architecture.
 
 ## Reference and examples
 
