@@ -15,9 +15,12 @@ the repository root, the public SDK in `sdk/`, and the reference module in
 `examples/reference-module/`. `go.work` composes the unpublished modules for
 local development. Committed `replace` directives are prohibited in every
 `go.mod`; a test enforces this. `go.work` carries one replacement for the
-unpublished SDK version the reference module requires, because local
-composition is what `go.work` is for and it disappears once the SDK is
-published.
+unpublished SDK version the reference module requires. Replacing a module
+version with contents found elsewhere is what a `go.work` replacement is for
+([Go modules reference](https://go.dev/ref/mod#go-work-file-replace)); this
+checkout needs one because the reference module requires an SDK version that
+has never been published. It disappears once the SDK is published, and a test
+pins it to that single line.
 
 ```shell
 go build ./...                      # shell

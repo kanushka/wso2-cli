@@ -792,7 +792,14 @@ type ResultField struct {
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// label is the human-readable column or row label. It falls back to name.
 	Label string `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
-	// value is the rendered value. The architecture proof carries only strings.
+	// value is the value to display.
+	//
+	// Every value is a string, so a module formats its own times and numbers.
+	// That is a deliberate limit of the architecture proof: it keeps the shell
+	// able to render any product's result without knowing anything about it. The
+	// cost is that type information is lost at this boundary. Giving values their
+	// own types, most likely as a oneof here, is the change to make when a
+	// product result needs more than strings.
 	Value         string `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

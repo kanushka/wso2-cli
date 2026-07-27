@@ -19,6 +19,7 @@ package acceptance_test
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -26,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/modules/fixture"
 	"github.com/wso2/wso2-cli/internal/state"
 )
@@ -165,7 +167,10 @@ func TestAModuleThatSpeaksAnotherProtocolFailsBeforeInvocation(t *testing.T) {
 	}
 }
 
-func TestAModuleThatNeverAnswersCannotBlockTheShellIndefinitely(t *testing.T) {
+func TestAModuleThatNeverAnswersFailsWithAStableProblem(t *testing.T) {
+	// A hanging module must not merely stop blocking the shell eventually. It
+	// has to end as one named problem in the module process exit class, with
+	// nothing on standard output for a script to misread as a result.
 	if runtime.GOOS == "windows" {
 		t.Skip("the hanging module fixture is a POSIX shell script")
 	}
@@ -173,21 +178,66 @@ func TestAModuleThatNeverAnswersCannotBlockTheShellIndefinitely(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 	installScriptedModule(t, stateRoot, "#!/bin/sh\nwhile true; do sleep 1; done\n")
 
-	// The shell's own deadline is the only thing that can end this run, so a
-	// generous ceiling here still proves the module cannot hold it forever.
-	finished := make(chan error, 1)
-	command := exec.Command(shell, "reference", "status")
-	command.Env = shellEnvironment(stateRoot)
-	if err := command.Start(); err != nil {
-		t.Fatalf("starting the shell failed: %v", err)
-	}
-	go func() { finished <- command.Wait() }()
+	stdout, stderr, err := runShellWithCeiling(t, shell, stateRoot, "reference", "status")
 
-	select {
-	case <-finished:
-	case <-time.After(2 * time.Minute):
-		_ = command.Process.Kill()
-		t.Fatal("the shell was still running two minutes after invoking a module that never answers")
+	if exitCode(t, err) != 70 {
+		t.Fatalf("exit status = %v, want the module process class 70\nstderr:\n%s", err, stderr)
+	}
+	if !strings.Contains(stderr, "rpc.timed_out") {
+		t.Errorf("stderr does not report the deadline:\n%s", stderr)
+	}
+	if stdout != "" {
+		t.Errorf("a module that never answered still wrote to standard output:\n%s", stdout)
+	}
+}
+
+func TestAModuleThatCrashesBeforeAnsweringFailsWithAStableProblem(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the crashing module fixture is a POSIX shell script")
+	}
+	shell := buildShell(t)
+	stateRoot := isolatedStateRoot(t)
+	installScriptedModule(t, stateRoot,
+		"#!/bin/sh\necho 'the module could not reach its local socket' >&2\nexit 3\n")
+
+	stdout, stderr, err := tryShell(shell, stateRoot, "reference", "status")
+
+	if exitCode(t, err) != 70 {
+		t.Fatalf("exit status = %v, want the module process class 70\nstderr:\n%s", err, stderr)
+	}
+	if !strings.Contains(stderr, "rpc.no_terminal_message") {
+		t.Errorf("stderr does not report the missing result:\n%s", stderr)
+	}
+	// What the module said before dying is usually the only explanation of
+	// why, so it has to survive the failure that ended the invocation.
+	if !strings.Contains(stderr, "could not reach its local socket") {
+		t.Errorf("stderr does not carry the module's own diagnostics:\n%s", stderr)
+	}
+	if stdout != "" {
+		t.Errorf("a crashing module still wrote to standard output:\n%s", stdout)
+	}
+}
+
+func TestAModuleThatAnswersThenExitsUncleanlyFailsWithAStableProblem(t *testing.T) {
+	// A conforming module exits successfully once it has answered, so an
+	// unclean exit means the module and the shell disagree about whether the
+	// command finished. The shell reports that rather than printing a result
+	// the module may not stand behind.
+	shell := buildShell(t)
+	stateRoot := isolatedStateRoot(t)
+	installNoisyModule(t, stateRoot)
+	steerInstalledModule(t, stateRoot, "exit-uncleanly")
+
+	stdout, stderr, err := tryShell(shell, stateRoot, "reference", "status")
+
+	if exitCode(t, err) != 70 {
+		t.Fatalf("exit status = %v, want the module process class 70\nstderr:\n%s", err, stderr)
+	}
+	if !strings.Contains(stderr, "rpc.module_exited") {
+		t.Errorf("stderr does not report the unclean exit:\n%s", stderr)
+	}
+	if stdout != "" {
+		t.Errorf("a module that exited uncleanly still wrote a result:\n%s", stdout)
 	}
 }
 
@@ -245,6 +295,52 @@ func installNoisyModule(t *testing.T, stateRoot string) {
 			" -X github.com/wso2/wso2-cli/sdk/protocol.Version="+testProtocolVersion,
 		"./test/acceptance/testdata/noisymodule")
 	installReferenceModule(t, stateRoot, binary)
+}
+
+// steerInstalledModule writes a control file beside an installed module
+// executable.
+//
+// The acceptance module reads these rather than arguments or environment
+// variables, because the shell supplies neither. Writing one leaves the
+// executable untouched, so its receipt digest still matches and the shell
+// still launches it.
+func steerInstalledModule(t *testing.T, stateRoot, name string) {
+	t.Helper()
+	store := modules.NewStore(state.ModuleStore(stateRoot))
+	path := filepath.Join(store.VersionDir("reference", testModuleVersion), name)
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatalf("writing the control file %s: %v", name, err)
+	}
+}
+
+// runShellWithCeiling runs the shell under a wall-clock ceiling, so a test for
+// a module that never answers fails rather than hangs when the shell's own
+// deadline does not fire.
+func runShellWithCeiling(t *testing.T, shell, stateRoot string, args ...string) (string, string, error) {
+	t.Helper()
+	const ceiling = 2 * time.Minute
+
+	command := exec.Command(shell, args...)
+	command.Env = shellEnvironment(stateRoot)
+	var stdout, stderr strings.Builder
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	if err := command.Start(); err != nil {
+		t.Fatalf("starting the shell failed: %v", err)
+	}
+
+	finished := make(chan error, 1)
+	go func() { finished <- command.Wait() }()
+
+	select {
+	case err := <-finished:
+		return stdout.String(), stderr.String(), err
+	case <-time.After(ceiling):
+		_ = command.Process.Kill()
+		<-finished
+		t.Fatalf("the shell was still running %s after invoking the module", ceiling)
+		return "", "", nil
+	}
 }
 
 // installScriptedModule installs a POSIX shell script as the reference module.

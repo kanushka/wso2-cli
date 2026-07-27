@@ -189,7 +189,15 @@ message ResultField {
   string name = 1;
   // label is the human-readable column or row label. It falls back to name.
   string label = 2;
-  // value is the rendered value. The architecture proof carries only strings.
+
+  // value is the value to display.
+  //
+  // Every value is a string, so a module formats its own times and numbers.
+  // That is a deliberate limit of the architecture proof: it keeps the shell
+  // able to render any product's result without knowing anything about it. The
+  // cost is that type information is lost at this boundary. Giving values their
+  // own types, most likely as a oneof here, is the change to make when a
+  // product result needs more than strings.
   string value = 3;
 }
 

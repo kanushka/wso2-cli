@@ -44,8 +44,19 @@ type Field struct {
 	// Label is the human-readable label. It may be empty, in which case the
 	// name is displayed.
 	Label string
-	// Value is the rendered value. The architecture proof carries strings
-	// only, so a module formats times and numbers itself.
+	// Value is the value to display.
+	//
+	// Every value is a string, so a module formats its own times and
+	// numbers. That is a deliberate limit of the architecture proof rather
+	// than a lasting design: it keeps the shell able to render any product's
+	// result without knowing anything about it, and it keeps the wire
+	// contract to one shape while the boundaries around it are still being
+	// proven. The cost is that type information is lost at the boundary, and
+	// two modules can format the same kind of value differently.
+	//
+	// Giving values their own types — a typed field, or a Protobuf oneof —
+	// is the change to make when a product result needs more than strings.
+	// It is a protocol change, so it belongs to a slice that can carry one.
 	Value string
 }
 

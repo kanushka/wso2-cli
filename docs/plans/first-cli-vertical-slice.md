@@ -131,11 +131,17 @@ Dependency rules:
   dependencies, never shell internals;
 - no `go.mod` carries a `replace` directive;
 - `go.work` carries exactly one `replace`, resolving the unpublished SDK
-  version the reference module requires from this checkout, because the Go
-  tool cannot build the workspace module graph without it once the SDK has a
-  dependency of its own. It names that single placeholder version, is removed
-  when an SDK version is published, and cannot travel with the reference
-  module to another repository;
+  version the reference module requires from this checkout. Replacing a module
+  version with contents found elsewhere is what a `go.work` replacement is
+  for, and it overrides any replacement in a workspace module
+  ([Go modules reference](https://go.dev/ref/mod#go-work-file-replace)). This
+  checkout needs one as an observed fact rather than a documented rule: the
+  reference module requires an SDK version that has never been published, and
+  once the SDK gained a dependency of its own, `use` alone no longer resolved
+  that requirement here. The replacement names that single placeholder
+  version, is removed when an SDK version is published, cannot travel with the
+  reference module to another repository, and is pinned to one line by a
+  boundary test;
 - `go.work` composes the unpublished SDK and reference module for this slice;
 - the SDK builds and tests with `GOWORK=off`; and
 - the reference module's `GOWORK=off` release check begins after an SDK version
