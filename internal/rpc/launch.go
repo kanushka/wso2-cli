@@ -42,6 +42,9 @@ type Launcher struct {
 	// InvocationID binds this invocation's messages together. It is
 	// generated when empty.
 	InvocationID string
+	// Broker answers the module's access requests. A launcher without one
+	// denies access rather than granting it.
+	Broker Broker
 	// DiagnosticLimit bounds captured standard error. Zero means
 	// DefaultDiagnosticLimit.
 	DiagnosticLimit int
@@ -56,7 +59,7 @@ type Launcher struct {
 func (l Launcher) Invoke(ctx context.Context, invocation Invocation) (Outcome, error) {
 	invocationID := l.InvocationID
 	if invocationID == "" {
-		generated, err := newInvocationID()
+		generated, err := NewInvocationID()
 		if err != nil {
 			return Outcome{}, processProblem("rpc.invocation_id_unavailable",
 				"the shell cannot generate an invocation identifier", retryRecovery)
@@ -65,9 +68,10 @@ func (l Launcher) Invoke(ctx context.Context, invocation Invocation) (Outcome, e
 	}
 
 	command := exec.Command(l.Resolved.ExecutablePath)
-	// The module inherits nothing from the shell's environment. A later slice
-	// increment adds the authentication broker; until then a module has no
-	// path by which an environment secret could reach it.
+	// The module inherits nothing from the shell's environment, including the
+	// credential source the broker reads. Access reaches a module only as a
+	// short-lived token inside the protocol, so there is no ambient value for
+	// it to find, log, or pass on.
 	command.Env = sanitizedEnvironment()
 
 	toModule, err := command.StdinPipe()
@@ -85,7 +89,12 @@ func (l Launcher) Invoke(ctx context.Context, invocation Invocation) (Outcome, e
 		return Outcome{}, l.spawnProblem(err)
 	}
 
-	session := Session{Resolved: l.Resolved, Shell: l.Shell, InvocationID: invocationID}
+	session := Session{
+		Resolved:     l.Resolved,
+		Shell:        l.Shell,
+		InvocationID: invocationID,
+		Broker:       l.Broker,
+	}
 	outcome, sessionErr := l.runSession(ctx, command, toModule, fromModule, session, invocation)
 
 	captured := diagnostics.Diagnostics()

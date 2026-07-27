@@ -30,9 +30,11 @@
 // Writing a control file also leaves the executable unchanged, so the receipt
 // digest still matches and the module is still launched.
 //
-// The one recognized file is:
+// The recognized files are:
 //
-//	exit-uncleanly  exit with a non-zero status after answering
+//	exit-uncleanly      exit with a non-zero status after answering
+//	report-environment  write this process's whole environment to standard
+//	                    error, so a test can prove what the shell passed on
 package main
 
 import (
@@ -52,6 +54,13 @@ const UncleanExitMarker = "exit-uncleanly"
 
 // uncleanExitCode is the status reported when that file is present.
 const uncleanExitCode = 3
+
+// EnvironmentMarker names the control file that makes this module report the
+// environment it was launched with.
+const EnvironmentMarker = "report-environment"
+
+// EnvironmentPrefix opens each reported environment line.
+const EnvironmentPrefix = "module-environment: "
 
 // moduleVersion is injected by the acceptance test so this module matches the
 // receipt it is installed under.
@@ -83,6 +92,14 @@ func steered(name string) bool {
 }
 
 func status(_ context.Context, _ module.Request) (result.Result, error) {
+	// The environment is reported as diagnostics, which is the only channel a
+	// module has. A test reads it to prove what the shell did not pass on.
+	if steered(EnvironmentMarker) {
+		fmt.Fprintf(os.Stderr, "%scount=%d\n", EnvironmentPrefix, len(os.Environ()))
+		for _, entry := range os.Environ() {
+			fmt.Fprintln(os.Stderr, EnvironmentPrefix+entry)
+		}
+	}
 	fmt.Fprintln(os.Stderr, "a diagnostic from the module")
 	produced := result.New("reference.status/v1").
 		With("organization", "Organization", "reference-org").

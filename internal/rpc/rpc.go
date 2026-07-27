@@ -51,6 +51,15 @@ const TerminationGrace = 2 * time.Second
 // shell memory.
 const DefaultDiagnosticLimit = 8 << 10
 
+// MaxAccessRequests is how many times one invocation may ask the broker for
+// access before the shell treats the module as looping rather than working.
+//
+// The broker grants access once per command, so a conforming module asks once.
+// The allowance is larger than that because a module may reasonably ask again
+// after a denial it can act on, and smaller than anything that would let a
+// module hold the shell open by asking.
+const MaxAccessRequests = 8
+
 // ShellIdentity is the shell-side identity reported to a module.
 type ShellIdentity struct {
 	// Version is the shell's release version.
@@ -65,8 +74,11 @@ type InvocationContext struct {
 	// Name is the selected context's name.
 	Name string
 	// OrganizationID is the organization the command targets. It is empty
-	// until the shell owns a context store.
+	// when no context is selected.
 	OrganizationID string
+	// Endpoint is the product service the context targets. It tells a module
+	// where to call, never that it may: access comes from the broker.
+	Endpoint string
 }
 
 // Invocation is one product command as the shell resolved it.

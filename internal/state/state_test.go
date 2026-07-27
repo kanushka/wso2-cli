@@ -56,6 +56,33 @@ func TestRootRejectsARelativeOverrideRatherThanGuessing(t *testing.T) {
 	}
 }
 
+func TestGuardIsolatedProtectsTheStateRootSelectedByTheEnvironment(t *testing.T) {
+	configured := t.TempDir()
+	t.Setenv(RootEnvVar, configured)
+
+	for _, path := range []string{configured, filepath.Join(configured, "cli", "contexts.json")} {
+		if err := GuardIsolated("write", path); err == nil {
+			t.Errorf("GuardIsolated accepted %q, which is inside the selected state root", path)
+		}
+	}
+}
+
+func TestGuardIsolatedAcceptsAPathOutsideEveryStateRoot(t *testing.T) {
+	t.Setenv(RootEnvVar, t.TempDir())
+
+	if err := GuardIsolated("write", filepath.Join(t.TempDir(), "state")); err != nil {
+		t.Fatalf("GuardIsolated returned %v for an isolated path", err)
+	}
+}
+
+func TestGuardIsolatedRejectsAnAmbiguousPath(t *testing.T) {
+	for _, path := range []string{"", "relative/state"} {
+		if err := GuardIsolated("write", path); err == nil {
+			t.Errorf("GuardIsolated accepted the ambiguous path %q", path)
+		}
+	}
+}
+
 func TestModuleStorePathsAreDerivedFromTheRoot(t *testing.T) {
 	store := ModuleStore("/isolated")
 

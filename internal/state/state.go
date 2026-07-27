@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // RootEnvVar names the environment variable that overrides the state root.
@@ -55,4 +56,58 @@ func Root() (string, error) {
 // or the working directory.
 func ModuleStore(root string) string {
 	return filepath.Join(root, "cli", "modules")
+}
+
+// GuardIsolated proves a path is somewhere a test may write.
+//
+// Every fixture that writes shell state calls it first, so a mistaken test can
+// never modify a developer's configuration. It checks both the default state
+// root and any root the environment currently selects, and it fails closed when
+// it cannot tell where real state lives.
+//
+// The action names what the caller was about to do, so the refusal reads in the
+// caller's own terms. Its errors carry no package prefix, because a fixture
+// wraps them in its own.
+func GuardIsolated(action, path string) error {
+	if path == "" {
+		return fmt.Errorf("an isolated path is required to %s", action)
+	}
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("the path to %s must be absolute, got %q", action, path)
+	}
+	cleaned := filepath.Clean(path)
+
+	protected := make([]string, 0, 2)
+	if configured := os.Getenv(RootEnvVar); configured != "" && filepath.IsAbs(configured) {
+		protected = append(protected, filepath.Clean(configured))
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		if len(protected) == 0 {
+			return fmt.Errorf("cannot locate real WSO2 state to protect it: %w", err)
+		}
+	} else {
+		protected = append(protected, filepath.Join(home, ".wso2"))
+	}
+
+	for _, root := range protected {
+		if cleaned == root || within(root, cleaned) {
+			return fmt.Errorf(
+				"refusing to %s into WSO2 state at %s; pass an isolated directory such as one from t.TempDir()",
+				action, root)
+		}
+	}
+	return nil
+}
+
+// within reports whether candidate is a path below dir.
+func within(dir, candidate string) bool {
+	relative, err := filepath.Rel(dir, candidate)
+	if err != nil {
+		return false
+	}
+	if relative == "." || relative == ".." {
+		return false
+	}
+	return !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }

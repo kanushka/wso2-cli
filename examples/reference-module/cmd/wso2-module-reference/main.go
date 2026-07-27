@@ -30,7 +30,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/wso2/wso2-cli/sdk/module"
 	"github.com/wso2/wso2-cli/sdk/result"
@@ -50,13 +49,6 @@ const (
 // The shell renders it without interpreting it.
 const StatusSchema = "reference.status/v1"
 
-// staticOrganization is reported when the shell supplies no organization.
-//
-// The shell does not own a context store yet, so this slice increment answers
-// with static semantic data. The authentication broker increment replaces it
-// with the selected context's organization and a real status lookup.
-const staticOrganization = "reference-org"
-
 // moduleVersion is this module's own release version. A build injects it with:
 //
 //	go build -ldflags "-X main.moduleVersion=0.1.0"
@@ -73,12 +65,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	options := module.Options{
-		Namespace:     Namespace,
-		Version:       moduleVersion,
-		AuthAudiences: []string{StatusAudience},
-		AuthScopes:    []string{StatusScope},
-	}
+	options := moduleOptions()
 
 	if *describe {
 		reportIdentity(module.Describe(options))
@@ -88,29 +75,57 @@ func main() {
 	// Standard output now carries protocol frames only. Anything this process
 	// wants to say goes to standard error, where the shell captures it as
 	// bounded diagnostics.
-	err := module.Serve(context.Background(), options,
-		module.Command{Path: []string{"status"}, Run: status})
+	err := module.Serve(context.Background(), options, statusCommand())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "wso2-module-reference: %v\n", err)
 		os.Exit(1)
 	}
 }
 
+// moduleOptions describe this module to the SDK.
+func moduleOptions() module.Options {
+	return module.Options{
+		Namespace:     Namespace,
+		Version:       moduleVersion,
+		AuthAudiences: []string{StatusAudience},
+		AuthScopes:    []string{StatusScope},
+	}
+}
+
+// statusCommand binds "wso2 reference status" to its handler.
+func statusCommand() module.Command {
+	return module.Command{Path: []string{"status"}, Run: status}
+}
+
 // status answers "wso2 reference status".
 //
-// It returns semantic fields in presentation order and no formatting: the shell
-// alone decides whether the user sees a table or JSON. The field order here is
-// the order both renderings follow.
-func status(_ context.Context, request module.Request) (result.Result, error) {
-	organization := request.Context.OrganizationID
-	if organization == "" {
-		organization = staticOrganization
+// It asks the shell for access, reads the status service with what it was
+// granted, and returns semantic fields in presentation order. It performs no
+// formatting: the shell alone decides whether the user sees a table or JSON,
+// and the field order here is the order both renderings follow.
+//
+// It never sees a credential. It asks for an audience and scope, receives a
+// short-lived token, and has no way to obtain another.
+func status(ctx context.Context, request module.Request) (result.Result, error) {
+	access, err := request.Access.Acquire(ctx, module.AccessRequest{
+		Audience: StatusAudience,
+		Scopes:   []string{StatusScope},
+	})
+	if err != nil {
+		// A denial is the shell's own typed problem. Returning it unchanged
+		// keeps one account of why access was refused.
+		return result.Result{}, err
+	}
+
+	status, err := readStatus(ctx, request.Context.Endpoint, request.InvocationID, access.Token)
+	if err != nil {
+		return result.Result{}, err
 	}
 	return result.New(StatusSchema).
-		With("organization", "Organization", organization).
-		With("service", "Service", "reference").
-		With("status", "Status", "operational").
-		With("checkedAt", "Checked at", time.Now().UTC().Format(time.RFC3339)), nil
+		With("organization", "Organization", status.Organization).
+		With("service", "Service", status.Service).
+		With("status", "Status", status.Status).
+		With("checkedAt", "Checked at", status.CheckedAt), nil
 }
 
 // reportIdentity writes the module's runtime identity for tests.

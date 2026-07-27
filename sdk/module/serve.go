@@ -57,8 +57,11 @@ type Context struct {
 	// Name is the selected context's name.
 	Name string
 	// OrganizationID is the organization the command targets. It is empty
-	// until the shell owns a context store.
+	// when no context is selected.
 	OrganizationID string
+	// Endpoint is the product service the context targets. It says where to
+	// call, never that the module may: access still comes from the broker.
+	Endpoint string
 }
 
 // Request is one command invocation as the shell described it.
@@ -76,6 +79,10 @@ type Request struct {
 	OutputMode OutputMode
 	// Context is the non-secret invocation context.
 	Context Context
+	// Access is the shell's authentication broker for this invocation. A
+	// handler that needs to call a protected service asks it for access; a
+	// handler that does not, never touches it.
+	Access Broker
 }
 
 // Handler runs one product command.
@@ -126,9 +133,14 @@ func ServeStreams(ctx context.Context, in io.Reader, out io.Writer, options Opti
 		return err
 	}
 
+	// The broker shares this invocation's streams, so a handler's access
+	// request travels as an ordinary contract message and the shell answers it
+	// before the terminal message is written.
+	broker := &streamBroker{reader: reader, writer: writer, invocationID: invocationID}
+
 	// From here every outcome is a terminal message, so the shell always has
 	// something typed to render rather than a silent exit.
-	produced, failure := runCommand(ctx, descriptor, commands, invocationID, invoke)
+	produced, failure := runCommand(ctx, descriptor, commands, invocationID, invoke, broker)
 	if failure != nil {
 		return writer.WriteEnvelope(&contractv1.Envelope{
 			InvocationId: invocationID,
@@ -213,6 +225,7 @@ func runCommand(
 	commands []Command,
 	invocationID string,
 	invoke *contractv1.Invoke,
+	broker Broker,
 ) (result.Result, *problem.Problem) {
 	path := invoke.GetCommandPath()
 	handler := findHandler(commands, path)
@@ -232,7 +245,9 @@ func runCommand(
 		Context: Context{
 			Name:           invoke.GetContext().GetName(),
 			OrganizationID: invoke.GetContext().GetOrganizationId(),
+			Endpoint:       invoke.GetContext().GetEndpoint(),
 		},
+		Access: broker,
 	}
 
 	produced, err := call(ctx, descriptor, handler, request)

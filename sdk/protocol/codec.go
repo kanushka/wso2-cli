@@ -150,6 +150,12 @@ func DescribeMessage(envelope *contractv1.Envelope) string {
 		return "a welcome"
 	case *contractv1.Envelope_Invoke:
 		return "an invocation"
+	case *contractv1.Envelope_AcquireAccess:
+		return "an access request"
+	case *contractv1.Envelope_AccessGranted:
+		return "an access grant"
+	case *contractv1.Envelope_AccessDenied:
+		return "an access denial"
 	case *contractv1.Envelope_Result:
 		return "a result"
 	case *contractv1.Envelope_Problem:

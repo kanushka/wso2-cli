@@ -246,36 +246,14 @@ func guardedStore(storeRoot string) (modules.Store, error) {
 	return modules.NewStore(storeRoot), nil
 }
 
-// guardIsolatedRoot refuses to write anywhere that could be real WSO2 state, so
-// a mistaken test can never modify a developer's configuration. It checks both
-// the default state root and any root the environment currently selects, and it
-// fails closed when it cannot tell where real state lives.
+// guardIsolatedRoot refuses to install anywhere that could be real WSO2 state,
+// so a mistaken test can never modify a developer's configuration.
 func guardIsolatedRoot(storeRoot string) error {
 	if storeRoot == "" {
 		return fmt.Errorf("fixture: a managed module store root is required")
 	}
-	if !filepath.IsAbs(storeRoot) {
-		return fmt.Errorf("fixture: the managed module store root must be absolute, got %q", storeRoot)
-	}
-	cleaned := filepath.Clean(storeRoot)
-
-	protected := make([]string, 0, 2)
-	if configured := os.Getenv(state.RootEnvVar); configured != "" && filepath.IsAbs(configured) {
-		protected = append(protected, filepath.Clean(configured))
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		if len(protected) == 0 {
-			return fmt.Errorf("fixture: cannot locate real WSO2 state to protect it: %w", err)
-		}
-	} else {
-		protected = append(protected, filepath.Join(home, ".wso2"))
-	}
-
-	for _, root := range protected {
-		if cleaned == root || modules.WithinDir(root, cleaned) {
-			return fmt.Errorf("fixture: refusing to install into WSO2 state at %s; pass an isolated directory such as one from t.TempDir()", root)
-		}
+	if err := state.GuardIsolated("install", storeRoot); err != nil {
+		return fmt.Errorf("fixture: %w", err)
 	}
 	return nil
 }

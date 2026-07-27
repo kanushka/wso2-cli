@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/wso2/wso2-cli/sdk/module"
 	"github.com/wso2/wso2-cli/sdk/problem"
@@ -59,11 +60,34 @@ type Invocation struct {
 	// namespace the module declared, and exists so a test can prove a module
 	// rejects a command routed to another namespace.
 	Namespace string
+	// Access is the peer's scripted answer to every access request. A nil
+	// Access denies access, so a handler that expects a grant it never
+	// arranged fails rather than passing by accident.
+	Access *Access
+}
+
+// Access scripts the peer's answer to a module's access request.
+//
+// Exactly one of the grant and the denial applies: a Deny is answered as the
+// shell's typed refusal, and anything else is answered as a grant.
+type Access struct {
+	// Token is the access material granted.
+	Token string
+	// ExpiresAt is when the granted access stops being accepted.
+	ExpiresAt time.Time
+	// Deny refuses the request with this problem instead of granting access.
+	Deny *problem.Problem
 }
 
 // DefaultInvocationID is the invocation identifier used when an invocation does
 // not set one.
 const DefaultInvocationID = "testkit-invocation"
+
+// unscripted refuses an access request an invocation did not arrange an answer
+// for.
+var unscripted = problem.New(problem.CategoryAuthPolicy, "testkit.access_not_scripted",
+	"the test kit was not told how to answer this access request").
+	WithRecovery("Set Invocation.Access to the grant or denial the test intends.")
 
 // Outcome is everything the peer observed.
 //
@@ -76,6 +100,9 @@ type Outcome struct {
 	Result *result.Result
 	// Problem is the terminal failure, if the module returned one.
 	Problem *problem.Problem
+	// AccessRequests are the access requests the module made, in order. A
+	// module that needed no access made none.
+	AccessRequests []module.AccessRequest
 	// Err reports that the exchange itself failed: the module wrote no
 	// terminal message, wrote an unexpected one, or its serve loop returned
 	// an error.
@@ -164,6 +191,7 @@ func exchange(toModule io.WriteCloser, fromModule io.Reader, options module.Opti
 			Context: &contractv1.InvocationContext{
 				Name:           invocation.Context.Name,
 				OrganizationId: invocation.Context.OrganizationID,
+				Endpoint:       invocation.Context.Endpoint,
 			},
 		}},
 	}); err != nil {
@@ -171,15 +199,33 @@ func exchange(toModule io.WriteCloser, fromModule io.Reader, options module.Opti
 		return outcome
 	}
 
-	terminal, err := reader.ReadEnvelope()
-	if err != nil {
-		outcome.Err = fmt.Errorf("testkit: the module returned no terminal message: %w", err)
-		return outcome
-	}
-	if terminal.GetInvocationId() != invocationID {
-		outcome.Err = fmt.Errorf("testkit: the terminal message carries invocation %q, want %q",
-			terminal.GetInvocationId(), invocationID)
-		return outcome
+	// The module may ask the peer for access before it answers, so every
+	// message is read until the one terminal message arrives.
+	var terminal *contractv1.Envelope
+	for {
+		envelope, err := reader.ReadEnvelope()
+		if err != nil {
+			outcome.Err = fmt.Errorf("testkit: the module returned no terminal message: %w", err)
+			return outcome
+		}
+		if envelope.GetInvocationId() != invocationID {
+			outcome.Err = fmt.Errorf("testkit: a message carries invocation %q, want %q",
+				envelope.GetInvocationId(), invocationID)
+			return outcome
+		}
+		request := envelope.GetAcquireAccess()
+		if request == nil {
+			terminal = envelope
+			break
+		}
+		outcome.AccessRequests = append(outcome.AccessRequests, module.AccessRequest{
+			Audience: request.GetAudience(),
+			Scopes:   request.GetScopes(),
+		})
+		if err := answerAccess(writer, invocationID, envelope.GetCorrelationId(), invocation.Access); err != nil {
+			outcome.Err = err
+			return outcome
+		}
 	}
 
 	switch {
@@ -197,4 +243,30 @@ func exchange(toModule io.WriteCloser, fromModule io.Reader, options module.Opti
 		outcome.Err = errors.New("testkit: the module's terminal message was neither a result nor a problem")
 	}
 	return outcome
+}
+
+// answerAccess plays the shell's half of one broker exchange.
+//
+// An invocation that scripted no answer denies access. The peer never invents a
+// token: a handler that needs one has to be given it deliberately, so a test
+// cannot pass because the harness was more generous than a shell would be.
+func answerAccess(writer *protocol.Writer, invocationID, correlationID string, access *Access) error {
+	if access == nil {
+		access = &Access{Deny: &unscripted}
+	}
+	envelope := &contractv1.Envelope{InvocationId: invocationID, CorrelationId: correlationID}
+	if access.Deny != nil {
+		envelope.Message = &contractv1.Envelope_AccessDenied{AccessDenied: &contractv1.AccessDenied{
+			Problem: protocol.EncodeProblem(*access.Deny),
+		}}
+	} else {
+		envelope.Message = &contractv1.Envelope_AccessGranted{AccessGranted: &contractv1.AccessGranted{
+			Token:         access.Token,
+			ExpiresAtUnix: access.ExpiresAt.Unix(),
+		}}
+	}
+	if err := writer.WriteEnvelope(envelope); err != nil {
+		return fmt.Errorf("testkit: cannot answer the module's access request: %w", err)
+	}
+	return nil
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/modules/fixture"
 	"github.com/wso2/wso2-cli/internal/state"
+	"github.com/wso2/wso2-cli/internal/statusservice"
 )
 
 // statusFields are the semantic fields the reference status result carries, in
@@ -38,8 +39,7 @@ var statusFields = []string{"organization", "service", "status", "checkedAt"}
 
 func TestReferenceStatusRendersAReadableTable(t *testing.T) {
 	shell := buildShell(t)
-	stateRoot := isolatedStateRoot(t)
-	installReferenceModule(t, stateRoot, buildReferenceModule(t))
+	stateRoot := deploy(t, statusservice.Options{}).stateRoot
 
 	stdout, stderr := runShell(t, shell, stateRoot, "reference", "status")
 
@@ -55,8 +55,7 @@ func TestReferenceStatusRendersAReadableTable(t *testing.T) {
 
 func TestReferenceStatusRendersDeterministicJSON(t *testing.T) {
 	shell := buildShell(t)
-	stateRoot := isolatedStateRoot(t)
-	installReferenceModule(t, stateRoot, buildReferenceModule(t))
+	stateRoot := deploy(t, statusservice.Options{}).stateRoot
 
 	stdout, stderr := runShell(t, shell, stateRoot, "reference", "status", "--output", "json")
 
@@ -81,8 +80,7 @@ func TestTableAndJSONReportTheSameFields(t *testing.T) {
 	// Both renderings are driven by one set of semantic fields, so a value
 	// that appears in one must appear in the other.
 	shell := buildShell(t)
-	stateRoot := isolatedStateRoot(t)
-	installReferenceModule(t, stateRoot, buildReferenceModule(t))
+	stateRoot := deploy(t, statusservice.Options{}).stateRoot
 
 	table, _ := runShell(t, shell, stateRoot, "reference", "status")
 	asJSON, _ := runShell(t, shell, stateRoot, "reference", "status", "--output", "json")
@@ -123,8 +121,7 @@ func TestJSONOutputStaysValidWhileTheModuleWritesDiagnostics(t *testing.T) {
 
 func TestAnUnknownOutputModeFailsWithTheUsageExitClass(t *testing.T) {
 	shell := buildShell(t)
-	stateRoot := isolatedStateRoot(t)
-	installReferenceModule(t, stateRoot, buildReferenceModule(t))
+	stateRoot := deploy(t, statusservice.Options{}).stateRoot
 
 	stdout, stderr, err := tryShell(shell, stateRoot, "reference", "status", "--output", "yaml")
 

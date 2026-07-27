@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/wso2/wso2-cli/internal/auth"
+	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/internal/rpc"
@@ -29,21 +31,30 @@ import (
 	"github.com/wso2/wso2-cli/sdk/protocol"
 )
 
-// DefaultContextName is the context a command runs against until the shell owns
-// a context store. The isolated reference context arrives with the
-// authentication broker in the next slice increment.
-const DefaultContextName = "default"
-
 // invokeModule runs one product command in the resolved module and renders its
 // outcome.
 //
-// The shell owns everything a user sees: it resolves the module, launches it,
-// renders the result, attributes the module's diagnostics, and returns a typed
-// problem for the exit class. The module contributes semantics only.
+// The shell owns everything a user sees, and everything the module is trusted
+// with: it resolves the module, selects the context, mints the invocation the
+// broker binds access to, launches the module, renders the result, attributes
+// the module's diagnostics, and returns a typed problem for the exit class. The
+// module contributes semantics only.
 func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []string) error {
 	command, arguments, mode, err := parseProductArgs(namespace, args)
 	if err != nil {
 		return err
+	}
+	selected, err := s.selectedContext()
+	if err != nil {
+		return err
+	}
+	// The invocation is minted here, before anything is launched, so the
+	// broker and the module session bind access to the same command.
+	invocationID, err := rpc.NewInvocationID()
+	if err != nil {
+		return problem.New(problem.CategoryModuleProcess, "shell.invocation_id_unavailable",
+			"the shell cannot generate an invocation identifier").
+			WithRecovery("Retry the command. Report the failure if it persists.")
 	}
 
 	launcher := rpc.Launcher{
@@ -52,13 +63,27 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 			Version:  version.Shell(),
 			Platform: version.Platform(),
 		},
+		InvocationID: invocationID,
+		// The broker is created per invocation and never leaves the shell.
+		// The module receipt is its ceiling and the context is its source of
+		// organization and credential; the module influences neither.
+		Broker: &auth.Broker{
+			Namespace:    namespace,
+			Capabilities: resolved.Receipt.Capabilities,
+			Context:      selected,
+			InvocationID: invocationID,
+		},
 	}
 	outcome, invokeErr := launcher.Invoke(context.Background(), rpc.Invocation{
-		Namespace:   namespace,
-		Command:     command,
-		Arguments:   arguments,
-		OutputMode:  contractOutputMode(mode),
-		Context:     rpc.InvocationContext{Name: DefaultContextName},
+		Namespace:  namespace,
+		Command:    command,
+		Arguments:  arguments,
+		OutputMode: contractOutputMode(mode),
+		Context: rpc.InvocationContext{
+			Name:           selected.Name,
+			OrganizationID: selected.OrganizationID,
+			Endpoint:       selected.Endpoint,
+		},
 		Interactive: false,
 	})
 
@@ -73,6 +98,23 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 		return *outcome.Problem
 	}
 	return output.Result(s.Streams.Out, mode, outcome.Result)
+}
+
+// selectedContext reports the context this invocation runs against.
+//
+// A shell with no context document still runs commands: the selected context is
+// then an empty one, and a module that needs access is refused by the broker
+// with guidance rather than run against a guessed target.
+func (s Shell) selectedContext() (contexts.Context, error) {
+	root, err := s.stateRoot()
+	if err != nil {
+		return contexts.Context{}, err
+	}
+	document, err := contexts.Load(root)
+	if err != nil {
+		return contexts.Context{}, err
+	}
+	return document.Selected()
 }
 
 // parseProductArgs separates the shell's own flags from the module's arguments.

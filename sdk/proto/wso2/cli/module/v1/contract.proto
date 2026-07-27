@@ -58,9 +58,9 @@ message Envelope {
     Hello hello = 10;
     Welcome welcome = 11;
     Invoke invoke = 12;
-    // Field numbers 13, 14, and 15 are held for the authentication broker
-    // exchange (AcquireAccess, AccessGranted, AccessDenied), which is added by
-    // a later slice increment.
+    AcquireAccess acquire_access = 13;
+    AccessGranted access_granted = 14;
+    AccessDenied access_denied = 15;
     Result result = 16;
     Problem problem = 17;
   }
@@ -166,9 +166,58 @@ message InvocationPolicy {
 message InvocationContext {
   // name is the selected context's name.
   string name = 1;
-  // organization_id is the organization the command targets. It is empty until
-  // the shell owns a context store.
+  // organization_id is the organization the command targets. It is empty when
+  // no context is selected.
   string organization_id = 2;
+  // endpoint is the product service the context targets. It is a location, not
+  // a permission: a module still needs brokered access to call it.
+  string endpoint = 3;
+}
+
+// AcquireAccess asks the shell's broker for access to one audience.
+//
+// The module states what it wants, never how the shell should obtain it: it
+// names no credential, no credential source, and no identity provider. The
+// broker answers from the module receipt, the selected context, and this
+// invocation, so a module cannot widen what its installation declared.
+//
+// The envelope's invocation_id binds the request to this invocation and its
+// correlation_id pairs it with the answer.
+message AcquireAccess {
+  // audience is the single protected audience the module intends to call. An
+  // audience the module receipt does not declare is denied.
+  string audience = 1;
+
+  // scopes are the permissions the module needs for this call. A scope the
+  // module receipt does not declare is denied rather than dropped, so a module
+  // never proceeds believing it holds access it was refused.
+  repeated string scopes = 2;
+}
+
+// AccessGranted answers AcquireAccess with the access material itself.
+//
+// It carries a short-lived token and nothing else: no credential the token was
+// derived from, no reference to one, and no means of renewal. A module whose
+// token expires has to ask the broker again, which reapplies policy.
+message AccessGranted {
+  // token is the access material to present to the audience. It is bound to
+  // the granted audience and scopes, the context's organization, and this
+  // invocation.
+  string token = 1;
+
+  // expires_at_unix is when the token stops being accepted, in seconds since
+  // the Unix epoch. A module may use it to fail early; the audience enforces
+  // it regardless.
+  int64 expires_at_unix = 2;
+}
+
+// AccessDenied answers AcquireAccess with the shell's typed refusal.
+//
+// The problem is the shell's, not the module's: the shell owns authentication
+// policy, so it also owns the failure class, the stable code, and the recovery
+// guidance a user acts on.
+message AccessDenied {
+  Problem problem = 1;
 }
 
 // Result is a module's terminal success. The module returns semantic fields and

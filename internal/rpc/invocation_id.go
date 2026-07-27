@@ -24,13 +24,17 @@ import (
 // invocationIDBytes is the entropy behind one invocation identifier.
 const invocationIDBytes = 16
 
-// newInvocationID mints the identifier that binds one invocation's messages
+// NewInvocationID mints the identifier that binds one invocation's messages
 // together.
 //
 // It is generated from a cryptographic source rather than a counter or a
-// timestamp because a later slice increment binds issued access tokens to it: a
-// guessable invocation identifier would weaken that binding.
-func newInvocationID() (string, error) {
+// timestamp because the broker binds issued access to it: a guessable
+// invocation identifier would let access granted for one command be presented
+// as another's.
+//
+// The shell mints one per command, before it launches anything, so the broker
+// and the module session agree about which invocation is in progress.
+func NewInvocationID() (string, error) {
 	raw := make([]byte, invocationIDBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err

@@ -26,6 +26,7 @@ pins it to that single line.
 go build ./...                      # shell
 go test ./...                       # shell, including acceptance tests
 (cd sdk && GOWORK=off go test ./...)  # SDK without workspace composition
+(cd examples/reference-module && go test ./...)  # reference module
 ```
 
 The shell, protocol, SDK, and module versions move independently and are
