@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -170,13 +171,18 @@ func TestAModuleThatSpeaksAnotherProtocolFailsBeforeInvocation(t *testing.T) {
 func TestAModuleThatNeverAnswersFailsWithAStableProblem(t *testing.T) {
 	// A hanging module must not merely stop blocking the shell eventually. It
 	// has to end as one named problem in the module process exit class, with
-	// nothing on standard output for a script to misread as a result.
+	// nothing on standard output for a script to misread as a result, and the
+	// module process itself has to be gone.
 	if runtime.GOOS == "windows" {
 		t.Skip("the hanging module fixture is a POSIX shell script")
 	}
 	shell := buildShell(t)
 	stateRoot := isolatedStateRoot(t)
-	installScriptedModule(t, stateRoot, "#!/bin/sh\nwhile true; do sleep 1; done\n")
+	// The module records its own process id before hanging, so the test can
+	// ask whether the shell terminated it rather than merely stopped waiting.
+	pidFile := filepath.Join(t.TempDir(), "module.pid")
+	installScriptedModule(t, stateRoot,
+		"#!/bin/sh\necho $$ > '"+pidFile+"'\nwhile true; do sleep 1; done\n")
 
 	stdout, stderr, err := runShellWithCeiling(t, shell, stateRoot, "reference", "status")
 
@@ -189,6 +195,25 @@ func TestAModuleThatNeverAnswersFailsWithAStableProblem(t *testing.T) {
 	if stdout != "" {
 		t.Errorf("a module that never answered still wrote to standard output:\n%s", stdout)
 	}
+	// The module ignores the closed protocol input, so only the kill that ends
+	// the termination grace can have stopped it.
+	if pid := readPID(t, pidFile); processIsRunning(pid) {
+		t.Errorf("the hanging module (process %d) outlived the shell", pid)
+	}
+}
+
+// readPID reads a process id a fixture module recorded for itself.
+func readPID(t *testing.T, path string) int {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("the module recorded no process id: %v", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(content)))
+	if err != nil {
+		t.Fatalf("the recorded process id %q is not a number: %v", content, err)
+	}
+	return pid
 }
 
 func TestAModuleThatCrashesBeforeAnsweringFailsWithAStableProblem(t *testing.T) {
@@ -306,9 +331,16 @@ func installNoisyModule(t *testing.T, stateRoot string) {
 // still launches it.
 func steerInstalledModule(t *testing.T, stateRoot, name string) {
 	t.Helper()
+	writeControlFile(t, stateRoot, name, "")
+}
+
+// writeControlFile writes a control file, with content, beside the installed
+// reference executable.
+func writeControlFile(t *testing.T, stateRoot, name, content string) {
+	t.Helper()
 	store := modules.NewStore(state.ModuleStore(stateRoot))
 	path := filepath.Join(store.VersionDir("reference", testModuleVersion), name)
-	if err := os.WriteFile(path, nil, 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("writing the control file %s: %v", name, err)
 	}
 }
