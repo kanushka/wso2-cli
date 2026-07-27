@@ -24,12 +24,11 @@ import (
 	"os"
 	"runtime/debug"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/wso2/wso2-cli/sdk/problem"
 	"github.com/wso2/wso2-cli/sdk/protocol"
-	contractv1 "github.com/wso2/wso2-cli/sdk/protocol/contractv1"
+	"github.com/wso2/wso2-cli/sdk/protocol/contractv1"
 	"github.com/wso2/wso2-cli/sdk/result"
 )
 
@@ -37,16 +36,17 @@ import (
 //
 // It reaches a handler as advice, never as permission: a module may use it to
 // skip work whose only purpose is display, but it must not format or write user
-// output itself.
-type OutputMode string
+// output itself. It is the contract's own type, so a handler and the shell
+// cannot disagree about what a mode means.
+type OutputMode = protocol.OutputMode
 
 const (
 	// OutputModeUnspecified means the shell did not state a mode.
-	OutputModeUnspecified OutputMode = ""
+	OutputModeUnspecified = protocol.OutputModeUnspecified
 	// OutputModeTable means the shell will render a human-readable table.
-	OutputModeTable OutputMode = "table"
+	OutputModeTable = protocol.OutputModeTable
 	// OutputModeJSON means the shell will render deterministic JSON.
-	OutputModeJSON OutputMode = "json"
+	OutputModeJSON = protocol.OutputModeJSON
 )
 
 // Context is the non-secret invocation context the command runs against.
@@ -132,21 +132,17 @@ func ServeStreams(ctx context.Context, in io.Reader, out io.Writer, options Opti
 	if failure != nil {
 		return writer.WriteEnvelope(&contractv1.Envelope{
 			InvocationId: invocationID,
-			Message:      &contractv1.Envelope_Problem{Problem: encodeProblem(*failure)},
+			Message:      &contractv1.Envelope_Problem{Problem: protocol.EncodeProblem(*failure)},
 		})
 	}
 	return writer.WriteEnvelope(&contractv1.Envelope{
 		InvocationId: invocationID,
-		Message:      &contractv1.Envelope_Result{Result: encodeResult(produced)},
+		Message:      &contractv1.Envelope_Result{Result: protocol.EncodeResult(produced)},
 	})
 }
 
 // sendHello opens the handshake by stating who is actually running.
 func sendHello(writer *protocol.Writer, descriptor Descriptor) error {
-	versions := make([]uint32, 0, len(descriptor.ProtocolVersions))
-	for _, version := range descriptor.ProtocolVersions {
-		versions = append(versions, uint32(version))
-	}
 	return writer.WriteEnvelope(&contractv1.Envelope{
 		Message: &contractv1.Envelope_Hello{Hello: &contractv1.Hello{
 			Module: &contractv1.ModuleIdentity{
@@ -154,7 +150,10 @@ func sendHello(writer *protocol.Writer, descriptor Descriptor) error {
 				Version:    descriptor.Version,
 				SdkVersion: descriptor.SDKVersion,
 			},
-			ProtocolVersions: versions,
+			ProtocolVersions: protocol.EncodeVersions(descriptor.ProtocolVersions),
+			// The SDK declares no required capability, because the contract's
+			// mandatory behaviour is all a module can depend on today. A
+			// module that needed one could not be served by this release.
 		}},
 	})
 }
@@ -168,7 +167,7 @@ func readWelcome(reader *protocol.Reader, descriptor Descriptor) (string, error)
 	}
 	welcome := envelope.GetWelcome()
 	if welcome == nil {
-		return "", fmt.Errorf("module: expected a welcome, got %s", messageKind(envelope))
+		return "", fmt.Errorf("module: expected a welcome, got %s", protocol.DescribeMessage(envelope))
 	}
 	invocationID := envelope.GetInvocationId()
 	if invocationID == "" {
@@ -179,7 +178,7 @@ func readWelcome(reader *protocol.Reader, descriptor Descriptor) (string, error)
 	selected := int(welcome.GetProtocolVersion())
 	if !slices.Contains(descriptor.ProtocolVersions, selected) {
 		return "", fmt.Errorf("module: the shell selected protocol v%d, and this module speaks %s",
-			selected, formatVersions(descriptor.ProtocolVersions))
+			selected, protocol.FormatVersions(descriptor.ProtocolVersions))
 	}
 	return invocationID, nil
 }
@@ -192,7 +191,7 @@ func readInvoke(reader *protocol.Reader, invocationID string, descriptor Descrip
 	}
 	invoke := envelope.GetInvoke()
 	if invoke == nil {
-		return nil, fmt.Errorf("module: expected an invocation, got %s", messageKind(envelope))
+		return nil, fmt.Errorf("module: expected an invocation, got %s", protocol.DescribeMessage(envelope))
 	}
 	if envelope.GetInvocationId() != invocationID {
 		return nil, errors.New("module: the invocation identifier changed after the handshake")
@@ -229,7 +228,7 @@ func runCommand(
 		InvocationID: invocationID,
 		Command:      path,
 		Arguments:    invoke.GetArguments(),
-		OutputMode:   decodeOutputMode(invoke.GetOutputMode()),
+		OutputMode:   protocol.DecodeOutputMode(invoke.GetOutputMode()),
 		Context: Context{
 			Name:           invoke.GetContext().GetName(),
 			OrganizationID: invoke.GetContext().GetOrganizationId(),
@@ -283,66 +282,4 @@ func findHandler(commands []Command, path []string) Handler {
 		}
 	}
 	return nil
-}
-
-func decodeOutputMode(mode contractv1.OutputMode) OutputMode {
-	switch mode {
-	case contractv1.OutputMode_OUTPUT_MODE_TABLE:
-		return OutputModeTable
-	case contractv1.OutputMode_OUTPUT_MODE_JSON:
-		return OutputModeJSON
-	default:
-		return OutputModeUnspecified
-	}
-}
-
-func encodeResult(produced result.Result) *contractv1.Result {
-	fields := make([]*contractv1.ResultField, 0, len(produced.Fields))
-	for _, field := range produced.Fields {
-		fields = append(fields, &contractv1.ResultField{
-			Name:  field.Name,
-			Label: field.Label,
-			Value: field.Value,
-		})
-	}
-	return &contractv1.Result{Schema: produced.Schema, Fields: fields}
-}
-
-func encodeProblem(failure problem.Problem) *contractv1.Problem {
-	return &contractv1.Problem{
-		Category: string(failure.Category),
-		Code:     failure.Code,
-		Message:  failure.Message,
-		Recovery: failure.Recovery,
-	}
-}
-
-// messageKind names the payload an envelope carried, for a diagnostic that
-// says what arrived instead of what was expected.
-func messageKind(envelope *contractv1.Envelope) string {
-	switch envelope.GetMessage().(type) {
-	case *contractv1.Envelope_Hello:
-		return "a hello"
-	case *contractv1.Envelope_Welcome:
-		return "a welcome"
-	case *contractv1.Envelope_Invoke:
-		return "an invocation"
-	case *contractv1.Envelope_Result:
-		return "a result"
-	case *contractv1.Envelope_Problem:
-		return "a problem"
-	default:
-		return "an unknown message"
-	}
-}
-
-func formatVersions(versions []int) string {
-	if len(versions) == 0 {
-		return "no version"
-	}
-	rendered := make([]string, 0, len(versions))
-	for _, version := range versions {
-		rendered = append(rendered, "v"+strconv.Itoa(version))
-	}
-	return strings.Join(rendered, ", ")
 }

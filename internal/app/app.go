@@ -22,7 +22,6 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"runtime"
@@ -45,9 +44,6 @@ type Shell struct {
 	StateRoot string
 	// Streams are the user-facing output destinations.
 	Streams output.Streams
-	// Context cancels a running product command. When nil, an invocation is
-	// bounded only by its own deadline.
-	Context context.Context
 }
 
 // builtin is one shell-owned command.

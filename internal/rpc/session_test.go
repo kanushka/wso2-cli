@@ -28,7 +28,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/sdk/problem"
 	"github.com/wso2/wso2-cli/sdk/protocol"
-	contractv1 "github.com/wso2/wso2-cli/sdk/protocol/contractv1"
+	"github.com/wso2/wso2-cli/sdk/protocol/contractv1"
 )
 
 const (
@@ -96,7 +96,7 @@ func statusInvocation() Invocation {
 	return Invocation{
 		Namespace:  testNamespace,
 		Command:    []string{"status"},
-		OutputMode: OutputJSON,
+		OutputMode: protocol.OutputModeJSON,
 		Context:    InvocationContext{Name: "default"},
 	}
 }

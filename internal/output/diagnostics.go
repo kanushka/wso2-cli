@@ -27,12 +27,16 @@ import (
 // mode, so a command's structured output stays parseable even when the module
 // was noisy. Each line is attributed to the module so a user can tell the
 // shell's own warnings from a module's.
+// A failed write to the diagnostics stream is discarded rather than returned,
+// as it is everywhere else in this package: the only place to report it would
+// be the stream that just failed, and it must not turn a command that otherwise
+// succeeded into a failure.
 func ModuleDiagnostics(w io.Writer, namespace string, lines []string, truncated bool) {
 	for _, line := range lines {
-		fmt.Fprintf(w, "%s: %s\n", namespace, line)
+		_, _ = fmt.Fprintf(w, "%s: %s\n", namespace, line)
 	}
 	if truncated {
-		fmt.Fprintf(w, "%s: further diagnostics were discarded because the module exceeded the shell's limit\n",
+		_, _ = fmt.Fprintf(w, "%s: further diagnostics were discarded because the module exceeded the shell's limit\n",
 			namespace)
 	}
 }

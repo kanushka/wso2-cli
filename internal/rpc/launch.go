@@ -97,13 +97,6 @@ func (l Launcher) Invoke(ctx context.Context, invocation Invocation) (Outcome, e
 	return outcome, nil
 }
 
-// completion is one finished session: its outcome, or the typed problem that
-// ended it.
-type completion struct {
-	outcome Outcome
-	err     error
-}
-
 // runSession runs the protocol under the invocation deadline and reaps the
 // child, so exactly one problem describes what went wrong.
 func (l Launcher) runSession(
@@ -115,44 +108,45 @@ func (l Launcher) runSession(
 	invocation Invocation,
 ) (Outcome, error) {
 	// The session runs on its own goroutine so the deadline can act while it
-	// is blocked reading. Nothing calls Wait until the session has stopped
-	// reading, because Wait closes the pipe it reads from.
-	finished := make(chan completion, 1)
+	// is blocked reading. Its result is published by closing ended, which every
+	// path below can wait on more than once.
+	var produced Outcome
+	var sessionErr error
+	ended := make(chan struct{})
 	go func() {
-		produced, err := session.Run(toModule, fromModule, invocation)
-		finished <- completion{outcome: produced, err: err}
+		produced, sessionErr = session.Run(toModule, fromModule, invocation)
+		close(ended)
 	}()
 
 	deadline := time.NewTimer(invocation.timeout())
 	defer deadline.Stop()
 
-	var done completion
+	var ending error
 	select {
-	case done = <-finished:
+	case <-ended:
 	case <-deadline.C:
-		l.terminate(command, toModule, finished)
-		return Outcome{}, processProblem("rpc.timed_out",
+		ending = processProblem("rpc.timed_out",
 			fmt.Sprintf("the %q module did not answer within %s", l.namespace(), invocation.timeout()),
 			"Retry the command. Report the failure if the module keeps not answering.")
 	case <-ctx.Done():
-		l.terminate(command, toModule, finished)
-		return Outcome{}, processProblem("rpc.cancelled",
+		ending = processProblem("rpc.cancelled",
 			fmt.Sprintf("the %q module was stopped before it answered", l.namespace()), retryRecovery)
 	}
 
-	// The protocol is over, one way or another. The module is expected to
-	// exit on its own now that its input is closed, but it may instead be
-	// blocked writing to a standard output nobody is reading any more, so
-	// reaping it is bounded rather than open-ended.
-	waitErr := l.reap(command, toModule)
+	// The module is finished with either way, so it is stopped before this
+	// returns and its exit status is available to classify.
+	waitErr := l.stop(command, toModule, ended)
 
-	if done.err != nil {
-		return Outcome{}, done.err
+	switch {
+	case ending != nil:
+		return Outcome{}, ending
+	case sessionErr != nil:
+		return Outcome{}, sessionErr
 	}
 	if err := l.checkExit(waitErr); err != nil {
 		return Outcome{}, err
 	}
-	return done.outcome, nil
+	return produced, nil
 }
 
 // checkExit treats any unclean exit as a module process failure.
@@ -175,55 +169,49 @@ func (l Launcher) checkExit(waitErr error) error {
 		fmt.Sprintf("the %q module process could not be completed", l.namespace()), retryRecovery)
 }
 
-// terminate ends a module that has stopped answering and reaps it.
+// stop ends the exchange and the module process, and reports how it exited.
 //
-// Closing the protocol input first gives a module that is merely slow the
-// chance to notice and exit cleanly; the kill is the fallback for one that will
-// not. Either way the child is gone before Invoke returns, so a hanging module
-// cannot outlive the shell invocation that started it.
+// It closes the module's protocol input, which tells a module that is merely
+// slow that the exchange is over and lets it exit cleanly. Every wait after
+// that is bounded by TerminationGrace and backed by a kill, because a module
+// can outlive the protocol in two ways: it may never exit, and it may block
+// forever writing to a standard output nobody reads any more. Either way the
+// child is gone before Invoke returns.
 //
-// A module's exit closes its standard output, which ends the session's pending
-// read. Waiting on the session is therefore how termination observes the exit,
-// and it also guarantees nothing is still reading the pipe that Wait closes.
-func (l Launcher) terminate(command *exec.Cmd, toModule io.WriteCloser, finished <-chan completion) {
+// The wait on ended comes first because Wait closes the pipe the session reads
+// from, so nothing may still be reading it.
+func (l Launcher) stop(command *exec.Cmd, toModule io.WriteCloser, ended <-chan struct{}) error {
 	_ = toModule.Close()
 
-	grace := time.NewTimer(TerminationGrace)
-	defer grace.Stop()
-	select {
-	case <-finished:
-	case <-grace.C:
+	if !waitOrKill(command, ended) {
 		// Signalling the whole process group is out of scope for the proof,
 		// so a module that spawned children of its own may leave them behind.
-		_ = command.Process.Kill()
-		<-finished
+		<-ended
 	}
-	_ = l.reap(command, toModule)
+
+	exited := make(chan struct{})
+	var waitErr error
+	go func() {
+		waitErr = command.Wait()
+		close(exited)
+	}()
+	waitOrKill(command, exited)
+	<-exited
+	return waitErr
 }
 
-// reap closes the module's input and waits for it to exit, killing it if it
-// does not.
-//
-// The wait is bounded because a module can outlive the protocol: one that keeps
-// writing to a standard output nobody reads any more blocks in the kernel
-// forever, and an unbounded Wait would hand the shell's lifetime to it.
-//
-// It must be called only once the session has stopped reading, because Wait
-// closes the pipe the session reads from.
-func (l Launcher) reap(command *exec.Cmd, toModule io.WriteCloser) error {
-	_ = toModule.Close()
-
-	waited := make(chan error, 1)
-	go func() { waited <- command.Wait() }()
-
+// waitOrKill waits for a signal until the termination grace expires, killing
+// the module if it has not arrived. It reports whether the signal arrived
+// before the kill.
+func waitOrKill(command *exec.Cmd, signal <-chan struct{}) bool {
 	grace := time.NewTimer(TerminationGrace)
 	defer grace.Stop()
 	select {
-	case err := <-waited:
-		return err
+	case <-signal:
+		return true
 	case <-grace.C:
 		_ = command.Process.Kill()
-		return <-waited
+		return false
 	}
 }
 

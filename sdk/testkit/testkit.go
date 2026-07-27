@@ -34,7 +34,7 @@ import (
 	"github.com/wso2/wso2-cli/sdk/module"
 	"github.com/wso2/wso2-cli/sdk/problem"
 	"github.com/wso2/wso2-cli/sdk/protocol"
-	contractv1 "github.com/wso2/wso2-cli/sdk/protocol/contractv1"
+	"github.com/wso2/wso2-cli/sdk/protocol/contractv1"
 	"github.com/wso2/wso2-cli/sdk/result"
 )
 
@@ -159,7 +159,7 @@ func exchange(toModule io.WriteCloser, fromModule io.Reader, options module.Opti
 			Namespace:   namespace,
 			CommandPath: invocation.Command,
 			Arguments:   invocation.Arguments,
-			OutputMode:  encodeOutputMode(invocation.OutputMode),
+			OutputMode:  protocol.EncodeOutputMode(invocation.OutputMode),
 			Policy:      &contractv1.InvocationPolicy{},
 			Context: &contractv1.InvocationContext{
 				Name:           invocation.Context.Name,
@@ -184,45 +184,17 @@ func exchange(toModule io.WriteCloser, fromModule io.Reader, options module.Opti
 
 	switch {
 	case terminal.GetResult() != nil:
-		decoded := decodeResult(terminal.GetResult())
+		decoded := protocol.DecodeResult(terminal.GetResult())
 		outcome.Result = &decoded
 	case terminal.GetProblem() != nil:
-		decoded := decodeProblem(terminal.GetProblem())
+		decoded, err := protocol.DecodeProblem(terminal.GetProblem())
+		if err != nil {
+			outcome.Err = fmt.Errorf("testkit: the module returned an unreportable problem: %w", err)
+			return outcome
+		}
 		outcome.Problem = &decoded
 	default:
 		outcome.Err = errors.New("testkit: the module's terminal message was neither a result nor a problem")
 	}
 	return outcome
-}
-
-func encodeOutputMode(mode module.OutputMode) contractv1.OutputMode {
-	switch mode {
-	case module.OutputModeTable:
-		return contractv1.OutputMode_OUTPUT_MODE_TABLE
-	case module.OutputModeJSON:
-		return contractv1.OutputMode_OUTPUT_MODE_JSON
-	default:
-		return contractv1.OutputMode_OUTPUT_MODE_UNSPECIFIED
-	}
-}
-
-func decodeResult(encoded *contractv1.Result) result.Result {
-	decoded := result.Result{Schema: encoded.GetSchema()}
-	for _, field := range encoded.GetFields() {
-		decoded.Fields = append(decoded.Fields, result.Field{
-			Name:  field.GetName(),
-			Label: field.GetLabel(),
-			Value: field.GetValue(),
-		})
-	}
-	return decoded
-}
-
-func decodeProblem(encoded *contractv1.Problem) problem.Problem {
-	return problem.Problem{
-		Category: problem.Category(encoded.GetCategory()),
-		Code:     encoded.GetCode(),
-		Message:  encoded.GetMessage(),
-		Recovery: encoded.GetRecovery(),
-	}
 }

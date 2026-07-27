@@ -29,7 +29,8 @@ import (
 	"time"
 
 	"github.com/wso2/wso2-cli/internal/modules"
-	contractv1 "github.com/wso2/wso2-cli/sdk/protocol/contractv1"
+	"github.com/wso2/wso2-cli/sdk/problem"
+	"github.com/wso2/wso2-cli/sdk/protocol/contractv1"
 )
 
 // fakeModuleOnce builds the scriptable stand-in module once for the package.
@@ -267,6 +268,39 @@ func TestAModuleThatAnswersThenExitsUncleanlyIsAProcessProblem(t *testing.T) {
 	}
 }
 
+func TestPlainTextOnModuleStandardOutputIsRefused(t *testing.T) {
+	// Standard output carries protocol frames only. A module that prints for a
+	// user instead of framing a message is refused, rather than having its
+	// output guessed at or passed through to the user's terminal.
+	//
+	// Which framing problem it becomes depends on the bytes — the first one is
+	// read as a length — so the assertion is that it is refused as a module
+	// process failure and that nothing of it reaches the user, not which of
+	// the framing codes applies.
+	for name, text := range map[string]string{
+		"a short line":  "Status: everything is fine\n",
+		"a long report": strings.Repeat("Status: everything is fine\n", 64),
+	} {
+		t.Run(name, func(t *testing.T) {
+			launcher := install(t, script{stdout: []byte(text)})
+
+			outcome, err := launcher.Invoke(t.Context(), statusInvocation())
+			if problemCategory(t, err) != problem.CategoryModuleProcess {
+				t.Errorf("problem category is %q, want %q", problemCategory(t, err), problem.CategoryModuleProcess)
+			}
+			if code := problemCode(t, err); !strings.HasPrefix(code, "rpc.") {
+				t.Errorf("problem code is %q, want a protocol failure", code)
+			}
+			if outcome.Result.Schema != "" {
+				t.Error("plain text on standard output produced a result")
+			}
+			if strings.Contains(outcome.Diagnostics.Text, "everything is fine") {
+				t.Error("text a module wrote to standard output was reported as a diagnostic")
+			}
+		})
+	}
+}
+
 func TestAModuleThatWritesNothingIsAProcessProblem(t *testing.T) {
 	launcher := install(t, script{})
 
@@ -346,23 +380,5 @@ func TestASlowButConformingModuleStillSucceeds(t *testing.T) {
 	}
 	if outcome.Result.Schema != "reference.status/v1" {
 		t.Errorf("result schema is %q, want %q", outcome.Result.Schema, "reference.status/v1")
-	}
-}
-
-// TestUnexpectedMessagesAreNamedInDiagnostics proves an unexpected message is
-// always reported as what it actually was, for every kind the contract defines.
-func TestUnexpectedMessagesAreNamedInDiagnostics(t *testing.T) {
-	kinds := map[string]*contractv1.Envelope{
-		"a second handshake": {Message: &contractv1.Envelope_Hello{Hello: &contractv1.Hello{}}},
-		"a welcome":          {Message: &contractv1.Envelope_Welcome{Welcome: &contractv1.Welcome{}}},
-		"an invocation":      {Message: &contractv1.Envelope_Invoke{Invoke: &contractv1.Invoke{}}},
-		"a result":           {Message: &contractv1.Envelope_Result{Result: &contractv1.Result{}}},
-		"a problem":          {Message: &contractv1.Envelope_Problem{Problem: &contractv1.Problem{}}},
-		"a message this shell does not recognize": {},
-	}
-	for want, envelope := range kinds {
-		if got := describeMessage(envelope); got != want {
-			t.Errorf("describeMessage reported %q, want %q", got, want)
-		}
 	}
 }

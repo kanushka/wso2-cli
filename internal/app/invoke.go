@@ -26,6 +26,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/rpc"
 	"github.com/wso2/wso2-cli/internal/version"
 	"github.com/wso2/wso2-cli/sdk/problem"
+	"github.com/wso2/wso2-cli/sdk/protocol"
 )
 
 // DefaultContextName is the context a command runs against until the shell owns
@@ -52,11 +53,11 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 			Platform: version.Platform(),
 		},
 	}
-	outcome, invokeErr := launcher.Invoke(s.context(), rpc.Invocation{
+	outcome, invokeErr := launcher.Invoke(context.Background(), rpc.Invocation{
 		Namespace:   namespace,
 		Command:     command,
 		Arguments:   arguments,
-		OutputMode:  outputModeFor(mode),
+		OutputMode:  contractOutputMode(mode),
 		Context:     rpc.InvocationContext{Name: DefaultContextName},
 		Interactive: false,
 	})
@@ -72,14 +73,6 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 		return *outcome.Problem
 	}
 	return output.Result(s.Streams.Out, mode, outcome.Result)
-}
-
-// context reports the cancellation context for one invocation.
-func (s Shell) context() context.Context {
-	if s.Context != nil {
-		return s.Context
-	}
-	return context.Background()
 }
 
 // parseProductArgs separates the shell's own flags from the module's arguments.
@@ -125,11 +118,17 @@ func parseProductArgs(namespace string, args []string) (command, arguments []str
 	return command, remaining, mode, nil
 }
 
-func outputModeFor(mode output.Mode) rpc.OutputMode {
+// contractOutputMode maps the shell's rendering choice onto the contract value
+// the module is told about.
+//
+// The two are separate types on purpose: output.Mode is what a user asked the
+// shell to print, and the contract value is advice sent to a module. They
+// happen to coincide today, and nothing should assume they always will.
+func contractOutputMode(mode output.Mode) protocol.OutputMode {
 	if mode == output.ModeJSON {
-		return rpc.OutputJSON
+		return protocol.OutputModeJSON
 	}
-	return rpc.OutputTable
+	return protocol.OutputModeTable
 }
 
 func missingOutputValue(namespace, flag string) problem.Problem {

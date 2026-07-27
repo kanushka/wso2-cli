@@ -25,7 +25,7 @@ import (
 	"testing"
 
 	"github.com/wso2/wso2-cli/sdk/protocol"
-	contractv1 "github.com/wso2/wso2-cli/sdk/protocol/contractv1"
+	"github.com/wso2/wso2-cli/sdk/protocol/contractv1"
 	"google.golang.org/protobuf/proto"
 )
 

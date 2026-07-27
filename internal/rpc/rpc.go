@@ -34,18 +34,8 @@ import (
 	"time"
 
 	"github.com/wso2/wso2-cli/sdk/problem"
+	"github.com/wso2/wso2-cli/sdk/protocol"
 	"github.com/wso2/wso2-cli/sdk/result"
-)
-
-// OutputMode is the rendering the shell will apply to a result. The module is
-// told which one is in force, but only as advice.
-type OutputMode string
-
-const (
-	// OutputTable renders a human-readable table.
-	OutputTable OutputMode = "table"
-	// OutputJSON renders deterministic JSON.
-	OutputJSON OutputMode = "json"
 )
 
 // DefaultTimeout is how long the shell waits for a terminal message before it
@@ -87,8 +77,9 @@ type Invocation struct {
 	Command []string
 	// Arguments are the remaining user arguments, unparsed.
 	Arguments []string
-	// OutputMode is the rendering the shell will perform.
-	OutputMode OutputMode
+	// OutputMode is the rendering the shell will perform. It reaches the
+	// module as advice only.
+	OutputMode protocol.OutputMode
 	// Context is the non-secret invocation context.
 	Context InvocationContext
 	// Interactive reports whether a terminal is attached.

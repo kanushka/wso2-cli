@@ -26,7 +26,7 @@ import (
 	"github.com/wso2/wso2-cli/sdk/module"
 	"github.com/wso2/wso2-cli/sdk/problem"
 	"github.com/wso2/wso2-cli/sdk/protocol"
-	contractv1 "github.com/wso2/wso2-cli/sdk/protocol/contractv1"
+	"github.com/wso2/wso2-cli/sdk/protocol/contractv1"
 	"github.com/wso2/wso2-cli/sdk/result"
 	"github.com/wso2/wso2-cli/sdk/testkit"
 )

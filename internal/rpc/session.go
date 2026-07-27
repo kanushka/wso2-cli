@@ -21,13 +21,10 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"strings"
 
 	"github.com/wso2/wso2-cli/internal/modules"
-	"github.com/wso2/wso2-cli/sdk/problem"
 	"github.com/wso2/wso2-cli/sdk/protocol"
-	contractv1 "github.com/wso2/wso2-cli/sdk/protocol/contractv1"
-	"github.com/wso2/wso2-cli/sdk/result"
+	"github.com/wso2/wso2-cli/sdk/protocol/contractv1"
 )
 
 // Session speaks the module contract over one pair of streams.
@@ -72,7 +69,7 @@ func (s Session) handshake(reader *protocol.Reader, writer *protocol.Writer) err
 	hello := envelope.GetHello()
 	if hello == nil {
 		return processProblem("rpc.unexpected_message",
-			fmt.Sprintf("the %q module opened with %s instead of a handshake", s.namespace(), describeMessage(envelope)),
+			fmt.Sprintf("the %q module opened with %s instead of a handshake", s.namespace(), protocol.DescribeMessage(envelope)),
 			retryRecovery)
 	}
 	if err := s.checkRuntimeIdentity(hello); err != nil {
@@ -102,10 +99,10 @@ func (s Session) handshake(reader *protocol.Reader, writer *protocol.Writer) err
 // A module that closed or ignored its protocol input makes the shell's write
 // fail. That is a module process failure like any other, not an internal error
 // the caller has to classify.
-func (s Session) write(writer *protocol.Writer, what string, envelope *contractv1.Envelope) error {
+func (s Session) write(writer *protocol.Writer, description string, envelope *contractv1.Envelope) error {
 	if err := writer.WriteEnvelope(envelope); err != nil {
 		return processProblem("rpc.stream_failed",
-			fmt.Sprintf("the shell could not send %s to the %q module", what, s.namespace()),
+			fmt.Sprintf("the shell could not send %s to the %q module", description, s.namespace()),
 			retryRecovery)
 	}
 	return nil
@@ -152,17 +149,21 @@ func (s Session) checkRequiredCapabilities(hello *contractv1.Hello) error {
 
 // checkRuntimeProtocol proves the running module speaks the version its receipt
 // promised and the shell selected.
+//
+// The version is chosen during resolution, from the receipt and this shell's
+// own list, and the handshake confirms it rather than reopening it. A module
+// that offers a newer shared version at runtime is therefore not negotiated up
+// to it: doing so would let the executable widen what its installation
+// declared, which is exactly the drift the receipt exists to prevent. A newer
+// version becomes available by reinstalling, not by the module asking.
 func (s Session) checkRuntimeProtocol(hello *contractv1.Hello) error {
-	offered := make([]int, 0, len(hello.GetProtocolVersions()))
-	for _, version := range hello.GetProtocolVersions() {
-		offered = append(offered, int(version))
-	}
+	offered := protocol.VersionsOf(hello)
 	if slices.Contains(offered, s.Resolved.ProtocolVersion) {
 		return nil
 	}
 	return trustProblem("rpc.protocol_mismatch",
 		fmt.Sprintf("the installed %q module is recorded as speaking module-contract protocol v%d, and the executable offers %s",
-			s.namespace(), s.Resolved.ProtocolVersion, formatProtocolVersions(offered)),
+			s.namespace(), s.Resolved.ProtocolVersion, protocol.FormatVersions(offered)),
 		reinstallRecovery)
 }
 
@@ -174,7 +175,7 @@ func (s Session) sendInvoke(writer *protocol.Writer, invocation Invocation) erro
 			Namespace:   invocation.Namespace,
 			CommandPath: invocation.Command,
 			Arguments:   invocation.Arguments,
-			OutputMode:  encodeOutputMode(invocation.OutputMode),
+			OutputMode:  protocol.EncodeOutputMode(invocation.OutputMode),
 			Policy: &contractv1.InvocationPolicy{
 				DeadlineMillis: uint32(invocation.timeout().Milliseconds()),
 				Interactive:    invocation.Interactive,
@@ -203,7 +204,7 @@ func (s Session) readTerminal(reader *protocol.Reader) (Outcome, error) {
 	outcome := Outcome{InvocationID: s.InvocationID}
 	switch {
 	case envelope.GetResult() != nil:
-		decoded := decodeResult(envelope.GetResult())
+		decoded := protocol.DecodeResult(envelope.GetResult())
 		// A result is a peer's claim, so it is validated before it can reach
 		// a renderer that assumes named, unique fields.
 		if err := decoded.Validate(); err != nil {
@@ -213,7 +214,7 @@ func (s Session) readTerminal(reader *protocol.Reader) (Outcome, error) {
 		}
 		outcome.Result = decoded
 	case envelope.GetProblem() != nil:
-		decoded, err := decodeProblem(envelope.GetProblem())
+		decoded, err := protocol.DecodeProblem(envelope.GetProblem())
 		if err != nil {
 			return Outcome{}, processProblem("rpc.invalid_problem",
 				fmt.Sprintf("the %q module returned a failure the shell cannot report: %s", s.namespace(), err),
@@ -222,7 +223,7 @@ func (s Session) readTerminal(reader *protocol.Reader) (Outcome, error) {
 		outcome.Problem = &decoded
 	default:
 		return Outcome{}, processProblem("rpc.unexpected_message",
-			fmt.Sprintf("the %q module ended with %s instead of a result", s.namespace(), describeMessage(envelope)),
+			fmt.Sprintf("the %q module ended with %s instead of a result", s.namespace(), protocol.DescribeMessage(envelope)),
 			retryRecovery)
 	}
 
@@ -277,80 +278,4 @@ func (s Session) readProblem(err error, when string) error {
 
 func (s Session) namespace() string {
 	return s.Resolved.Receipt.Namespace
-}
-
-func encodeOutputMode(mode OutputMode) contractv1.OutputMode {
-	switch mode {
-	case OutputTable:
-		return contractv1.OutputMode_OUTPUT_MODE_TABLE
-	case OutputJSON:
-		return contractv1.OutputMode_OUTPUT_MODE_JSON
-	default:
-		return contractv1.OutputMode_OUTPUT_MODE_UNSPECIFIED
-	}
-}
-
-func decodeResult(encoded *contractv1.Result) result.Result {
-	decoded := result.Result{Schema: encoded.GetSchema()}
-	for _, field := range encoded.GetFields() {
-		decoded.Fields = append(decoded.Fields, result.Field{
-			Name:  field.GetName(),
-			Label: field.GetLabel(),
-			Value: field.GetValue(),
-		})
-	}
-	return decoded
-}
-
-// decodeProblem reads a module's failure, rejecting one the shell could not
-// report: an unnamed failure gives a user nothing to act on or search for.
-func decodeProblem(encoded *contractv1.Problem) (problem.Problem, error) {
-	if encoded.GetCode() == "" {
-		return problem.Problem{}, errors.New("it carries no problem code")
-	}
-	if encoded.GetMessage() == "" {
-		return problem.Problem{}, errors.New("it carries no message")
-	}
-	return problem.Problem{
-		// An unrecognized category is carried as sent. internal/exit maps it
-		// to a module process failure rather than to success, so an unknown
-		// class can never be mistaken for a working command.
-		Category: problem.Category(encoded.GetCategory()),
-		Code:     encoded.GetCode(),
-		Message:  encoded.GetMessage(),
-		Recovery: encoded.GetRecovery(),
-	}, nil
-}
-
-// describeMessage names the payload an envelope carried, so a diagnostic can
-// say what arrived instead of what was expected.
-func describeMessage(envelope *contractv1.Envelope) string {
-	switch envelope.GetMessage().(type) {
-	case *contractv1.Envelope_Hello:
-		return "a second handshake"
-	case *contractv1.Envelope_Welcome:
-		return "a welcome"
-	case *contractv1.Envelope_Invoke:
-		return "an invocation"
-	case *contractv1.Envelope_Result:
-		return "a result"
-	case *contractv1.Envelope_Problem:
-		return "a problem"
-	default:
-		// An envelope kind this shell does not know fails closed rather than
-		// being skipped, because a skipped message may have been the one that
-		// mattered.
-		return "a message this shell does not recognize"
-	}
-}
-
-func formatProtocolVersions(versions []int) string {
-	if len(versions) == 0 {
-		return "none"
-	}
-	rendered := make([]string, 0, len(versions))
-	for _, version := range versions {
-		rendered = append(rendered, fmt.Sprintf("v%d", version))
-	}
-	return strings.Join(rendered, ", ")
 }
