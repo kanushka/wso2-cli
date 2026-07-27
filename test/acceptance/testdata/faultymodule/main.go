@@ -66,6 +66,13 @@ const (
 	// FaultUnknownMessageKind sends an envelope whose payload is a message kind
 	// this protocol release does not define.
 	FaultUnknownMessageKind = "unknown-message-kind"
+	// FaultUnknownField sends a correct result carrying one field this protocol
+	// release does not define. It is the fault that must not fail: additive
+	// compatibility means an unknown field is ignored, not refused.
+	FaultUnknownField = "unknown-field"
+	// FaultWaitForInputClose answers nothing and exits only once the shell
+	// closes its protocol input.
+	FaultWaitForInputClose = "wait-for-input-close"
 	// FaultTruncatedFrame declares a frame longer than the bytes that follow.
 	FaultTruncatedFrame = "truncated-frame"
 	// FaultPartialLengthPrefix stops part-way through a frame's length prefix.
@@ -87,6 +94,18 @@ const (
 // ControlFile is the name of the file, written beside the installed executable,
 // whose content selects the fault.
 const ControlFile = "fault"
+
+// Markers this module leaves beside its own executable, so a test can assert
+// how far the exchange actually got rather than infer it from the shell's own
+// account of the failure.
+const (
+	// InvokedMarker records that the shell sent a command invocation. A
+	// handshake the shell refused never reaches it.
+	InvokedMarker = "invocation-arrived"
+	// InputClosedMarker records that this module exited because the shell
+	// closed its protocol input, rather than because it was killed.
+	InputClosedMarker = "input-was-closed"
+)
 
 // FloodBytes is how much standard error FaultFloodDiagnostics writes. It is far
 // above any plausible shell limit, so the test does not depend on the exact one.
@@ -132,11 +151,18 @@ func run(fault string) error {
 		return nil
 	}
 
-	if fault == FaultPanic {
+	switch fault {
+	case FaultPanic:
 		panic("the faulty module panicked instead of answering")
-	}
-	if fault == FaultFloodDiagnostics {
+	case FaultFloodDiagnostics:
 		flood()
+	case FaultWaitForInputClose:
+		// Nothing more will arrive, so this read ends only when the shell gives
+		// up and closes the stream. A module killed outright never gets here.
+		if _, err := reader.ReadEnvelope(); !streamEnded(err) {
+			return fmt.Errorf("the shell did not close the protocol input: %w", err)
+		}
+		return mark(InputClosedMarker)
 	}
 
 	if raw, damaged := damagedFrame(fault, invocationID); damaged {
@@ -144,6 +170,10 @@ func run(fault string) error {
 		return err
 	}
 
+	if fault == FaultUnknownField {
+		_, err := os.Stdout.Write(frame(withUnknownField(statusResult(invocationID))))
+		return err
+	}
 	if err := writer.WriteEnvelope(statusResult(invocationID)); err != nil {
 		return err
 	}
@@ -205,7 +235,19 @@ func readHandshakeReply(reader *protocol.Reader) (invocationID string, accepted 
 	if invoke.GetInvoke() == nil {
 		return "", false, fmt.Errorf("expected an invocation, got %s", protocol.DescribeMessage(invoke))
 	}
+	if err := mark(InvokedMarker); err != nil {
+		return "", false, err
+	}
 	return welcome.GetInvocationId(), true, nil
+}
+
+// mark records that the exchange reached a point, beside this executable.
+func mark(name string) error {
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locating this executable: %w", err)
+	}
+	return os.WriteFile(filepath.Join(filepath.Dir(executable), name), nil, 0o644)
 }
 
 // streamEnded reports a protocol input the shell closed, whether it closed
@@ -251,18 +293,39 @@ func damagedFrame(fault, invocationID string) ([]byte, bool) {
 // oneof, so it is written here as a field number this release has not assigned.
 // Decoding must succeed and still leave the shell with no message it can act on.
 func unknownMessageKindEnvelope(invocationID string) []byte {
-	encoded, err := proto.Marshal(&contractv1.Envelope{InvocationId: invocationID})
-	if err != nil {
-		panic("faultymodule: cannot encode an envelope: " + err.Error())
-	}
+	return appendUnassignedField(encode(&contractv1.Envelope{InvocationId: invocationID}))
+}
+
+// withUnknownField encodes a well-formed envelope and adds one field this
+// release has not assigned.
+//
+// It is the additive half of the same wire fact: the envelope still carries a
+// message the shell knows, so the unknown field must be ignored rather than
+// treated as the unknown kind above.
+func withUnknownField(envelope *contractv1.Envelope) []byte {
+	return appendUnassignedField(encode(envelope))
+}
+
+// appendUnassignedField adds a length-delimited field whose number this
+// protocol release has not assigned. A later release would use it for a message
+// kind or a new envelope field; both look like this on the wire.
+func appendUnassignedField(encoded []byte) []byte {
 	const unassignedFieldNumber = 18
 	const lengthDelimited = 2
 	var tag [binary.MaxVarintLen64]byte
 	written := binary.PutUvarint(tag[:], uint64(unassignedFieldNumber)<<3|lengthDelimited)
 	encoded = append(encoded, tag[:written]...)
-	// An empty payload for the unknown kind: its content is not what the shell
+	// An empty payload: what the unknown field contains is not what the shell
 	// has to survive, its being unrecognized is.
 	return append(encoded, 0x00)
+}
+
+func encode(envelope *contractv1.Envelope) []byte {
+	encoded, err := proto.Marshal(envelope)
+	if err != nil {
+		panic("faultymodule: cannot encode an envelope: " + err.Error())
+	}
+	return encoded
 }
 
 // frame prefixes a payload with its unsigned-varint length.
