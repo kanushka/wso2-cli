@@ -56,10 +56,13 @@ func (s Shell) version(args []string) error {
 		return err
 	}
 
-	fmt.Fprintln(s.Streams.Out)
-	fmt.Fprintln(s.Streams.Out, "Installed modules")
+	if _, err := fmt.Fprint(s.Streams.Out, "\nInstalled modules\n"); err != nil {
+		return err
+	}
 	if len(installed) == 0 {
-		fmt.Fprintln(s.Streams.Out, "No modules are installed.")
+		if _, err := fmt.Fprintln(s.Streams.Out, "No modules are installed."); err != nil {
+			return err
+		}
 	} else {
 		table := output.NewTable("name", "version", "platform")
 		for _, entry := range installed {

@@ -1,0 +1,135 @@
+name: Pull request checks
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    outputs:
+      shell: ${{ steps.changes.outputs.shell }}
+      sdk: ${{ steps.changes.outputs.sdk }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect affected modules
+        id: changes
+        uses: ./.github/actions/go-changes
+
+  quality:
+    name: Static Checks
+    needs: changes
+    if: needs.changes.outputs.shell == 'true' || needs.changes.outputs.sdk == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: |
+            go.mod
+            sdk/go.mod
+
+      - name: Check shell formatting and vet
+        if: needs.changes.outputs.shell == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t files < <(git ls-files '*.go' ':!sdk/**' ':!examples/reference-module/**')
+          unformatted="$(gofmt -l "${files[@]}")"
+          if [[ -n "$unformatted" ]]; then
+            echo "The following shell files require gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+          go vet ./...
+
+      - name: Check SDK formatting, module hygiene, and vet
+        if: needs.changes.outputs.sdk == 'true'
+        shell: bash
+        working-directory: sdk
+        env:
+          GOWORK: off
+        run: |
+          set -euo pipefail
+
+          mapfile -t files < <(git ls-files '*.go')
+          unformatted="$(gofmt -l "${files[@]}")"
+          if [[ -n "$unformatted" ]]; then
+            echo "The following SDK files require gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+          go mod tidy -diff
+          go vet ./...
+
+      - name: Lint shell
+        if: needs.changes.outputs.shell == 'true'
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12
+
+      - name: Lint SDK
+        if: needs.changes.outputs.sdk == 'true'
+        uses: golangci/golangci-lint-action@v9
+        env:
+          GOWORK: off
+        with:
+          version: v2.12
+          working-directory: sdk
+
+  build-test:
+    name: Build & Test
+    needs: changes
+    if: needs.changes.outputs.shell == 'true' || needs.changes.outputs.sdk == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: |
+            go.mod
+            sdk/go.mod
+
+      - name: Build shell
+        if: needs.changes.outputs.shell == 'true'
+        run: go build ./...
+
+      - name: Test shell
+        if: needs.changes.outputs.shell == 'true'
+        run: go test ./...
+
+      - name: Build SDK
+        if: needs.changes.outputs.sdk == 'true'
+        working-directory: sdk
+        env:
+          GOWORK: off
+        run: go build ./...
+
+      - name: Test SDK
+        if: needs.changes.outputs.sdk == 'true'
+        working-directory: sdk
+        env:
+          GOWORK: off
+        run: go test ./...

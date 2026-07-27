@@ -163,9 +163,9 @@ func (s Shell) store() (modules.Store, error) {
 
 // help shows the shell command tree.
 func (s Shell) help(_ []string) error {
-	fmt.Fprintln(s.Streams.Out, "Usage: wso2 <command> [arguments]")
-	fmt.Fprintln(s.Streams.Out)
-	fmt.Fprintln(s.Streams.Out, "Shell commands")
+	if _, err := fmt.Fprint(s.Streams.Out, "Usage: wso2 <command> [arguments]\n\nShell commands\n"); err != nil {
+		return err
+	}
 	table := output.NewTable("command", "description")
 	for _, command := range builtins() {
 		table.Append(command.name, command.summary)
@@ -173,7 +173,6 @@ func (s Shell) help(_ []string) error {
 	if err := table.Render(s.Streams.Out); err != nil {
 		return err
 	}
-	fmt.Fprintln(s.Streams.Out)
-	fmt.Fprintln(s.Streams.Out, "Product commands are provided by installed modules.")
-	return nil
+	_, err := fmt.Fprint(s.Streams.Out, "\nProduct commands are provided by installed modules.\n")
+	return err
 }
