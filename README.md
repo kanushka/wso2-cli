@@ -16,6 +16,7 @@ The principal documents are:
 
 - [Product requirements](docs/product-requirements.md)
 - [Architecture](docs/architecture.md)
+- [First CLI vertical-slice plan](docs/plans/first-cli-vertical-slice.md)
 - [Proposed shell command reference](docs/reference/commands.md)
 - [Authentication context examples](docs/examples/authentication-contexts.md)
 - [Supporting research](docs/research/README.md)

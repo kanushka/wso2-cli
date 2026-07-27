@@ -112,13 +112,13 @@ history does not authorize a force-push or any other remote mutation.
 
 ## Excluded Concurrent Work
 
-The root `roadmap.md` and `research/roadmap.md` files are owned by a separate,
-ongoing task. This documentation migration does not edit, move, format, stage,
-or commit either file.
+At the time of this decision, the root `roadmap.md` and `research/roadmap.md`
+files were owned by a separate, ongoing task. The documentation migration did
+not edit, move, format, stage, or commit either file.
 
-The final clean-history replacement must wait until the roadmap task is
-complete. Rewriting shared Git history while that work is active could disrupt
-the other task or make its changes difficult to reconcile.
+The roadmap task has since completed and removed both files after replacing
+their relevant implementation content with a bounded vertical-slice plan. The
+concurrent-work constraint is therefore resolved.
 
 ## Consequences
 

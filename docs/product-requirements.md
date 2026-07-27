@@ -370,9 +370,9 @@ refresh or network-enabled check.
 ## 9. Initial delivery stages
 
 These stages describe product-level progression, not task order. The
-milestones, dependencies, acceptance criteria, and test gates in the
-[implementation roadmap](../roadmap.md) are authoritative for delivery
-sequence.
+[first CLI vertical-slice plan](plans/first-cli-vertical-slice.md) defines the
+bounded architecture proof. Later stages require separate reviewed
+implementation plans.
 
 ### Stage 1 — Foundation
 
@@ -461,5 +461,7 @@ both the preferred SDK path and the migration adapter.
 - [Azure CLI, AWS CLI, and Google Cloud CLI comparison](research/cloud-cli-comparison.md)
 - [Module architecture options](research/module-architecture-options.md)
 - [Root CLI installation and distribution](research/root-cli-installation-distribution.md)
-- [Research roadmap](../research/roadmap.md)
-- [Implementation roadmap](../roadmap.md)
+
+## 14. Implementation plan
+
+- [First CLI vertical-slice plan](plans/first-cli-vertical-slice.md)
