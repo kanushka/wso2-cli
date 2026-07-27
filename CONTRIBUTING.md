@@ -35,6 +35,10 @@ cd examples/reference-module && go build -ldflags "\
   -X github.com/wso2/wso2-cli/sdk/module.SDKVersion=0.1.0" ./cmd/wso2-module-reference
 ```
 
+Every Go file begins with the Apache-2.0 license header, followed by a blank
+line so the header does not become package documentation. A test in
+`internal/boundaries` enforces both.
+
 Tests never read or write real WSO2 user state. The shell resolves all local
 state below one root, overridden with `WSO2_HOME`, and the test-only fixture
 installer refuses to write into `~/.wso2`.

@@ -1,3 +1,19 @@
+// Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 // Package boundaries_test enforces the build boundaries the architecture proof
 // depends on: three independently buildable Go modules, an SDK that cannot
 // reach shell internals, and no committed local dependency replacement.
@@ -29,6 +45,45 @@ func buildArgs(t *testing.T, module string) []string {
 		return []string{"build", "./..."}
 	}
 	return []string{"build", "-o", t.TempDir() + string(os.PathSeparator), "./..."}
+}
+
+// licenseHeader is the Apache-2.0 notice every Go file in this repository must
+// carry, as the first bytes of the file.
+const licenseHeader = `// Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+`
+
+func TestEveryGoFileCarriesTheLicenseHeader(t *testing.T) {
+	root := repoRoot(t)
+
+	for _, path := range goFiles(t, root) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("cannot read %s: %v", path, err)
+		}
+		relative, _ := filepath.Rel(root, path)
+		if !strings.HasPrefix(string(data), licenseHeader) {
+			t.Errorf("%s does not begin with the Apache-2.0 license header", relative)
+			continue
+		}
+		// A blank line keeps the header out of the package documentation.
+		if !strings.HasPrefix(string(data[len(licenseHeader):]), "\n") {
+			t.Errorf("%s does not separate the license header from the following declaration with a blank line", relative)
+		}
+	}
 }
 
 func TestEveryModuleBuildsInTheLocalWorkspace(t *testing.T) {
@@ -130,6 +185,49 @@ func TestTheWorkspaceComposesEveryModule(t *testing.T) {
 			t.Errorf("go.work does not compose %q", module)
 		}
 	}
+}
+
+// goFiles lists every Go source file tracked in the repository, across all
+// three modules.
+func goFiles(t *testing.T, root string) []string {
+	t.Helper()
+	var paths []string
+	for _, module := range goModules {
+		err := filepath.WalkDir(filepath.Join(root, module), func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() {
+				// Nested modules are walked under their own entry.
+				if path != filepath.Join(root, module) && isModuleRoot(root, path) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if strings.HasSuffix(path, ".go") {
+				paths = append(paths, path)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s: %v", module, err)
+		}
+	}
+	if len(paths) == 0 {
+		t.Fatal("found no Go files to check")
+	}
+	return paths
+}
+
+// isModuleRoot reports whether the directory is one of this repository's other
+// Go modules.
+func isModuleRoot(root, directory string) bool {
+	for _, module := range goModules {
+		if module != "." && directory == filepath.Join(root, module) {
+			return true
+		}
+	}
+	return false
 }
 
 // repoRoot walks up from the test's working directory to the directory holding
