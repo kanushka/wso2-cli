@@ -35,8 +35,10 @@ func TestBuiltInCommandsTakePrecedenceOverAReceiptNamespace(t *testing.T) {
 			if code := shell.Run([]string{namespace}); code != exit.OK {
 				t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 			}
-			if strings.Contains(out.String(), "invocation_not_implemented") {
-				t.Fatalf("the shell dispatched the %q namespace to a module:\n%s", namespace, out)
+			// Every failure reachable after launch carries an "rpc." code, so
+			// its absence is evidence no module was invoked.
+			if strings.Contains(errOut.String(), "rpc.") {
+				t.Fatalf("the shell dispatched the %q namespace to a module:\n%s", namespace, errOut)
 			}
 			switch namespace {
 			case "version":
@@ -63,15 +65,21 @@ func TestAnUnknownCommandIsAUsageProblem(t *testing.T) {
 	}
 }
 
-func TestAnInstalledNamespaceReportsThatInvocationIsNotImplementedYet(t *testing.T) {
-	shell, _, errOut := newShell(t)
+func TestAnInstalledExecutableThatDoesNotSpeakTheContractIsAProcessProblem(t *testing.T) {
+	// The fixture installs an executable that exits without saying anything.
+	// It resolves and launches, so the failure has to come from the contract
+	// rather than from resolution.
+	shell, out, errOut := newShell(t)
 	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
 
-	if code := shell.Run([]string{"reference", "status"}); code != exit.Usage {
-		t.Fatalf("exit code = %d, want the usage class %d", code, exit.Usage)
+	if code := shell.Run([]string{"reference", "status"}); code != exit.ModuleProcess {
+		t.Fatalf("exit code = %d, want the module process class %d; stderr: %s", code, exit.ModuleProcess, errOut)
 	}
-	if !strings.Contains(errOut.String(), "shell.invocation_not_implemented") {
-		t.Fatalf("stderr does not report the deferred invocation path:\n%s", errOut)
+	if !strings.Contains(errOut.String(), "rpc.no_terminal_message") {
+		t.Fatalf("stderr does not report the missing terminal message:\n%s", errOut)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("a failed invocation wrote to standard output:\n%s", out)
 	}
 }
 

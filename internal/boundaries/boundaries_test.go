@@ -133,6 +133,32 @@ func TestNoCommittedModuleReplacesALocalCheckout(t *testing.T) {
 	}
 }
 
+func TestTheWorkspaceReplacesOnlyTheUnpublishedSDKVersion(t *testing.T) {
+	// Local composition belongs in go.work, but only just enough of it: the
+	// reference module requires an SDK version that does not exist yet, and
+	// the Go tool cannot build the workspace module graph without resolving
+	// it. Any further replacement would let the workspace conceal a
+	// dependency that a released build would not have.
+	//
+	// See docs/plans/first-cli-vertical-slice.md section 4.
+	const allowed = "replace github.com/wso2/wso2-cli/sdk v0.0.0 => ./sdk"
+
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), "go.work"))
+	if err != nil {
+		t.Fatalf("cannot read go.work: %v", err)
+	}
+
+	var replacements []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "replace") {
+			replacements = append(replacements, trimmed)
+		}
+	}
+	if len(replacements) != 1 || replacements[0] != allowed {
+		t.Errorf("go.work declares the replacements %q; it may declare only %q", replacements, allowed)
+	}
+}
+
 func TestTheSDKAndReferenceModuleCannotImportShellInternals(t *testing.T) {
 	root := repoRoot(t)
 	const shellInternalPrefix = "github.com/wso2/wso2-cli/internal"

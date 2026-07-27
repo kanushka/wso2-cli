@@ -1,0 +1,11 @@
+# The module contract schema is published with the SDK, because the shell and
+# every product module generate their types from it.
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

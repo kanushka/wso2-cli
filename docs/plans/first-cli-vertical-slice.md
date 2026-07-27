@@ -129,7 +129,19 @@ Dependency rules:
 - the SDK imports no shell `internal` package;
 - the reference module imports only the public SDK and ordinary third-party
   dependencies, never shell internals;
-- no committed `replace` directive points to a local checkout;
+- no `go.mod` carries a `replace` directive;
+- `go.work` carries exactly one `replace`, resolving the unpublished SDK
+  version the reference module requires from this checkout. Replacing a module
+  version with contents found elsewhere is what a `go.work` replacement is
+  for, and it overrides any replacement in a workspace module
+  ([Go modules reference](https://go.dev/ref/mod#go-work-file-replace)). This
+  checkout needs one as an observed fact rather than a documented rule: the
+  reference module requires an SDK version that has never been published, and
+  once the SDK gained a dependency of its own, `use` alone no longer resolved
+  that requirement here. The replacement names that single placeholder
+  version, is removed when an SDK version is published, cannot travel with the
+  reference module to another repository, and is pinned to one line by a
+  boundary test;
 - `go.work` composes the unpublished SDK and reference module for this slice;
 - the SDK builds and tests with `GOWORK=off`; and
 - the reference module's `GOWORK=off` release check begins after an SDK version
@@ -273,8 +285,9 @@ Gate:
 
 - all three modules build in the workspace;
 - the SDK tests with `GOWORK=off`;
-- dependency checks reject shell-internal imports and local `replace`
-  directives; and
+- dependency checks reject shell-internal imports, every `go.mod` `replace`
+  directive, and any `go.work` replacement other than the single SDK
+  placeholder; and
 - shell and module versions can be injected independently.
 
 ### Increment 2 — Resolve an integrity-checked module

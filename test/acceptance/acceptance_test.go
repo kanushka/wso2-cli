@@ -156,9 +156,10 @@ func TestACopiedAndModifiedExecutableIsRejectedBeforeLaunch(t *testing.T) {
 	if !strings.Contains(string(output), "modules.executable_digest_mismatch") {
 		t.Fatalf("output does not report the integrity failure:\n%s", output)
 	}
-	// The module writes this diagnostic whenever it starts, so its absence is
-	// evidence the shell rejected the executable before launching it.
-	if strings.Contains(string(output), "the module contract is not implemented yet") {
+	// Every failure reachable after launch is reported with an "rpc." code, so
+	// their absence is evidence the shell rejected the executable before
+	// starting it.
+	if strings.Contains(string(output), "rpc.") {
 		t.Fatalf("the shell launched the modified module:\n%s", output)
 	}
 }

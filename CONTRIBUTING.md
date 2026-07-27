@@ -13,8 +13,14 @@ supporting public-source research.
 The repository contains three independently buildable Go modules: the shell at
 the repository root, the public SDK in `sdk/`, and the reference module in
 `examples/reference-module/`. `go.work` composes the unpublished modules for
-local development. Committed `replace` directives are prohibited; a test
-enforces this.
+local development. Committed `replace` directives are prohibited in every
+`go.mod`; a test enforces this. `go.work` carries one replacement for the
+unpublished SDK version the reference module requires. Replacing a module
+version with contents found elsewhere is what a `go.work` replacement is for
+([Go modules reference](https://go.dev/ref/mod#go-work-file-replace)); this
+checkout needs one because the reference module requires an SDK version that
+has never been published. It disappears once the SDK is published, and a test
+pins it to that single line.
 
 ```shell
 go build ./...                      # shell
@@ -38,6 +44,23 @@ cd examples/reference-module && go build -ldflags "\
 Every Go file begins with the Apache-2.0 license header, followed by a blank
 line so the header does not become package documentation. A test in
 `internal/boundaries` enforces both.
+
+### The module contract schema
+
+The shell and every module exchange Protobuf messages defined in
+`sdk/proto/wso2/cli/module/v1/contract.proto`. The generated Go types in
+`sdk/protocol/contractv1` are committed, so building and testing the repository
+needs neither a Protobuf toolchain nor network access.
+
+After editing any `.proto` file, regenerate and commit the result:
+
+```shell
+./scripts/generate-protobuf.sh
+```
+
+The script fetches a pinned `buf` and a remote code-generation plugin, so it
+needs network access while it runs. It also applies the license header, which
+code generators do not emit.
 
 Tests never read or write real WSO2 user state. The shell resolves all local
 state below one root, overridden with `WSO2_HOME`, and the test-only fixture

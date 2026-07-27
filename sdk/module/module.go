@@ -16,13 +16,22 @@
 
 // Package module is the author-facing entry point of the public WSO2 CLI SDK.
 //
-// A product module declares its identity here and implements product commands.
-// The wire protocol, framing, authentication broker exchange, output
-// rendering, and exit codes are not the module's concern.
+// A product module declares its identity with Options, implements each command
+// as a Handler, and hands both to Serve. The wire protocol, framing,
+// authentication broker exchange, output rendering, and exit codes are not the
+// module's concern.
 //
-// The architecture proof establishes the identity and build boundaries only.
-// Protocol serving is added by the next slice increment, so this package
-// deliberately exposes no Serve function yet.
+// A minimal module is:
+//
+//	func main() {
+//		err := module.Serve(context.Background(),
+//			module.Options{Namespace: "reference", Version: version},
+//			module.Command{Path: []string{"status"}, Run: status})
+//		if err != nil {
+//			fmt.Fprintln(os.Stderr, err)
+//			os.Exit(1)
+//		}
+//	}
 package module
 
 import (

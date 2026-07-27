@@ -1,0 +1,13 @@
+# Generated Go types are committed, so building the repository never needs a
+# Protobuf toolchain. Regenerate with scripts/generate-protobuf.sh after editing
+# any .proto file.
+version: v2
+managed:
+  enabled: false
+plugins:
+  # The module option strips this Go module's path from each generated file's
+  # go_package, so the output lands at sdk/protocol/contractv1.
+  - remote: buf.build/protocolbuffers/go:v1.36.11
+    out: .
+    opt:
+      - module=github.com/wso2/wso2-cli/sdk

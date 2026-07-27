@@ -99,13 +99,13 @@ func (s Shell) dispatch(args []string) error {
 	return s.dispatchNamespace(name, args[1:])
 }
 
-// dispatchNamespace resolves a product namespace from the managed module store.
+// dispatchNamespace resolves a product namespace from the managed module store
+// and runs the command in it.
 //
 // Resolution proves the module is integrity-checked and compatible before any
-// product code could run. Launching the resolved module is the next slice
-// increment, so a fully resolved namespace reports that invocation is not
-// implemented yet; every resolution failure is already a stable problem.
-func (s Shell) dispatchNamespace(namespace string, _ []string) error {
+// product code runs, and the executable digest is recomputed as part of it, so
+// nothing is launched that the receipt does not still describe.
+func (s Shell) dispatchNamespace(namespace string, args []string) error {
 	store, err := s.store()
 	if err != nil {
 		return err
@@ -124,12 +124,11 @@ func (s Shell) dispatchNamespace(namespace string, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := store.Resolve(namespace, identity); err != nil {
+	resolved, err := store.Resolve(namespace, identity)
+	if err != nil {
 		return err
 	}
-	return problem.New(problem.CategoryUsage, "shell.invocation_not_implemented",
-		fmt.Sprintf("the %q module is installed, but this shell cannot invoke product commands yet", namespace)).
-		WithRecovery("Run wso2 version to report the installed modules.")
+	return s.invokeModule(namespace, resolved, args)
 }
 
 // identity reports the shell-side facts an installed module must be compatible
