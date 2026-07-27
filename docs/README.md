@@ -14,7 +14,7 @@ Read these documents first:
    priorities, non-goals, and success criteria.
 2. [Architecture](architecture.md) defines the selected system structure,
    trust boundaries, module model, and runtime behavior.
-3. [Architecture decisions](decisions/) record durable repository-wide
+3. [Architecture decisions](adr/) record durable repository-wide
    decisions and their consequences.
 
 ## Reference and examples
