@@ -40,7 +40,7 @@ docs/
 ├── README.md
 ├── product-requirements.md
 ├── architecture.md
-├── decisions/
+├── adr/
 │   └── 0001-public-documentation-structure.md
 ├── examples/
 │   └── authentication-contexts.md
