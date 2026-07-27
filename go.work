@@ -1,0 +1,10 @@
+go 1.25.0
+
+// The workspace composes the unpublished SDK and reference module during local
+// development. Committed replace directives are prohibited; see
+// docs/plans/first-cli-vertical-slice.md section 4.
+use (
+	.
+	./examples/reference-module
+	./sdk
+)
