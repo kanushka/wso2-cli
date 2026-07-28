@@ -275,8 +275,15 @@ func runShell(t *testing.T, shell, stateRoot string, args ...string) (string, st
 
 // shellEnvironment builds a minimal environment pointing the shell at the
 // isolated state root, so the run cannot depend on developer configuration.
+//
+// It carries the development credential the isolated context names. Supplying
+// it here is the point of the canary: it is present for every run, only the
+// shell may read it, and no run may disclose it.
 func shellEnvironment(stateRoot string) []string {
-	environment := []string{state.RootEnvVar + "=" + stateRoot}
+	environment := []string{
+		state.RootEnvVar + "=" + stateRoot,
+		credentialVariable + "=" + canaryCredential,
+	}
 	for _, name := range []string{"PATH", "SystemRoot", "TMP", "TEMP", "HOME", "USERPROFILE"} {
 		if value, present := os.LookupEnv(name); present {
 			environment = append(environment, name+"="+value)

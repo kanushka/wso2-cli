@@ -148,16 +148,24 @@ func (s Shell) identity() (modules.ShellIdentity, error) {
 
 // store opens the managed module store for this invocation.
 func (s Shell) store() (modules.Store, error) {
-	root := s.StateRoot
-	if root == "" {
-		resolved, err := state.Root()
-		if err != nil {
-			return modules.Store{}, problem.New(problem.CategoryUsage, "shell.state_root_unresolved", err.Error()).
-				WithRecovery(fmt.Sprintf("Unset %s or set it to an absolute directory.", state.RootEnvVar))
-		}
-		root = resolved
+	root, err := s.stateRoot()
+	if err != nil {
+		return modules.Store{}, err
 	}
 	return modules.NewStore(state.ModuleStore(root)), nil
+}
+
+// stateRoot reports the shell-owned state root every local fact is read from.
+func (s Shell) stateRoot() (string, error) {
+	if s.StateRoot != "" {
+		return s.StateRoot, nil
+	}
+	resolved, err := state.Root()
+	if err != nil {
+		return "", problem.New(problem.CategoryUsage, "shell.state_root_unresolved", err.Error()).
+			WithRecovery(fmt.Sprintf("Unset %s or set it to an absolute directory.", state.RootEnvVar))
+	}
+	return resolved, nil
 }
 
 // help shows the shell command tree.

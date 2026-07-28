@@ -92,8 +92,10 @@ The initial layout is:
 ├── internal/
 │   ├── app/
 │   ├── auth/
+│   │   └── devtoken/
 │   ├── boundaries/
-│   ├── context/
+│   ├── contexts/
+│   │   └── fixture/
 │   ├── exit/
 │   ├── modules/
 │   │   └── fixture/
@@ -101,6 +103,7 @@ The initial layout is:
 │   ├── rpc/
 │   ├── semver/
 │   ├── state/
+│   ├── statusservice/
 │   └── version/
 ├── sdk/
 │   ├── go.mod
@@ -123,6 +126,15 @@ exit classes of section 8, `internal/modules/fixture` is the test-only fixture
 installer of section 5, `internal/semver` implements receipt compatibility
 ranges, `internal/state` locates the shell-owned state root, and
 `test/acceptance` holds the black-box runs of increment 5.
+
+`internal/auth` owns broker policy and `internal/auth/devtoken` the development
+issuer of section 7. `internal/contexts` reads the contexts of section 7, and
+its `fixture` package is the only writer of one, so no shell command can write
+a context that grants itself access. `internal/statusservice` is the local
+read-only service the proof calls; like the issuer, it is test infrastructure
+and is never linked into the shell binary. The package is named `contexts`
+rather than `context` so no file that reads a context has to rename the
+standard library's `context`.
 
 Dependency rules:
 

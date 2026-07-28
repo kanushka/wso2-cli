@@ -129,6 +129,9 @@ type Envelope struct {
 	//	*Envelope_Hello
 	//	*Envelope_Welcome
 	//	*Envelope_Invoke
+	//	*Envelope_AcquireAccess
+	//	*Envelope_AccessGranted
+	//	*Envelope_AccessDenied
 	//	*Envelope_Result
 	//	*Envelope_Problem
 	Message       isEnvelope_Message `protobuf_oneof:"message"`
@@ -214,6 +217,33 @@ func (x *Envelope) GetInvoke() *Invoke {
 	return nil
 }
 
+func (x *Envelope) GetAcquireAccess() *AcquireAccess {
+	if x != nil {
+		if x, ok := x.Message.(*Envelope_AcquireAccess); ok {
+			return x.AcquireAccess
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetAccessGranted() *AccessGranted {
+	if x != nil {
+		if x, ok := x.Message.(*Envelope_AccessGranted); ok {
+			return x.AccessGranted
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetAccessDenied() *AccessDenied {
+	if x != nil {
+		if x, ok := x.Message.(*Envelope_AccessDenied); ok {
+			return x.AccessDenied
+		}
+	}
+	return nil
+}
+
 func (x *Envelope) GetResult() *Result {
 	if x != nil {
 		if x, ok := x.Message.(*Envelope_Result); ok {
@@ -248,10 +278,19 @@ type Envelope_Invoke struct {
 	Invoke *Invoke `protobuf:"bytes,12,opt,name=invoke,proto3,oneof"`
 }
 
+type Envelope_AcquireAccess struct {
+	AcquireAccess *AcquireAccess `protobuf:"bytes,13,opt,name=acquire_access,json=acquireAccess,proto3,oneof"`
+}
+
+type Envelope_AccessGranted struct {
+	AccessGranted *AccessGranted `protobuf:"bytes,14,opt,name=access_granted,json=accessGranted,proto3,oneof"`
+}
+
+type Envelope_AccessDenied struct {
+	AccessDenied *AccessDenied `protobuf:"bytes,15,opt,name=access_denied,json=accessDenied,proto3,oneof"`
+}
+
 type Envelope_Result struct {
-	// Field numbers 13, 14, and 15 are held for the authentication broker
-	// exchange (AcquireAccess, AccessGranted, AccessDenied), which is added by
-	// a later slice increment.
 	Result *Result `protobuf:"bytes,16,opt,name=result,proto3,oneof"`
 }
 
@@ -264,6 +303,12 @@ func (*Envelope_Hello) isEnvelope_Message() {}
 func (*Envelope_Welcome) isEnvelope_Message() {}
 
 func (*Envelope_Invoke) isEnvelope_Message() {}
+
+func (*Envelope_AcquireAccess) isEnvelope_Message() {}
+
+func (*Envelope_AccessGranted) isEnvelope_Message() {}
+
+func (*Envelope_AccessDenied) isEnvelope_Message() {}
 
 func (*Envelope_Result) isEnvelope_Message() {}
 
@@ -676,11 +721,14 @@ type InvocationContext struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// name is the selected context's name.
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// organization_id is the organization the command targets. It is empty until
-	// the shell owns a context store.
+	// organization_id is the organization the command targets. It is empty when
+	// no context is selected.
 	OrganizationId string `protobuf:"bytes,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// endpoint is the product service the context targets. It is a location, not
+	// a permission: a module still needs brokered access to call it.
+	Endpoint      string `protobuf:"bytes,3,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *InvocationContext) Reset() {
@@ -727,6 +775,192 @@ func (x *InvocationContext) GetOrganizationId() string {
 	return ""
 }
 
+func (x *InvocationContext) GetEndpoint() string {
+	if x != nil {
+		return x.Endpoint
+	}
+	return ""
+}
+
+// AcquireAccess asks the shell's broker for access to one audience.
+//
+// The module states what it wants, never how the shell should obtain it: it
+// names no credential, no credential source, and no identity provider. The
+// broker answers from the module receipt, the selected context, and this
+// invocation, so a module cannot widen what its installation declared.
+//
+// The envelope's invocation_id binds the request to this invocation and its
+// correlation_id pairs it with the answer.
+type AcquireAccess struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// audience is the single protected audience the module intends to call. An
+	// audience the module receipt does not declare is denied.
+	Audience string `protobuf:"bytes,1,opt,name=audience,proto3" json:"audience,omitempty"`
+	// scopes are the permissions the module needs for this call. A scope the
+	// module receipt does not declare is denied rather than dropped, so a module
+	// never proceeds believing it holds access it was refused.
+	Scopes        []string `protobuf:"bytes,2,rep,name=scopes,proto3" json:"scopes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AcquireAccess) Reset() {
+	*x = AcquireAccess{}
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcquireAccess) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcquireAccess) ProtoMessage() {}
+
+func (x *AcquireAccess) ProtoReflect() protoreflect.Message {
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcquireAccess.ProtoReflect.Descriptor instead.
+func (*AcquireAccess) Descriptor() ([]byte, []int) {
+	return file_wso2_cli_module_v1_contract_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *AcquireAccess) GetAudience() string {
+	if x != nil {
+		return x.Audience
+	}
+	return ""
+}
+
+func (x *AcquireAccess) GetScopes() []string {
+	if x != nil {
+		return x.Scopes
+	}
+	return nil
+}
+
+// AccessGranted answers AcquireAccess with the access material itself.
+//
+// It carries a short-lived token and nothing else: no credential the token was
+// derived from, no reference to one, and no means of renewal. A module whose
+// token expires cannot renew it. The remaining work belongs to a new command,
+// where the shell applies broker policy again from scratch.
+type AccessGranted struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// token is the access material to present to the audience. It is bound to
+	// the granted audience and scopes, the context's organization, and this
+	// invocation.
+	Token string `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	// expires_at_unix is when the token stops being accepted, in seconds since
+	// the Unix epoch. A module may use it to fail early; the audience enforces
+	// it regardless.
+	ExpiresAtUnix int64 `protobuf:"varint,2,opt,name=expires_at_unix,json=expiresAtUnix,proto3" json:"expires_at_unix,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AccessGranted) Reset() {
+	*x = AccessGranted{}
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccessGranted) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccessGranted) ProtoMessage() {}
+
+func (x *AccessGranted) ProtoReflect() protoreflect.Message {
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccessGranted.ProtoReflect.Descriptor instead.
+func (*AccessGranted) Descriptor() ([]byte, []int) {
+	return file_wso2_cli_module_v1_contract_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *AccessGranted) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *AccessGranted) GetExpiresAtUnix() int64 {
+	if x != nil {
+		return x.ExpiresAtUnix
+	}
+	return 0
+}
+
+// AccessDenied answers AcquireAccess with the shell's typed refusal.
+//
+// The problem is the shell's, not the module's: the shell owns authentication
+// policy, so it also owns the failure class, the stable code, and the recovery
+// guidance a user acts on.
+type AccessDenied struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Problem       *Problem               `protobuf:"bytes,1,opt,name=problem,proto3" json:"problem,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AccessDenied) Reset() {
+	*x = AccessDenied{}
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccessDenied) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccessDenied) ProtoMessage() {}
+
+func (x *AccessDenied) ProtoReflect() protoreflect.Message {
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccessDenied.ProtoReflect.Descriptor instead.
+func (*AccessDenied) Descriptor() ([]byte, []int) {
+	return file_wso2_cli_module_v1_contract_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *AccessDenied) GetProblem() *Problem {
+	if x != nil {
+		return x.Problem
+	}
+	return nil
+}
+
 // Result is a module's terminal success. The module returns semantic fields and
 // the shell alone renders them, so table and JSON output cannot disagree.
 type Result struct {
@@ -743,7 +977,7 @@ type Result struct {
 
 func (x *Result) Reset() {
 	*x = Result{}
-	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[8]
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -755,7 +989,7 @@ func (x *Result) String() string {
 func (*Result) ProtoMessage() {}
 
 func (x *Result) ProtoReflect() protoreflect.Message {
-	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[8]
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -768,7 +1002,7 @@ func (x *Result) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Result.ProtoReflect.Descriptor instead.
 func (*Result) Descriptor() ([]byte, []int) {
-	return file_wso2_cli_module_v1_contract_proto_rawDescGZIP(), []int{8}
+	return file_wso2_cli_module_v1_contract_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Result) GetSchema() string {
@@ -807,7 +1041,7 @@ type ResultField struct {
 
 func (x *ResultField) Reset() {
 	*x = ResultField{}
-	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[9]
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -819,7 +1053,7 @@ func (x *ResultField) String() string {
 func (*ResultField) ProtoMessage() {}
 
 func (x *ResultField) ProtoReflect() protoreflect.Message {
-	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[9]
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -832,7 +1066,7 @@ func (x *ResultField) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultField.ProtoReflect.Descriptor instead.
 func (*ResultField) Descriptor() ([]byte, []int) {
-	return file_wso2_cli_module_v1_contract_proto_rawDescGZIP(), []int{9}
+	return file_wso2_cli_module_v1_contract_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ResultField) GetName() string {
@@ -878,7 +1112,7 @@ type Problem struct {
 
 func (x *Problem) Reset() {
 	*x = Problem{}
-	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[10]
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -890,7 +1124,7 @@ func (x *Problem) String() string {
 func (*Problem) ProtoMessage() {}
 
 func (x *Problem) ProtoReflect() protoreflect.Message {
-	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[10]
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -903,7 +1137,7 @@ func (x *Problem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Problem.ProtoReflect.Descriptor instead.
 func (*Problem) Descriptor() ([]byte, []int) {
-	return file_wso2_cli_module_v1_contract_proto_rawDescGZIP(), []int{10}
+	return file_wso2_cli_module_v1_contract_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Problem) GetCategory() string {
@@ -938,14 +1172,17 @@ var File_wso2_cli_module_v1_contract_proto protoreflect.FileDescriptor
 
 const file_wso2_cli_module_v1_contract_proto_rawDesc = "" +
 	"\n" +
-	"!wso2/cli/module/v1/contract.proto\x12\x12wso2.cli.module.v1\"\xf2\x02\n" +
+	"!wso2/cli/module/v1/contract.proto\x12\x12wso2.cli.module.v1\"\xd3\x04\n" +
 	"\bEnvelope\x12#\n" +
 	"\rinvocation_id\x18\x01 \x01(\tR\finvocationId\x12%\n" +
 	"\x0ecorrelation_id\x18\x02 \x01(\tR\rcorrelationId\x121\n" +
 	"\x05hello\x18\n" +
 	" \x01(\v2\x19.wso2.cli.module.v1.HelloH\x00R\x05hello\x127\n" +
 	"\awelcome\x18\v \x01(\v2\x1b.wso2.cli.module.v1.WelcomeH\x00R\awelcome\x124\n" +
-	"\x06invoke\x18\f \x01(\v2\x1a.wso2.cli.module.v1.InvokeH\x00R\x06invoke\x124\n" +
+	"\x06invoke\x18\f \x01(\v2\x1a.wso2.cli.module.v1.InvokeH\x00R\x06invoke\x12J\n" +
+	"\x0eacquire_access\x18\r \x01(\v2!.wso2.cli.module.v1.AcquireAccessH\x00R\racquireAccess\x12J\n" +
+	"\x0eaccess_granted\x18\x0e \x01(\v2!.wso2.cli.module.v1.AccessGrantedH\x00R\raccessGranted\x12G\n" +
+	"\raccess_denied\x18\x0f \x01(\v2 .wso2.cli.module.v1.AccessDeniedH\x00R\faccessDenied\x124\n" +
 	"\x06result\x18\x10 \x01(\v2\x1a.wso2.cli.module.v1.ResultH\x00R\x06result\x127\n" +
 	"\aproblem\x18\x11 \x01(\v2\x1b.wso2.cli.module.v1.ProblemH\x00R\aproblemB\t\n" +
 	"\amessage\"\xa5\x01\n" +
@@ -974,10 +1211,19 @@ const file_wso2_cli_module_v1_contract_proto_rawDesc = "" +
 	"\acontext\x18\x06 \x01(\v2%.wso2.cli.module.v1.InvocationContextR\acontext\"]\n" +
 	"\x10InvocationPolicy\x12'\n" +
 	"\x0fdeadline_millis\x18\x01 \x01(\rR\x0edeadlineMillis\x12 \n" +
-	"\vinteractive\x18\x02 \x01(\bR\vinteractive\"P\n" +
+	"\vinteractive\x18\x02 \x01(\bR\vinteractive\"l\n" +
 	"\x11InvocationContext\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
-	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\"Y\n" +
+	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12\x1a\n" +
+	"\bendpoint\x18\x03 \x01(\tR\bendpoint\"C\n" +
+	"\rAcquireAccess\x12\x1a\n" +
+	"\baudience\x18\x01 \x01(\tR\baudience\x12\x16\n" +
+	"\x06scopes\x18\x02 \x03(\tR\x06scopes\"M\n" +
+	"\rAccessGranted\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\x12&\n" +
+	"\x0fexpires_at_unix\x18\x02 \x01(\x03R\rexpiresAtUnix\"E\n" +
+	"\fAccessDenied\x125\n" +
+	"\aproblem\x18\x01 \x01(\v2\x1b.wso2.cli.module.v1.ProblemR\aproblem\"Y\n" +
 	"\x06Result\x12\x16\n" +
 	"\x06schema\x18\x01 \x01(\tR\x06schema\x127\n" +
 	"\x06fields\x18\x02 \x03(\v2\x1f.wso2.cli.module.v1.ResultFieldR\x06fields\"M\n" +
@@ -1009,7 +1255,7 @@ func file_wso2_cli_module_v1_contract_proto_rawDescGZIP() []byte {
 }
 
 var file_wso2_cli_module_v1_contract_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_wso2_cli_module_v1_contract_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_wso2_cli_module_v1_contract_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_wso2_cli_module_v1_contract_proto_goTypes = []any{
 	(OutputMode)(0),           // 0: wso2.cli.module.v1.OutputMode
 	(*Envelope)(nil),          // 1: wso2.cli.module.v1.Envelope
@@ -1020,27 +1266,34 @@ var file_wso2_cli_module_v1_contract_proto_goTypes = []any{
 	(*Invoke)(nil),            // 6: wso2.cli.module.v1.Invoke
 	(*InvocationPolicy)(nil),  // 7: wso2.cli.module.v1.InvocationPolicy
 	(*InvocationContext)(nil), // 8: wso2.cli.module.v1.InvocationContext
-	(*Result)(nil),            // 9: wso2.cli.module.v1.Result
-	(*ResultField)(nil),       // 10: wso2.cli.module.v1.ResultField
-	(*Problem)(nil),           // 11: wso2.cli.module.v1.Problem
+	(*AcquireAccess)(nil),     // 9: wso2.cli.module.v1.AcquireAccess
+	(*AccessGranted)(nil),     // 10: wso2.cli.module.v1.AccessGranted
+	(*AccessDenied)(nil),      // 11: wso2.cli.module.v1.AccessDenied
+	(*Result)(nil),            // 12: wso2.cli.module.v1.Result
+	(*ResultField)(nil),       // 13: wso2.cli.module.v1.ResultField
+	(*Problem)(nil),           // 14: wso2.cli.module.v1.Problem
 }
 var file_wso2_cli_module_v1_contract_proto_depIdxs = []int32{
 	2,  // 0: wso2.cli.module.v1.Envelope.hello:type_name -> wso2.cli.module.v1.Hello
 	4,  // 1: wso2.cli.module.v1.Envelope.welcome:type_name -> wso2.cli.module.v1.Welcome
 	6,  // 2: wso2.cli.module.v1.Envelope.invoke:type_name -> wso2.cli.module.v1.Invoke
-	9,  // 3: wso2.cli.module.v1.Envelope.result:type_name -> wso2.cli.module.v1.Result
-	11, // 4: wso2.cli.module.v1.Envelope.problem:type_name -> wso2.cli.module.v1.Problem
-	3,  // 5: wso2.cli.module.v1.Hello.module:type_name -> wso2.cli.module.v1.ModuleIdentity
-	5,  // 6: wso2.cli.module.v1.Welcome.shell:type_name -> wso2.cli.module.v1.ShellIdentity
-	0,  // 7: wso2.cli.module.v1.Invoke.output_mode:type_name -> wso2.cli.module.v1.OutputMode
-	7,  // 8: wso2.cli.module.v1.Invoke.policy:type_name -> wso2.cli.module.v1.InvocationPolicy
-	8,  // 9: wso2.cli.module.v1.Invoke.context:type_name -> wso2.cli.module.v1.InvocationContext
-	10, // 10: wso2.cli.module.v1.Result.fields:type_name -> wso2.cli.module.v1.ResultField
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	9,  // 3: wso2.cli.module.v1.Envelope.acquire_access:type_name -> wso2.cli.module.v1.AcquireAccess
+	10, // 4: wso2.cli.module.v1.Envelope.access_granted:type_name -> wso2.cli.module.v1.AccessGranted
+	11, // 5: wso2.cli.module.v1.Envelope.access_denied:type_name -> wso2.cli.module.v1.AccessDenied
+	12, // 6: wso2.cli.module.v1.Envelope.result:type_name -> wso2.cli.module.v1.Result
+	14, // 7: wso2.cli.module.v1.Envelope.problem:type_name -> wso2.cli.module.v1.Problem
+	3,  // 8: wso2.cli.module.v1.Hello.module:type_name -> wso2.cli.module.v1.ModuleIdentity
+	5,  // 9: wso2.cli.module.v1.Welcome.shell:type_name -> wso2.cli.module.v1.ShellIdentity
+	0,  // 10: wso2.cli.module.v1.Invoke.output_mode:type_name -> wso2.cli.module.v1.OutputMode
+	7,  // 11: wso2.cli.module.v1.Invoke.policy:type_name -> wso2.cli.module.v1.InvocationPolicy
+	8,  // 12: wso2.cli.module.v1.Invoke.context:type_name -> wso2.cli.module.v1.InvocationContext
+	14, // 13: wso2.cli.module.v1.AccessDenied.problem:type_name -> wso2.cli.module.v1.Problem
+	13, // 14: wso2.cli.module.v1.Result.fields:type_name -> wso2.cli.module.v1.ResultField
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_wso2_cli_module_v1_contract_proto_init() }
@@ -1052,6 +1305,9 @@ func file_wso2_cli_module_v1_contract_proto_init() {
 		(*Envelope_Hello)(nil),
 		(*Envelope_Welcome)(nil),
 		(*Envelope_Invoke)(nil),
+		(*Envelope_AcquireAccess)(nil),
+		(*Envelope_AccessGranted)(nil),
+		(*Envelope_AccessDenied)(nil),
 		(*Envelope_Result)(nil),
 		(*Envelope_Problem)(nil),
 	}
@@ -1061,7 +1317,7 @@ func file_wso2_cli_module_v1_contract_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_wso2_cli_module_v1_contract_proto_rawDesc), len(file_wso2_cli_module_v1_contract_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   11,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

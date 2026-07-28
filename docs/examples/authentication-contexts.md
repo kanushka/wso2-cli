@@ -190,6 +190,38 @@ The variable names, token endpoint, and scopes are non-secret metadata. The
 client secret remains in the CI job's memory and is never written to the
 context, filesystem, OS secure store, or module environment.
 
+## 6. Architecture-proof development credential
+
+This context is not a production method. It exists only for the non-production
+`wso2 reference status` architecture proof, and the shell implements it in the
+reference namespace alone. It is included here because it follows the same
+rule as every context above: the document names a credential source and never
+holds a credential.
+
+```json
+{
+  "schemaVersion": 1,
+  "defaultContext": "reference-local",
+  "contexts": [
+    {
+      "name": "reference-local",
+      "organizationId": "reference-org",
+      "endpoint": "http://127.0.0.1:8080",
+      "auth": {
+        "method": "development-credential",
+        "credentialVariable": "WSO2_REFERENCE_DEV_CREDENTIAL"
+      }
+    }
+  ]
+}
+```
+
+The shell reads `WSO2_REFERENCE_DEV_CREDENTIAL` into memory, applies broker
+policy, and exchanges it for a short-lived fixture token bound to the requested
+audience and scope, the context's organization, and the current invocation. The
+reference module receives that token and nothing else: not the credential, not
+its source, and no way to renew what it was given.
+
 ## CI guidance
 
 CI is non-interactive and must use:

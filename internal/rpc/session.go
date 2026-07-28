@@ -22,7 +22,9 @@ import (
 	"io"
 	"slices"
 
+	"github.com/wso2/wso2-cli/internal/auth"
 	"github.com/wso2/wso2-cli/internal/modules"
+	"github.com/wso2/wso2-cli/sdk/problem"
 	"github.com/wso2/wso2-cli/sdk/protocol"
 	"github.com/wso2/wso2-cli/sdk/protocol/contractv1"
 )
@@ -39,6 +41,20 @@ type Session struct {
 	Shell ShellIdentity
 	// InvocationID binds every post-handshake message to this invocation.
 	InvocationID string
+	// Broker answers the module's access requests. A session without one
+	// denies access rather than granting it.
+	Broker Broker
+}
+
+// Broker is the shell's authentication policy as the session sees it.
+//
+// It is an interface so the protocol can be tested without the credential
+// handling behind it, and so the session cannot reach past the one question it
+// is entitled to ask. internal/auth implements it.
+type Broker interface {
+	// Acquire applies broker policy to one request, returning the access to
+	// grant or the typed problem to refuse it with.
+	Acquire(request auth.Request) (auth.Grant, error)
 }
 
 // Run performs the handshake, sends one invocation, and returns the module's
@@ -56,7 +72,7 @@ func (s Session) Run(toModule io.Writer, fromModule io.Reader, invocation Invoca
 	if err := s.sendInvoke(writer, invocation); err != nil {
 		return Outcome{}, err
 	}
-	return s.readTerminal(reader)
+	return s.readTerminal(reader, writer)
 }
 
 // handshake reads the module's hello, proves the running module is the one the
@@ -183,6 +199,7 @@ func (s Session) sendInvoke(writer *protocol.Writer, invocation Invocation) erro
 			Context: &contractv1.InvocationContext{
 				Name:           invocation.Context.Name,
 				OrganizationId: invocation.Context.OrganizationID,
+				Endpoint:       invocation.Context.Endpoint,
 			},
 		}},
 	})
@@ -190,15 +207,56 @@ func (s Session) sendInvoke(writer *protocol.Writer, invocation Invocation) erro
 
 // readTerminal reads the module's single terminal message and proves nothing
 // follows it.
-func (s Session) readTerminal(reader *protocol.Reader) (Outcome, error) {
-	envelope, err := reader.ReadEnvelope()
-	if err != nil {
-		return Outcome{}, s.readProblem(err, "while waiting for the module's result")
-	}
-	if envelope.GetInvocationId() != s.InvocationID {
-		return Outcome{}, processProblem("rpc.invocation_mismatch",
-			fmt.Sprintf("the %q module answered for another invocation", s.namespace()),
-			retryRecovery)
+//
+// A module may ask the broker for access before it answers, so every message is
+// read until the terminal one arrives. Access requests are the only thing that
+// may precede it: anything else is a module the shell and this release disagree
+// about, and is refused.
+func (s Session) readTerminal(reader *protocol.Reader, writer *protocol.Writer) (Outcome, error) {
+	var envelope *contractv1.Envelope
+	// issued holds each refusal as the shell would report it. The module was
+	// sent a narrower version, so what a user reads about a refusal comes from
+	// here rather than from whatever the module hands back.
+	var issued []problem.Problem
+	requests := 0
+	for {
+		read, err := reader.ReadEnvelope()
+		if err != nil {
+			return Outcome{}, s.readProblem(err, "while waiting for the module's result")
+		}
+		if read.GetInvocationId() != s.InvocationID {
+			return Outcome{}, processProblem("rpc.invocation_mismatch",
+				fmt.Sprintf("the %q module answered for another invocation", s.namespace()),
+				retryRecovery)
+		}
+		if read.GetAcquireAccess() == nil {
+			envelope = read
+			break
+		}
+		// Broker traffic is bounded like every other input the shell reads
+		// from a module. The invocation deadline would end a module that asked
+		// forever, but only after holding the command open for it; a module
+		// with nothing left to ask has already had every answer it will get.
+		requests++
+		if requests > MaxAccessRequests {
+			return Outcome{}, processProblem("rpc.too_many_access_requests",
+				fmt.Sprintf("the %q module asked for access more than %d times without answering",
+					s.namespace(), MaxAccessRequests),
+				retryRecovery)
+		}
+		// An access request is one half of an exchange, so it has to say which
+		// exchange. Answering an uncorrelated request would leave the module
+		// unable to tell this answer from any other, and the shell unable to
+		// prove it answered what was asked.
+		if read.GetCorrelationId() == "" {
+			return Outcome{}, processProblem("rpc.uncorrelated_access_request",
+				fmt.Sprintf("the %q module asked for access without a correlation identifier",
+					s.namespace()),
+				retryRecovery)
+		}
+		if err := s.answerAccess(writer, read, &issued); err != nil {
+			return Outcome{}, err
+		}
 	}
 
 	outcome := Outcome{InvocationID: s.InvocationID}
@@ -220,6 +278,9 @@ func (s Session) readTerminal(reader *protocol.Reader) (Outcome, error) {
 				fmt.Sprintf("the %q module returned a failure the shell cannot report: %s", s.namespace(), err),
 				retryRecovery)
 		}
+		if restored, found := restoreDenial(issued, decoded); found {
+			decoded = restored
+		}
 		outcome.Problem = &decoded
 	default:
 		return Outcome{}, processProblem("rpc.unexpected_message",
@@ -231,6 +292,98 @@ func (s Session) readTerminal(reader *protocol.Reader) (Outcome, error) {
 		return Outcome{}, err
 	}
 	return outcome, nil
+}
+
+// answerAccess applies broker policy to one access request and answers it.
+//
+// The shell answers every request, and the answer is always typed: a module is
+// never left waiting, and it never has to guess whether silence meant refusal.
+// The module's own request is not what decides the outcome — the broker weighs
+// it against the module receipt, the selected context, and this invocation.
+func (s Session) answerAccess(
+	writer *protocol.Writer,
+	envelope *contractv1.Envelope,
+	issued *[]problem.Problem,
+) error {
+	request := envelope.GetAcquireAccess()
+	grant, err := s.acquire(auth.Request{
+		Audience: request.GetAudience(),
+		Scopes:   request.GetScopes(),
+	})
+	if err != nil {
+		sent, reported := s.denial(err)
+		*issued = append(*issued, reported)
+		return s.write(writer, "the access denial", &contractv1.Envelope{
+			InvocationId:  s.InvocationID,
+			CorrelationId: envelope.GetCorrelationId(),
+			Message: &contractv1.Envelope_AccessDenied{AccessDenied: &contractv1.AccessDenied{
+				Problem: protocol.EncodeProblem(sent),
+			}},
+		})
+	}
+	return s.write(writer, "the access grant", &contractv1.Envelope{
+		InvocationId:  s.InvocationID,
+		CorrelationId: envelope.GetCorrelationId(),
+		Message: &contractv1.Envelope_AccessGranted{AccessGranted: &contractv1.AccessGranted{
+			Token:         grant.Token,
+			ExpiresAtUnix: grant.ExpiresAt.Unix(),
+		}},
+	})
+}
+
+// acquire consults the broker, refusing when this invocation has none.
+//
+// A session with no broker is a session that can authorize nothing, so it
+// refuses rather than falling through to a grant.
+func (s Session) acquire(request auth.Request) (auth.Grant, error) {
+	if s.Broker == nil {
+		return auth.Grant{}, problem.New(problem.CategoryAuthPolicy, "auth.broker_unavailable",
+			fmt.Sprintf("the %q module asked for access, and this command brokered none", s.namespace())).
+			WithRecovery("Retry the command. Report the failure if it persists.")
+	}
+	return s.Broker.Acquire(request)
+}
+
+// denial renders a broker failure twice: as the module receives it, and as the
+// shell would report it.
+//
+// The two differ when recovery guidance names something the user needs and the
+// module may not have, such as the context's credential source. Everything the
+// module is sent crosses the contract, so the narrower version is the one that
+// travels.
+//
+// A failure the broker did not type is still an access failure: the invocation
+// was not authorized, and reporting it as anything else would let an internal
+// fault look like a granted request that went wrong later.
+func (s Session) denial(err error) (sent, reported problem.Problem) {
+	var refused auth.Denial
+	if errors.As(err, &refused) {
+		return refused.Problem, refused.Reported()
+	}
+	var typed problem.Problem
+	if errors.As(err, &typed) {
+		return typed, typed
+	}
+	undecided := problem.New(problem.CategoryAuthPolicy, "auth.access_undecided",
+		fmt.Sprintf("the shell could not decide the %q module's access", s.namespace())).
+		WithRecovery("Retry the command. Report the failure if it persists.")
+	return undecided, undecided
+}
+
+// restoreDenial replaces a module's account of a refusal with the shell's own.
+//
+// A module returning a denial it was sent has nothing to add to it: the shell
+// decided the refusal, so the shell's version is the authoritative one, and it
+// may carry guidance the module was deliberately not given. Only a refusal this
+// invocation actually issued is restored, so nothing a module invents can make
+// the shell speak for it.
+func restoreDenial(issued []problem.Problem, returned problem.Problem) (problem.Problem, bool) {
+	for _, refusal := range issued {
+		if refusal.Code == returned.Code && refusal.Category == returned.Category {
+			return refusal, true
+		}
+	}
+	return problem.Problem{}, false
 }
 
 // expectNoFurtherMessages proves the module stopped after its terminal message.

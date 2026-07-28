@@ -125,6 +125,27 @@ jobs:
         if: needs.changes.outputs.shell == 'true'
         run: go test ./...
 
+      - name: Build and test reference module
+        # The reference module proves the public SDK from a module author's
+        # side, so it is built, vetted, and tested whenever the shell or the
+        # module changes.
+        if: needs.changes.outputs.shell == 'true'
+        working-directory: examples/reference-module
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t files < <(git ls-files '*.go')
+          unformatted="$(gofmt -l "${files[@]}")"
+          if [[ -n "$unformatted" ]]; then
+            echo "The following reference-module files require gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+          go vet ./...
+          go test ./...
+
       - name: Build SDK
         if: needs.changes.outputs.sdk == 'true'
         working-directory: sdk

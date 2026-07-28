@@ -41,6 +41,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/modules/fixture"
 	"github.com/wso2/wso2-cli/internal/state"
+	"github.com/wso2/wso2-cli/internal/statusservice"
 )
 
 // The exit classes the shell returns, named at every call site so a failed
@@ -226,8 +227,9 @@ func TestASameNamedExecutableOnPathOrInTheWorkingDirectoryIsIgnored(t *testing.T
 		t.Skip("the shadowing executable is a POSIX shell script")
 	}
 	shell := buildShell(t)
-	stateRoot := isolatedStateRoot(t)
-	installReferenceModule(t, stateRoot, buildReferenceModule(t))
+	// The installed module has to answer for this test to prove anything, and
+	// answering now means brokered access to the local status service.
+	stateRoot := deploy(t, statusservice.Options{}).stateRoot
 
 	// Two impostors under the module's own executable name: one first on PATH,
 	// one in the working directory the shell is run from. Either would leave a
