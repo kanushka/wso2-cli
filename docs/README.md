@@ -24,6 +24,9 @@ Read these documents first:
 - [First CLI vertical slice](plans/first-cli-vertical-slice.md) defines the
   approved architecture proof, its exclusions, implementation order, and
   acceptance gate.
+- [Architecture proof review](plans/architecture-proof-review.md) closes that
+  plan: how to reproduce the gate, the seams a production implementation
+  replaces, and what the proof does not establish.
 
 Plans are bounded execution documents. They do not override product
 requirements or architecture.

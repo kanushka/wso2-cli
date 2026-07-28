@@ -1,6 +1,6 @@
 # First CLI Vertical Slice
 
-**Status:** Approved implementation plan
+**Status:** Approved implementation plan, delivered and reviewed
 
 **Date:** 2026-07-27
 
@@ -405,6 +405,11 @@ The slice is complete only when:
   key; and
 - the implementation review lists the production replacement seams for module
   trust, credential storage, token issuance, and the product service.
+
+Every one of those is met. `./scripts/acceptance.sh` is the automated gate, and
+the [architecture proof review](architecture-proof-review.md) is the review:
+it names the replacement seams, maps each condition above to the run that
+proves it, and states what the proof does not establish.
 
 The next slice should add persistent shell-owned authentication and login/logout
 or migrate one real product command. That choice requires a separate plan based
