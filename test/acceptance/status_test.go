@@ -23,11 +23,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
-	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/modules/fixture"
 	"github.com/wso2/wso2-cli/internal/state"
 )
@@ -139,44 +140,25 @@ func TestAnUnknownOutputModeFailsWithTheUsageExitClass(t *testing.T) {
 	}
 }
 
-func TestAModuleThatSpeaksAnotherProtocolFailsBeforeInvocation(t *testing.T) {
-	// The receipt promises a protocol the shell does not speak, so the module
-	// is never launched.
-	shell := buildShell(t)
-	stateRoot := isolatedStateRoot(t)
-	if _, err := fixture.Install(state.ModuleStore(stateRoot), fixture.Module{
-		Namespace:        "reference",
-		Version:          testModuleVersion,
-		ShellRange:       ">=0.1.0 <1.0.0",
-		ProtocolVersions: []int{testProtocolVersionNumber + 1},
-		SourcePath:       buildReferenceModule(t),
-	}); err != nil {
-		t.Fatalf("fixture.Install returned %v", err)
-	}
-
-	stdout, stderr, err := tryShell(shell, stateRoot, "reference", "status")
-
-	if exitCode(t, err) != 69 {
-		t.Fatalf("exit status = %v, want the module trust class 69\nstderr:\n%s", err, stderr)
-	}
-	if !strings.Contains(stderr, "modules.incompatible_protocol") {
-		t.Errorf("stderr does not report the protocol mismatch:\n%s", stderr)
-	}
-	if stdout != "" {
-		t.Errorf("a refused module still wrote to standard output:\n%s", stdout)
-	}
-}
+// A receipt promising a protocol the shell does not speak is refused before
+// launch alongside the other incompatible receipt facts, in
+// TestIncompatibleReceiptMetadataIsRejectedBeforeLaunch.
 
 func TestAModuleThatNeverAnswersFailsWithAStableProblem(t *testing.T) {
 	// A hanging module must not merely stop blocking the shell eventually. It
 	// has to end as one named problem in the module process exit class, with
-	// nothing on standard output for a script to misread as a result.
+	// nothing on standard output for a script to misread as a result, and the
+	// module process itself has to be gone.
 	if runtime.GOOS == "windows" {
 		t.Skip("the hanging module fixture is a POSIX shell script")
 	}
 	shell := buildShell(t)
 	stateRoot := isolatedStateRoot(t)
-	installScriptedModule(t, stateRoot, "#!/bin/sh\nwhile true; do sleep 1; done\n")
+	// The module records its own process id before hanging, so the test can
+	// ask whether the shell terminated it rather than merely stopped waiting.
+	pidFile := filepath.Join(t.TempDir(), "module.pid")
+	installScriptedModule(t, stateRoot,
+		"#!/bin/sh\necho $$ > '"+pidFile+"'\nwhile true; do sleep 1; done\n")
 
 	stdout, stderr, err := runShellWithCeiling(t, shell, stateRoot, "reference", "status")
 
@@ -189,6 +171,50 @@ func TestAModuleThatNeverAnswersFailsWithAStableProblem(t *testing.T) {
 	if stdout != "" {
 		t.Errorf("a module that never answered still wrote to standard output:\n%s", stdout)
 	}
+	// The module ignores the closed protocol input, so only the kill that ends
+	// the termination grace can have stopped it.
+	assertProcessTerminated(t, readPID(t, pidFile))
+}
+
+// assertProcessTerminated proves a process id no longer names a live process.
+//
+// It waits rather than sampling once: the shell kills and reaps its child
+// before exiting, but a process that has been signalled and not yet reaped
+// still answers, and that window is the operating system's to close.
+func assertProcessTerminated(t *testing.T, pid int) {
+	t.Helper()
+	const (
+		limit = 10 * time.Second
+		poll  = 50 * time.Millisecond
+	)
+	deadline := time.Now().Add(limit)
+	for {
+		process, err := os.FindProcess(pid)
+		// Signal zero performs the existence and permission checks without
+		// delivering anything.
+		if err != nil || process.Signal(syscall.Signal(0)) != nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("the hanging module (process %d) was still running %s after the shell exited", pid, limit)
+			return
+		}
+		time.Sleep(poll)
+	}
+}
+
+// readPID reads a process id a fixture module recorded for itself.
+func readPID(t *testing.T, path string) int {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("the module recorded no process id: %v", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(content)))
+	if err != nil {
+		t.Fatalf("the recorded process id %q is not a number: %v", content, err)
+	}
+	return pid
 }
 
 func TestAModuleThatCrashesBeforeAnsweringFailsWithAStableProblem(t *testing.T) {
@@ -226,7 +252,7 @@ func TestAModuleThatAnswersThenExitsUncleanlyFailsWithAStableProblem(t *testing.
 	shell := buildShell(t)
 	stateRoot := isolatedStateRoot(t)
 	installNoisyModule(t, stateRoot)
-	steerInstalledModule(t, stateRoot, "exit-uncleanly")
+	writeControlFile(t, stateRoot, "exit-uncleanly", "")
 
 	stdout, stderr, err := tryShell(shell, stateRoot, "reference", "status")
 
@@ -297,18 +323,17 @@ func installNoisyModule(t *testing.T, stateRoot string) {
 	installReferenceModule(t, stateRoot, binary)
 }
 
-// steerInstalledModule writes a control file beside an installed module
-// executable.
+// writeControlFile steers an installed acceptance module by writing a control
+// file beside its executable.
 //
-// The acceptance module reads these rather than arguments or environment
-// variables, because the shell supplies neither. Writing one leaves the
-// executable untouched, so its receipt digest still matches and the shell
-// still launches it.
-func steerInstalledModule(t *testing.T, stateRoot, name string) {
+// These modules read control files rather than arguments or environment
+// variables, because the shell supplies neither. Writing one also leaves the
+// executable untouched, so its receipt digest still matches and the shell still
+// launches it.
+func writeControlFile(t *testing.T, stateRoot, name, content string) {
 	t.Helper()
-	store := modules.NewStore(state.ModuleStore(stateRoot))
-	path := filepath.Join(store.VersionDir("reference", testModuleVersion), name)
-	if err := os.WriteFile(path, nil, 0o644); err != nil {
+	path := markerPath(stateRoot, name)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("writing the control file %s: %v", name, err)
 	}
 }
