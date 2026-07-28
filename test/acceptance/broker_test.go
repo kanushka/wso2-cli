@@ -334,7 +334,7 @@ func TestTheModuleEnvironmentCarriesNoAmbientCredential(t *testing.T) {
 	shell := buildShell(t)
 	stateRoot := isolatedStateRoot(t)
 	installNoisyModule(t, stateRoot)
-	steerInstalledModule(t, stateRoot, "report-environment")
+	writeControlFile(t, stateRoot, "report-environment", "")
 	service := startStatusService(t, statusservice.Options{})
 	installReferenceContext(t, stateRoot, service.server.URL, credentialVariable)
 
