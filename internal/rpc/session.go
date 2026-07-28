@@ -214,6 +214,10 @@ func (s Session) sendInvoke(writer *protocol.Writer, invocation Invocation) erro
 // about, and is refused.
 func (s Session) readTerminal(reader *protocol.Reader, writer *protocol.Writer) (Outcome, error) {
 	var envelope *contractv1.Envelope
+	// issued holds each refusal as the shell would report it. The module was
+	// sent a narrower version, so what a user reads about a refusal comes from
+	// here rather than from whatever the module hands back.
+	var issued []problem.Problem
 	requests := 0
 	for {
 		read, err := reader.ReadEnvelope()
@@ -240,7 +244,17 @@ func (s Session) readTerminal(reader *protocol.Reader, writer *protocol.Writer) 
 					s.namespace(), MaxAccessRequests),
 				retryRecovery)
 		}
-		if err := s.answerAccess(writer, read); err != nil {
+		// An access request is one half of an exchange, so it has to say which
+		// exchange. Answering an uncorrelated request would leave the module
+		// unable to tell this answer from any other, and the shell unable to
+		// prove it answered what was asked.
+		if read.GetCorrelationId() == "" {
+			return Outcome{}, processProblem("rpc.uncorrelated_access_request",
+				fmt.Sprintf("the %q module asked for access without a correlation identifier",
+					s.namespace()),
+				retryRecovery)
+		}
+		if err := s.answerAccess(writer, read, &issued); err != nil {
 			return Outcome{}, err
 		}
 	}
@@ -264,6 +278,9 @@ func (s Session) readTerminal(reader *protocol.Reader, writer *protocol.Writer) 
 				fmt.Sprintf("the %q module returned a failure the shell cannot report: %s", s.namespace(), err),
 				retryRecovery)
 		}
+		if restored, found := restoreDenial(issued, decoded); found {
+			decoded = restored
+		}
 		outcome.Problem = &decoded
 	default:
 		return Outcome{}, processProblem("rpc.unexpected_message",
@@ -283,18 +300,24 @@ func (s Session) readTerminal(reader *protocol.Reader, writer *protocol.Writer) 
 // never left waiting, and it never has to guess whether silence meant refusal.
 // The module's own request is not what decides the outcome — the broker weighs
 // it against the module receipt, the selected context, and this invocation.
-func (s Session) answerAccess(writer *protocol.Writer, envelope *contractv1.Envelope) error {
+func (s Session) answerAccess(
+	writer *protocol.Writer,
+	envelope *contractv1.Envelope,
+	issued *[]problem.Problem,
+) error {
 	request := envelope.GetAcquireAccess()
 	grant, err := s.acquire(auth.Request{
 		Audience: request.GetAudience(),
 		Scopes:   request.GetScopes(),
 	})
 	if err != nil {
+		sent, reported := s.denial(err)
+		*issued = append(*issued, reported)
 		return s.write(writer, "the access denial", &contractv1.Envelope{
 			InvocationId:  s.InvocationID,
 			CorrelationId: envelope.GetCorrelationId(),
 			Message: &contractv1.Envelope_AccessDenied{AccessDenied: &contractv1.AccessDenied{
-				Problem: protocol.EncodeProblem(s.denial(err)),
+				Problem: protocol.EncodeProblem(sent),
 			}},
 		})
 	}
@@ -321,19 +344,46 @@ func (s Session) acquire(request auth.Request) (auth.Grant, error) {
 	return s.Broker.Acquire(request)
 }
 
-// denial renders a broker failure as the problem the module receives.
+// denial renders a broker failure twice: as the module receives it, and as the
+// shell would report it.
+//
+// The two differ when recovery guidance names something the user needs and the
+// module may not have, such as the context's credential source. Everything the
+// module is sent crosses the contract, so the narrower version is the one that
+// travels.
 //
 // A failure the broker did not type is still an access failure: the invocation
 // was not authorized, and reporting it as anything else would let an internal
 // fault look like a granted request that went wrong later.
-func (s Session) denial(err error) problem.Problem {
+func (s Session) denial(err error) (sent, reported problem.Problem) {
+	var refused auth.Denial
+	if errors.As(err, &refused) {
+		return refused.Problem, refused.Reported()
+	}
 	var typed problem.Problem
 	if errors.As(err, &typed) {
-		return typed
+		return typed, typed
 	}
-	return problem.New(problem.CategoryAuthPolicy, "auth.access_undecided",
+	undecided := problem.New(problem.CategoryAuthPolicy, "auth.access_undecided",
 		fmt.Sprintf("the shell could not decide the %q module's access", s.namespace())).
 		WithRecovery("Retry the command. Report the failure if it persists.")
+	return undecided, undecided
+}
+
+// restoreDenial replaces a module's account of a refusal with the shell's own.
+//
+// A module returning a denial it was sent has nothing to add to it: the shell
+// decided the refusal, so the shell's version is the authoritative one, and it
+// may carry guidance the module was deliberately not given. Only a refusal this
+// invocation actually issued is restored, so nothing a module invents can make
+// the shell speak for it.
+func restoreDenial(issued []problem.Problem, returned problem.Problem) (problem.Problem, bool) {
+	for _, refusal := range issued {
+		if refusal.Code == returned.Code && refusal.Category == returned.Category {
+			return refusal, true
+		}
+	}
+	return problem.Problem{}, false
 }
 
 // expectNoFurtherMessages proves the module stopped after its terminal message.

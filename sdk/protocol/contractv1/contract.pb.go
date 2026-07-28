@@ -852,7 +852,8 @@ func (x *AcquireAccess) GetScopes() []string {
 //
 // It carries a short-lived token and nothing else: no credential the token was
 // derived from, no reference to one, and no means of renewal. A module whose
-// token expires has to ask the broker again, which reapplies policy.
+// token expires cannot renew it. The remaining work belongs to a new command,
+// where the shell applies broker policy again from scratch.
 type AccessGranted struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// token is the access material to present to the audience. It is bound to

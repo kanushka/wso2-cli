@@ -215,10 +215,23 @@ func (d Document) validate() error {
 
 func (c Context) validate() error {
 	if c.Endpoint != "" {
+		// The endpoint is never echoed. A rejected one is the most likely
+		// place for a credential to have been typed by mistake, and repeating
+		// it into a problem the shell renders would publish it.
 		parsed, err := url.Parse(c.Endpoint)
 		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-			return malformed(fmt.Sprintf("declares an unreadable endpoint %q for the context %q",
-				c.Endpoint, c.Name))
+			return malformed(fmt.Sprintf("declares an endpoint for the context %q that this shell cannot read",
+				c.Name))
+		}
+		// A URL may carry a user and password before its host. The endpoint
+		// reaches the module, so an endpoint that embeds a credential would
+		// hand one to a module through the one context member nobody thinks of
+		// as carrying credentials.
+		if parsed.User != nil {
+			return contextProblem("contexts.document_malformed",
+				fmt.Sprintf("the endpoint of the context %q embeds credentials in its URL", c.Name),
+				"Remove the user information from the endpoint. A context names a credential source; "+
+					"it never carries a credential.")
 		}
 	}
 	if c.Auth.CredentialVariable != "" && !variablePattern.MatchString(c.Auth.CredentialVariable) {

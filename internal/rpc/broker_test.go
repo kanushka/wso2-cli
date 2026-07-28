@@ -19,11 +19,13 @@ package rpc
 import (
 	"bytes"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/wso2/wso2-cli/internal/auth"
 	"github.com/wso2/wso2-cli/sdk/problem"
+	"github.com/wso2/wso2-cli/sdk/protocol"
 	"github.com/wso2/wso2-cli/sdk/protocol/contractv1"
 )
 
@@ -130,6 +132,74 @@ func TestADeniedRequestIsAnsweredWithTheShellsProblem(t *testing.T) {
 	}
 }
 
+func TestGuidanceTheModuleMayNotSeeReachesTheUserAnyway(t *testing.T) {
+	// A denial can only tell a user what to do by naming where the credential
+	// comes from, which is exactly what a module must not learn. The module is
+	// sent the narrower refusal, and the shell reports its own when the module
+	// returns that refusal as its outcome.
+	const guidance = "Set WSO2_REFERENCE_DEV_CREDENTIAL to the credential for this context."
+	sent := problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable",
+		"the credential source the \"reference-local\" context names is not set").
+		WithRecovery("Set the credential source this context names, then retry the command.")
+	broker := &recordingBroker{denial: auth.Denial{Problem: sent, Guidance: guidance}}
+
+	outcome, written, err := runBrokered(t, broker,
+		moduleStream(t, conformingHello(), accessRequest(), returnedProblem(sent)))
+
+	if err != nil {
+		t.Fatalf("Run returned %v", err)
+	}
+	refused := lastAccessAnswer(t, written).GetAccessDenied().GetProblem()
+	if strings.Contains(refused.GetRecovery(), "WSO2_REFERENCE_DEV_CREDENTIAL") {
+		t.Errorf("the module was told where the credential comes from: %q", refused.GetRecovery())
+	}
+	if outcome.Problem == nil {
+		t.Fatal("a denied invocation returned no problem")
+	}
+	if outcome.Problem.Recovery != guidance {
+		t.Errorf("the user is told %q, want the shell's own guidance %q",
+			outcome.Problem.Recovery, guidance)
+	}
+}
+
+func TestAProblemTheShellNeverIssuedIsReportedAsTheModuleWroteIt(t *testing.T) {
+	// Only a refusal this invocation actually issued is replaced, so a module
+	// cannot borrow the shell's voice by returning a problem code it invented.
+	broker := &recordingBroker{grant: auth.Grant{Token: "fixture-token", ExpiresAt: grantedUntil}}
+	invented := problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable",
+		"a message the module wrote").WithRecovery("Guidance the module wrote.")
+
+	outcome, _, err := runBrokered(t, broker,
+		moduleStream(t, conformingHello(), accessRequest(), returnedProblem(invented)))
+
+	if err != nil {
+		t.Fatalf("Run returned %v", err)
+	}
+	if outcome.Problem == nil {
+		t.Fatal("the module's problem did not reach the shell")
+	}
+	if *outcome.Problem != invented {
+		t.Errorf("the problem arrived as %+v, want it as the module wrote it %+v", *outcome.Problem, invented)
+	}
+}
+
+func TestAnUncorrelatedAccessRequestIsRefused(t *testing.T) {
+	// A request that names no exchange cannot be answered: the module could
+	// not tell this answer from any other.
+	uncorrelated := accessRequest()
+	uncorrelated.CorrelationId = ""
+	broker := &recordingBroker{grant: auth.Grant{Token: "fixture-token", ExpiresAt: grantedUntil}}
+
+	_, _, err := runBrokered(t, broker, moduleStream(t, conformingHello(), uncorrelated, statusResult()))
+
+	if err == nil {
+		t.Fatal("the shell answered an access request that named no exchange")
+	}
+	if len(broker.requested) != 0 {
+		t.Errorf("the broker was consulted %d times for an uncorrelated request", len(broker.requested))
+	}
+}
+
 func TestAnUntypedBrokerFailureStillDeniesAccess(t *testing.T) {
 	// Whatever went wrong inside the shell, the module gets one typed answer:
 	// an invocation that cannot be authorized is refused, never granted.
@@ -175,6 +245,14 @@ func TestAnAccessRequestBoundToAnotherInvocationIsRefused(t *testing.T) {
 	}
 	if len(broker.requested) != 0 {
 		t.Errorf("the broker was consulted %d times for a foreign invocation", len(broker.requested))
+	}
+}
+
+// returnedProblem is a module ending the invocation with a typed problem.
+func returnedProblem(failure problem.Problem) *contractv1.Envelope {
+	return &contractv1.Envelope{
+		InvocationId: testInvocationID,
+		Message:      &contractv1.Envelope_Problem{Problem: protocol.EncodeProblem(failure)},
 	}
 }
 

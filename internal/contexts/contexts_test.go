@@ -179,6 +179,42 @@ func TestADocumentThisShellCannotReadFailsClosed(t *testing.T) {
 	}
 }
 
+func TestAnEndpointThatEmbedsCredentialsIsRefused(t *testing.T) {
+	// The endpoint reaches the module. A credential written into its URL would
+	// hand one over through the member nobody thinks of as carrying
+	// credentials, so the document is refused and the endpoint is not echoed.
+	const embedded = "http://operator:s3cr3t@127.0.0.1:8080"
+	document := document()
+	document.Contexts[0].Endpoint = embedded
+
+	_, err := document.Encode()
+
+	var typed problem.Problem
+	if err == nil {
+		t.Fatal("a context embedding credentials in its endpoint was accepted")
+	}
+	if !asProblem(err, &typed) || typed.Category != problem.CategoryUsage {
+		t.Fatalf("Encode returned %v, want a usage problem", err)
+	}
+	if strings.Contains(typed.Message+typed.Recovery, "s3cr3t") {
+		t.Fatalf("the refusal repeats the endpoint's credentials: %+v", typed)
+	}
+}
+
+func TestARejectedEndpointIsNeverEchoed(t *testing.T) {
+	document := document()
+	document.Contexts[0].Endpoint = "not an endpoint with s3cr3t in it"
+
+	_, err := document.Encode()
+
+	if err == nil {
+		t.Fatal("an unreadable endpoint was accepted")
+	}
+	if strings.Contains(err.Error(), "s3cr3t") {
+		t.Fatalf("the refusal repeats the rejected endpoint: %v", err)
+	}
+}
+
 func TestTheFixtureRefusesToWriteIntoRealWSO2State(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

@@ -17,6 +17,7 @@
 package auth_test
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -111,31 +112,31 @@ func TestAGrantCarriesOnlyTheToken(t *testing.T) {
 }
 
 func TestAnUndeclaredAudienceIsDenied(t *testing.T) {
-	denial := denied(t, broker(t), auth.Request{Audience: "another-audience", Scopes: []string{readScope}})
+	refusal := denied(t, broker(t), auth.Request{Audience: "another-audience", Scopes: []string{readScope}})
 
-	if denial.Code != "auth.audience_not_declared" {
-		t.Errorf("code = %q, want auth.audience_not_declared", denial.Code)
+	if refusal.Problem.Code != "auth.audience_not_declared" {
+		t.Errorf("code = %q, want auth.audience_not_declared", refusal.Problem.Code)
 	}
 }
 
 func TestAnExcessiveScopeIsDenied(t *testing.T) {
 	// The module receipt is the ceiling: a module cannot ask at runtime for
 	// more than its installation declared.
-	denial := denied(t, broker(t), auth.Request{
+	refusal := denied(t, broker(t), auth.Request{
 		Audience: audience,
 		Scopes:   []string{readScope, "reference:status:write"},
 	})
 
-	if denial.Code != "auth.scope_not_declared" {
-		t.Errorf("code = %q, want auth.scope_not_declared", denial.Code)
+	if refusal.Problem.Code != "auth.scope_not_declared" {
+		t.Errorf("code = %q, want auth.scope_not_declared", refusal.Problem.Code)
 	}
 }
 
 func TestARequestWithoutAnAudienceIsDenied(t *testing.T) {
-	denial := denied(t, broker(t), auth.Request{Scopes: []string{readScope}})
+	refusal := denied(t, broker(t), auth.Request{Scopes: []string{readScope}})
 
-	if denial.Code != "auth.audience_not_declared" {
-		t.Errorf("code = %q, want auth.audience_not_declared", denial.Code)
+	if refusal.Problem.Code != "auth.audience_not_declared" {
+		t.Errorf("code = %q, want auth.audience_not_declared", refusal.Problem.Code)
 	}
 }
 
@@ -149,15 +150,39 @@ func TestAMissingCredentialIsDeniedWithSafeGuidance(t *testing.T) {
 			broker := broker(t)
 			broker.Credentials = credentials
 
-			denial := denied(t, broker, declaredRequest())
+			refusal := denied(t, broker, declaredRequest())
 
-			if denial.Code != "auth.credential_unavailable" {
-				t.Errorf("code = %q, want auth.credential_unavailable", denial.Code)
+			if refusal.Problem.Code != "auth.credential_unavailable" {
+				t.Errorf("code = %q, want auth.credential_unavailable", refusal.Problem.Code)
 			}
-			if !strings.Contains(denial.Recovery, credentialVar) {
-				t.Errorf("the recovery guidance %q does not name the credential source", denial.Recovery)
+			// The user is told what to set. The module is not: where a
+			// credential comes from is the shell's business.
+			if !strings.Contains(refusal.Reported().Recovery, credentialVar) {
+				t.Errorf("the reported guidance %q does not name the credential source",
+					refusal.Reported().Recovery)
+			}
+			if strings.Contains(refusal.Problem.Recovery, credentialVar) {
+				t.Errorf("the denial sent to the module names the credential source: %q",
+					refusal.Problem.Recovery)
+			}
+			if strings.Contains(refusal.Problem.Message, credentialVar) {
+				t.Errorf("the denial sent to the module names the credential source: %q",
+					refusal.Problem.Message)
 			}
 		})
+	}
+}
+
+func TestAModuleOutsideTheProofNamespaceIsNeverBrokeredAccess(t *testing.T) {
+	// The issuer behind this broker is a development fixture. A product
+	// namespace reaching it is refused rather than handed fixture access.
+	broker := broker(t)
+	broker.Namespace = "api"
+
+	refusal := denied(t, broker, declaredRequest())
+
+	if refusal.Problem.Code != "auth.namespace_not_brokered" {
+		t.Errorf("code = %q, want auth.namespace_not_brokered", refusal.Problem.Code)
 	}
 }
 
@@ -165,10 +190,10 @@ func TestAnInvocationWithoutAContextIsDenied(t *testing.T) {
 	broker := broker(t)
 	broker.Context = contexts.Context{Name: contexts.DefaultName}
 
-	denial := denied(t, broker, declaredRequest())
+	refusal := denied(t, broker, declaredRequest())
 
-	if denial.Code != "auth.context_not_selected" {
-		t.Errorf("code = %q, want auth.context_not_selected", denial.Code)
+	if refusal.Problem.Code != "auth.context_not_selected" {
+		t.Errorf("code = %q, want auth.context_not_selected", refusal.Problem.Code)
 	}
 }
 
@@ -178,10 +203,10 @@ func TestAContextWithoutAnOrganizationIsDenied(t *testing.T) {
 	broker := broker(t)
 	broker.Context.OrganizationID = ""
 
-	denial := denied(t, broker, declaredRequest())
+	refusal := denied(t, broker, declaredRequest())
 
-	if denial.Code != "auth.organization_not_selected" {
-		t.Errorf("code = %q, want auth.organization_not_selected", denial.Code)
+	if refusal.Problem.Code != "auth.organization_not_selected" {
+		t.Errorf("code = %q, want auth.organization_not_selected", refusal.Problem.Code)
 	}
 }
 
@@ -189,10 +214,10 @@ func TestAnAuthenticationMethodThisShellDoesNotImplementIsDenied(t *testing.T) {
 	broker := broker(t)
 	broker.Context.Auth.Method = "browser-pkce"
 
-	denial := denied(t, broker, declaredRequest())
+	refusal := denied(t, broker, declaredRequest())
 
-	if denial.Code != "auth.method_unsupported" {
-		t.Errorf("code = %q, want auth.method_unsupported", denial.Code)
+	if refusal.Problem.Code != "auth.method_unsupported" {
+		t.Errorf("code = %q, want auth.method_unsupported", refusal.Problem.Code)
 	}
 }
 
@@ -204,10 +229,10 @@ func TestAModuleCannotRefreshItsAccess(t *testing.T) {
 		t.Fatalf("the first Acquire returned %v", err)
 	}
 
-	denial := denied(t, broker, declaredRequest())
+	refusal := denied(t, broker, declaredRequest())
 
-	if denial.Code != "auth.already_granted" {
-		t.Errorf("code = %q, want auth.already_granted", denial.Code)
+	if refusal.Problem.Code != "auth.already_granted" {
+		t.Errorf("code = %q, want auth.already_granted", refusal.Problem.Code)
 	}
 }
 
@@ -215,33 +240,36 @@ func TestNoDenialRevealsTheSourceCredential(t *testing.T) {
 	broker := broker(t)
 	broker.Context.Auth.Method = "browser-pkce"
 
-	denial := denied(t, broker, auth.Request{Audience: "another-audience", Scopes: []string{"another:scope"}})
+	refusal := denied(t, broker, auth.Request{Audience: "another-audience", Scopes: []string{"another:scope"}})
 
-	rendered := denial.Message + " " + denial.Recovery
+	rendered := refusal.Problem.Message + " " + refusal.Problem.Recovery +
+		" " + refusal.Reported().Message + " " + refusal.Reported().Recovery
 	if strings.Contains(rendered, sourceCredential) {
 		t.Fatalf("a denial revealed the source credential: %s", rendered)
 	}
 }
 
-// denied runs one request that must be refused and returns the shell's problem.
-func denied(t *testing.T, broker *auth.Broker, request auth.Request) problem.Problem {
+// denied runs one request that must be refused and returns the shell's denial.
+func denied(t *testing.T, broker *auth.Broker, request auth.Request) auth.Denial {
 	t.Helper()
 	grant, err := broker.Acquire(request)
 	if err == nil {
 		t.Fatalf("Acquire granted %+v, want a denial", grant)
 	}
-	typed, ok := err.(problem.Problem)
-	if !ok {
-		t.Fatalf("Acquire returned %v, want a typed problem", err)
+	var refusal auth.Denial
+	if !errors.As(err, &refusal) {
+		t.Fatalf("Acquire returned %v, want a typed denial", err)
 	}
-	if typed.Category != problem.CategoryAuthPolicy {
-		t.Errorf("category = %q, want %q", typed.Category, problem.CategoryAuthPolicy)
+	for _, stated := range []problem.Problem{refusal.Problem, refusal.Reported()} {
+		if stated.Category != problem.CategoryAuthPolicy {
+			t.Errorf("category = %q, want %q", stated.Category, problem.CategoryAuthPolicy)
+		}
+		if stated.Message == "" || stated.Recovery == "" {
+			t.Errorf("the denial %q states %q and offers %q; both are required",
+				stated.Code, stated.Message, stated.Recovery)
+		}
 	}
-	if typed.Message == "" || typed.Recovery == "" {
-		t.Errorf("the denial %q states %q and offers %q; both are required",
-			typed.Code, typed.Message, typed.Recovery)
-	}
-	return typed
+	return refusal
 }
 
 // exportedMembers reports a value's exported field names.

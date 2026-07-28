@@ -60,6 +60,42 @@ type Grant struct {
 	ExpiresAt time.Time
 }
 
+// ProofNamespace is the reserved non-production namespace this broker serves.
+//
+// The issuer behind it is a development fixture, so it answers for the
+// architecture proof and nothing else. A product namespace reaching this
+// broker is refused rather than quietly handed fixture access: whatever
+// installed it, it is not what this release can authenticate.
+const ProofNamespace = "reference"
+
+// Denial is a refused access request.
+//
+// It is two statements of one refusal, because the module and the user are
+// owed different things. The module is owed a typed failure it can return
+// unchanged, and must not learn where a credential comes from. The user is
+// usually owed exactly that: naming the variable to set is the difference
+// between a refusal and an instruction.
+type Denial struct {
+	// Problem is the refusal as the module receives it. It crosses the module
+	// contract, so it names no credential and no credential source.
+	Problem problem.Problem
+	// Guidance replaces the problem's recovery when the shell reports the
+	// denial itself. It is empty when the module-safe recovery is already what
+	// the user needs.
+	Guidance string
+}
+
+// Error lets a denial travel as an ordinary error.
+func (d Denial) Error() string { return d.Problem.Error() }
+
+// Reported is the denial as the shell shows it to the user.
+func (d Denial) Reported() problem.Problem {
+	if d.Guidance == "" {
+		return d.Problem
+	}
+	return d.Problem.WithRecovery(d.Guidance)
+}
+
 // Broker answers one invocation's access requests.
 type Broker struct {
 	// Namespace is the module asking, named in denials.
@@ -89,6 +125,12 @@ type Broker struct {
 // Every refusal is a typed problem in the authentication class, with recovery
 // guidance a user can act on and no detail of the credential behind it.
 func (b *Broker) Acquire(request Request) (Grant, error) {
+	if b.Namespace != ProofNamespace {
+		return Grant{}, denial("auth.namespace_not_brokered",
+			fmt.Sprintf("the %q module asked for access, and this shell brokers access for the "+
+				"non-production %q proof only", b.namespace(), ProofNamespace),
+			"Install a module the WSO2 CLI can authenticate, or run the command without it.")
+	}
 	if b.granted {
 		return Grant{}, denial("auth.already_granted",
 			fmt.Sprintf("the %q module asked for access twice in one command", b.namespace()),
@@ -172,8 +214,9 @@ func (b *Broker) checkContext() error {
 // credential reads the source credential the context names.
 //
 // The value stays in this process: it is the issuer's signing key and is never
-// written to state, passed to the module, or included in a problem. Only its
-// variable's name appears in guidance.
+// written to state, passed to the module, or included in a problem. Neither is
+// the name of the variable holding it, which is the module's own answer to
+// "where would I look?" and therefore travels only to the user.
 func (b *Broker) credential() (string, error) {
 	name := b.Context.Auth.CredentialVariable
 	if name == "" {
@@ -187,9 +230,12 @@ func (b *Broker) credential() (string, error) {
 	}
 	value, present := lookup(name)
 	if !present || strings.TrimSpace(value) == "" {
-		return "", denial("auth.credential_unavailable",
-			fmt.Sprintf("the credential source the %q context names is not set", b.Context.Name),
-			fmt.Sprintf("Set %s to the credential for this context, then retry the command.", name))
+		return "", Denial{
+			Problem: problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable",
+				fmt.Sprintf("the credential source the %q context names is not set", b.Context.Name)).
+				WithRecovery("Set the credential source this context names, then retry the command."),
+			Guidance: fmt.Sprintf("Set %s to the credential for this context, then retry the command.", name),
+		}
 	}
 	return value, nil
 }
@@ -208,9 +254,11 @@ func (b *Broker) namespace() string {
 	return b.Namespace
 }
 
-// denial reports a broker refusal. Every one is in the authentication class, so
-// automation can tell an access failure from a product failure by exit code
-// alone.
-func denial(code, message, recovery string) problem.Problem {
-	return problem.New(problem.CategoryAuthPolicy, code, message).WithRecovery(recovery)
+// denial reports a broker refusal the module and the user can both be told in
+// full. Every refusal is in the authentication class, so automation can tell an
+// access failure from a product failure by exit code alone.
+func denial(code, message, recovery string) Denial {
+	return Denial{
+		Problem: problem.New(problem.CategoryAuthPolicy, code, message).WithRecovery(recovery),
+	}
 }
