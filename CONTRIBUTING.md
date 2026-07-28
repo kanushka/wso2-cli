@@ -22,6 +22,20 @@ checkout needs one because the reference module requires an SDK version that
 has never been published. It disappears once the SDK is published, and a test
 pins it to that single line.
 
+One command builds all three modules and runs every test layer, and it is the
+same command continuous integration runs:
+
+```shell
+./scripts/acceptance.sh
+```
+
+That is the architecture-proof acceptance gate. It roots every run in a
+temporary state directory and clears any ambient `WSO2_` variable first, so it
+never reads or writes real WSO2 state, and it needs no network catalog, no
+credentials, and no product service.
+
+While working on one module, run that module alone:
+
 ```shell
 go build ./...                      # shell
 go test ./...                       # shell, including acceptance tests
