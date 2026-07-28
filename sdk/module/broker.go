@@ -85,6 +85,19 @@ type streamBroker struct {
 }
 
 // Acquire performs one broker exchange.
+//
+// The wait for the shell's answer carries no timer of its own, and does not
+// need one. The shell closes this module's protocol input on every path it can
+// end an invocation by — a granted command, its own deadline, cancellation, or
+// the shell process dying — and that closure ends the wait with an error. A
+// module left waiting is also a module the shell has already stopped waiting
+// for: it terminates the process after a short grace period.
+//
+// Bounding the read on ctx instead would not improve on that. A framed read
+// abandoned part-way leaves the stream at an unknown position, so nothing may
+// be read from it afterwards; the only safe response to a cancelled read is to
+// end the invocation, which closing the input already does. The handshake and
+// invocation reads are unbounded for the same reason.
 func (b *streamBroker) Acquire(ctx context.Context, request AccessRequest) (Access, error) {
 	if err := ctx.Err(); err != nil {
 		return Access{}, fmt.Errorf("module: access was not requested: %w", err)
