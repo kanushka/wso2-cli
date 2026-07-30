@@ -83,6 +83,26 @@ jobs:
           go mod tidy -diff
           go vet ./...
 
+      - name: Check reference-module formatting and vet
+        # The reference module proves the public SDK from a module author's
+        # side, so it is held to the same standard whenever the shell or the
+        # module changes. Its tests run in the acceptance gate below.
+        if: needs.changes.outputs.shell == 'true'
+        working-directory: examples/reference-module
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t files < <(git ls-files '*.go')
+          unformatted="$(gofmt -l "${files[@]}")"
+          if [[ -n "$unformatted" ]]; then
+            echo "The following reference-module files require gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+          go vet ./...
+
       - name: Lint shell
         if: needs.changes.outputs.shell == 'true'
         uses: golangci/golangci-lint-action@v9
@@ -98,8 +118,8 @@ jobs:
           version: v2.12
           working-directory: sdk
 
-  build-test:
-    name: Build & Test
+  acceptance:
+    name: Architecture Proof
     needs: changes
     if: needs.changes.outputs.shell == 'true' || needs.changes.outputs.sdk == 'true'
     runs-on: ubuntu-latest
@@ -117,45 +137,10 @@ jobs:
             go.mod
             sdk/go.mod
 
-      - name: Build shell
-        if: needs.changes.outputs.shell == 'true'
-        run: go build ./...
-
-      - name: Test shell
-        if: needs.changes.outputs.shell == 'true'
-        run: go test ./...
-
-      - name: Build and test reference module
-        # The reference module proves the public SDK from a module author's
-        # side, so it is built, vetted, and tested whenever the shell or the
-        # module changes.
-        if: needs.changes.outputs.shell == 'true'
-        working-directory: examples/reference-module
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          mapfile -t files < <(git ls-files '*.go')
-          unformatted="$(gofmt -l "${files[@]}")"
-          if [[ -n "$unformatted" ]]; then
-            echo "The following reference-module files require gofmt:"
-            echo "$unformatted"
-            exit 1
-          fi
-
-          go vet ./...
-          go test ./...
-
-      - name: Build SDK
-        if: needs.changes.outputs.sdk == 'true'
-        working-directory: sdk
-        env:
-          GOWORK: off
-        run: go build ./...
-
-      - name: Test SDK
-        if: needs.changes.outputs.sdk == 'true'
-        working-directory: sdk
-        env:
-          GOWORK: off
-        run: go test ./...
+      # The gate is one script rather than a list of steps here, so the run a
+      # contributor can reproduce locally is the same run that decides a pull
+      # request. It builds all three modules and runs every test layer
+      # regardless of which one changed: the proof is an end-to-end claim, and
+      # an SDK-only change is exactly the kind that breaks the shell.
+      - name: Run the architecture-proof acceptance gate
+        run: ./scripts/acceptance.sh

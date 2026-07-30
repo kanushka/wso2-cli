@@ -15,6 +15,7 @@ These files preserve the source material and research that informed the current
 | [cloud-cli-comparison.md](cloud-cli-comparison.md) | Primary-source comparison of Azure CLI, AWS CLI, and Google Cloud CLI. |
 | [module-architecture-options.md](module-architecture-options.md) | Evaluation of module-extension models and the recommended subprocess contract. |
 | [root-cli-installation-distribution.md](root-cli-installation-distribution.md) | Evaluation of root CLI installation, update, and offline distribution options. |
+| [shell-command-framework.md](shell-command-framework.md) | Comparison of the shell's own command dispatcher with Cobra, including the unknown-flag passthrough constraint. |
 
 Research describes evidence and alternatives. Decisions and requirements belong
 in `docs/architecture.md` and `docs/product-requirements.md`; when they differ,

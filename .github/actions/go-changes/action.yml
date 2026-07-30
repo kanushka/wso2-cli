@@ -28,9 +28,13 @@ runs:
           exit 1
         fi
 
+        # The acceptance gate is a script rather than a list of workflow steps,
+        # so it needs naming here: without it, the one file that decides
+        # whether the architecture proof passes could be edited by a pull
+        # request that runs no checks at all.
         while IFS= read -r path; do
           case "$path" in
-            .github/actions/go-changes/*|.github/workflows/pr-checks.yml|go.work|go.work.sum|.golangci.yml|.golangci.yaml)
+            .github/actions/go-changes/*|.github/workflows/pr-checks.yml|scripts/acceptance.sh|go.work|go.work.sum|.golangci.yml|.golangci.yaml)
               shell_changed=true
               sdk_changed=true
               ;;

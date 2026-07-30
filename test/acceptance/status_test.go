@@ -382,13 +382,7 @@ func installScriptedModule(t *testing.T, stateRoot, script string) {
 // tryShell runs the shell and returns its output and exit error rather than
 // failing the test, for the runs that are expected to fail.
 func tryShell(shell, stateRoot string, args ...string) (string, string, error) {
-	command := exec.Command(shell, args...)
-	command.Env = shellEnvironment(stateRoot)
-	var stdout, stderr strings.Builder
-	command.Stdout = &stdout
-	command.Stderr = &stderr
-	err := command.Run()
-	return stdout.String(), stderr.String(), err
+	return runShellWith(shell, shellEnvironment(stateRoot), args...)
 }
 
 // exitCode reports the process status behind a failed run.

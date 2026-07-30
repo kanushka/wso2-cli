@@ -246,14 +246,22 @@ func isolatedStateRoot(t *testing.T) string {
 
 func installReferenceModule(t *testing.T, stateRoot, modulePath string) {
 	t.Helper()
+	installModule(t, stateRoot, modulePath, []string{referenceAudience}, []string{referenceReadScope})
+}
+
+// installModule installs an executable under the reference namespace and
+// version with the declared access given, so a test can vary what a receipt
+// permits without varying anything else about the installation.
+func installModule(t *testing.T, stateRoot, modulePath string, audiences, scopes []string) {
+	t.Helper()
 	if _, err := fixture.Install(state.ModuleStore(stateRoot), fixture.Module{
 		Namespace:        "reference",
 		Version:          testModuleVersion,
 		ShellRange:       ">=0.1.0 <1.0.0",
 		ProtocolVersions: []int{testProtocolVersionNumber},
 		SourcePath:       modulePath,
-		AuthAudiences:    []string{"reference-status"},
-		AuthScopes:       []string{"reference:status:read"},
+		AuthAudiences:    audiences,
+		AuthScopes:       scopes,
 	}); err != nil {
 		t.Fatalf("fixture.Install returned %v", err)
 	}
@@ -261,16 +269,29 @@ func installReferenceModule(t *testing.T, stateRoot, modulePath string) {
 
 func runShell(t *testing.T, shell, stateRoot string, args ...string) (string, string) {
 	t.Helper()
+	stdout, stderr, err := runShellWith(shell, shellEnvironment(stateRoot), args...)
+	if err != nil {
+		t.Fatalf("wso2 %s failed: %v\nstdout:\n%s\nstderr:\n%s",
+			strings.Join(args, " "), err, stdout, stderr)
+	}
+	return stdout, stderr
+}
+
+// runShellWith runs the shell to completion with the given environment and
+// returns both streams and the exit error.
+//
+// The environment is a parameter rather than derived from a state root,
+// because what a run is given is itself under test: one test removes the
+// credential to prove the shell has no other, and every other run supplies it
+// to prove the shell discloses none.
+func runShellWith(shell string, environment []string, args ...string) (string, string, error) {
 	command := exec.Command(shell, args...)
-	command.Env = shellEnvironment(stateRoot)
+	command.Env = environment
 	var stdout, stderr strings.Builder
 	command.Stdout = &stdout
 	command.Stderr = &stderr
-	if err := command.Run(); err != nil {
-		t.Fatalf("wso2 %s failed: %v\nstdout:\n%s\nstderr:\n%s",
-			strings.Join(args, " "), err, stdout.String(), stderr.String())
-	}
-	return stdout.String(), stderr.String()
+	err := command.Run()
+	return stdout.String(), stderr.String(), err
 }
 
 // shellEnvironment builds a minimal environment pointing the shell at the
