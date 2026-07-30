@@ -148,7 +148,7 @@ asserted incidentally elsewhere.
 | Malformed protocol data, premature exit, panic, non-zero exit, and timeout | `TestDamagedFramesBecomeStableProtocolProblems`, `TestAnUnknownEnvelopeMessageKindFailsClosed`, `TestAModuleThatCrashesBeforeAnsweringFailsWithAStableProblem`, `TestAModuleThatPanicsFailsWithAStableProblemWithoutCrashingTheShell`, `TestAModuleThatAnswersThenExitsUncleanlyFailsWithAStableProblem`, `TestAModuleThatNeverAnswersFailsWithAStableProblem`, `TestAHangingModuleIsGivenAGracePeriodToExitBeforeItIsKilled` |
 | The canary credential is absent from every disclosure surface | `TestAModuleThatDisclosesAllItCanReachStillDisclosesNoCredential`, `TestNoFileTheRunLeavesBehindHoldsTheCredential`, `TestNoTypedProblemDisclosesTheCredential`, `TestNoCrashDiagnosticDisclosesTheCredential`, `TestTheModuleEnvironmentCarriesNoAmbientCredential` |
 | The development credential and issuer are visibly non-production and out of production reach | `TestEveryDevelopmentFixtureNamesItselfNonProduction`, `TestNoDevelopmentFixtureIsReachableFromTheShellBinary`, `TestNoDevelopmentFixtureIsReachableFromTheReferenceModule`, `TestAModuleOutsideTheProofNamespaceIsNeverBrokeredAccess` |
-| Built artifacts carry no fixed development credential or signing key | `TestTheBuiltArtifactsCarryNoDevelopmentCredential`, `TestTheShellHasNoCredentialToFallBackOn`, `TestTheDevelopmentIssuerHoldsNoFixedSecret` |
+| Built artifacts carry no fixed development credential or signing key | `TestTheBuiltArtifactsCarryNoDevelopmentCredential`, `TestTheShellHasNoCredentialToFallBackOn`, and the issuer pair of section 4.2 |
 | Every test layer runs in the repository's normal CI environment | The `Architecture Proof` job in `.github/workflows/pr-checks.yml` |
 | The reference module can move to another repository unchanged | `TestTheReferenceModuleWorksFromAnotherRepository`, `TestTheReferenceModuleDependsOnThePublicSDKOnly`, `TestTheSDKAndReferenceModuleCannotImportShellInternals` |
 
@@ -168,6 +168,22 @@ fails unless the module actually held a fixture token; the state-file walk
 fails unless it read the files a run installs; the crash scan fails on empty
 diagnostics; the typed-problem scan fails unless the run failed the way it was
 meant to. A scan of an empty stream cannot pass for the wrong reason.
+
+### 4.2 Why the issuer holds no key of its own
+
+That the development issuer signs with the credential it is handed, rather than
+with anything of its own, is proved from two directions, because neither
+direction alone is enough.
+
+`TestTheDevelopmentIssuerDeclaresNoFixedSecret` reads what the package
+declares, against an allowlist of the values it may hold. It catches key
+material committed into the package, whether or not any code reaches for it,
+and it cannot see a value declared inside a function.
+
+`TestATokenSignedByAnotherCredentialIsRefused` covers exactly that blind spot
+from the other side. An issuer signing with a fixed key — wherever that key was
+written — would mint tokens that verify under any other credential, and that
+test fails when they do.
 
 ## 5. What this proof does not establish
 

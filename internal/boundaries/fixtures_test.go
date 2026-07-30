@@ -115,24 +115,34 @@ var issuerPublicNames = map[string]string{
 	"encoding":     "the base64url encoding tokens are written in",
 }
 
-func TestTheDevelopmentIssuerHoldsNoFixedSecret(t *testing.T) {
+// TestTheDevelopmentIssuerDeclaresNoFixedSecret reads what the issuer declares.
+//
+// It is half of the claim that the issuer holds no key of its own, and the half
+// that reads source rather than behaviour: a value declared here would be key
+// material sitting in the package, whether or not any code reached for it.
+//
+// The other half is behavioural and lives with the issuer, because that is
+// where it belongs. A fixed key inside a function is invisible to this test and
+// caught by TestATokenSignedByAnotherCredentialIsRefused in
+// internal/auth/devtoken: an issuer that ignored its caller's credential would
+// mint tokens that verify under any other, and that test would fail. Neither
+// check subsumes the other.
+func TestTheDevelopmentIssuerDeclaresNoFixedSecret(t *testing.T) {
 	root := repoRoot(t)
 	directory := filepath.Join(root, "internal", "auth", "devtoken")
 
-	packages, err := parser.ParseDir(token.NewFileSet(), directory, nonTestFile, parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatalf("cannot parse the development issuer: %v", err)
-	}
-	for _, parsed := range packages {
-		for path, file := range parsed.Files {
-			relative, _ := filepath.Rel(root, path)
-			for _, name := range packageLevelValues(file) {
-				if _, allowed := issuerPublicNames[name]; !allowed {
-					t.Errorf("%s declares the package-level value %q; the issuer signs with the "+
-						"credential it is given and holds no value of its own. Add it to "+
-						"issuerPublicNames only once it is certainly not key material.",
-						relative, name)
-				}
+	for _, path := range packageSources(t, directory) {
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("cannot parse %s: %v", path, err)
+		}
+		relative, _ := filepath.Rel(root, path)
+		for _, name := range packageLevelValues(file) {
+			if _, allowed := issuerPublicNames[name]; !allowed {
+				t.Errorf("%s declares the package-level value %q; the issuer signs with the "+
+					"credential it is given and holds no value of its own. Add it to "+
+					"issuerPublicNames only once it is certainly not key material.",
+					relative, name)
 			}
 		}
 	}
@@ -161,25 +171,43 @@ func packageLevelValues(file *ast.File) []string {
 	return names
 }
 
-// nonTestFile selects a package's own sources, so a test fixture's own test
-// data is never mistaken for what the package ships.
-func nonTestFile(entry os.FileInfo) bool {
-	return !strings.HasSuffix(entry.Name(), "_test.go")
+// packageSources lists the Go files a directory's own package ships, without
+// descending into subdirectories and without its tests: a fixture's test files
+// are not what the fixture ships.
+//
+// The files are parsed one at a time rather than through go/ast's directory
+// parser, which is deprecated for ignoring build tags.
+func packageSources(t *testing.T, directory string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatalf("cannot read %s: %v", directory, err)
+	}
+	var paths []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		paths = append(paths, filepath.Join(directory, name))
+	}
+	if len(paths) == 0 {
+		t.Fatalf("found no package sources in %s", directory)
+	}
+	return paths
 }
 
 // packageDoc reads the package documentation comment of the package in a
 // directory.
 func packageDoc(t *testing.T, directory string) string {
 	t.Helper()
-	packages, err := parser.ParseDir(token.NewFileSet(), directory, nonTestFile, parser.ParseComments|parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatalf("cannot parse %s: %v", directory, err)
-	}
 	var documentation strings.Builder
-	for _, parsed := range packages {
-		for _, file := range parsed.Files {
-			documentation.WriteString(file.Doc.Text())
+	for _, path := range packageSources(t, directory) {
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ParseComments|parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("cannot parse %s: %v", path, err)
 		}
+		documentation.WriteString(file.Doc.Text())
 	}
 	if documentation.Len() == 0 {
 		t.Fatalf("the package in %s has no package documentation", directory)
