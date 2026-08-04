@@ -59,18 +59,16 @@ func (s Store) Load(ref string) (Session, error) {
 	value, err := keyring.Get(Service, ref)
 	switch {
 	case errors.Is(err, keyring.ErrNotFound):
-		return Session{}, problem.New(problem.CategoryAuthPolicy, "auth.login_required",
-			"no stored login session exists for the selected context").
-			WithRecovery("Run wso2 login to establish a session for this context.")
+		return Session{}, loginRequired("no stored login session exists for the selected context",
+			"Run wso2 login to establish a session for this context.")
 	case err != nil:
 		return Session{}, keyringUnavailable()
 	}
 	var stored Session
 	if json.Unmarshal([]byte(value), &stored) != nil || stored.RefreshToken == "" {
 		// A stale or foreign entry is indistinguishable from no session.
-		return Session{}, problem.New(problem.CategoryAuthPolicy, "auth.login_required",
-			"the stored login session for the selected context cannot be read").
-			WithRecovery("Run wso2 login to establish a fresh session for this context.")
+		return Session{}, loginRequired("the stored login session for the selected context cannot be read",
+			"Run wso2 login to establish a fresh session for this context.")
 	}
 	return stored, nil
 }
@@ -87,6 +85,14 @@ func (s Store) Save(ref string, value Session) error {
 		return keyringUnavailable()
 	}
 	return nil
+}
+
+// loginRequired reports the absence of a usable session, whatever its cause.
+// Missing, stale, foreign, and lock-contended sessions all recover the same
+// way, so they share one stable code.
+func loginRequired(message, recovery string) problem.Problem {
+	return problem.New(problem.CategoryAuthPolicy, "auth.login_required", message).
+		WithRecovery(recovery)
 }
 
 // keyringUnavailable reports the secure store as unusable. The backend's own

@@ -146,7 +146,7 @@ func TestDiscoveryAdvertisesS256(t *testing.T) {
 func TestCodePKCEExchangeRoundTrips(t *testing.T) {
 	issuer := fakeissuer.New(t, fakeissuer.Options{Audience: "reference-status"})
 	proof := newPKCE(t)
-	code := authorize(t, issuer, proof.challenge, "openid offline_access reference:status:read", "state-1")
+	code := authorize(t, issuer, proof.challenge, "openid offline_access reference:status:read", "state 1&+/=")
 
 	body, status := token(t, issuer, url.Values{
 		"grant_type":    {"authorization_code"},

@@ -35,7 +35,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -197,7 +199,8 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 			clientID:    query.Get("client_id"),
 		}
 		i.mutex.Unlock()
-		http.Redirect(w, r, fmt.Sprintf("%s?code=%s&state=%s", redirectURI, code, query.Get("state")), http.StatusFound)
+		callback := url.Values{"code": {code}, "state": {query.Get("state")}}
+		http.Redirect(w, r, redirectURI+"?"+callback.Encode(), http.StatusFound)
 	}
 }
 
@@ -260,7 +263,7 @@ func (i *Issuer) refreshGrant(w http.ResponseWriter, r *http.Request) {
 		switch i.opts.RefreshScopeMode {
 		case "honor":
 			for _, scope := range requested {
-				if !contains(original, scope) {
+				if !slices.Contains(original, scope) {
 					oauthError(w, http.StatusBadRequest, "invalid_scope")
 					return
 				}
@@ -322,13 +325,16 @@ func (i *Issuer) handleIntrospect(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"active": false})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	report := map[string]any{
 		"active": true,
 		"scope":  strings.Join(record.scopes, " "),
-		"aud":    []string{record.audience},
 		"sub":    record.subject,
 		"iss":    i.URL,
-	})
+	}
+	if record.audience != "" {
+		report["aud"] = []string{record.audience}
+	}
+	writeJSON(w, http.StatusOK, report)
 }
 
 // mintAccessToken signs a real RS256 access token and records it for
@@ -398,15 +404,6 @@ func randomToken(prefix string) string {
 
 func splitScopes(value string) []string {
 	return strings.Fields(value)
-}
-
-func contains(scopes []string, wanted string) bool {
-	for _, scope := range scopes {
-		if scope == wanted {
-			return true
-		}
-	}
-	return false
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

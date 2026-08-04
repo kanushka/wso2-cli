@@ -22,8 +22,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
 const (
@@ -41,7 +39,7 @@ const (
 func (s Store) WithLock(ref string, fn func() error) error {
 	path := lockPath(s.StateRoot, ref)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return lockBusy()
+		return lockFailed()
 	}
 	release, err := acquireLock(path)
 	if err != nil {
@@ -67,7 +65,7 @@ func acquireLock(path string) (release func(), err error) {
 			return func() { os.Remove(path) }, nil
 		}
 		if !errors.Is(err, fs.ErrExist) {
-			return nil, lockBusy()
+			return nil, lockFailed()
 		}
 		if !tookOverStale {
 			if info, statErr := os.Stat(path); statErr == nil && time.Since(info.ModTime()) > lockStaleAfter {
@@ -92,8 +90,14 @@ func lockPath(stateRoot, ref string) string {
 // lockBusy reports the session as busy under another invocation. The code is
 // auth.login_required rather than a new busy code: the stable code list is
 // closed, and the condition is recoverable the same way — by retrying.
-func lockBusy() problem.Problem {
-	return problem.New(problem.CategoryAuthPolicy, "auth.login_required",
-		"another WSO2 CLI invocation is updating this session").
-		WithRecovery("Retry the command.")
+func lockBusy() error {
+	return loginRequired("another WSO2 CLI invocation is updating this session",
+		"Retry the command.")
+}
+
+// lockFailed reports that the lock could not be taken at all — a filesystem
+// failure, not contention — without claiming another invocation holds it.
+func lockFailed() error {
+	return loginRequired("the shell could not take the session update lock",
+		"Check that the WSO2 CLI state directory is writable, then retry the command.")
 }
