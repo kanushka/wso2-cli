@@ -44,7 +44,7 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 	if err != nil {
 		return err
 	}
-	selected, err := s.selectedContext()
+	selection, err := s.selectedContext()
 	if err != nil {
 		return err
 	}
@@ -70,7 +70,7 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 		Broker: &auth.Broker{
 			Namespace:    namespace,
 			Capabilities: resolved.Receipt.Capabilities,
-			Context:      selected,
+			Selection:    selection,
 			InvocationID: invocationID,
 		},
 	}
@@ -80,9 +80,9 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 		Arguments:  arguments,
 		OutputMode: contractOutputMode(mode),
 		Context: rpc.InvocationContext{
-			Name:           selected.Name,
-			OrganizationID: selected.OrganizationID,
-			Endpoint:       selected.Endpoint,
+			Name:           selection.Context.Name,
+			OrganizationID: selection.Context.Organization,
+			Endpoint:       selection.Identity.Products[namespace].Endpoint,
 		},
 		Interactive: false,
 	})
@@ -102,19 +102,19 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 
 // selectedContext reports the context this invocation runs against.
 //
-// A shell with no context document still runs commands: the selected context is
-// then an empty one, and a module that needs access is refused by the broker
-// with guidance rather than run against a guessed target.
-func (s Shell) selectedContext() (contexts.Context, error) {
+// A shell with no context document still runs commands: the selection is then
+// an empty one, and a module that needs access is refused by the broker with
+// guidance rather than run against a guessed target.
+func (s Shell) selectedContext() (contexts.Selection, error) {
 	root, err := s.stateRoot()
 	if err != nil {
-		return contexts.Context{}, err
+		return contexts.Selection{}, err
 	}
 	document, err := contexts.Load(root)
 	if err != nil {
-		return contexts.Context{}, err
+		return contexts.Selection{}, err
 	}
-	return document.Selected()
+	return document.Select("")
 }
 
 // parseProductArgs separates the shell's own flags from the module's arguments.

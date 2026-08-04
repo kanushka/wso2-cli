@@ -104,9 +104,9 @@ type Broker struct {
 	// are the ceiling: a module cannot ask at runtime for more than its
 	// installation declared.
 	Capabilities modules.Capabilities
-	// Context is the selected invocation context. It names the organization
-	// and the credential source, and holds no credential.
-	Context contexts.Context
+	// Selection is the resolved invocation context and its identity. It names
+	// the organization and the credential source, and holds no credential.
+	Selection contexts.Selection
 	// InvocationID is the invocation access is bound to.
 	InvocationID string
 	// Credentials reads a named environment variable. It defaults to the
@@ -152,7 +152,7 @@ func (b *Broker) Acquire(request Request) (Grant, error) {
 	token, mintErr := devtoken.Mint(credential, devtoken.Claims{
 		Audience:     request.Audience,
 		Scopes:       request.Scopes,
-		Organization: b.Context.OrganizationID,
+		Organization: b.Selection.Context.Organization,
 		Invocation:   b.InvocationID,
 	}, now)
 	if mintErr != nil {
@@ -191,21 +191,21 @@ func (b *Broker) checkDeclared(request Request) error {
 
 // checkContext proves the selected context can be authenticated against at all.
 func (b *Broker) checkContext() error {
-	if b.Context.Auth.Method == "" && b.Context.Auth.CredentialVariable == "" {
+	if b.Selection.Identity.Auth.Kind == "" && b.Selection.Identity.Auth.CredentialVariable == "" {
 		return denial("auth.context_not_selected",
 			fmt.Sprintf("the %q module needs access, and no WSO2 CLI context is selected", b.namespace()),
 			"Select a context that names the organization and credential source to use.")
 	}
-	if b.Context.Auth.Method != contexts.MethodDevelopmentCredential {
+	if b.Selection.Identity.Auth.Kind != contexts.MethodDevelopmentCredential {
 		return denial("auth.method_unsupported",
 			fmt.Sprintf("the %q context uses an authentication method this shell does not implement",
-				b.Context.Name),
+				b.Selection.Context.Name),
 			fmt.Sprintf("Select a context whose authentication method is %q.",
 				contexts.MethodDevelopmentCredential))
 	}
-	if b.Context.OrganizationID == "" {
+	if b.Selection.Context.Organization == "" {
 		return denial("auth.organization_not_selected",
-			fmt.Sprintf("the %q context names no organization to act within", b.Context.Name),
+			fmt.Sprintf("the %q context names no organization to act within", b.Selection.Context.Name),
 			"Select a context that names the organization the command targets.")
 	}
 	return nil
@@ -218,10 +218,10 @@ func (b *Broker) checkContext() error {
 // the name of the variable holding it, which is the module's own answer to
 // "where would I look?" and therefore travels only to the user.
 func (b *Broker) credential() (string, error) {
-	name := b.Context.Auth.CredentialVariable
+	name := b.Selection.Identity.Auth.CredentialVariable
 	if name == "" {
 		return "", denial("auth.credential_unavailable",
-			fmt.Sprintf("the %q context names no credential source", b.Context.Name),
+			fmt.Sprintf("the %q context names no credential source", b.Selection.Context.Name),
 			"Select a context that names the environment variable holding the credential.")
 	}
 	lookup := b.Credentials
@@ -232,7 +232,7 @@ func (b *Broker) credential() (string, error) {
 	if !present || strings.TrimSpace(value) == "" {
 		return "", Denial{
 			Problem: problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable",
-				fmt.Sprintf("the credential source the %q context names is not set", b.Context.Name)).
+				fmt.Sprintf("the credential source the %q context names is not set", b.Selection.Context.Name)).
 				WithRecovery("Set the credential source this context names, then retry the command."),
 			Guidance: fmt.Sprintf("Set %s to the credential for this context, then retry the command.", name),
 		}

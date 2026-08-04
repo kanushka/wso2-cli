@@ -1,0 +1,198 @@
+// Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package contexts
+
+import (
+	"fmt"
+	"net/url"
+	"regexp"
+)
+
+// The authentication kinds a schema version 2 document may declare.
+const (
+	// KindOAuthBrowser is an interactive browser Authorization Code + PKCE
+	// login against the identity's issuer.
+	KindOAuthBrowser = "oauth-browser"
+	// KindOAuthDevice is an interactive device-code login for terminals
+	// without a browser.
+	KindOAuthDevice = "oauth-device"
+	// KindClientCredentials is a non-interactive client-credentials grant
+	// whose client secret is read from a named environment variable.
+	KindClientCredentials = "client-credentials"
+	// KindPAT is a personal access token held in the OS secure store.
+	KindPAT = "pat"
+)
+
+// legalKinds are the authentication kinds a v2 document may declare. Which of
+// them this release implements is broker policy; a legal-but-unimplemented
+// kind stays readable and is refused when a command needs access.
+var legalKinds = map[string]bool{
+	KindOAuthBrowser: true, KindOAuthDevice: true,
+	KindClientCredentials: true, KindPAT: true,
+}
+
+// refPattern constrains a credential reference to one readable word, exactly
+// as context names are constrained. A credential value pasted where a
+// reference belongs — a JWT, anything with dots, equals signs, or upper-case
+// runs — fails this pattern by construction and is rejected rather than stored.
+var refPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
+
+// Identity is one authentication arrangement the shell can log in as. It names
+// where credentials come from and never holds one.
+type Identity struct {
+	// Name identifies the identity; contexts reference it.
+	Name string `json:"name"`
+	// Type says whether the identity targets a cloud or on-premises
+	// deployment. It is "cloud" or "onprem".
+	Type string `json:"type"`
+	// Auth says how the shell authenticates as this identity.
+	Auth IdentityAuth `json:"auth"`
+	// Products are the product services reachable under this identity, keyed
+	// by product namespace.
+	Products map[string]Product `json:"products,omitempty"`
+	// synthetic marks an identity manufactured by the v1 compatibility read.
+	// It is never encodable.
+	synthetic bool
+}
+
+// IdentityAuth is an identity's authentication arrangement. Every member is a
+// name or a location; none holds a credential.
+type IdentityAuth struct {
+	// Kind identifies how the shell obtains access.
+	Kind string `json:"kind"`
+	// Issuer is the token issuer the shell authenticates against.
+	Issuer string `json:"issuer,omitempty"`
+	// ClientID is the OAuth client this shell presents itself as.
+	ClientID string `json:"clientId,omitempty"`
+	// Tenant is the identity's home tenant, when the issuer is multi-tenant.
+	Tenant string `json:"tenant,omitempty"`
+	// CredentialRef names the secure-store entry holding the identity's
+	// session. It is a reference, never a value.
+	CredentialRef string `json:"credentialRef,omitempty"`
+	// ClientSecretVariable names the environment variable holding the client
+	// secret for the client-credentials kind. It is a name, never a value.
+	ClientSecretVariable string `json:"clientSecretVariable,omitempty"`
+	// CredentialVariable exists only on synthetic v1 identities. Never encoded.
+	CredentialVariable string `json:"-"`
+}
+
+// Product is one product service reachable under an identity.
+type Product struct {
+	// Endpoint is the product service's base URL.
+	Endpoint string `json:"endpoint"`
+	// Audience is the token audience the product's services accept.
+	Audience string `json:"audience,omitempty"`
+	// Scopes are the permissions the shell may request for this product.
+	Scopes []string `json:"scopes,omitempty"`
+}
+
+// Synthetic reports whether this identity was manufactured by the v1
+// compatibility read. A synthetic identity is readable but never written back.
+func (i Identity) Synthetic() bool { return i.synthetic }
+
+func (i Identity) validate() error {
+	if !namePattern.MatchString(i.Name) {
+		return malformed(fmt.Sprintf("declares an invalid identity name %q", i.Name))
+	}
+	if i.Type != "cloud" && i.Type != "onprem" {
+		return malformed(fmt.Sprintf("declares an identity type for %q that is neither cloud nor onprem", i.Name))
+	}
+	if err := i.Auth.validate(i.Name); err != nil {
+		return err
+	}
+	for namespace, product := range i.Products {
+		if !namePattern.MatchString(namespace) {
+			return malformed(fmt.Sprintf("declares an invalid product namespace on the identity %q", i.Name))
+		}
+		if err := product.validate(i.Name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a IdentityAuth) validate(identity string) error {
+	if !legalKinds[a.Kind] {
+		return malformed(fmt.Sprintf("declares an authentication kind for the identity %q that this shell does not read", identity))
+	}
+	switch a.Kind {
+	case KindOAuthBrowser, KindOAuthDevice:
+		if a.Issuer == "" || a.ClientID == "" {
+			return malformed(fmt.Sprintf("declares the interactive identity %q without an issuer and client identifier", identity))
+		}
+		if a.CredentialRef == "" || !refPattern.MatchString(a.CredentialRef) {
+			// The rejected value is not echoed: what was pasted where a
+			// reference belongs may be a credential.
+			return contextProblem("contexts.document_malformed",
+				fmt.Sprintf("the identity %q does not name a secure-store reference as its credential source", identity),
+				"Name the secure-store entry, not a credential value. A reference is one lower-case word.")
+		}
+		if a.ClientSecretVariable != "" {
+			return malformed(fmt.Sprintf("declares a client secret source on the interactive identity %q", identity))
+		}
+	case KindClientCredentials:
+		if a.Issuer == "" || a.ClientID == "" {
+			return malformed(fmt.Sprintf("declares the identity %q without an issuer and client identifier", identity))
+		}
+		if a.ClientSecretVariable == "" || !variablePattern.MatchString(a.ClientSecretVariable) {
+			return contextProblem("contexts.document_malformed",
+				fmt.Sprintf("the identity %q does not name an environment variable as its client secret source", identity),
+				"Name the environment variable holding the client secret, not the secret itself.")
+		}
+		if a.CredentialRef != "" {
+			return malformed(fmt.Sprintf("declares a secure-store reference on the non-interactive identity %q", identity))
+		}
+	case KindPAT:
+		if a.CredentialRef == "" || !refPattern.MatchString(a.CredentialRef) {
+			return contextProblem("contexts.document_malformed",
+				fmt.Sprintf("the identity %q does not name a secure-store reference as its credential source", identity),
+				"Name the secure-store entry, not a credential value. A reference is one lower-case word.")
+		}
+	}
+	// The issuer URL, like an endpoint, may not embed user information.
+	if a.Issuer != "" {
+		parsed, err := url.Parse(a.Issuer)
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return malformed(fmt.Sprintf("declares an issuer for the identity %q that this shell cannot read", identity))
+		}
+		if parsed.User != nil {
+			return malformed(fmt.Sprintf("declares an issuer for the identity %q that embeds credentials in its URL", identity))
+		}
+	}
+	return nil
+}
+
+func (p Product) validate(identity string) error {
+	// The same endpoint rules the v1 context enforced, including the
+	// credentials-in-URL rejection. The endpoint is never echoed: a rejected
+	// one is the most likely place for a credential to have been typed by
+	// mistake.
+	if p.Endpoint == "" {
+		return malformed(fmt.Sprintf("declares a product without an endpoint on the identity %q", identity))
+	}
+	parsed, err := url.Parse(p.Endpoint)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return malformed(fmt.Sprintf("declares a product endpoint on the identity %q that this shell cannot read", identity))
+	}
+	if parsed.User != nil {
+		return contextProblem("contexts.document_malformed",
+			fmt.Sprintf("a product endpoint on the identity %q embeds credentials in its URL", identity),
+			"Remove the user information from the endpoint. A context names a credential source; "+
+				"it never carries a credential.")
+	}
+	return nil
+}

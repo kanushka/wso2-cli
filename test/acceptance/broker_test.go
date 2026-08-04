@@ -111,14 +111,14 @@ func startStatusService(t *testing.T, options statusservice.Options) recordedSer
 // installReferenceContext writes the isolated context the shell runs against.
 func installReferenceContext(t *testing.T, stateRoot, endpoint, credentialSource string) {
 	t.Helper()
-	if err := contextfixture.Install(stateRoot, contexts.Document{
-		SchemaVersion:  contexts.SchemaVersion,
+	if err := contextfixture.Install(stateRoot, contextfixture.LegacyDocument{
+		SchemaVersion:  contexts.SchemaVersionLegacy,
 		DefaultContext: referenceContextName,
-		Contexts: []contexts.Context{{
+		Contexts: []contextfixture.LegacyContext{{
 			Name:           referenceContextName,
 			OrganizationID: referenceOrganization,
 			Endpoint:       endpoint,
-			Auth: contexts.Auth{
+			Auth: contextfixture.LegacyAuth{
 				Method:             contexts.MethodDevelopmentCredential,
 				CredentialVariable: credentialSource,
 			},

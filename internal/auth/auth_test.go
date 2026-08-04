@@ -46,13 +46,19 @@ func broker(t *testing.T) *auth.Broker {
 	return &auth.Broker{
 		Namespace:    "reference",
 		Capabilities: modules.Capabilities{AuthAudiences: []string{audience}, AuthScopes: []string{readScope}},
-		Context: contexts.Context{
-			Name:           "reference-local",
-			OrganizationID: organization,
-			Endpoint:       "http://127.0.0.1:8080",
-			Auth: contexts.Auth{
-				Method:             contexts.MethodDevelopmentCredential,
-				CredentialVariable: credentialVar,
+		Selection: contexts.Selection{
+			Context: contexts.Context{
+				Name:         "reference-local",
+				Identity:     "reference-local",
+				Organization: organization,
+			},
+			Identity: contexts.Identity{
+				Name: "reference-local",
+				Type: "onprem",
+				Auth: contexts.IdentityAuth{
+					Kind:               contexts.MethodDevelopmentCredential,
+					CredentialVariable: credentialVar,
+				},
 			},
 		},
 		InvocationID: invocationID,
@@ -188,7 +194,7 @@ func TestAModuleOutsideTheProofNamespaceIsNeverBrokeredAccess(t *testing.T) {
 
 func TestAnInvocationWithoutAContextIsDenied(t *testing.T) {
 	broker := broker(t)
-	broker.Context = contexts.Context{Name: contexts.DefaultName}
+	broker.Selection = contexts.Selection{Context: contexts.Context{Name: contexts.DefaultName}}
 
 	refusal := denied(t, broker, declaredRequest())
 
@@ -201,7 +207,7 @@ func TestAContextWithoutAnOrganizationIsDenied(t *testing.T) {
 	// Access is bound to an organization, so a context that names none has
 	// nothing to bind a token to.
 	broker := broker(t)
-	broker.Context.OrganizationID = ""
+	broker.Selection.Context.Organization = ""
 
 	refusal := denied(t, broker, declaredRequest())
 
@@ -212,7 +218,7 @@ func TestAContextWithoutAnOrganizationIsDenied(t *testing.T) {
 
 func TestAnAuthenticationMethodThisShellDoesNotImplementIsDenied(t *testing.T) {
 	broker := broker(t)
-	broker.Context.Auth.Method = "browser-pkce"
+	broker.Selection.Identity.Auth.Kind = "browser-pkce"
 
 	refusal := denied(t, broker, declaredRequest())
 
@@ -238,7 +244,7 @@ func TestAModuleCannotRefreshItsAccess(t *testing.T) {
 
 func TestNoDenialRevealsTheSourceCredential(t *testing.T) {
 	broker := broker(t)
-	broker.Context.Auth.Method = "browser-pkce"
+	broker.Selection.Identity.Auth.Kind = "browser-pkce"
 
 	refusal := denied(t, broker, auth.Request{Audience: "another-audience", Scopes: []string{"another:scope"}})
 
