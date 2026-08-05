@@ -128,12 +128,8 @@ var loopbackRedirect = regexp.MustCompile(`^http://127\.0\.0\.1:(10425|10426|104
 // New starts the issuer on an httptest server and closes it on test cleanup.
 func New(t *testing.T, opts Options) *Issuer {
 	t.Helper()
-	if opts.RefreshScopeMode == "" {
-		opts.RefreshScopeMode = "honor"
-	}
-	if opts.ClientScopeMode == "" {
-		opts.ClientScopeMode = "honor"
-	}
+	opts.RefreshScopeMode = scopeMode(t, "RefreshScopeMode", opts.RefreshScopeMode)
+	opts.ClientScopeMode = scopeMode(t, "ClientScopeMode", opts.ClientScopeMode)
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("fakeissuer: generate signing key: %v", err)
@@ -311,14 +307,12 @@ func (i *Issuer) exchangeCode(w http.ResponseWriter, r *http.Request) {
 }
 
 // presentedClientID reads the client identifier a token request identifies
-// itself with. A public client states it in the body and a confidential one may
-// present it as HTTP Basic credentials; a real issuer accepts both, so the
+// itself with. A public client states it in the body and a confidential one
+// presents it as HTTP Basic credentials; a real issuer accepts both, so the
 // fixture does too rather than pinning the code under test to one style.
 func presentedClientID(r *http.Request) string {
-	if clientID, _, ok := r.BasicAuth(); ok {
-		return clientID
-	}
-	return r.PostForm.Get("client_id")
+	id, _ := presentedClientCredentials(r)
+	return id
 }
 
 func (i *Issuer) refreshGrant(w http.ResponseWriter, r *http.Request) {
@@ -369,17 +363,17 @@ func (i *Issuer) refreshGrant(w http.ResponseWriter, r *http.Request) {
 }
 
 func (i *Issuer) clientCredentialsGrant(w http.ResponseWriter, r *http.Request) {
-	clientID, clientSecret, ok := r.BasicAuth()
-	if !ok {
-		clientID, clientSecret = r.PostForm.Get("client_id"), r.PostForm.Get("client_secret")
-	}
+	clientID, clientSecret := presentedClientCredentials(r)
 	if clientID == "" || clientSecret == "" ||
 		(i.opts.ClientSecret != "" && clientSecret != i.opts.ClientSecret) {
 		oauthError(w, http.StatusUnauthorized, "invalid_client")
 		return
 	}
-	issued := splitScopes(r.PostForm.Get("scope"))
+	requested := splitScopes(r.PostForm.Get("scope"))
+	issued := requested
 	switch i.opts.ClientScopeMode {
+	case "honor":
+		issued = requested
 	case "ignore":
 		// The deployment hands back the registered client's whole authority,
 		// whatever the request narrowed itself to.
@@ -394,6 +388,40 @@ func (i *Issuer) clientCredentialsGrant(w http.ResponseWriter, r *http.Request) 
 		"expires_in":   300,
 		"scope":        strings.Join(issued, " "),
 	})
+}
+
+// presentedClientCredentials reads the client identifier and secret a
+// confidential client identified itself with. RFC 6749 requires the values to
+// be form-encoded before they are used as HTTP Basic credentials, so they are
+// decoded here — a real authorization server has to, and a fixture that did not
+// would quietly accept a client the deployment would reject.
+func presentedClientCredentials(r *http.Request) (id, secret string) {
+	id, secret, ok := r.BasicAuth()
+	if !ok {
+		return r.PostForm.Get("client_id"), r.PostForm.Get("client_secret")
+	}
+	if decoded, err := url.QueryUnescape(id); err == nil {
+		id = decoded
+	}
+	if decoded, err := url.QueryUnescape(secret); err == nil {
+		secret = decoded
+	}
+	return id, secret
+}
+
+// scopeMode validates a configured scope mode, so a typo in a test's options
+// fails the test rather than silently selecting the permissive default.
+func scopeMode(t *testing.T, option, configured string) string {
+	t.Helper()
+	switch configured {
+	case "":
+		return "honor"
+	case "honor", "ignore", "reject":
+		return configured
+	default:
+		t.Fatalf("fakeissuer: %s = %q, want honor, ignore, or reject", option, configured)
+		return ""
+	}
 }
 
 func (i *Issuer) handleIntrospect(w http.ResponseWriter, r *http.Request) {

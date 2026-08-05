@@ -199,7 +199,8 @@ func (b *Broker) namedSecret(variable, description string) (string, error) {
 	if variable == "" {
 		return "", denial("auth.credential_unavailable",
 			fmt.Sprintf("the %q context names no credential source", b.Selection.Context.Name),
-			"Select a context that names the environment variable holding the credential.")
+			fmt.Sprintf("Select a context that names the environment variable holding %s.",
+				description))
 	}
 	lookup := b.Credentials
 	if lookup == nil {

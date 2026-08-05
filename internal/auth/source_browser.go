@@ -18,9 +18,8 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -28,17 +27,6 @@ import (
 
 	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
-)
-
-const (
-	// refreshDeadline bounds one derivation: discovery plus the refresh grant.
-	// It exists because the derivation holds the session's rotation lock, and a
-	// hung issuer must not keep every other invocation of this shell waiting.
-	refreshDeadline = 30 * time.Second
-	// refreshResponseLimit bounds what the shell reads from a token endpoint.
-	// A token response is a few hundred bytes; anything approaching this is not
-	// one, and reading it into memory would be the endpoint's decision to make.
-	refreshResponseLimit = 1 << 20
 )
 
 // browserSource derives one module's access from the stored login session.
@@ -100,7 +88,7 @@ func (s browserSource) derive(request Request, now time.Time) (Grant, error) {
 			"Run wso2 login to establish a session against the issuer this context names.")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), refreshDeadline)
+	ctx, cancel := context.WithTimeout(context.Background(), grantDeadline)
 	defer cancel()
 	endpoint, err := tokenEndpoint(ctx, s.client, s.identity.Auth.Issuer)
 	if err != nil {
@@ -138,80 +126,44 @@ func (s browserSource) derive(request Request, now time.Time) (Grant, error) {
 func (s browserSource) refresh(
 	ctx context.Context, endpoint, refreshToken string, scopes []string,
 ) (tokenResponse, error) {
-	form := url.Values{
+	issued, err := requestToken(ctx, s.client, endpoint, url.Values{
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {refreshToken},
-		// A public client has no secret to present, so it identifies itself in
-		// the request body, as RFC 6749 requires of one.
-		"client_id": {s.identity.Auth.ClientID},
-		"scope":     {strings.Join(scopes, " ")},
-	}
-	post, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint,
-		strings.NewReader(form.Encode()))
+		"scope":         {strings.Join(scopes, " ")},
+	}, clientAuth{id: s.identity.Auth.ClientID})
 	if err != nil {
-		return tokenResponse{}, renewalUnreachable()
-	}
-	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	post.Header.Set("Accept", "application/json")
-	answer, err := s.client.Do(post)
-	if err != nil {
-		return tokenResponse{}, renewalUnreachable()
-	}
-	defer func() { _ = answer.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(answer.Body, refreshResponseLimit))
-	if err != nil {
-		return tokenResponse{}, renewalUnreachable()
-	}
-
-	if answer.StatusCode != http.StatusOK {
-		return tokenResponse{}, s.refusedGrant(answer.StatusCode, body)
-	}
-	var issued tokenResponse
-	if json.Unmarshal(body, &issued) != nil || issued.AccessToken == "" {
-		return tokenResponse{}, denial("auth.login_required",
-			"the identity provider's answer to this session renewal carried no access token",
-			"Run wso2 login to establish a fresh session for this context.")
+		return tokenResponse{}, s.refusedGrant(err)
 	}
 	return issued, nil
 }
 
-// refusedGrant reads why the issuer refused, and says so in the shell's own
-// terms. A refusal to narrow is the one answer the shell treats differently:
-// it means the session is fine and the deployment will not scope it down, which
-// is a registration problem, not a login problem.
+// refusedGrant reads why the renewal did not produce a token, and says so in
+// the shell's own terms.
 //
-// That reading is confined to the status RFC 6749 defines it on. A failing or
-// unauthorized endpoint may mention invalid_scope for reasons of its own, and
-// reporting a broken deployment as a registration a user should go and change
-// would send them to edit something that was never wrong.
-func (s browserSource) refusedGrant(status int, body []byte) error {
-	var refusal struct {
-		Error string `json:"error"`
-	}
-	if status == http.StatusBadRequest &&
-		json.Unmarshal(body, &refusal) == nil && refusal.Error == "invalid_scope" {
+// A refusal to narrow is the one answer treated differently: it means the
+// session is fine and the deployment will not scope it down, which is a
+// registration problem, not a login problem.
+func (s browserSource) refusedGrant(err error) error {
+	var refusal issuerRefusal
+	switch {
+	case errors.As(err, &refusal) && refusal.refusedToNarrow():
 		return denial("auth.narrowing_unavailable",
 			fmt.Sprintf("the deployment refused to narrow this session to the permissions the %q "+
 				"module asked for", s.namespace),
 			narrowingRecovery)
+	case errors.As(err, &refusal):
+		// Every other refusal — a revoked, rotated-away, or expired refresh
+		// token — leaves the caller in one place: holding a session the issuer
+		// will not honor. The issuer's own words are not repeated; they
+		// describe a request the user did not make.
+		return denial("auth.login_required",
+			"the stored session was not accepted by the identity provider",
+			"Run wso2 login to establish a fresh session for this context.")
+	case errors.Is(err, errNoAccessToken):
+		return denial("auth.login_required",
+			"the identity provider's answer to this session renewal carried no access token",
+			"Run wso2 login to establish a fresh session for this context.")
+	default:
+		return issuerUnreachable()
 	}
-	// Everything else — a revoked, rotated-away, or expired refresh token —
-	// leaves the caller in one place: holding a session the issuer will not
-	// honor. The issuer's own words are not repeated; they describe a request
-	// the user did not make.
-	return denial("auth.login_required",
-		"the stored session was not accepted by the identity provider",
-		"Run wso2 login to establish a fresh session for this context.")
-}
-
-// renewalUnreachable reports a token endpoint the shell could not complete a
-// renewal against.
-//
-// It is deliberately distinct from the discovery failure above: by this point
-// the issuer's configuration has already been read, so telling the user the
-// shell could not read it would send them to look at something that worked.
-func renewalUnreachable() error {
-	return denial("auth.discovery_failed",
-		"the shell could not reach the identity provider to renew this session",
-		"Check that this machine can reach the issuer of the selected context, then retry.")
 }

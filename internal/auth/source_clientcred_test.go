@@ -87,9 +87,9 @@ func (d inlineDeployment) brokerHolding(t *testing.T, value string, present bool
 		}
 		return value, present
 	}
-	// The issuer clocks the token it mints, so this derivation runs against
-	// real time rather than the fixture instant the devtoken tests pin.
-	broker.Now = nil
+	// The broker's clock stays pinned. The deployment states a lifetime rather
+	// than an instant, so when the grant expires is the shell's arithmetic and
+	// can be asserted exactly.
 	return broker
 }
 
@@ -115,8 +115,10 @@ func TestAnInlineIdentityAcquiresAccessDuringTheCommandItself(t *testing.T) {
 	if len(audiences) != 1 || audiences[0] != audience {
 		t.Errorf("token audience = %v, want [%s]", audiences, audience)
 	}
-	if grant.ExpiresAt.IsZero() || !grant.ExpiresAt.After(time.Now()) {
-		t.Errorf("the grant expires at %s, want a near-term future expiry", grant.ExpiresAt)
+	// The deployment states a five-minute lifetime, counted from the moment
+	// the shell asked.
+	if wanted := acquiredAt.Add(5 * time.Minute); !grant.ExpiresAt.Equal(wanted) {
+		t.Errorf("the grant expires at %s, want %s", grant.ExpiresAt, wanted)
 	}
 }
 
