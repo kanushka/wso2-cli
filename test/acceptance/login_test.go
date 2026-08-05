@@ -628,24 +628,36 @@ func TestAnInlineDeploymentThatCannotNarrowIsRefusedRatherThanGrantedMore(t *tes
 }
 
 func TestNonInteractiveCIRefusesLoginWhileTheInlinePathStillWorks(t *testing.T) {
-	// Both halves of the CI contract, in one environment. There is no human to
-	// complete a login, so wso2 login refuses — and it refuses as not required
-	// rather than as impossible, because this identity was never going to need
-	// one. The command the job actually runs succeeds in the same breath.
-	deployment := deployInline(t, fakeissuer.Options{}, inlineClientSecret)
+	// The whole CI contract, in one environment. A job that declares itself
+	// non-interactive gets no browser: an identity that would need one is
+	// refused as non-interactive, and an identity that never needed one is
+	// refused as not requiring a login at all. The command the job actually
+	// runs succeeds in the same environment that refused both logins.
+	//
+	// Both deployments are built before the variable is set, because deploying
+	// clears it — the point is that one environment produces all three answers.
+	interactive := deployLogin(t, fakeissuer.Options{}, nil)
+	inline := deployInline(t, fakeissuer.Options{}, inlineClientSecret)
 	t.Setenv("WSO2_NON_INTERACTIVE", "1")
-	deployment.shell.OpenBrowser = func(string) error {
-		t.Error("a non-interactive run opened a browser")
-		return nil
+	for _, deployment := range []*loginDeployment{interactive, inline} {
+		deployment.shell.OpenBrowser = func(string) error {
+			t.Error("a non-interactive run opened a browser")
+			return nil
+		}
 	}
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if code := deployment.shell.Run([]string{"login"}); code != exitAuthPolicy {
-			t.Errorf("wso2 login exited %d, want the authentication class %d", code, exitAuthPolicy)
+		if code := interactive.shell.Run([]string{"login"}); code != exitAuthPolicy {
+			t.Errorf("the interactive wso2 login exited %d, want the authentication class %d",
+				code, exitAuthPolicy)
 		}
-		if code := deployment.status(t); code != exit.OK {
+		if code := inline.shell.Run([]string{"login"}); code != exitAuthPolicy {
+			t.Errorf("the inline wso2 login exited %d, want the authentication class %d",
+				code, exitAuthPolicy)
+		}
+		if code := inline.status(t); code != exit.OK {
 			t.Errorf("reference status exited %d, want %d", code, exit.OK)
 		}
 	}()
@@ -655,14 +667,17 @@ func TestNonInteractiveCIRefusesLoginWhileTheInlinePathStillWorks(t *testing.T) 
 		t.Fatal("a non-interactive run waited instead of answering")
 	}
 
-	if !strings.Contains(deployment.errOut.String(), "auth.login_not_required") {
-		t.Errorf("stderr does not name the login refusal:\n%s", deployment.errOut)
+	if !strings.Contains(interactive.errOut.String(), "auth.non_interactive") {
+		t.Errorf("an interactive identity was not refused as non-interactive:\n%s", interactive.errOut)
 	}
-	presented := deployment.service.presented()
+	if !strings.Contains(inline.errOut.String(), "auth.login_not_required") {
+		t.Errorf("an inline identity was not refused as needing no login:\n%s", inline.errOut)
+	}
+	presented := inline.service.presented()
 	if len(presented) != 1 {
 		t.Fatalf("the product service was shown %d bearer tokens, want 1", len(presented))
 	}
-	if active, _, _ := deployment.issuer.Introspect(t, presented[0]); !active {
+	if active, _, _ := inline.issuer.Introspect(t, presented[0]); !active {
 		t.Error("the module presented a token the issuer did not mint")
 	}
 }
