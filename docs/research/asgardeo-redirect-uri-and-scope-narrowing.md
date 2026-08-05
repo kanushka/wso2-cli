@@ -242,19 +242,37 @@ negative finding, and nothing in the shell should be designed as though it were.
 
 | Question | Confirmed (Asgardeo docs) | Inferred (WSO2 IS only) | Empirical verdict |
 |---|---|---|---|
-| Fixed-port loopback (`127.0.0.1:<port>`) registrable | `localhost:<port>` proven registrable via quickstart; REST schema imposes no blocking restriction | — | **Pending live run.** Any successful `make smoke-login` answers this incidentally: the walkthrough registers the literal `127.0.0.1` form on all four ports and the login binds one of them. Record: verdict, date, deployment. |
-| Any-port loopback (RFC 8252 §7.3) | Not documented at all | IS 6.0.0+: exact port match waived for loopback IPs | **Pending live run.** `make empirical-asgardeo`, experiment A. Record the `ASGARDEO ANY-PORT LOOPBACK: {supported\|rejected}` verdict, its date, and the `deployment:` line the run printed under it. |
+| Fixed-port loopback (`127.0.0.1:<port>`) registrable | `localhost:<port>` proven registrable via quickstart; REST schema imposes no blocking restriction | — | **Registrable. 2026-08-06**, deployment `https://api.asgardeo.io/t/kanushka/oauth2/token`. Answered incidentally by a passing `make smoke-login`: all four `127.0.0.1` callback URLs were registered literally and the login bound and returned to `127.0.0.1:10425`. |
+| Any-port loopback (RFC 8252 §7.3) | Not documented at all | IS 6.0.0+: exact port match waived for loopback IPs | **Supported. 2026-08-06**, deployment `https://api.asgardeo.io/t/kanushka/oauth2/token`. `make empirical-asgardeo` experiment A completed a login through `127.0.0.1:16000`, a port the application does not register, so Asgardeo waives the port when matching loopback redirect URIs as RFC 8252 §7.3 asks. Matches the IS 6.0.0+ inference. |
 | Redirect URI validation rules | Exact match by default; `regexp=(url1\|url2)` prefix for OR-ing multiple exact URLs | Regex support IS-version-gated (5.2.0+); loopback flexibility IS-version-gated (6.0.0+) | **Not measured, and no experiment planned.** The open part is whether a true single-URL wildcard syntax exists, and an experiment can only ever fail to find one — absence of a syntax is not observable by trying one. This stays a documentation question. |
-| Refresh-grant scope narrowing | Docs show no `scope` param on refresh_token grant at all (asymmetric vs. client_credentials/password sections, which do show one) | `RefreshGrantHandler.validateScope()`: subset requests honored and narrow the token; over-broad requests rejected with `invalid_scope`; omitted scope keeps full original grant | **Pending live run.** `make empirical-asgardeo`, experiment B. Record the `ASGARDEO REFRESH NARROWING: {honored\|ignored\|rejected}` verdict, its date, and the `deployment:` line. |
+| Refresh-grant scope narrowing | Docs show no `scope` param on refresh_token grant at all (asymmetric vs. client_credentials/password sections, which do show one) | `RefreshGrantHandler.validateScope()`: subset requests honored and narrow the token; over-broad requests rejected with `invalid_scope`; omitted scope keeps full original grant | **Honored. 2026-08-06**, deployment `https://api.asgardeo.io/t/kanushka/oauth2/token`. `make empirical-asgardeo` experiment B established a session for `reference:status:read reference:status:write`, then ran a refresh grant for `reference:status:read` alone and received exactly that one permission — not the plain verdict's qualified form, so no protocol scopes were retained either. Matches the IS-source inference. |
 
-Both questions remain genuinely open for Asgardeo specifically; the WSO2 IS
-evidence is suggestive (shared codebase lineage, per the parent document's
-landscape findings) but not a substitute for a live test against an Asgardeo
-tenant. The broker decision does not assume Asgardeo parity with IS on either
-point: the shell verifies the narrowing it asked for and refuses
-(`auth.narrowing_unavailable`) when it cannot prove it, which is the behavior
-that is correct under every one of the three possible verdicts rather than the
-behavior that bets on one.
+Both questions are now answered for Asgardeo, and both answers match what the
+WSO2 IS source suggested — the shared codebase lineage held. Measured
+2026-08-06 against `https://api.asgardeo.io/t/kanushka/oauth2/token`; the
+verdicts are per-deployment, so a second tenant is not covered by these cells.
+
+The broker decision never assumed that parity: the shell verifies the narrowing
+it asked for and refuses (`auth.narrowing_unavailable`) when it cannot prove it,
+which is correct under every one of the three possible verdicts rather than the
+behavior that bets on one. The favorable verdict does not change that design; it
+means the refusal path is now the exceptional one on Asgardeo rather than the
+expected one.
+
+**A third finding, not anticipated by this document.** The same runs established
+that Asgardeo binds a JWT access token's `aud` claim to the **client ID**, never
+to the API resource identifier whose scopes the token carries. An access token
+issued for `reference:status:read reference:status:write` against an application
+authorized for the `reference-status` API resource carried
+`"aud": "<client id>"` and nothing else. Asgardeo exposes an Audience field only
+under **ID Token** in the application's Protocol tab; there is no equivalent for
+access tokens, because the value is not configurable. The consequence for broker
+policy is direct: on Asgardeo the only value that can satisfy the shell's
+audience check is the client ID, so `products.<namespace>.audience` cannot carry
+product-level meaning there, and the check cannot distinguish a token brokered
+for one namespace from one brokered for another. Whether Identity Server 7.x
+behaves the same way is unmeasured and is the open question this finding
+replaces the previous two with.
 
 ## 4. Producing and recording the verdicts
 

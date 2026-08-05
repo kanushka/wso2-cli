@@ -1,7 +1,7 @@
 # Logging in with the WSO2 CLI
 
 **Status:** Working draft
-**Last reviewed:** 2026-08-05
+**Last reviewed:** 2026-08-06
 **Related:** [Architecture](../architecture.md),
 [product requirements](../product-requirements.md),
 [shell commands](../reference/commands.md),
@@ -87,29 +87,82 @@ of the URLs listed in section 1.3, one at a time. Asgardeo matches redirect URIs
 exactly by default, so a missing entry becomes a mismatch error for whichever
 developer's machine happens to have that port busy.
 
-Whether Asgardeo waives the port for loopback addresses the way Identity Server
-6.0.0 and later document is
-[not settled from public sources](../research/asgardeo-redirect-uri-and-scope-narrowing.md).
-Register all four regardless; it costs nothing and does not depend on the answer.
+Asgardeo does in fact waive the port when matching loopback redirect URIs, the
+way Identity Server 6.0.0 and later document and as RFC 8252 §7.3 asks. That was
+[measured against a live tenant on 2026-08-06](../research/asgardeo-redirect-uri-and-scope-narrowing.md):
+a login completed through `127.0.0.1:16000`, a port the application did not
+register.
+
+Register all four anyway. The verdict was measured on one tenant, it is
+undocumented by Asgardeo and so may change without notice, and the shell binds
+only these four ports regardless — so nothing is gained by registering fewer,
+and a deployment that stops waiving the port breaks every developer whose first
+choice is busy.
 
 ### 2.4 Add the API resource and its scopes
 
 The audience a module asks for is an API resource identifier, and the
 permissions it asks for are that resource's scopes.
 
-1. **API Resources → New API Resource**.
-2. Give it an **Identifier**. This exact string is the audience — the shell
-   checks the issued token's `aud` claim against it. Record it.
-3. Add the scopes the module needs, for example `reference:status:read` and
-   `reference:status:write`.
-4. Back on the application's **API Authorization** tab, authorize the resource
-   and select those scopes.
+This is two screens, not one. An API resource is an organization-level object
+that many applications can share, so it is created outside your application;
+authorizing it *for* your application is a separate step afterwards.
 
-### 2.5 Issue JWT access tokens
+**First, create the resource.** **API Resources** is a top-level item in the
+Console's left navigation — a sibling of Applications, not a tab inside the one
+you just made.
+
+1. **API Resources → New API Resource**.
+2. Give it an **Identifier** and record it. This is the string a module's
+   `audience` names. Read section 2.5 before assuming it is also what lands in
+   an issued token's `aud` claim on Asgardeo — it is not.
+3. Give it a **Display Name**. This is what a user sees on a consent screen.
+4. Add the scopes the module needs, for example `reference:status:read` and
+   `reference:status:write`. Register at least two even when the module only
+   uses one: the narrowing experiment in section 9 works by asking for a strict
+   subset of what a session carries, and it has nothing to measure against a
+   single scope.
+5. The wizard's last step offers **Requires authorization**, checked by default.
+   **This field cannot be changed after the resource is created.** Checked means
+   these scopes only ever reach a token through a role. Clear it if you want the
+   application's own authorization to be enough on its own. Section 2.7 covers
+   the role path, which is also the way out if you left it checked.
+
+**Then authorize it on the application.** Back in **Applications → your
+application → Authorization → Authorize resource**: select the resource, then
+select its scopes.
+
+Watch the policy shown beside the resource on that tab. It can read
+`Role Based Access Control (RBAC)` even when the resource itself did not require
+authorization — the resource setting decides whether a policy is *mandatory*,
+and this tab is where one is actually chosen. `No Authorization Policy` means
+the scopes selected here are sufficient by themselves. Anything else means
+section 2.7 applies, and skipping it produces a login that succeeds followed by
+a refusal that names scopes rather than roles.
+
+### 2.5 Issue JWT access tokens, and know what `aud` will say
 
 On the application's **Protocol** tab, under **Access Token**, set the token type
 to **JWT**. An opaque access token cannot be checked, and the broker refuses
 what it cannot check.
+
+**Asgardeo binds an access token's `aud` claim to the client ID, not to the API
+resource whose scopes the token carries.** Measured against a live tenant on
+2026-08-06: a token issued for `reference:status:read reference:status:write`,
+from an application authorized against the `reference-status` API resource,
+carried `"aud": "<client id>"` and nothing else. There is no setting for this.
+The **Access Token** section offers only a token type and an attribute list; the
+Audience field you will find nearby belongs to **ID Token** and does not affect
+access tokens.
+
+So on Asgardeo, `products.<namespace>.audience` in your context document must be
+**the client ID**, not the API resource identifier, or every brokered
+acquisition refuses with `auth.narrowing_unavailable`. Section 4.3 says the same
+where the field is defined, and the consequence is recorded in
+[the research document](../research/asgardeo-redirect-uri-and-scope-narrowing.md):
+the audience check still proves a token was minted for this client, but it
+cannot distinguish one product from another. Whether Identity Server 7.x behaves
+this way is not yet measured.
 
 ### 2.6 Record what you need
 
@@ -123,6 +176,42 @@ From the **Protocol** and **Info** tabs:
   and use the `issuer` value verbatim. The shell discovers the token endpoint
   from that document and checks that the document belongs to the issuer it was
   fetched from, so a value that is close but not exact fails at login.
+
+### 2.7 Create a user who can sign in, and grant it the scopes
+
+**The account you sign in to the Console with is not, by default, an account
+your application can authenticate.** Console access and application sign-in are
+two different populations: your own account administers the organization, while
+what the application asks for is a user in the organization's user store. If you
+signed up through Google or GitHub there is no password in that store at all,
+and no amount of typing your real one will work.
+
+Create a user for this instead:
+
+1. **User Management → Users → Add User** — *Users*, not *Administrators*.
+2. Give it a username or email, for example `cli-smoke@example.com`.
+3. Choose to **set a password directly** rather than emailing an invitation. The
+   invitation path needs a working inbox, and login waits only five minutes.
+
+**If — and only if — section 2.4 left you with an authorization policy**, that
+user also needs a role carrying the scopes. Authorizing the resource on the
+application establishes what the application *may* ask for; under a policy it
+does not establish what a user is *entitled to*, and the gap surfaces at the
+first brokered acquisition as `auth.narrowing_unavailable` naming permissions.
+
+1. **Applications → your application → Roles → New Role**, with **Role Audience**
+   set to **Application**.
+2. Attach the API resource and select **every** scope the context document
+   lists, not just the one a module uses — a session that carries less than it
+   later asks for cannot be narrowed.
+3. Assign the user to that role, from the role's users list or from
+   **User Management → Users → your user → Roles**.
+
+A console change never reaches an existing session. Sign in again after either
+step — and note that a browser SSO session will complete that sign-in without
+showing you a login form, which is expected and does not mean the change was
+skipped. Scopes are computed when a token is issued, not frozen into the browser
+session.
 
 ---
 
@@ -159,12 +248,25 @@ configuration valid on Asgardeo, where that behavior is not documented.
 
 **API Resources → New API Resource**, with an identifier and scopes as in
 section 2.4, then authorize it on the application's **API Authorization** tab.
+Section 2.4's two warnings apply here too: the resource is created on a
+different screen than the one that authorizes it, and the **Requires
+authorization** setting cannot be changed afterwards.
 
 ### 3.5 Issue JWT access tokens
 
 Identity Server issues JWT access tokens by default. If the deployment has been
 changed to opaque, change it back for this application — see section 2.5 for
 why.
+
+**What Identity Server puts in a token's `aud` claim is not yet measured.**
+Section 2.5 records that Asgardeo binds it to the client ID rather than the API
+resource; whether Identity Server does the same is an open question. Register
+the API resource identifier as your `audience` first, and if brokered
+acquisition refuses with `auth.narrowing_unavailable` naming the audience, the
+client ID is the value to try instead. Either outcome is worth recording in
+[the research document](../research/asgardeo-redirect-uri-and-scope-narrowing.md),
+because it decides whether that clause of the broker's policy can mean anything
+product-specific at all.
 
 ### 3.6 Record what you need
 
@@ -177,6 +279,10 @@ why.
   uses the process's ordinary HTTP client, so a self-signed certificate that is
   not in the OS trust store fails discovery. See `auth.discovery_failed` in
   section 8.
+
+You also need a user to sign in as, and possibly a role granting the scopes.
+Section 2.7 describes both; the reasoning is identical on Identity Server, only
+the console differs.
 
 ---
 
@@ -244,7 +350,11 @@ Replace:
 
 - `issuer` — the value you confirmed in section 2.6 or 3.6.
 - `clientId` — the client ID you recorded.
-- `audience` — the API resource identifier from section 2.4 or 3.4.
+- `audience` — **on Asgardeo, the client ID again**, because that is the only
+  value Asgardeo puts in an access token's `aud` claim (section 2.5). On a
+  deployment that binds tokens to API resources, the resource identifier from
+  section 2.4 or 3.4. The example above shows the resource-identifier form, so
+  against Asgardeo it needs the client ID substituted here.
 - `scopes` — the scopes you authorized on the application.
 
 For an Identity Server deployment, also set `"type": "onprem"` and use the
@@ -265,7 +375,7 @@ For an Identity Server deployment, also set `"type": "onprem"` and use the
 | `auth.credentialRef` | The name the session is stored under in the OS secure store. **Required** for `oauth-browser`; **not allowed** for `client-credentials`. Same character rules as an identity name. |
 | `products.<namespace>` | What this identity may reach for one module. The namespace is the module's own name, and follows the same character rules as an identity name. |
 | `products.<namespace>.endpoint` | The product's base URL. **Required** on every product entry, and must be an absolute `http` or `https` URL with a host. |
-| `products.<namespace>.audience` | The API resource identifier. A module asking for any other audience is refused. |
+| `products.<namespace>.audience` | What the issued token's `aud` claim must carry. A module asking for any other audience is refused. Conceptually this is the API resource identifier — but on Asgardeo it must be **the client ID**, because that is the only thing Asgardeo puts in `aud`. See section 2.5. |
 | `products.<namespace>.scopes` | The permissions this identity carries. A module asking for one that is not listed is refused. |
 | `contexts[].organization` | The organization to act within. Either leave it out, or set it to the identity's `auth.tenant` — this release cannot switch a session out of its home tenant, and any other value is refused. See `auth.organization_switch_unsupported` in section 8. |
 
@@ -402,6 +512,12 @@ Two differences from section 4.2, and the schema enforces both:
   `clientSecretVariable` must **not** appear on an `oauth-browser` one.
 
 The secret itself never goes in this file, and the file is safe to commit.
+
+`audience` follows the same rule as section 4.2: on Asgardeo it must be the M2M
+application's own client ID, not the API resource identifier the example shows.
+Under RBAC there is one further difference from a browser login — a
+client-credentials grant has no user, so a role granting the scopes must be
+assigned to the **application** rather than to a person.
 
 ### 7.3 Wire the job
 
@@ -586,6 +702,42 @@ On a browser login: the flow ended without producing tokens — you closed the
 browser, the consent was denied, or the deployment redirected back with an
 error.
 
+The browser reached "Login complete" and the code exchange succeeded, but the
+identity token that came back was not one the shell would accept. The message
+says which kind of failure it was:
+
+| The message says | What it means | What to change |
+| --- | --- | --- |
+| "was not signed by the identity provider's keys" | The signature did not check out against the key set the issuer publishes. | Usually the `issuer` in your context document names a different deployment than the one that signed you in. |
+| "was issued for a different application" | The token's `aud` does not carry your `clientId`. | Confirm `clientId` names the application this issuer signed you in to. |
+| "had already expired" | The token was outside its validity window on arrival. | Check this machine's clock. |
+| "the shell could not read the signing keys the identity provider publishes" | The key set could not be fetched or parsed. | Confirm the machine can reach the issuer's `jwks_uri`. If it is reachable, see below. |
+
+That last one has a known cause worth naming, because it is not your
+configuration. Many WSO2 deployments — Asgardeo tenants and Identity Servers
+alike — publish a token-signing certificate whose X.509 serial number is
+negative, which RFC 5280 forbids and which Go has rejected since 1.23. The
+certificate travels in the `x5c` field of the JWKS, and a library that parses
+it eagerly fails the entire key set over it.
+
+**The shell no longer reads that field.** A key's own parameters describe it
+completely, so the certificate beside it is discarded before anything tries to
+parse it, and such a deployment logs in normally. Nothing needs to be set, and
+in particular the `GODEBUG=x509negativeserial=1` workaround that circulated
+before this was fixed is no longer required.
+
+If you want to confirm a deployment has such a certificate — a leading minus
+sign on the serial is the whole diagnosis:
+
+```sh
+curl -s "$(curl -s <issuer>/.well-known/openid-configuration | python3 -c 'import json,sys; print(json.load(sys.stdin)["jwks_uri"])')" \
+  | python3 -c 'import base64,json,sys; sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)["keys"][0]["x5c"][0]))' \
+  | openssl x509 -inform der -noout -serial
+```
+
+A serial printed as, for example, `serial=-3A4F8369` is that defect. It no
+longer stops a login.
+
 ### `auth.login_not_required`
 
 You ran `wso2 login` on a context whose identity carries its own credential.
@@ -611,13 +763,88 @@ now names. You changed the `issuer` after logging in. Run `wso2 login` again.
 ## 9. Proving it against a real deployment
 
 This repository ships a live smoke run and two one-time experiments, both behind
-the `smoke` build tag so they never execute in the default test gate.
+the `smoke` build tag so they never execute in the default test gate. Neither
+touches your own `~/.wso2`: they write a context document into a temporary state
+root and store their session under the secure-store reference `wso2-cli-smoke`,
+deleted before and after every run.
+
+### 9.1 First, the runs that need no deployment
+
+Nothing below is worth a browser sign-in until these pass. The deterministic
+suite already drives the whole chain — login, session, brokered acquisition —
+against a fake OIDC issuer that signs real JWTs, so what the live runs add is
+evidence about a *deployment*, not about the shell.
+
+```sh
+make test          # the default gate, including the acceptance suite
+make acceptance    # the architecture-proof gate
+make smoke-build   # proves the live runs still compile against the shell
+make lint
+```
+
+Confirm the live runs skip honestly while you are still unconfigured:
+
+```sh
+go test -tags smoke ./test/smoke -run TestLoginSmoke -v
+# --- SKIP: TestLoginSmoke — no live deployment is configured: set WSO2_SMOKE_ISSUER, ...
+```
+
+### 9.2 Describe the deployment
+
+```sh
+export WSO2_SMOKE_ISSUER='https://api.asgardeo.io/t/<org>/oauth2/token'
+export WSO2_SMOKE_CLIENT_ID='<client id>'
+export WSO2_SMOKE_AUDIENCE='<client id>'     # on Asgardeo — see section 2.5
+export WSO2_SMOKE_SCOPE='reference:status:read reference:status:write'
+```
+
+`WSO2_SMOKE_CLIENT_ID` and `WSO2_SMOKE_AUDIENCE` are different fields that
+Asgardeo happens to force to the same value: the first says who is asking, the
+second says what the issued token must be bound to. On a deployment that binds
+tokens to API resources they differ, and the second is the resource identifier
+from section 2.4.
+
+Confirm the issuer against the deployment's own document before spending a
+sign-in on a value that is close but not exact:
+
+```sh
+curl -s "$WSO2_SMOKE_ISSUER/.well-known/openid-configuration" \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["issuer"]); print(d["code_challenge_methods_supported"])'
+```
+
+The printed issuer must equal `WSO2_SMOKE_ISSUER` character for character, and
+`S256` must appear. Those are the two most common reasons a first login fails
+before it reaches a browser.
+
+### 9.3 The live runs
 
 ```sh
 make smoke-login          # log in, prove the session persisted, broker one acquisition
 make empirical-asgardeo   # answer the two open questions about Asgardeo's behavior
 ```
 
-Both skip cleanly when no deployment is configured.
-[`test/smoke/RUNNING.md`](../../test/smoke/RUNNING.md) lists the environment
-variables they read and explains how to read and record their verdicts.
+A passing smoke run ends with the acquisition granted:
+
+```
+LOGIN SMOKE: granted — access of 1219 characters bound to "<audience>", expiring 20:07:22Z
+```
+
+A run that ends in `auth.narrowing_unavailable` **also passes**, and that is
+deliberate: the shell refusing to hand a module more authority than it asked for
+is the designed outcome, not a fallback. Section 8 decodes which of the five
+narrowing refusals you got.
+
+The experiments print one verdict line each. Their answers belong in section 3
+of
+[`docs/research/asgardeo-redirect-uri-and-scope-narrowing.md`](../research/asgardeo-redirect-uri-and-scope-narrowing.md),
+with the date and the `deployment:` line the run printed beneath each verdict —
+the verdicts are per-deployment and a second tenant is not covered by the first
+one's cells. Both questions were answered against a live Asgardeo tenant on
+2026-08-06: any-port loopback **supported**, refresh narrowing **honored**.
+
+Read
+[`test/smoke/RUNNING.md`](../../test/smoke/RUNNING.md) before recording
+anything. It lists every variable these runs read and, more importantly,
+explains which verdicts are catch-all branches that need corroborating — an
+`ASGARDEO ANY-PORT LOOPBACK: rejected` is what the experiment prints for *any*
+login that did not complete, including one where you simply closed the browser.
