@@ -18,9 +18,24 @@ package oauthflow
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+// unclosableBody reads to completion and then fails to close, as a connection
+// torn down between the last byte and the release can.
+type unclosableBody struct{ io.Reader }
+
+func (unclosableBody) Close() error { return errors.New("connection reset by peer") }
+
+// answering is a transport that hands back one prepared response.
+type answering struct{ response *http.Response }
+
+func (a answering) RoundTrip(*http.Request) (*http.Response, error) { return a.response, nil }
 
 // TestWithoutCertificatesTouchesOnlyKeySets proves the stripper is inert
 // everywhere except the one document it exists for. Every fetch a login makes
@@ -96,5 +111,38 @@ func TestWithoutCertificatesDropsTheChainAndItsThumbprints(t *testing.T) {
 		if _, carried := document.Keys[0][needed]; !carried {
 			t.Fatalf("the strip took %q with it: %s", needed, rewritten)
 		}
+	}
+}
+
+// TestRoundTripKeepsAResponseWhoseBodyWillNotClose proves a key set that
+// arrived intact is not thrown away because releasing the connection failed
+// afterwards.
+//
+// Closing a response body is what returns the connection to the pool; it says
+// nothing about bytes already read. Refusing the response over it would invent
+// exactly the kind of spurious failure this file exists to remove — and it
+// would do so on every fetch a login makes, not only on key sets.
+func TestRoundTripKeepsAResponseWhoseBodyWillNotClose(t *testing.T) {
+	const keySet = `{"keys":[{"kty":"RSA","n":"abc","e":"AQAB","x5c":["MII"]}]}`
+	stripper := certificateStripper{base: answering{response: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{},
+		Body:       unclosableBody{strings.NewReader(keySet)},
+	}}}
+
+	response, err := stripper.RoundTrip(
+		httptest.NewRequest(http.MethodGet, "https://example.test/jwks", nil))
+	if err != nil {
+		t.Fatalf("a key set that arrived intact was refused because its body would not close: %v", err)
+	}
+	delivered, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("reading the delivered body: %v", err)
+	}
+	if strings.Contains(string(delivered), "x5c") {
+		t.Fatalf("the certificate survived the strip:\n%s", delivered)
+	}
+	if !strings.Contains(string(delivered), `"n":"abc"`) {
+		t.Fatalf("the key did not survive the strip:\n%s", delivered)
 	}
 }

@@ -130,12 +130,15 @@ func (s certificateStripper) RoundTrip(request *http.Request) (*http.Response, e
 		return response, err
 	}
 	body, err := io.ReadAll(response.Body)
-	closeErr := response.Body.Close()
+	// Closing is what releases the connection, and a failure to do so says
+	// nothing about the bytes already read. Refusing the response over it
+	// would invent exactly the kind of spurious failure this file exists to
+	// remove. A read that did not finish is different: the body has been
+	// consumed and cannot be handed on, so there is no response left to
+	// return.
+	_ = response.Body.Close()
 	if err != nil {
 		return nil, err
-	}
-	if closeErr != nil {
-		return nil, closeErr
 	}
 	stripped, changed := withoutCertificates(body)
 	if !changed {
