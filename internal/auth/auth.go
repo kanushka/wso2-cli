@@ -28,12 +28,12 @@ package auth
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/wso2/wso2-cli/internal/auth/devtoken"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/sdk/problem"
@@ -112,6 +112,13 @@ type Broker struct {
 	// Credentials reads a named environment variable. It defaults to the
 	// process environment, and a test replaces it.
 	Credentials func(name string) (string, bool)
+	// StateRoot is the shell-owned state root. It hosts the advisory locks
+	// that keep refresh-token rotation single-writer; no session material is
+	// ever written under it.
+	StateRoot string
+	// HTTPClient serves issuer traffic. It defaults to http.DefaultClient,
+	// and a test points it at an in-process issuer.
+	HTTPClient *http.Client
 	// Now reads the current time. It defaults to time.Now.
 	Now func() time.Time
 
@@ -125,12 +132,6 @@ type Broker struct {
 // Every refusal is a typed problem in the authentication class, with recovery
 // guidance a user can act on and no detail of the credential behind it.
 func (b *Broker) Acquire(request Request) (Grant, error) {
-	if b.Namespace != ProofNamespace {
-		return Grant{}, denial("auth.namespace_not_brokered",
-			fmt.Sprintf("the %q module asked for access, and this shell brokers access for the "+
-				"non-production %q proof only", b.namespace(), ProofNamespace),
-			"Install a module the WSO2 CLI can authenticate, or run the command without it.")
-	}
 	if b.granted {
 		return Grant{}, denial("auth.already_granted",
 			fmt.Sprintf("the %q module asked for access twice in one command", b.namespace()),
@@ -139,32 +140,19 @@ func (b *Broker) Acquire(request Request) (Grant, error) {
 	if err := b.checkDeclared(request); err != nil {
 		return Grant{}, err
 	}
-	if err := b.checkContext(); err != nil {
+	// The receipt is checked before the identity is, so a module asking beyond
+	// its installation is told so whatever context happens to be selected.
+	resolved, err := b.resolveSource(request)
+	if err != nil {
 		return Grant{}, err
 	}
-
-	credential, err := b.credential()
+	grant, err := resolved.mint(request, b.now())
 	if err != nil {
 		return Grant{}, err
 	}
 
-	now := b.now()
-	token, mintErr := devtoken.Mint(credential, devtoken.Claims{
-		Audience:     request.Audience,
-		Scopes:       request.Scopes,
-		Organization: b.Selection.Context.Organization,
-		Invocation:   b.InvocationID,
-	}, now)
-	if mintErr != nil {
-		// The issuer's own error may name what it was given, so it is not
-		// carried into a problem the shell renders.
-		return Grant{}, denial("auth.access_not_issued",
-			fmt.Sprintf("the shell could not issue access for the %q module", b.namespace()),
-			"Retry the command. Report the failure if it persists.")
-	}
-
 	b.granted = true
-	return Grant{Token: token, ExpiresAt: now.Add(devtoken.Lifetime).UTC()}, nil
+	return grant, nil
 }
 
 // checkDeclared intersects the request with the module receipt.
@@ -185,28 +173,6 @@ func (b *Broker) checkDeclared(request Request) error {
 					b.namespace()),
 				"Reinstall the module. The shell grants only the permissions a module receipt declares.")
 		}
-	}
-	return nil
-}
-
-// checkContext proves the selected context can be authenticated against at all.
-func (b *Broker) checkContext() error {
-	if b.Selection.Identity.Auth.Kind == "" && b.Selection.Identity.Auth.CredentialVariable == "" {
-		return denial("auth.context_not_selected",
-			fmt.Sprintf("the %q module needs access, and no WSO2 CLI context is selected", b.namespace()),
-			"Select a context that names the organization and credential source to use.")
-	}
-	if b.Selection.Identity.Auth.Kind != contexts.MethodDevelopmentCredential {
-		return denial("auth.method_unsupported",
-			fmt.Sprintf("the %q context uses an authentication method this shell does not implement",
-				b.Selection.Context.Name),
-			fmt.Sprintf("Select a context whose authentication method is %q.",
-				contexts.MethodDevelopmentCredential))
-	}
-	if b.Selection.Context.Organization == "" {
-		return denial("auth.organization_not_selected",
-			fmt.Sprintf("the %q context names no organization to act within", b.Selection.Context.Name),
-			"Select a context that names the organization the command targets.")
 	}
 	return nil
 }
