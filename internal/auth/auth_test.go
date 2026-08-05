@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	keyring "github.com/zalando/go-keyring"
+
 	"github.com/wso2/wso2-cli/internal/auth"
 	"github.com/wso2/wso2-cli/internal/auth/devtoken"
 	"github.com/wso2/wso2-cli/internal/contexts"
@@ -37,6 +39,7 @@ const (
 	readScope        = "reference:status:read"
 	organization     = "reference-org"
 	invocationID     = "invocation-7f2a"
+	homeTenant       = organization
 )
 
 var acquiredAt = time.Date(2026, time.July, 27, 10, 0, 0, 0, time.UTC)
@@ -46,13 +49,19 @@ func broker(t *testing.T) *auth.Broker {
 	return &auth.Broker{
 		Namespace:    "reference",
 		Capabilities: modules.Capabilities{AuthAudiences: []string{audience}, AuthScopes: []string{readScope}},
-		Context: contexts.Context{
-			Name:           "reference-local",
-			OrganizationID: organization,
-			Endpoint:       "http://127.0.0.1:8080",
-			Auth: contexts.Auth{
-				Method:             contexts.MethodDevelopmentCredential,
-				CredentialVariable: credentialVar,
+		Selection: contexts.Selection{
+			Context: contexts.Context{
+				Name:         "reference-local",
+				Identity:     "reference-local",
+				Organization: organization,
+			},
+			Identity: contexts.Identity{
+				Name: "reference-local",
+				Type: "onprem",
+				Auth: contexts.IdentityAuth{
+					Kind:               contexts.MethodDevelopmentCredential,
+					CredentialVariable: credentialVar,
+				},
 			},
 		},
 		InvocationID: invocationID,
@@ -188,7 +197,7 @@ func TestAModuleOutsideTheProofNamespaceIsNeverBrokeredAccess(t *testing.T) {
 
 func TestAnInvocationWithoutAContextIsDenied(t *testing.T) {
 	broker := broker(t)
-	broker.Context = contexts.Context{Name: contexts.DefaultName}
+	broker.Selection = contexts.Selection{Context: contexts.Context{Name: contexts.DefaultName}}
 
 	refusal := denied(t, broker, declaredRequest())
 
@@ -201,7 +210,7 @@ func TestAContextWithoutAnOrganizationIsDenied(t *testing.T) {
 	// Access is bound to an organization, so a context that names none has
 	// nothing to bind a token to.
 	broker := broker(t)
-	broker.Context.OrganizationID = ""
+	broker.Selection.Context.Organization = ""
 
 	refusal := denied(t, broker, declaredRequest())
 
@@ -212,7 +221,7 @@ func TestAContextWithoutAnOrganizationIsDenied(t *testing.T) {
 
 func TestAnAuthenticationMethodThisShellDoesNotImplementIsDenied(t *testing.T) {
 	broker := broker(t)
-	broker.Context.Auth.Method = "browser-pkce"
+	broker.Selection.Identity.Auth.Kind = "browser-pkce"
 
 	refusal := denied(t, broker, declaredRequest())
 
@@ -238,7 +247,7 @@ func TestAModuleCannotRefreshItsAccess(t *testing.T) {
 
 func TestNoDenialRevealsTheSourceCredential(t *testing.T) {
 	broker := broker(t)
-	broker.Context.Auth.Method = "browser-pkce"
+	broker.Selection.Identity.Auth.Kind = "browser-pkce"
 
 	refusal := denied(t, broker, auth.Request{Audience: "another-audience", Scopes: []string{"another:scope"}})
 
@@ -246,6 +255,185 @@ func TestNoDenialRevealsTheSourceCredential(t *testing.T) {
 		" " + refusal.Reported().Message + " " + refusal.Reported().Recovery
 	if strings.Contains(rendered, sourceCredential) {
 		t.Fatalf("a denial revealed the source credential: %s", rendered)
+	}
+}
+
+// productionBroker builds a broker over a schema version 2 identity of the
+// given kind, configured so every production policy check passes. Each test
+// breaks exactly one of them, so a refusal names the check it broke.
+func productionBroker(t *testing.T, kind string) *auth.Broker {
+	t.Helper()
+	return &auth.Broker{
+		Namespace:    "reference",
+		Capabilities: modules.Capabilities{AuthAudiences: []string{audience}, AuthScopes: []string{readScope}},
+		Selection: contexts.Selection{
+			Context: contexts.Context{
+				Name:         "reference-cloud",
+				Identity:     "reference-cloud",
+				Organization: homeTenant,
+			},
+			Identity: contexts.Identity{
+				Name: "reference-cloud",
+				Type: "cloud",
+				Auth: contexts.IdentityAuth{
+					Kind:          kind,
+					Issuer:        "https://issuer.example.test",
+					ClientID:      "wso2cli",
+					Tenant:        homeTenant,
+					CredentialRef: "reference-cloud",
+				},
+				Products: map[string]contexts.Product{
+					"reference": {
+						Endpoint: "https://reference.example.test",
+						Audience: audience,
+						Scopes:   []string{readScope},
+					},
+				},
+			},
+		},
+		InvocationID: invocationID,
+		// A production identity derives access under a session lock, and a
+		// broker with no state root would take that lock relative to whatever
+		// directory the test happens to run in — inside the source tree.
+		StateRoot: t.TempDir(),
+		Now:       func() time.Time { return acquiredAt },
+	}
+}
+
+// withProduct replaces the reference product registration, which a table
+// literal cannot assign through a map member.
+func withProduct(broker *auth.Broker, product contexts.Product) {
+	broker.Selection.Identity.Products["reference"] = product
+}
+
+func TestTheIdentityKindDecidesWhichPolicyTheBrokerApplies(t *testing.T) {
+	// One switch answers "what kind of identity is this?", and every refusal
+	// below is reached through it. The order matters as much as the codes: an
+	// identity that configures no product is refused for the product it does
+	// not configure, never for the organization it happens to name.
+	for name, testcase := range map[string]struct {
+		kind   string
+		mutate func(*auth.Broker)
+		code   string
+	}{
+		"no identity is no selection": {
+			kind: "",
+			code: "auth.context_not_selected",
+		},
+		"a device login is legal but unimplemented": {
+			kind: contexts.KindOAuthDevice,
+			code: "auth.kind_not_implemented",
+		},
+		"a personal access token is legal but unimplemented": {
+			kind: contexts.KindPAT,
+			code: "auth.kind_not_implemented",
+		},
+		"an unreadable kind is unsupported": {
+			kind: "browser-pkce",
+			code: "auth.method_unsupported",
+		},
+		"a browser identity that configures no product": {
+			kind:   contexts.KindOAuthBrowser,
+			mutate: func(b *auth.Broker) { b.Selection.Identity.Products = nil },
+			code:   "auth.product_not_configured",
+		},
+		"a browser identity registered for another audience": {
+			kind: contexts.KindOAuthBrowser,
+			mutate: func(b *auth.Broker) {
+				withProduct(b, contexts.Product{
+					Endpoint: "https://reference.example.test",
+					Audience: "other-api",
+					Scopes:   []string{readScope},
+				})
+			},
+			code: "auth.product_not_configured",
+		},
+		"a browser identity whose product does not carry the scope": {
+			kind: contexts.KindOAuthBrowser,
+			mutate: func(b *auth.Broker) {
+				withProduct(b, contexts.Product{
+					Endpoint: "https://reference.example.test",
+					Audience: audience,
+					Scopes:   []string{"reference:status:write"},
+				})
+			},
+			code: "auth.product_not_configured",
+		},
+		"a browser identity asked to act outside its home tenant": {
+			kind:   contexts.KindOAuthBrowser,
+			mutate: func(b *auth.Broker) { b.Selection.Context.Organization = "another-org" },
+			code:   "auth.organization_switch_unsupported",
+		},
+		"a client-credentials identity that configures no product": {
+			kind:   contexts.KindClientCredentials,
+			mutate: func(b *auth.Broker) { b.Selection.Identity.Products = nil },
+			code:   "auth.product_not_configured",
+		},
+		"a client-credentials identity asked to act outside its home tenant": {
+			kind:   contexts.KindClientCredentials,
+			mutate: func(b *auth.Broker) { b.Selection.Context.Organization = "another-org" },
+			code:   "auth.organization_switch_unsupported",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			broker := productionBroker(t, testcase.kind)
+			if testcase.mutate != nil {
+				testcase.mutate(broker)
+			}
+
+			refusal := denied(t, broker, declaredRequest())
+
+			if refusal.Problem.Code != testcase.code {
+				t.Errorf("code = %q, want %q", refusal.Problem.Code, testcase.code)
+			}
+		})
+	}
+}
+
+func TestAFullyConfiguredProductionIdentityIsAdmittedByPolicy(t *testing.T) {
+	// Policy admits this request, so only the token source can refuse it now.
+	// Separating the two is what the source seam is for, and this pins the
+	// hand-off exactly: with nothing stored to derive from, what comes back is
+	// the source asking for a login, not policy turning the identity away.
+	keyring.MockInit()
+	broker := productionBroker(t, contexts.KindOAuthBrowser)
+
+	refusal := denied(t, broker, declaredRequest())
+
+	if refusal.Problem.Code != "auth.login_required" {
+		t.Errorf("code = %q, want auth.login_required", refusal.Problem.Code)
+	}
+}
+
+func TestAnUnselectedContextIsRefusedBeforeTheProofNamespaceGuard(t *testing.T) {
+	// Ordering. The proof-namespace guard belongs to the development source, so
+	// reaching it means an identity was resolved first. A namespace outside the
+	// proof with no identity at all is told what is actually wrong — nothing is
+	// selected — rather than that its namespace is not brokered.
+	broker := broker(t)
+	broker.Namespace = "api"
+	broker.Selection = contexts.Selection{Context: contexts.Context{Name: contexts.DefaultName}}
+
+	refusal := denied(t, broker, declaredRequest())
+
+	if refusal.Problem.Code != "auth.context_not_selected" {
+		t.Errorf("code = %q, want auth.context_not_selected", refusal.Problem.Code)
+	}
+}
+
+func TestAProductNamespaceTheIdentityDoesNotConfigureIsRefused(t *testing.T) {
+	// A production identity reaching the broker for a namespace it does not
+	// register is told so, rather than being handed another product's audience.
+	broker := productionBroker(t, contexts.KindOAuthBrowser)
+	broker.Namespace = "api"
+
+	refusal := denied(t, broker, declaredRequest())
+
+	if refusal.Problem.Code != "auth.product_not_configured" {
+		t.Errorf("code = %q, want auth.product_not_configured", refusal.Problem.Code)
+	}
+	if !strings.Contains(refusal.Problem.Message, "api") {
+		t.Errorf("the refusal %q does not name the product namespace", refusal.Problem.Message)
 	}
 }
 

@@ -39,6 +39,13 @@ requirements or architecture.
 These documents illustrate proposed interfaces. They are not evidence that the
 described commands or schemas are currently available.
 
+## Guides
+
+- [Logging in](guides/login.md) takes a first-time user from registering the
+  OAuth application in Asgardeo or Identity Server 7.x, through authoring the
+  context document and the first `wso2 login`, to a CI job that authenticates
+  without one. It is written to be read on its own.
+
 ## Research
 
 The [research index](research/README.md) identifies the public sources and

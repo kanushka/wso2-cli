@@ -16,14 +16,15 @@
 
 // Package contexts reads the shell-owned invocation contexts.
 //
-// A context says what a command runs against and how the shell obtains access
-// to it. It never contains a credential: it names the environment variable the
-// shell reads one from, and the type has nowhere to put a value even if a
-// writer tried. See docs/examples/authentication-contexts.md.
+// A document separates identities — how the shell authenticates and what it
+// can reach — from contexts, which say what a command runs against. Neither
+// ever contains a credential: they name where one comes from, and the types
+// have nowhere to put a value even if a writer tried. See
+// docs/examples/authentication-contexts.md.
 //
-// The architecture proof reads contexts and never writes them. Creating one is
-// a test fixture's job, so no shell command can write a context that grants
-// itself access.
+// The shell reads contexts and never writes them. Creating one is a test
+// fixture's job, so no shell command can write a context that grants itself
+// access.
 package contexts
 
 import (
@@ -32,7 +33,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -40,9 +40,10 @@ import (
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
-// SchemaVersion is the only context-document schema this shell reads. An
-// unknown schema version fails closed rather than being partly interpreted.
-const SchemaVersion = 1
+// SchemaVersion is the current context-document schema. The shell also reads
+// SchemaVersionLegacy documents through a compatibility mapping; any other
+// version fails closed rather than being partly interpreted.
+const SchemaVersion = 2
 
 // FileName is the context document's fixed name inside the shell state tree.
 const FileName = "contexts.json"
@@ -57,8 +58,8 @@ const DefaultName = "default"
 // method: the shell reads a development credential from a named environment
 // variable and exchanges it for a short-lived fixture token.
 //
-// It is not a production method. Browser, device-code, personal-access-token,
-// and client-credential methods are separate work.
+// It is not a production method and not a legal v2 kind: it reaches the
+// in-memory document only through the v1 compatibility read.
 const MethodDevelopmentCredential = "development-credential"
 
 // namePattern constrains a context name to one readable word.
@@ -75,36 +76,30 @@ type Document struct {
 	SchemaVersion int `json:"schemaVersion"`
 	// DefaultContext is the name of the context commands run against.
 	DefaultContext string `json:"defaultContext"`
+	// Identities are the authentication arrangements contexts reference.
+	Identities []Identity `json:"identities"`
 	// Contexts are the configured contexts.
 	Contexts []Context `json:"contexts"`
 }
 
-// Context is one target a command can run against.
-//
-// Its members are the whole of what a context records: a name, the
-// organization, the service endpoint, and how the shell authenticates. No
-// member holds a credential.
+// Context is one target a command can run against. It references an identity
+// for authentication and narrows it to an organization and project.
 type Context struct {
 	// Name identifies the context.
 	Name string `json:"name"`
-	// OrganizationID is the organization commands run within. Access is bound
+	// Identity names the identity this context authenticates as.
+	Identity string `json:"identity"`
+	// Organization is the organization commands run within. Access is bound
 	// to it, so a token minted here is refused elsewhere.
-	OrganizationID string `json:"organizationId"`
-	// Endpoint is the product service this context targets.
-	Endpoint string `json:"endpoint"`
-	// Auth says how the shell obtains access. It names a credential source and
-	// never holds one.
-	Auth Auth `json:"auth"`
+	Organization string `json:"organization,omitempty"`
+	// Project further narrows the target inside the organization.
+	Project string `json:"project,omitempty"`
 }
 
-// Auth is a context's authentication arrangement.
-type Auth struct {
-	// Method identifies how the shell obtains access.
-	Method string `json:"method"`
-	// CredentialVariable is the name of the environment variable the shell
-	// reads the source credential from. It is a name, never a value, and only
-	// the shell ever reads the variable it names.
-	CredentialVariable string `json:"credentialVariable"`
+// Selection is one resolved context together with its identity.
+type Selection struct {
+	Context  Context
+	Identity Identity
 }
 
 // Path reports the context document's location inside a state root.
@@ -132,11 +127,36 @@ func Load(stateRoot string) (Document, error) {
 
 // Decode parses and validates a context document.
 //
+// The schema version is probed first: the current version decodes directly, a
+// legacy version decodes through the compatibility mapping, and any other
+// version fails closed rather than being partly interpreted.
+func Decode(data []byte) (Document, error) {
+	var probe struct {
+		SchemaVersion int `json:"schemaVersion"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(&probe); err != nil {
+		return Document{}, malformed("is not valid JSON")
+	}
+	switch probe.SchemaVersion {
+	case SchemaVersionLegacy:
+		return decodeLegacy(data)
+	case SchemaVersion:
+		return decodeCurrent(data)
+	default:
+		return Document{}, contextProblem("contexts.schema_unsupported",
+			fmt.Sprintf("context document schema version %d is not supported by this shell", probe.SchemaVersion),
+			"Update the WSO2 CLI, or write a context document this shell owns.")
+	}
+}
+
+// decodeCurrent is the strict single-document decode of the current schema.
+//
 // Unknown JSON members are tolerated so a newer shell can add non-secret
 // context facts within the same schema version. A trailing document is refused,
 // so a second value cannot be smuggled past a decoder that stops after the
 // first.
-func Decode(data []byte) (Document, error) {
+func decodeCurrent(data []byte) (Document, error) {
 	var document Document
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	if err := decoder.Decode(&document); err != nil {
@@ -153,7 +173,15 @@ func Decode(data []byte) (Document, error) {
 
 // Encode renders the document as the canonical on-disk form, refusing a
 // document this shell would not read back.
+//
+// A compatibility-read document refuses outright: the shell never rewrites a
+// version 1 document into version 2 behind its author's back.
 func (d Document) Encode() ([]byte, error) {
+	if d.compatibilityRead() {
+		return nil, contextProblem("contexts.document_malformed",
+			"a compatibility-read context document cannot be written back",
+			"Author a schema version 2 document. The shell does not rewrite version 1 documents in place.")
+	}
 	if err := d.validate(); err != nil {
 		return nil, err
 	}
@@ -164,20 +192,59 @@ func (d Document) Encode() ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
-// Selected reports the context commands run against.
-func (d Document) Selected() (Context, error) {
-	if len(d.Contexts) == 0 {
-		return Context{Name: DefaultName}, nil
+// compatibilityRead reports whether this document reached memory through the
+// v1 compatibility mapping.
+//
+// A synthetic identity marks the usual case, but a v1 document that declared no
+// contexts produces no identity to mark, so the version it was read at answers
+// as well. Either way the shell refuses to write it back.
+func (d Document) compatibilityRead() bool {
+	if d.SchemaVersion == SchemaVersionLegacy {
+		return true
 	}
-	for _, candidate := range d.Contexts {
-		if candidate.Name == d.DefaultContext {
-			return candidate, nil
+	for _, identity := range d.Identities {
+		if identity.synthetic {
+			return true
 		}
 	}
-	// validate rejects a document whose default names no context, so this is
-	// reachable only through a Document a caller built itself.
-	return Context{}, contextProblem("contexts.unknown_context",
-		fmt.Sprintf("no context named %q is configured", d.DefaultContext),
+	return false
+}
+
+// Select resolves the named context and its identity. An empty name selects
+// the document's default context.
+func (d Document) Select(name string) (Selection, error) {
+	if len(d.Contexts) == 0 {
+		if name != "" {
+			return Selection{}, unknownContext(name)
+		}
+		return Selection{Context: Context{Name: DefaultName}}, nil
+	}
+	wanted := name
+	if wanted == "" {
+		wanted = d.DefaultContext
+	}
+	for _, candidate := range d.Contexts {
+		if candidate.Name == wanted {
+			return Selection{Context: candidate, Identity: d.identity(candidate.Identity)}, nil
+		}
+	}
+	return Selection{}, unknownContext(wanted)
+}
+
+func (d Document) identity(name string) Identity {
+	for _, candidate := range d.Identities {
+		if candidate.Name == name {
+			return candidate
+		}
+	}
+	// Unreachable for a validated document: every context references a
+	// declared identity.
+	return Identity{}
+}
+
+func unknownContext(name string) problem.Problem {
+	return contextProblem("contexts.unknown_context",
+		fmt.Sprintf("no context named %q is configured", name),
 		"Select a configured context, or remove the context document to run without one.")
 }
 
@@ -190,6 +257,17 @@ func (d Document) validate() error {
 			"Update the WSO2 CLI, or write a context document this shell owns.")
 	}
 
+	identities := make(map[string]struct{}, len(d.Identities))
+	for _, identity := range d.Identities {
+		if _, duplicate := identities[identity.Name]; duplicate {
+			return malformed(fmt.Sprintf("declares the identity %q more than once", identity.Name))
+		}
+		identities[identity.Name] = struct{}{}
+		if err := identity.validate(); err != nil {
+			return err
+		}
+	}
+
 	seen := make(map[string]struct{}, len(d.Contexts))
 	for _, candidate := range d.Contexts {
 		if !namePattern.MatchString(candidate.Name) {
@@ -199,8 +277,9 @@ func (d Document) validate() error {
 			return malformed(fmt.Sprintf("declares the context %q more than once", candidate.Name))
 		}
 		seen[candidate.Name] = struct{}{}
-		if err := candidate.validate(); err != nil {
-			return err
+		if _, found := identities[candidate.Identity]; !found {
+			return malformed(fmt.Sprintf("the context %q references the identity %q, which the document does not declare",
+				candidate.Name, candidate.Identity))
 		}
 	}
 
@@ -210,41 +289,6 @@ func (d Document) validate() error {
 	if _, found := seen[d.DefaultContext]; !found {
 		return malformed(fmt.Sprintf("selects the context %q, which it does not declare", d.DefaultContext))
 	}
-	return nil
-}
-
-func (c Context) validate() error {
-	if c.Endpoint != "" {
-		// The endpoint is never echoed. A rejected one is the most likely
-		// place for a credential to have been typed by mistake, and repeating
-		// it into a problem the shell renders would publish it.
-		parsed, err := url.Parse(c.Endpoint)
-		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-			return malformed(fmt.Sprintf("declares an endpoint for the context %q that this shell cannot read",
-				c.Name))
-		}
-		// A URL may carry a user and password before its host. The endpoint
-		// reaches the module, so an endpoint that embeds a credential would
-		// hand one to a module through the one context member nobody thinks of
-		// as carrying credentials.
-		if parsed.User != nil {
-			return contextProblem("contexts.document_malformed",
-				fmt.Sprintf("the endpoint of the context %q embeds credentials in its URL", c.Name),
-				"Remove the user information from the endpoint. A context names a credential source; "+
-					"it never carries a credential.")
-		}
-	}
-	if c.Auth.CredentialVariable != "" && !variablePattern.MatchString(c.Auth.CredentialVariable) {
-		// The rejected value is not echoed: a document that put a credential
-		// where a variable name belongs must not have it repeated into output.
-		return contextProblem("contexts.document_malformed",
-			fmt.Sprintf("the context %q does not name an environment variable as its credential source", c.Name),
-			"Name the environment variable holding the credential, not the credential itself.")
-	}
-	// The method is not checked here. Which methods a shell implements is
-	// broker policy, and a context naming one this release does not implement
-	// is still a readable context: it is refused when a command needs access,
-	// as a typed denial, rather than making the whole document unreadable.
 	return nil
 }
 
