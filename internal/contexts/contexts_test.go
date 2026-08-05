@@ -134,10 +134,17 @@ func TestValidateV2(t *testing.T) {
 		{"unknown kind rejected", replace(`"kind": "oauth-browser"`, `"kind": "password"`), "contexts.document_malformed"},
 		{"context referencing unknown identity", replace(`"identity": "acme-cloud"`, `"identity": "ghost"`), "contexts.document_malformed"},
 		{"credentialRef holding a JWT-shaped value", replace(`"credentialRef": "acme-cloud-login"`, `"credentialRef": "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln"`), "contexts.document_malformed"},
-		{"clientSecretVariable on browser kind", replace(`"credentialRef": "acme-cloud-login"`, `"clientSecretVariable": "MY_SECRET"`), "contexts.document_malformed"},
+		{"clientSecretVariable alongside credentialRef on browser kind", addMember(`"clientSecretVariable": "MY_SECRET"`), "contexts.document_malformed"},
+		{"clientSecretVariable on token kind", asKind("pat", addMember(`"clientSecretVariable": "MY_SECRET"`)), "contexts.document_malformed"},
+		{"credentialRef alongside clientSecretVariable on client-credentials kind", asClientCredentials(replace(`"clientSecretVariable": "WSO2_ACME_SECRET"`, `"clientSecretVariable": "WSO2_ACME_SECRET", "credentialRef": "acme-cloud-login"`)), "contexts.document_malformed"},
 		{"missing issuer on browser kind", replace(`"issuer": "https://issuer.example.test/t/acme/oauth2/token",`, ``), "contexts.document_malformed"},
 		{"missing clientId on browser kind", replace(`"clientId": "client-123",`, ``), "contexts.document_malformed"},
+		{"missing issuer on client-credentials kind", asClientCredentials(replace(`"issuer": "https://issuer.example.test/t/acme/oauth2/token",`, ``)), "contexts.document_malformed"},
+		{"missing credentialRef on token kind", asKind("pat", withoutCredentialRef), "contexts.document_malformed"},
 		{"issuer embedding credentials", replace(`"issuer": "https://issuer.example.test/t/acme/oauth2/token"`, `"issuer": "https://user:pass@issuer.example.test/t/acme/oauth2/token"`), "contexts.document_malformed"},
+		{"issuer this shell cannot read", replace(`"issuer": "https://issuer.example.test/t/acme/oauth2/token"`, `"issuer": "issuer.example.test"`), "contexts.document_malformed"},
+		{"invalid identity name", replace(`"name": "acme-cloud"`, `"name": "Acme Cloud"`), "contexts.document_malformed"},
+		{"product declared without an endpoint", replace(`"endpoint": "https://api.example.test",`, ``), "contexts.document_malformed"},
 		{"product endpoint with embedded credentials", replace(`"endpoint": "https://api.example.test"`, `"endpoint": "https://user:pass@api.example.test"`), "contexts.document_malformed"},
 		{"duplicate identity name", duplicateIdentity, "contexts.document_malformed"},
 		{"duplicate context name", duplicateContext, "contexts.document_malformed"},
@@ -183,6 +190,11 @@ func TestTheSelectedContextIsTheDefaultOne(t *testing.T) {
 	}
 	if selection.Identity.Name != "acme-cloud" || selection.Identity.Auth.Kind != contexts.KindOAuthBrowser {
 		t.Fatalf("the selection does not carry its identity: %+v", selection.Identity)
+	}
+	// The endpoint a module is launched against is read off the selected
+	// identity's product, so the selection must carry it.
+	if endpoint := selection.Identity.Products["reference"].Endpoint; endpoint != "https://api.example.test" {
+		t.Errorf("the selection does not carry its product endpoint: %q", endpoint)
 	}
 }
 
@@ -386,6 +398,39 @@ func install(t *testing.T, document contexts.Document) string {
 func replace(old, new string) func(doc string) string {
 	return func(doc string) string {
 		return strings.Replace(doc, old, new, 1)
+	}
+}
+
+// addMember inserts one extra JSON member into the identity's auth object,
+// leaving everything already there in place. A mutation that swapped a member
+// out instead would be refused for the missing member and never reach the rule
+// under test.
+func addMember(member string) func(doc string) string {
+	return replace(`"credentialRef": "acme-cloud-login"`, `"credentialRef": "acme-cloud-login", `+member)
+}
+
+// withoutCredentialRef drops the credentialRef member, its comma included, so
+// the document stays well-formed JSON rather than shadowing the member with a
+// duplicate key.
+func withoutCredentialRef(doc string) string {
+	return strings.Replace(doc, ",\n        \"credentialRef\": \"acme-cloud-login\"", "", 1)
+}
+
+// asKind rewrites the identity's authentication kind, then applies mutate.
+func asKind(kind string, mutate func(doc string) string) func(doc string) string {
+	return func(doc string) string {
+		return mutate(replace(`"kind": "oauth-browser"`, `"kind": "`+kind+`"`)(doc))
+	}
+}
+
+// asClientCredentials turns the identity into a valid client-credentials one,
+// then applies mutate.
+func asClientCredentials(mutate func(doc string) string) func(doc string) string {
+	return func(doc string) string {
+		return mutate(strings.NewReplacer(
+			`"kind": "oauth-browser"`, `"kind": "client-credentials"`,
+			`"credentialRef": "acme-cloud-login"`, `"clientSecretVariable": "WSO2_ACME_SECRET"`,
+		).Replace(doc))
 	}
 }
 

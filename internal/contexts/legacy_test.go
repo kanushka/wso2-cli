@@ -17,6 +17,7 @@
 package contexts_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,9 +100,26 @@ func TestSyntheticIdentityIsNotEncodable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("legacy decode: %v", err)
 	}
-	if _, err := document.Encode(); err == nil {
+	_, err = document.Encode()
+	if err == nil {
 		t.Fatal("encoding a compatibility document must fail: no automatic rewrite")
 	}
+	// The code matters: refusing because the schema version is unsupported
+	// would pass this test with the compatibility guard deleted.
+	assertProblemCode(t, err, "contexts.document_malformed")
+}
+
+func TestAnEmptyLegacyDocumentIsNotEncodable(t *testing.T) {
+	// A v1 document with no contexts produces no synthetic identity to mark,
+	// so the refusal cannot rest on the identities alone.
+	document, err := contexts.Decode([]byte(`{"schemaVersion":1,"defaultContext":"","contexts":[]}`))
+	if err != nil {
+		t.Fatalf("legacy decode: %v", err)
+	}
+
+	_, err = document.Encode()
+
+	assertProblemCode(t, err, "contexts.document_malformed")
 }
 
 func TestUnknownSchemaVersionFailsClosed(t *testing.T) {
@@ -197,9 +215,5 @@ func TestTheLegacyFixtureRefusesToWriteIntoRealWSO2State(t *testing.T) {
 
 func asProblem(t *testing.T, err error, target *problem.Problem) bool {
 	t.Helper()
-	typed, ok := err.(problem.Problem)
-	if ok {
-		*target = typed
-	}
-	return ok
+	return errors.As(err, target)
 }
