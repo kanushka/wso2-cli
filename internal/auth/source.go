@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/wso2/wso2-cli/internal/auth/session"
@@ -57,14 +56,21 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 	case contexts.MethodDevelopmentCredential:
 		return b.developmentSource()
 	case contexts.KindOAuthBrowser, contexts.KindClientCredentials:
-		product, err := b.product(request)
-		if err != nil {
+		if err := b.checkProduct(request); err != nil {
 			return nil, err
 		}
 		if err := b.checkHomeTenant(); err != nil {
 			return nil, err
 		}
-		return b.productionSource(kind, product)
+		if kind == contexts.KindClientCredentials {
+			return unavailableSource{}, nil
+		}
+		return browserSource{
+			namespace: b.namespace(),
+			identity:  b.Selection.Identity,
+			sessions:  session.Store{StateRoot: b.StateRoot},
+			client:    b.httpClient(),
+		}, nil
 	case contexts.KindOAuthDevice, contexts.KindPAT:
 		return nil, denial("auth.kind_not_implemented",
 			fmt.Sprintf("the %q context uses an authentication kind this release does not implement",
@@ -79,25 +85,25 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 	}
 }
 
-// product is the identity's registration for the namespace asking, checked
-// against what the module actually asked for.
+// checkProduct proves the identity registers the namespace asking, for what the
+// module actually asked for.
 //
 // The registration is the deployment's own statement of what this identity may
 // reach, so a request it does not cover is refused rather than attempted: an
 // issuer would answer with its own error, and a user reading it would have no
 // way to tell a misregistered product from a broken one. Audiences and scope
 // names are not secrets, so a refusal states both sides of the mismatch.
-func (b *Broker) product(request Request) (contexts.Product, error) {
+func (b *Broker) checkProduct(request Request) error {
 	product, configured := b.Selection.Identity.Products[b.Namespace]
 	if !configured {
-		return contexts.Product{}, denial("auth.product_not_configured",
+		return denial("auth.product_not_configured",
 			fmt.Sprintf("the identity the %q context authenticates as does not configure the %q product",
 				b.Selection.Context.Name, b.namespace()),
 			fmt.Sprintf("Add the %q product to this identity in the context document, or select a "+
 				"context whose identity reaches it.", b.namespace()))
 	}
 	if product.Audience != "" && request.Audience != product.Audience {
-		return contexts.Product{}, denial("auth.product_not_configured",
+		return denial("auth.product_not_configured",
 			fmt.Sprintf("the %q module asked for the %q audience, and this identity registers its %q "+
 				"product against %q", b.namespace(), request.Audience, b.namespace(), product.Audience),
 			"Register the audience the module needs on this identity's product entry, or install a "+
@@ -106,7 +112,7 @@ func (b *Broker) product(request Request) (contexts.Product, error) {
 	if len(product.Scopes) > 0 {
 		for _, scope := range request.Scopes {
 			if !slices.Contains(product.Scopes, scope) {
-				return contexts.Product{}, denial("auth.product_not_configured",
+				return denial("auth.product_not_configured",
 					fmt.Sprintf("the %q module asked for the %q permission, which this identity's %q "+
 						"product does not carry", b.namespace(), scope, b.namespace()),
 					"Add the permission to this identity's product entry once the deployment grants "+
@@ -114,7 +120,7 @@ func (b *Broker) product(request Request) (contexts.Product, error) {
 			}
 		}
 	}
-	return product, nil
+	return nil
 }
 
 // checkHomeTenant refuses a context that points an identity at an organization
@@ -166,23 +172,6 @@ func (b *Broker) developmentSource() (source, error) {
 	}, nil
 }
 
-// productionSource is the derivation for an identity whose access comes from a
-// real issuer. It is reached only after the checks above have admitted the
-// request.
-func (b *Broker) productionSource(kind string, _ contexts.Product) (source, error) {
-	switch kind {
-	case contexts.KindOAuthBrowser:
-		return browserSource{
-			namespace: b.namespace(),
-			identity:  b.Selection.Identity,
-			sessions:  session.Store{StateRoot: b.StateRoot},
-			client:    b.httpClient(),
-		}, nil
-	default:
-		return unavailableSource{}, nil
-	}
-}
-
 // httpClient is what reaches an issuer. It defaults to the process-wide client
 // rather than one this package builds, so a deployment's proxy and certificate
 // configuration applies to shell traffic exactly as it does to everything else.
@@ -191,86 +180,6 @@ func (b *Broker) httpClient() *http.Client {
 		return b.HTTPClient
 	}
 	return http.DefaultClient
-}
-
-// narrowingRecovery is the way back from every refusal to hand a module a grant
-// the shell could not prove was narrowed to its request.
-const narrowingRecovery = "Check the deployment's API resource registration and the permissions " +
-	"granted to the registered OAuth application, then retry. The shell does not hand a module " +
-	"broader access than it asked for."
-
-// verifyIssued proves an issued token is exactly what the module asked for.
-//
-// It is the check the whole derivation exists to make. A deployment may answer
-// a narrowed request with the session's full authority, or with a token bound
-// to some other audience, and both look like success at the protocol level. The
-// shell refuses rather than degrades: a module that receives more than it asked
-// for has been handed authority nobody decided to give it, and a module that
-// receives a token its audience will reject fails later for a reason no one can
-// diagnose from where it fails.
-func verifyIssued(request Request, namespace, accessToken, statedScopes string) (bearerFacts, error) {
-	facts, err := bearerClaims(accessToken)
-	if err != nil {
-		// Without readable claims the shell cannot prove the audience binding,
-		// and an unprovable grant is not one this broker issues.
-		return bearerFacts{}, denial("auth.narrowing_unavailable",
-			fmt.Sprintf("the deployment issued access for the %q module in a form the shell cannot "+
-				"check against what the module asked for", namespace),
-			narrowingRecovery)
-	}
-	// The response's own statement wins, because it is the deployment speaking
-	// about what it issued. The token's claim answers for issuers that state
-	// nothing.
-	effective := strings.Fields(statedScopes)
-	if len(effective) == 0 {
-		effective = facts.Scopes
-	}
-	if len(effective) == 0 {
-		return bearerFacts{}, denial("auth.narrowing_unavailable",
-			fmt.Sprintf("the deployment did not state which permissions it issued for the %q module, "+
-				"so the shell cannot prove they are the ones it asked for", namespace),
-			narrowingRecovery)
-	}
-	if !sameScopeSet(effective, request.Scopes) {
-		// Scope names are not secrets, and naming both sides is the difference
-		// between a refusal and a registration a user can go and fix.
-		return bearerFacts{}, denial("auth.narrowing_unavailable",
-			fmt.Sprintf("the %q module asked for the permissions %s and the deployment issued %s",
-				namespace, scopeList(request.Scopes), scopeList(effective)),
-			narrowingRecovery)
-	}
-	if !slices.Contains(facts.Audiences, request.Audience) {
-		return bearerFacts{}, denial("auth.narrowing_unavailable",
-			fmt.Sprintf("the deployment issued access that is not bound to the %q audience the %q "+
-				"module needs", request.Audience, namespace),
-			narrowingRecovery)
-	}
-	return facts, nil
-}
-
-// sameScopeSet reports whether two permission lists carry the same members,
-// whatever their order or repetition.
-func sameScopeSet(issued, requested []string) bool {
-	for _, scope := range issued {
-		if !slices.Contains(requested, scope) {
-			return false
-		}
-	}
-	for _, scope := range requested {
-		if !slices.Contains(issued, scope) {
-			return false
-		}
-	}
-	return true
-}
-
-// scopeList renders permissions for a refusal in a stable order.
-func scopeList(scopes []string) string {
-	sorted := slices.Sorted(slices.Values(scopes))
-	if len(sorted) == 0 {
-		return "none"
-	}
-	return strings.Join(sorted, ", ")
 }
 
 // unavailableSource stands in for an identity kind whose derivation this build

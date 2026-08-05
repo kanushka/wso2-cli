@@ -113,7 +113,7 @@ func (s browserSource) derive(request Request, now time.Time) (Grant, error) {
 	if err != nil {
 		return Grant{}, err
 	}
-	facts, err := verifyIssued(request, s.namespace, issued.AccessToken, issued.Scope)
+	facts, err := issued.verify(request, s.namespace)
 	if err != nil {
 		return Grant{}, err
 	}
@@ -132,23 +132,6 @@ func (s browserSource) derive(request Request, now time.Time) (Grant, error) {
 	return Grant{Token: issued.AccessToken, ExpiresAt: issued.expiry(facts, now)}, nil
 }
 
-// tokenResponse is what a token endpoint answers a refresh grant with.
-type tokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	Scope        string `json:"scope"`
-	ExpiresIn    int64  `json:"expires_in"`
-}
-
-// expiry is when the issued token stops working: what the response said, or
-// what the token itself claims when the response said nothing.
-func (r tokenResponse) expiry(facts bearerFacts, now time.Time) time.Time {
-	if r.ExpiresIn > 0 {
-		return now.Add(time.Duration(r.ExpiresIn) * time.Second).UTC()
-	}
-	return facts.ExpiresAt
-}
-
 // refresh exchanges the stored refresh token for access narrowed to scopes.
 func (s browserSource) refresh(
 	ctx context.Context, endpoint, refreshToken string, scopes []string,
@@ -164,22 +147,18 @@ func (s browserSource) refresh(
 	post, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint,
 		strings.NewReader(form.Encode()))
 	if err != nil {
-		return tokenResponse{}, discoveryUnreachable()
+		return tokenResponse{}, renewalUnreachable()
 	}
 	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	post.Header.Set("Accept", "application/json")
 	answer, err := s.client.Do(post)
 	if err != nil {
-		return tokenResponse{}, denial("auth.discovery_failed",
-			"the shell could not reach the identity provider to renew this session",
-			"Check that this machine can reach the issuer of the selected context, then retry.")
+		return tokenResponse{}, renewalUnreachable()
 	}
 	defer func() { _ = answer.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(answer.Body, refreshResponseLimit))
 	if err != nil {
-		return tokenResponse{}, denial("auth.discovery_failed",
-			"the shell could not read the identity provider's answer to this session renewal",
-			"Retry the command. Report the failure if it persists.")
+		return tokenResponse{}, renewalUnreachable()
 	}
 
 	if answer.StatusCode != http.StatusOK {
@@ -215,4 +194,16 @@ func (s browserSource) refusedGrant(body []byte) error {
 	return denial("auth.login_required",
 		"the stored session was not accepted by the identity provider",
 		"Run wso2 login to establish a fresh session for this context.")
+}
+
+// renewalUnreachable reports a token endpoint the shell could not complete a
+// renewal against.
+//
+// It is deliberately distinct from the discovery failure above: by this point
+// the issuer's configuration has already been read, so telling the user the
+// shell could not read it would send them to look at something that worked.
+func renewalUnreachable() error {
+	return denial("auth.discovery_failed",
+		"the shell could not reach the identity provider to renew this session",
+		"Check that this machine can reach the issuer of the selected context, then retry.")
 }

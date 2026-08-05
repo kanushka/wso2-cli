@@ -27,7 +27,6 @@ import (
 	"github.com/wso2/wso2-cli/internal/auth/fakeissuer"
 	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
-	"github.com/wso2/wso2-cli/internal/modules"
 )
 
 const (
@@ -68,41 +67,30 @@ func seedBrowserSession(t *testing.T, options fakeissuer.Options) browserDeploym
 	return browserDeployment{issuer: issuer, stateRoot: root, seeded: seeded}
 }
 
-// browserBroker builds the broker one invocation would build for a browser
-// identity whose products are fully registered.
-func (d browserDeployment) broker() *auth.Broker {
-	return &auth.Broker{
-		Namespace:    "reference",
-		Capabilities: modules.Capabilities{AuthAudiences: []string{audience}, AuthScopes: []string{readScope}},
-		Selection: contexts.Selection{
-			Context: contexts.Context{
-				Name:         "reference-cloud",
-				Identity:     "reference-cloud",
-				Organization: homeTenant,
-			},
-			Identity: contexts.Identity{
-				Name: "reference-cloud",
-				Type: "cloud",
-				Auth: contexts.IdentityAuth{
-					Kind:          contexts.KindOAuthBrowser,
-					Issuer:        d.issuer.URL,
-					ClientID:      "wso2cli",
-					Tenant:        homeTenant,
-					CredentialRef: sessionRef,
-				},
-				Products: map[string]contexts.Product{
-					"reference": {
-						Endpoint: "https://reference.example.test",
-						Audience: audience,
-						Scopes:   []string{readScope, writeScope},
-					},
-				},
-			},
-		},
-		InvocationID: invocationID,
-		StateRoot:    d.stateRoot,
-		HTTPClient:   d.issuer.HTTPClient(),
-	}
+// broker builds the broker one invocation would build for this deployment.
+//
+// It starts from the shared production identity and points it at the running
+// issuer, so the only things that differ from every other production-policy
+// test are the ones a browser derivation actually needs: where the issuer is,
+// which secure-store entry holds the session, and the state root its rotation
+// lock lives under.
+func (d browserDeployment) broker(t *testing.T) *auth.Broker {
+	t.Helper()
+	broker := productionBroker(t, contexts.KindOAuthBrowser)
+	broker.Selection.Identity.Auth.Issuer = d.issuer.URL
+	broker.Selection.Identity.Auth.CredentialRef = sessionRef
+	withProduct(broker, contexts.Product{
+		Endpoint: "https://reference.example.test",
+		Audience: audience,
+		Scopes:   []string{readScope, writeScope},
+	})
+	broker.StateRoot = d.stateRoot
+	broker.HTTPClient = d.issuer.HTTPClient()
+	// The issuer states a token's life relative to now, so this derivation is
+	// clocked by the real time the running issuer is minting against, not by
+	// the fixed instant the fixture-token tests pin.
+	broker.Now = nil
+	return broker
 }
 
 // storedSession reads the session the secure store holds now.
@@ -121,7 +109,7 @@ func TestBrowserSourceNarrowsTheSessionToWhatTheModuleAsked(t *testing.T) {
 	// it is bound to the product's audience, and it carries nothing more.
 	deployment := seedBrowserSession(t, fakeissuer.Options{RefreshScopeMode: "honor"})
 
-	grant, err := deployment.broker().Acquire(declaredRequest())
+	grant, err := deployment.broker(t).Acquire(declaredRequest())
 	if err != nil {
 		t.Fatalf("Acquire returned %v", err)
 	}
@@ -148,7 +136,7 @@ func TestBrowserSourceStatesTheEffectiveScopesWhenTheIssuerDoesNot(t *testing.T)
 		RefreshScopeMode: "honor", OmitRefreshScopeField: true,
 	})
 
-	grant, err := deployment.broker().Acquire(declaredRequest())
+	grant, err := deployment.broker(t).Acquire(declaredRequest())
 	if err != nil {
 		t.Fatalf("Acquire returned %v", err)
 	}
@@ -167,7 +155,7 @@ func TestBrowserSourcePersistsTheRotatedRefreshTokenBeforeGranting(t *testing.T)
 		RefreshScopeMode: "honor", RotateRefreshTokens: true,
 	})
 
-	if _, err := deployment.broker().Acquire(declaredRequest()); err != nil {
+	if _, err := deployment.broker(t).Acquire(declaredRequest()); err != nil {
 		t.Fatalf("the first Acquire returned %v", err)
 	}
 
@@ -180,7 +168,7 @@ func TestBrowserSourcePersistsTheRotatedRefreshTokenBeforeGranting(t *testing.T)
 	}
 	// A second invocation is a second broker: nothing carries over but what
 	// the secure store holds.
-	grant, err := deployment.broker().Acquire(declaredRequest())
+	grant, err := deployment.broker(t).Acquire(declaredRequest())
 	if err != nil {
 		t.Fatalf("the second Acquire returned %v", err)
 	}
@@ -195,7 +183,7 @@ func TestBrowserSourceRefusesOnceTheRotatedTokenSupersedesTheStoredOne(t *testin
 	deployment := seedBrowserSession(t, fakeissuer.Options{
 		RefreshScopeMode: "honor", RotateRefreshTokens: true,
 	})
-	if _, err := deployment.broker().Acquire(declaredRequest()); err != nil {
+	if _, err := deployment.broker(t).Acquire(declaredRequest()); err != nil {
 		t.Fatalf("the first Acquire returned %v", err)
 	}
 	store := session.Store{StateRoot: deployment.stateRoot}
@@ -205,7 +193,7 @@ func TestBrowserSourceRefusesOnceTheRotatedTokenSupersedesTheStoredOne(t *testin
 		t.Fatalf("restoring the superseded session: %v", err)
 	}
 
-	refusal := denied(t, deployment.broker(), declaredRequest())
+	refusal := denied(t, deployment.broker(t), declaredRequest())
 
 	if refusal.Problem.Code != "auth.login_required" {
 		t.Errorf("code = %q, want auth.login_required", refusal.Problem.Code)
@@ -229,7 +217,7 @@ func TestBrowserSourceRefusesRatherThanAcceptABroaderGrant(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			deployment := seedBrowserSession(t, testcase)
 
-			refusal := denied(t, deployment.broker(), declaredRequest())
+			refusal := denied(t, deployment.broker(t), declaredRequest())
 
 			if refusal.Problem.Code != "auth.narrowing_unavailable" {
 				t.Errorf("code = %q, want auth.narrowing_unavailable", refusal.Problem.Code)
@@ -281,7 +269,7 @@ func TestBrowserSourceRefusesWhatNoSessionCanAnswer(t *testing.T) {
 			deployment := seedBrowserSession(t, fakeissuer.Options{RefreshScopeMode: "honor"})
 			testcase.prepare(t, deployment)
 
-			refusal := denied(t, deployment.broker(), declaredRequest())
+			refusal := denied(t, deployment.broker(t), declaredRequest())
 
 			if refusal.Problem.Code != testcase.code {
 				t.Errorf("code = %q, want %q", refusal.Problem.Code, testcase.code)
@@ -296,7 +284,7 @@ func TestALoginRequiredRefusalNamesTheCommandThatFixesIt(t *testing.T) {
 		t.Fatalf("clearing the stored session: %v", err)
 	}
 
-	refusal := denied(t, deployment.broker(), declaredRequest())
+	refusal := denied(t, deployment.broker(t), declaredRequest())
 
 	if !strings.Contains(refusal.Reported().Recovery, "wso2 login") {
 		t.Errorf("the recovery %q does not name wso2 login", refusal.Reported().Recovery)
@@ -314,7 +302,7 @@ func TestNoBrowserRefusalCarriesSessionMaterial(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			deployment := seedBrowserSession(t, testcase)
 
-			refusal := denied(t, deployment.broker(), declaredRequest())
+			refusal := denied(t, deployment.broker(t), declaredRequest())
 
 			rendered := refusal.Problem.Message + " " + refusal.Problem.Recovery + " " +
 				refusal.Reported().Message + " " + refusal.Reported().Recovery

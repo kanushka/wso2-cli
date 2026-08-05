@@ -17,6 +17,14 @@
 // Package acceptance_test runs the built shell and the built reference module
 // from an isolated state directory, through the same external seam a user does.
 //
+// One group of tests departs from that: the login chain in login_test.go runs
+// the shell in-process, because a login session lives in the OS secure store
+// and go-keyring's mock replaces the backend only inside the process that
+// installs it — a subprocess would write to the developer's real keychain. The
+// module is still built and launched as a real subprocess over the real
+// protocol there, so what the departure costs is the shell's own process
+// boundary and nothing else. That file states the reason again where it bites.
+//
 // This increment covers build boundaries and receipt-backed inventory only.
 // Product-command invocation arrives with the module contract.
 package acceptance_test
