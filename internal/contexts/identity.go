@@ -18,8 +18,10 @@ package contexts
 
 import (
 	"fmt"
+	"maps"
 	"net/url"
 	"regexp"
+	"slices"
 )
 
 // The authentication kinds a schema version 2 document may declare.
@@ -114,11 +116,13 @@ func (i Identity) validate() error {
 	if err := i.Auth.validate(i.Name); err != nil {
 		return err
 	}
-	for namespace, product := range i.Products {
+	// The namespaces are walked in sorted order so a document with more than
+	// one unreadable product is refused for the same reason on every run.
+	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
 		if !namePattern.MatchString(namespace) {
 			return malformed(fmt.Sprintf("declares an invalid product namespace on the identity %q", i.Name))
 		}
-		if err := product.validate(i.Name); err != nil {
+		if err := i.Products[namespace].validate(i.Name); err != nil {
 			return err
 		}
 	}
@@ -161,6 +165,13 @@ func (a IdentityAuth) validate(identity string) error {
 			return contextProblem("contexts.document_malformed",
 				fmt.Sprintf("the identity %q does not name a secure-store reference as its credential source", identity),
 				"Name the secure-store entry, not a credential value. A reference is one lower-case word.")
+		}
+		// A personal access token has no client secret. Accepting the member
+		// anyway would leave the one field this shell pattern-checks for a
+		// pasted value unchecked on the kind whose users are most likely to be
+		// holding a raw token, so it is refused rather than ignored.
+		if a.ClientSecretVariable != "" {
+			return malformed(fmt.Sprintf("declares a client secret source on the token identity %q", identity))
 		}
 	}
 	// The issuer URL, like an endpoint, may not embed user information.
