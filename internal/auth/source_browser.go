@@ -121,10 +121,12 @@ func (s browserSource) derive(request Request, now time.Time) (Grant, error) {
 	// The replacement is stored before the grant is returned, and while the
 	// lock is still held. A crash after this point costs an access token; a
 	// crash before it would have cost the session.
+	// Only the refresh token is replaced. The access token the session carries
+	// is the one the login obtained, for the whole product scope union; what
+	// this derivation just minted is narrower and belongs to one module for one
+	// command, so it is handed over and never stored.
 	if issued.RefreshToken != "" && issued.RefreshToken != stored.RefreshToken {
 		stored.RefreshToken = issued.RefreshToken
-		stored.AccessToken = ""
-		stored.ExpiresAt = time.Time{}
 		if err := s.sessions.Save(s.identity.Auth.CredentialRef, stored); err != nil {
 			return Grant{}, err
 		}
@@ -162,7 +164,7 @@ func (s browserSource) refresh(
 	}
 
 	if answer.StatusCode != http.StatusOK {
-		return tokenResponse{}, s.refusedGrant(body)
+		return tokenResponse{}, s.refusedGrant(answer.StatusCode, body)
 	}
 	var issued tokenResponse
 	if json.Unmarshal(body, &issued) != nil || issued.AccessToken == "" {
@@ -177,11 +179,17 @@ func (s browserSource) refresh(
 // terms. A refusal to narrow is the one answer the shell treats differently:
 // it means the session is fine and the deployment will not scope it down, which
 // is a registration problem, not a login problem.
-func (s browserSource) refusedGrant(body []byte) error {
+//
+// That reading is confined to the status RFC 6749 defines it on. A failing or
+// unauthorized endpoint may mention invalid_scope for reasons of its own, and
+// reporting a broken deployment as a registration a user should go and change
+// would send them to edit something that was never wrong.
+func (s browserSource) refusedGrant(status int, body []byte) error {
 	var refusal struct {
 		Error string `json:"error"`
 	}
-	if json.Unmarshal(body, &refusal) == nil && refusal.Error == "invalid_scope" {
+	if status == http.StatusBadRequest &&
+		json.Unmarshal(body, &refusal) == nil && refusal.Error == "invalid_scope" {
 		return denial("auth.narrowing_unavailable",
 			fmt.Sprintf("the deployment refused to narrow this session to the permissions the %q "+
 				"module asked for", s.namespace),

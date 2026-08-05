@@ -17,6 +17,10 @@
 package auth_test
 
 import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -308,6 +312,79 @@ func TestNoBrowserRefusalCarriesSessionMaterial(t *testing.T) {
 				refusal.Reported().Message + " " + refusal.Reported().Recovery
 			if strings.Contains(rendered, deployment.seeded) {
 				t.Fatalf("a refusal disclosed the stored refresh token: %s", rendered)
+			}
+		})
+	}
+}
+
+// stubTokenEndpoint is an issuer that answers every renewal with one canned
+// status and body.
+//
+// The fake issuer models deployments that behave; this models one that does
+// not, which is the only way to reach the paths where the shell must tell a
+// broken endpoint apart from a deliberate refusal.
+func stubTokenEndpoint(t *testing.T, status int, body string) *httptest.Server {
+	t.Helper()
+	var server *httptest.Server
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /.well-known/openid-configuration",
+		func(writer http.ResponseWriter, _ *http.Request) {
+			writer.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(writer).Encode(map[string]any{
+				"issuer":                                server.URL,
+				"authorization_endpoint":                server.URL + "/authorize",
+				"token_endpoint":                        server.URL + "/token",
+				"jwks_uri":                              server.URL + "/jwks",
+				"id_token_signing_alg_values_supported": []string{"RS256"},
+			}); err != nil {
+				t.Errorf("stub issuer could not answer discovery: %v", err)
+			}
+		})
+	mux.HandleFunc("POST /token", func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(status)
+		if _, err := io.WriteString(writer, body); err != nil {
+			t.Errorf("stub issuer could not answer the token request: %v", err)
+		}
+	})
+	server = httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestOnlyABadRequestReadsAsARefusalToNarrow(t *testing.T) {
+	// invalid_scope means "I will not scope this down" on the status RFC 6749
+	// defines it for. On any other status the endpoint is failing, and calling
+	// that a registration problem would send a user to change something that
+	// was never wrong.
+	for name, testcase := range map[string]struct {
+		status int
+		code   string
+	}{
+		"the deployment refuses to narrow":    {http.StatusBadRequest, "auth.narrowing_unavailable"},
+		"the deployment is failing":           {http.StatusInternalServerError, "auth.login_required"},
+		"the session is no longer authorized": {http.StatusUnauthorized, "auth.login_required"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			keyring.MockInit()
+			stub := stubTokenEndpoint(t, testcase.status, `{"error":"invalid_scope"}`)
+			root := t.TempDir()
+			if err := (session.Store{StateRoot: root}).Save(sessionRef, session.Session{
+				Issuer: stub.URL, RefreshToken: "rt-stored",
+			}); err != nil {
+				t.Fatalf("seeding the stored session: %v", err)
+			}
+			broker := productionBroker(t, contexts.KindOAuthBrowser)
+			broker.Selection.Identity.Auth.Issuer = stub.URL
+			broker.Selection.Identity.Auth.CredentialRef = sessionRef
+			broker.StateRoot = root
+			broker.HTTPClient = stub.Client()
+			broker.Now = nil
+
+			refusal := denied(t, broker, declaredRequest())
+
+			if refusal.Problem.Code != testcase.code {
+				t.Errorf("code = %q, want %q", refusal.Problem.Code, testcase.code)
 			}
 		})
 	}

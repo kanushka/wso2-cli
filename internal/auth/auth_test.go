@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	keyring "github.com/zalando/go-keyring"
+
 	"github.com/wso2/wso2-cli/internal/auth"
 	"github.com/wso2/wso2-cli/internal/auth/devtoken"
 	"github.com/wso2/wso2-cli/internal/contexts"
@@ -290,7 +292,11 @@ func productionBroker(t *testing.T, kind string) *auth.Broker {
 			},
 		},
 		InvocationID: invocationID,
-		Now:          func() time.Time { return acquiredAt },
+		// A production identity derives access under a session lock, and a
+		// broker with no state root would take that lock relative to whatever
+		// directory the test happens to run in — inside the source tree.
+		StateRoot: t.TempDir(),
+		Now:       func() time.Time { return acquiredAt },
 	}
 }
 
@@ -386,20 +392,32 @@ func TestTheIdentityKindDecidesWhichPolicyTheBrokerApplies(t *testing.T) {
 
 func TestAFullyConfiguredProductionIdentityIsAdmittedByPolicy(t *testing.T) {
 	// Policy admits this request, so only the token source can refuse it now.
-	// Separating the two is what the source seam is for, and this pins it: a
-	// complete registration never meets a policy refusal.
+	// Separating the two is what the source seam is for, and this pins the
+	// hand-off exactly: with nothing stored to derive from, what comes back is
+	// the source asking for a login, not policy turning the identity away.
+	keyring.MockInit()
 	broker := productionBroker(t, contexts.KindOAuthBrowser)
 
 	refusal := denied(t, broker, declaredRequest())
 
-	for _, policyCode := range []string{
-		"auth.context_not_selected", "auth.method_unsupported", "auth.kind_not_implemented",
-		"auth.product_not_configured", "auth.organization_switch_unsupported",
-		"auth.namespace_not_brokered", "auth.organization_not_selected",
-	} {
-		if refusal.Problem.Code == policyCode {
-			t.Fatalf("a fully configured identity was refused by policy: %s", refusal.Problem.Code)
-		}
+	if refusal.Problem.Code != "auth.login_required" {
+		t.Errorf("code = %q, want auth.login_required", refusal.Problem.Code)
+	}
+}
+
+func TestAnUnselectedContextIsRefusedBeforeTheProofNamespaceGuard(t *testing.T) {
+	// Ordering. The proof-namespace guard belongs to the development source, so
+	// reaching it means an identity was resolved first. A namespace outside the
+	// proof with no identity at all is told what is actually wrong — nothing is
+	// selected — rather than that its namespace is not brokered.
+	broker := broker(t)
+	broker.Namespace = "api"
+	broker.Selection = contexts.Selection{Context: contexts.Context{Name: contexts.DefaultName}}
+
+	refusal := denied(t, broker, declaredRequest())
+
+	if refusal.Problem.Code != "auth.context_not_selected" {
+		t.Errorf("code = %q, want auth.context_not_selected", refusal.Problem.Code)
 	}
 }
 
