@@ -170,6 +170,40 @@ func TestBrowserLoginRoundTrip(t *testing.T) {
 	}
 }
 
+// TestLoginVerifiesThroughACertificateItCannotParse proves a key set is read
+// for the keys in it and not for the certificates published beside them.
+//
+// WSO2 deployments — Asgardeo tenants and Identity Servers alike — publish
+// signing certificates whose serial numbers are negative, which RFC 5280
+// forbids and which Go's x509 parser has rejected since 1.23. go-jose parses
+// x5c eagerly while unmarshalling a key set and fails the whole document when
+// one certificate in it does not parse, so such a deployment leaves the shell
+// with no readable keys and no login is possible at all. The signing key was
+// never the problem: n and e describe it completely.
+func TestLoginVerifiesThroughACertificateItCannotParse(t *testing.T) {
+	issuer := fakeissuer.New(t, fakeissuer.Options{
+		Audience:                  "reference-status",
+		AllowAnyLoopbackPort:      true,
+		NegativeSerialCertificate: true,
+	})
+	printed := &recorder{}
+	login := browserLogin(issuer, printed, func(authURL string) error {
+		go visit(issuer, authURL)
+		return nil
+	})
+
+	result, err := login.Run(testContext(t, 30*time.Second))
+	if err != nil {
+		t.Fatalf("login refused an issuer whose signing keys are perfectly readable: %v", err)
+	}
+	if result.Token == nil || result.Token.RefreshToken == "" {
+		t.Fatal("no refresh token issued")
+	}
+	if result.Subject != "user-1" {
+		t.Fatalf("identity subject %q, want user-1", result.Subject)
+	}
+}
+
 func TestLoginCompletesFromThePrintedURLWhenTheBrowserCannotOpen(t *testing.T) {
 	issuer := fakeissuer.New(t, fakeissuer.Options{Audience: "reference-status", AllowAnyLoopbackPort: true})
 	printed := &recorder{}

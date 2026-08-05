@@ -32,6 +32,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -192,8 +193,7 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	}
 	idToken, err := provider.Verifier(&oidc.Config{ClientID: l.ClientID}).Verify(ctx, rawIDToken)
 	if err != nil {
-		return Result{}, notCompleted("the identity token this login returned did not verify",
-			"Retry wso2 login. The shell does not accept an identity it cannot verify against the issuer's keys.")
+		return Result{}, identityNotVerified(err)
 	}
 	// The nonce proves the identity token was minted for this login and not
 	// replayed from another one.
@@ -227,11 +227,17 @@ func (l Login) ports() []int {
 	return LoopbackPorts()
 }
 
+// httpClient is the client every fetch this login makes goes through, wrapped
+// so that a key set is read for its keys and not for the certificates beside
+// them. See certificateStripper.
 func (l Login) httpClient() *http.Client {
+	base := http.DefaultClient
 	if l.HTTPClient != nil {
-		return l.HTTPClient
+		base = l.HTTPClient
 	}
-	return http.DefaultClient
+	stripped := *base
+	stripped.Transport = certificateStripper{base: base.Transport}
+	return &stripped
 }
 
 func (l Login) out() io.Writer {
@@ -299,6 +305,46 @@ func discoveryFailed(message, recovery string) problem.Problem {
 // in the same place, holding no credential and needing to log in again.
 func notCompleted(message, recovery string) problem.Problem {
 	return problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable", message).WithRecovery(recovery)
+}
+
+// identityNotVerified reports an identity token the shell would not accept,
+// and says which kind of failure it was.
+//
+// The code stays the same for all of them, because the caller is left in one
+// place. The message does not, because the reader is not: a token the issuer's
+// keys did not sign, a token minted for a different application, and a key set
+// the shell could not read are three different things to go and fix, and only
+// one of them is helped by trying again. Retrying is the default advice
+// precisely because it is the honest one when the cause is unknown, and it is
+// the wrong advice for a cause the shell can name.
+//
+// The library states these failures in prose rather than in typed errors, so
+// the classification reads its words. A wording change upstream costs the
+// specific message and falls back to the general one; it cannot cost the
+// refusal itself.
+func identityNotVerified(err error) problem.Problem {
+	var expired *oidc.TokenExpiredError
+	switch reason := err.Error(); {
+	case errors.As(err, &expired):
+		return notCompleted("the identity token this login returned had already expired",
+			"Check that this machine's clock is correct, then retry wso2 login.")
+	case strings.Contains(reason, "fetching keys"):
+		return notCompleted("the shell could not read the signing keys the identity provider publishes",
+			"Confirm this machine can reach the issuer's JWKS endpoint. If it is reachable, the "+
+				"deployment is publishing a key set this shell cannot parse; report it with the "+
+				"issuer URL.")
+	case strings.Contains(reason, "expected audience"):
+		return notCompleted("the identity token this login returned was issued for a different application",
+			"Confirm the client identifier in the selected context names the OAuth application this "+
+				"issuer signed you in to.")
+	case strings.Contains(reason, "failed to verify signature"):
+		return notCompleted("the identity token this login returned was not signed by the identity provider's keys",
+			"Retry wso2 login. If it keeps failing, confirm the issuer in the selected context is the "+
+				"deployment that signed you in.")
+	default:
+		return notCompleted("the identity token this login returned did not verify",
+			"Retry wso2 login. The shell does not accept an identity it cannot verify against the issuer's keys.")
+	}
 }
 
 // callback is the loopback listener one login waits on.
