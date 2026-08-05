@@ -154,20 +154,14 @@ func parseProductArgs(namespace string, args []string) (command, arguments []str
 			}
 			mode = parsed
 			remaining = remaining[1:]
-		case argument == "--context":
-			// An empty value is refused rather than treated as absent: a user
-			// who named a context explicitly must not silently get another.
-			if len(remaining) < 2 || remaining[1] == "" {
-				return nil, nil, "", "", missingContextValue(namespace)
+		case argument == "--context" || strings.HasPrefix(argument, "--context="):
+			name, consumed := contextFlagValue(remaining)
+			if name == "" {
+				return nil, nil, "", "", missingContextValue(
+					fmt.Sprintf("Run wso2 %s --context <name>.", namespace))
 			}
-			contextName = remaining[1]
-			remaining = remaining[2:]
-		case strings.HasPrefix(argument, "--context="):
-			contextName = strings.TrimPrefix(argument, "--context=")
-			if contextName == "" {
-				return nil, nil, "", "", missingContextValue(namespace)
-			}
-			remaining = remaining[1:]
+			contextName = name
+			remaining = remaining[consumed:]
 		case strings.HasPrefix(argument, "-"):
 			// An unrecognized flag is the module's to interpret or reject.
 			return command, remaining, mode, contextName, nil
@@ -194,10 +188,30 @@ func contractOutputMode(mode output.Mode) protocol.OutputMode {
 	return protocol.OutputModeTable
 }
 
-func missingContextValue(namespace string) problem.Problem {
+// contextFlagValue reads the value of a --context argument at the front of
+// args, in either the "--context <name>" or "--context=<name>" spelling, and
+// reports how many arguments it consumed. The caller has already established
+// that args starts with one of those two spellings.
+//
+// An empty name means the flag carried no value. Every command refuses that
+// rather than treating the flag as absent: a user who named a context
+// explicitly must not silently get another one.
+func contextFlagValue(args []string) (name string, consumed int) {
+	if value, found := strings.CutPrefix(args[0], "--context="); found {
+		return value, 1
+	}
+	if len(args) < 2 {
+		return "", 1
+	}
+	return args[1], 2
+}
+
+// missingContextValue refuses a --context flag that carried no value. Every
+// command states the refusal identically and differs only in the way back.
+func missingContextValue(recovery string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "shell.missing_flag_value",
 		"--context needs a value").
-		WithRecovery(fmt.Sprintf("Run wso2 %s --context <name>.", namespace))
+		WithRecovery(recovery)
 }
 
 func missingOutputValue(namespace, flag string) problem.Problem {

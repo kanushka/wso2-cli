@@ -23,6 +23,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/wso2/wso2-cli/internal/auth/oauthflow"
 	"github.com/wso2/wso2-cli/internal/auth/session"
@@ -35,6 +36,11 @@ import (
 // wait for a human. A job that sets it wants to fail fast on a misconfigured
 // identity rather than hang until its own timeout.
 const NonInteractiveEnvVar = "WSO2_NON_INTERACTIVE"
+
+// loginDeadline bounds how long a browser login waits for the user to come
+// back. It is generous because a human is signing in, and it exists at all
+// because without it an abandoned login waits forever holding a callback port.
+var loginDeadline = 5 * time.Minute
 
 // loginFlags are the flags wso2 login owns. It owns all of them: unlike a
 // product command, there is no module to pass an unrecognized argument on to.
@@ -99,13 +105,19 @@ func (s Shell) login(args []string) error {
 	if err != nil {
 		return err
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), loginDeadline)
+	defer cancel()
 	result, err := oauthflow.Login{
 		Issuer:      selected.Identity.Auth.Issuer,
 		ClientID:    selected.Identity.Auth.ClientID,
 		Scopes:      productScopeUnion(selected.Identity),
 		OpenBrowser: s.OpenBrowser,
-		Out:         s.Streams.Out,
-	}.Run(context.Background())
+		// The authorization URL is an instruction to act on, not this
+		// command's result, so it goes to the diagnostic stream: a user who
+		// redirects standard output still sees the URL the login cannot
+		// finish without, and the result stream carries only the report.
+		Out: s.Streams.Err,
+	}.Run(ctx)
 	if err != nil {
 		return err
 	}
@@ -193,20 +205,13 @@ func parseLoginArgs(args []string) (loginFlags, error) {
 	for len(remaining) > 0 {
 		argument := remaining[0]
 		switch {
-		case argument == "--context":
-			// An empty value is refused rather than treated as absent: a user
-			// who named a context explicitly must not silently log in to another.
-			if len(remaining) < 2 || remaining[1] == "" {
-				return loginFlags{}, missingLoginContextValue()
+		case argument == "--context" || strings.HasPrefix(argument, "--context="):
+			name, consumed := contextFlagValue(remaining)
+			if name == "" {
+				return loginFlags{}, missingContextValue(loginUsageRecovery)
 			}
-			flags.contextName = remaining[1]
-			remaining = remaining[2:]
-		case strings.HasPrefix(argument, "--context="):
-			flags.contextName = strings.TrimPrefix(argument, "--context=")
-			if flags.contextName == "" {
-				return loginFlags{}, missingLoginContextValue()
-			}
-			remaining = remaining[1:]
+			flags.contextName = name
+			remaining = remaining[consumed:]
 		case argument == "--non-interactive":
 			flags.nonInteractive = true
 			remaining = remaining[1:]
@@ -221,11 +226,9 @@ func parseLoginArgs(args []string) (loginFlags, error) {
 	return flags, nil
 }
 
-func missingLoginContextValue() problem.Problem {
-	return loginUsage("shell.missing_flag_value", "--context needs a value")
-}
+// loginUsageRecovery is the way back from every wso2 login usage refusal.
+const loginUsageRecovery = "Run wso2 login [--context <name>] [--non-interactive]."
 
 func loginUsage(code, message string) problem.Problem {
-	return problem.New(problem.CategoryUsage, code, message).
-		WithRecovery("Run wso2 login [--context <name>] [--non-interactive].")
+	return problem.New(problem.CategoryUsage, code, message).WithRecovery(loginUsageRecovery)
 }

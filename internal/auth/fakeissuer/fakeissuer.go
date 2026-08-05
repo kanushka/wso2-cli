@@ -68,6 +68,12 @@ type Options struct {
 	// OmitS256 leaves code_challenge_methods_supported out of the discovery
 	// document, modeling a deployment that does not advertise PKCE.
 	OmitS256 bool
+	// OmitNonce leaves the nonce out of identity tokens, modeling an issuer
+	// that does not echo the value the request bound the login to.
+	OmitNonce bool
+	// OmitRefreshToken answers the authorization code grant without a refresh
+	// token, modeling an application that was never granted offline access.
+	OmitRefreshToken bool
 }
 
 // Issuer is one running fake issuer. Its URL doubles as the issuer identifier.
@@ -268,18 +274,21 @@ func (i *Issuer) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_grant")
 		return
 	}
-	refreshToken := randomToken("rt")
-	i.mutex.Lock()
-	i.refreshTokens[refreshToken] = grant.scopes
-	i.mutex.Unlock()
-	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token":  i.mintAccessToken("user-1", grant.scopes),
-		"token_type":    "Bearer",
-		"expires_in":    300,
-		"refresh_token": refreshToken,
-		"id_token":      i.mintIDToken(grant.clientID, grant.nonce),
-		"scope":         strings.Join(grant.scopes, " "),
-	})
+	response := map[string]any{
+		"access_token": i.mintAccessToken("user-1", grant.scopes),
+		"token_type":   "Bearer",
+		"expires_in":   300,
+		"id_token":     i.mintIDToken(grant.clientID, grant.nonce),
+		"scope":        strings.Join(grant.scopes, " "),
+	}
+	if !i.opts.OmitRefreshToken {
+		refreshToken := randomToken("rt")
+		i.mutex.Lock()
+		i.refreshTokens[refreshToken] = grant.scopes
+		i.mutex.Unlock()
+		response["refresh_token"] = refreshToken
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 // presentedClientID reads the client identifier a token request identifies
@@ -406,7 +415,7 @@ func (i *Issuer) mintAccessToken(subject string, scopes []string) string {
 
 func (i *Issuer) mintIDToken(clientID, nonce string) string {
 	now := time.Now()
-	return i.sign(map[string]any{
+	claims := map[string]any{
 		"iss":   i.URL,
 		"sub":   "user-1",
 		"aud":   clientID,
@@ -414,7 +423,11 @@ func (i *Issuer) mintIDToken(clientID, nonce string) string {
 		"iat":   now.Unix(),
 		"nonce": nonce,
 		"email": "dev@example.test",
-	})
+	}
+	if i.opts.OmitNonce {
+		delete(claims, "nonce")
+	}
+	return i.sign(claims)
 }
 
 func (i *Issuer) sign(claims map[string]any) string {

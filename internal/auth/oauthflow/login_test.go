@@ -252,6 +252,27 @@ func TestLoginSurvivesAStateMismatchAndCompletes(t *testing.T) {
 	}
 }
 
+// TestLoginRefusesAnIdentityTokenWithoutTheNonce covers an issuer that does not
+// echo the value binding the identity token to this request. The shell sends a
+// nonce, so an identity token that omits it cannot be shown to belong to this
+// login and is refused rather than trusted.
+func TestLoginRefusesAnIdentityTokenWithoutTheNonce(t *testing.T) {
+	issuer := fakeissuer.New(t, fakeissuer.Options{
+		Audience: "reference-status", AllowAnyLoopbackPort: true, OmitNonce: true,
+	})
+	printed := &recorder{}
+	login := browserLogin(issuer, printed, func(authURL string) error {
+		go visit(issuer, authURL)
+		return nil
+	})
+
+	_, err := login.Run(testContext(t, 30*time.Second))
+	if err == nil {
+		t.Fatal("an identity token with no nonce was accepted")
+	}
+	requireProblem(t, err, "auth.credential_unavailable")
+}
+
 func TestLoginRefusesAnIssuerWithoutS256(t *testing.T) {
 	issuer := fakeissuer.New(t, fakeissuer.Options{
 		Audience: "reference-status", AllowAnyLoopbackPort: true, OmitS256: true,

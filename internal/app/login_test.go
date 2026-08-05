@@ -112,6 +112,8 @@ func TestLoginRefusals(t *testing.T) {
 		{"non-interactive environment", browserDoc, nil,
 			map[string]string{"WSO2_NON_INTERACTIVE": "1"}, "auth.non_interactive"},
 		{"client credentials", identityDoc(contexts.KindClientCredentials), nil, nil, "auth.login_not_required"},
+		{"non-interactive with an inline identity", identityDoc(contexts.KindClientCredentials),
+			[]string{"--non-interactive"}, nil, "auth.login_not_required"},
 		{"device kind", identityDoc(contexts.KindOAuthDevice), nil, nil, "auth.kind_not_implemented"},
 		{"personal access token kind", identityDoc(contexts.KindPAT), nil, nil, "auth.kind_not_implemented"},
 	}
@@ -181,9 +183,9 @@ func TestLoginRefusesUnknownArguments(t *testing.T) {
 
 func TestLoginHappyPathStoresSessionAndReportsIdentity(t *testing.T) {
 	keyring.MockInit()
-	issuer := fakeissuer.New(t, fakeissuer.Options{
-		Audience: "reference-status", AllowAnyLoopbackPort: true,
-	})
+	// No AllowAnyLoopbackPort: the shell must land on one of the four
+	// registered callback URLs, or the issuer refuses the redirect outright.
+	issuer := fakeissuer.New(t, fakeissuer.Options{Audience: "reference-status"})
 	shell, out, errOut := newLoginShell(t)
 	installLogin(t, shell, browserDoc(issuer.URL))
 	shell.OpenBrowser = func(authURL string) error {
@@ -219,9 +221,13 @@ func TestLoginHappyPathStoresSessionAndReportsIdentity(t *testing.T) {
 			t.Fatalf("the login report is missing %q in:\n%s", expected, out)
 		}
 	}
-	// The URL is printed on the way in, whatever the browser did with it.
-	if !strings.Contains(out.String(), issuer.URL+"/authorize") {
-		t.Fatalf("the authorization URL was not printed:\n%s", out)
+	// The URL is printed on the way in, whatever the browser did with it. It
+	// belongs on the diagnostic stream: it is an instruction, not the result.
+	if !strings.Contains(errOut.String(), issuer.URL+"/authorize") {
+		t.Fatalf("the authorization URL was not printed:\n%s", errOut)
+	}
+	if strings.Contains(out.String(), "/authorize") {
+		t.Fatalf("the authorization URL polluted the result stream:\n%s", out)
 	}
 	for _, secret := range []string{stored.RefreshToken, stored.AccessToken} {
 		if secret == "" {
@@ -238,13 +244,11 @@ func TestLoginHappyPathStoresSessionAndReportsIdentity(t *testing.T) {
 // printed is followed.
 func TestLoginCompletesFromThePrintedURL(t *testing.T) {
 	keyring.MockInit()
-	issuer := fakeissuer.New(t, fakeissuer.Options{
-		Audience: "reference-status", AllowAnyLoopbackPort: true,
-	})
-	shell, _, errOut := newLoginShell(t)
+	issuer := fakeissuer.New(t, fakeissuer.Options{Audience: "reference-status"})
+	shell, _, _ := newLoginShell(t)
 	installLogin(t, shell, browserDoc(issuer.URL))
 	printed := &syncBuilder{}
-	shell.Streams.Out = printed
+	shell.Streams.Err = printed
 	shell.OpenBrowser = func(string) error {
 		return errNoBrowser
 	}
@@ -259,24 +263,97 @@ func TestLoginCompletesFromThePrintedURL(t *testing.T) {
 	response.Body.Close()
 
 	if code := <-codes; code != exit.OK {
-		t.Fatalf("login driven from the printed URL failed: exit %d, stderr %s", code, errOut)
+		t.Fatalf("login driven from the printed URL failed: exit %d, stderr %s", code, printed)
 	}
 	if _, err := (session.Store{StateRoot: shell.StateRoot}).Load(credentialRef); err != nil {
 		t.Fatalf("session not stored: %v", err)
 	}
 }
 
+// TestLoginSelectsTheContextNamedByTheFlag proves --context overrides the
+// default rather than merely being read: the default context would start a
+// browser login, and the named one has no login step at all.
 func TestLoginSelectsTheContextNamedByTheFlag(t *testing.T) {
 	shell, _, errOut := newLoginShell(t)
 	document := browserDoc("https://issuer.example.test")
-	document.Identities[0].Auth.Kind = contexts.KindOAuthDevice
+	document.Identities = append(document.Identities, contexts.Identity{
+		Name: "acme-ci",
+		Type: "cloud",
+		Auth: contexts.IdentityAuth{
+			Kind:                 contexts.KindClientCredentials,
+			Issuer:               "https://issuer.example.test",
+			ClientID:             "client-ci",
+			ClientSecretVariable: "WSO2_ACME_CLIENT_SECRET",
+		},
+	})
+	document.Contexts = append(document.Contexts,
+		contexts.Context{Name: "acme-ci", Identity: "acme-ci", Organization: "acme"})
 	installLogin(t, shell, document)
+
+	if code := shell.Run([]string{"login", "--context", "acme-ci"}); code != exit.AuthPolicy {
+		t.Fatalf("exit code = %d, want %d (auth policy); stderr: %s", code, exit.AuthPolicy, errOut)
+	}
+	// The default context is a browser identity, so this code can only come
+	// from the context the flag named.
+	requireRefusal(t, errOut.String(), "auth.login_not_required")
+}
+
+func TestLoginRefusesAContextTheDocumentDoesNotDeclare(t *testing.T) {
+	shell, _, errOut := newLoginShell(t)
+	installLogin(t, shell, browserDoc("https://issuer.example.test"))
 
 	if code := shell.Run([]string{"login", "--context", "nonexistent"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
 	}
 	if !strings.Contains(errOut.String(), "contexts.unknown_context") {
-		t.Fatalf("the flag did not select the named context:\n%s", errOut)
+		t.Fatalf("an undeclared context was not refused by name:\n%s", errOut)
+	}
+}
+
+// TestLoginRefusesAnIssuerWithoutS256 proves the discovery refusal row reaches
+// the user through wso2 login, with the auth-policy exit class, and not only
+// through the flow package that raises it.
+func TestLoginRefusesAnIssuerWithoutS256(t *testing.T) {
+	issuer := fakeissuer.New(t, fakeissuer.Options{Audience: "reference-status", OmitS256: true})
+	shell, _, errOut := newLoginShell(t)
+	installLogin(t, shell, browserDoc(issuer.URL))
+	shell.OpenBrowser = func(string) error {
+		t.Error("the shell opened a browser against an issuer without S256")
+		return nil
+	}
+
+	if code := shell.Run([]string{"login"}); code != exit.AuthPolicy {
+		t.Fatalf("exit code = %d, want %d (auth policy); stderr: %s", code, exit.AuthPolicy, errOut)
+	}
+	requireRefusal(t, errOut.String(), "auth.discovery_failed")
+}
+
+// TestLoginRefusesALoginThatYieldsNoRefreshToken covers an issuer that never
+// granted offline access: storing the access token alone would leave a session
+// that expires in minutes and cannot renew itself.
+func TestLoginRefusesALoginThatYieldsNoRefreshToken(t *testing.T) {
+	keyring.MockInit()
+	issuer := fakeissuer.New(t, fakeissuer.Options{
+		Audience: "reference-status", OmitRefreshToken: true,
+	})
+	shell, _, errOut := newLoginShell(t)
+	installLogin(t, shell, browserDoc(issuer.URL))
+	shell.OpenBrowser = func(authURL string) error {
+		go func() {
+			response, err := http.Get(authURL)
+			if err == nil {
+				response.Body.Close()
+			}
+		}()
+		return nil
+	}
+
+	if code := shell.Run([]string{"login"}); code != exit.AuthPolicy {
+		t.Fatalf("exit code = %d, want %d (auth policy); stderr: %s", code, exit.AuthPolicy, errOut)
+	}
+	requireRefusal(t, errOut.String(), "auth.credential_unavailable")
+	if _, err := (session.Store{StateRoot: shell.StateRoot}).Load(credentialRef); err == nil {
+		t.Fatal("a login without a refresh token was stored as a session")
 	}
 }
 
