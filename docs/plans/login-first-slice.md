@@ -1,6 +1,5 @@
 # `wso2 login` First Slice Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement `wso2 login` (browser Authorization Code + PKCE) and inline client-credentials acquisition, on a version-2 identities/contexts schema, with OS-keychain session storage and a token-source seam in the broker, so the reference module receives a real issuer-minted access token.
 
@@ -8,7 +7,7 @@
 
 **Tech Stack:** Go 1.25, `golang.org/x/oauth2`, `github.com/coreos/go-oidc/v3`, `github.com/zalando/go-keyring`, `github.com/go-jose/go-jose/v4` (test JWT signing only).
 
-**Spec:** `docs/superpowers/specs/2026-08-04-login-first-slice-design.md` — read it before starting any task.
+**Spec:** the body of [issue #17](https://github.com/wso2/wso2-cli/issues/17) — read it before starting any task.
 
 ## Global Constraints
 

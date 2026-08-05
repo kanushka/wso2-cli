@@ -1,7 +1,7 @@
 # Documentation
 
 **Status:** Project documentation
-**Last reviewed:** 2026-07-27
+**Last reviewed:** 2026-08-05
 
 This directory contains the product, architecture, reference, example, and
 research documentation for the WSO2 CLI.
@@ -27,6 +27,9 @@ Read these documents first:
 - [Architecture proof review](plans/architecture-proof-review.md) closes that
   plan: how to reproduce the gate, the seams a production implementation
   replaces, and what the proof does not establish.
+- [`wso2 login` first slice](plans/login-first-slice.md) defines the
+  authentication slice: browser PKCE login, schema version 2 identities,
+  keychain sessions, and the broker's token-source seam.
 
 Plans are bounded execution documents. They do not override product
 requirements or architecture.
