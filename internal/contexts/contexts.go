@@ -177,12 +177,10 @@ func decodeCurrent(data []byte) (Document, error) {
 // A compatibility-read document refuses outright: the shell never rewrites a
 // version 1 document into version 2 behind its author's back.
 func (d Document) Encode() ([]byte, error) {
-	for _, identity := range d.Identities {
-		if identity.synthetic {
-			return nil, contextProblem("contexts.document_malformed",
-				"a compatibility-read context document cannot be written back",
-				"Author a schema version 2 document. The shell does not rewrite version 1 documents in place.")
-		}
+	if d.compatibilityRead() {
+		return nil, contextProblem("contexts.document_malformed",
+			"a compatibility-read context document cannot be written back",
+			"Author a schema version 2 document. The shell does not rewrite version 1 documents in place.")
 	}
 	if err := d.validate(); err != nil {
 		return nil, err
@@ -192,6 +190,24 @@ func (d Document) Encode() ([]byte, error) {
 		return nil, fmt.Errorf("contexts: cannot encode the context document: %w", err)
 	}
 	return append(data, '\n'), nil
+}
+
+// compatibilityRead reports whether this document reached memory through the
+// v1 compatibility mapping.
+//
+// A synthetic identity marks the usual case, but a v1 document that declared no
+// contexts produces no identity to mark, so the version it was read at answers
+// as well. Either way the shell refuses to write it back.
+func (d Document) compatibilityRead() bool {
+	if d.SchemaVersion == SchemaVersionLegacy {
+		return true
+	}
+	for _, identity := range d.Identities {
+		if identity.synthetic {
+			return true
+		}
+	}
+	return false
 }
 
 // Select resolves the named context and its identity. An empty name selects
