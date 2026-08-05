@@ -18,9 +18,12 @@ package app
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/wso2/wso2-cli/internal/contexts"
+	"github.com/wso2/wso2-cli/internal/contexts/fixture"
 	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
@@ -29,10 +32,11 @@ func TestTheShellParsesOnlyItsOwnFlags(t *testing.T) {
 	// Everything the shell does not own belongs to the module, so a module can
 	// add flags without the shell being released.
 	tests := map[string]struct {
-		args      []string
-		command   string
-		arguments string
-		mode      output.Mode
+		args        []string
+		command     string
+		arguments   string
+		mode        output.Mode
+		contextName string
 	}{
 		"a bare command": {
 			args: []string{"status"}, command: "status", mode: output.ModeTable,
@@ -52,6 +56,18 @@ func TestTheShellParsesOnlyItsOwnFlags(t *testing.T) {
 		"the short output flag": {
 			args: []string{"status", "-o", "json"}, command: "status", mode: output.ModeJSON,
 		},
+		"a context after the command": {
+			args:    []string{"status", "--context", "second"},
+			command: "status", mode: output.ModeTable, contextName: "second",
+		},
+		"a context before the command": {
+			args:    []string{"--context", "second", "status"},
+			command: "status", mode: output.ModeTable, contextName: "second",
+		},
+		"a context joined by an equals sign": {
+			args:    []string{"status", "--context=second"},
+			command: "status", mode: output.ModeTable, contextName: "second",
+		},
 		"module flags after the command": {
 			args:    []string{"status", "--since", "1h"},
 			command: "status", arguments: "--since 1h", mode: output.ModeTable,
@@ -60,6 +76,10 @@ func TestTheShellParsesOnlyItsOwnFlags(t *testing.T) {
 			args:    []string{"status", "--outputs", "many"},
 			command: "status", arguments: "--outputs many", mode: output.ModeTable,
 		},
+		"a module flag that looks like the context flag": {
+			args:    []string{"status", "--contexts", "many"},
+			command: "status", arguments: "--contexts many", mode: output.ModeTable,
+		},
 		"no command at all": {
 			args: nil, command: "", mode: output.ModeTable,
 		},
@@ -67,7 +87,7 @@ func TestTheShellParsesOnlyItsOwnFlags(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			command, arguments, mode, err := parseProductArgs("reference", test.args)
+			command, arguments, mode, contextName, err := parseProductArgs("reference", test.args)
 			if err != nil {
 				t.Fatalf("parsing %v failed: %v", test.args, err)
 			}
@@ -80,6 +100,9 @@ func TestTheShellParsesOnlyItsOwnFlags(t *testing.T) {
 			if mode != test.mode {
 				t.Errorf("output mode is %q, want %q", mode, test.mode)
 			}
+			if contextName != test.contextName {
+				t.Errorf("context name is %q, want %q", contextName, test.contextName)
+			}
 		})
 	}
 }
@@ -90,7 +113,7 @@ func TestAnUnsupportedOutputModeIsAUsageProblem(t *testing.T) {
 		{"status", "--output=yaml"},
 		{"status", "-o", "yaml"},
 	} {
-		_, _, _, err := parseProductArgs("reference", args)
+		_, _, _, _, err := parseProductArgs("reference", args)
 		if code := usageProblemCode(t, err); code != "shell.unknown_output_mode" {
 			t.Errorf("parsing %v gave problem %q, want %q", args, code, "shell.unknown_output_mode")
 		}
@@ -98,9 +121,101 @@ func TestAnUnsupportedOutputModeIsAUsageProblem(t *testing.T) {
 }
 
 func TestAnOutputFlagWithoutAValueIsAUsageProblem(t *testing.T) {
-	_, _, _, err := parseProductArgs("reference", []string{"status", "--output"})
+	_, _, _, _, err := parseProductArgs("reference", []string{"status", "--output"})
 	if code := usageProblemCode(t, err); code != "shell.missing_flag_value" {
 		t.Errorf("problem code is %q, want %q", code, "shell.missing_flag_value")
+	}
+}
+
+func TestMissingContextFlagValue(t *testing.T) {
+	_, _, _, _, err := parseProductArgs("reference", []string{"status", "--context"})
+	if code := usageProblemCode(t, err); code != "shell.missing_flag_value" {
+		t.Errorf("problem code is %q, want %q", code, "shell.missing_flag_value")
+	}
+}
+
+// twoContextDocument declares two contexts on one identity, default "first".
+func twoContextDocument() contexts.Document {
+	return contexts.Document{
+		SchemaVersion:  contexts.SchemaVersion,
+		DefaultContext: "first",
+		Identities: []contexts.Identity{{
+			Name: "acme",
+			Type: "onprem",
+			Auth: contexts.IdentityAuth{Kind: contexts.KindPAT, CredentialRef: "acme-login"},
+		}},
+		Contexts: []contexts.Context{
+			{Name: "first", Identity: "acme"},
+			{Name: "second", Identity: "acme"},
+		},
+	}
+}
+
+func installSelectionDocument(t *testing.T) Shell {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "state")
+	if err := fixture.WriteV2(root, twoContextDocument()); err != nil {
+		t.Fatalf("fixture.WriteV2 returned %v", err)
+	}
+	return Shell{StateRoot: root}
+}
+
+func TestContextSelectionOrder(t *testing.T) {
+	// Three-source resolution, most specific wins: the --context flag beats
+	// WSO2_CONTEXT, which beats the document's default context.
+	cases := []struct {
+		name     string
+		args     []string
+		env      string // WSO2_CONTEXT value, "" unset
+		expected string
+	}{
+		{"flag wins over env and default", []string{"--context", "second"}, "first", "second"},
+		{"env wins over default", nil, "second", "second"},
+		{"default when nothing is set", nil, "", "first"},
+		{"flag with equals form", []string{"--context=second"}, "", "second"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			shell := installSelectionDocument(t)
+			t.Setenv("WSO2_CONTEXT", testCase.env)
+
+			_, _, _, contextName, err := parseProductArgs("reference", testCase.args)
+			if err != nil {
+				t.Fatalf("parsing %v failed: %v", testCase.args, err)
+			}
+			selected, err := shell.selection(contextName)
+			if err != nil {
+				t.Fatalf("selection returned %v", err)
+			}
+			if selected.Context.Name != testCase.expected {
+				t.Errorf("selected context is %q, want %q", selected.Context.Name, testCase.expected)
+			}
+			if selected.Identity.Name != "acme" {
+				t.Errorf("the selection does not carry its identity: %+v", selected.Identity)
+			}
+		})
+	}
+}
+
+func TestUnknownContextFlagIsTypedProblem(t *testing.T) {
+	shell := installSelectionDocument(t)
+	t.Setenv("WSO2_CONTEXT", "")
+
+	_, err := shell.selection("ghost")
+
+	if code := usageProblemCode(t, err); code != "contexts.unknown_context" {
+		t.Errorf("problem code is %q, want %q", code, "contexts.unknown_context")
+	}
+}
+
+func TestUnknownContextEnvIsTypedProblem(t *testing.T) {
+	shell := installSelectionDocument(t)
+	t.Setenv("WSO2_CONTEXT", "ghost")
+
+	_, err := shell.selection("")
+
+	if code := usageProblemCode(t, err); code != "contexts.unknown_context" {
+		t.Errorf("problem code is %q, want %q", code, "contexts.unknown_context")
 	}
 }
 

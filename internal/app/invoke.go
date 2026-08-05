@@ -19,6 +19,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/wso2/wso2-cli/internal/auth"
@@ -40,11 +41,11 @@ import (
 // the module's diagnostics, and returns a typed problem for the exit class. The
 // module contributes semantics only.
 func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []string) error {
-	command, arguments, mode, err := parseProductArgs(namespace, args)
+	command, arguments, mode, contextName, err := parseProductArgs(namespace, args)
 	if err != nil {
 		return err
 	}
-	selection, err := s.selectedContext()
+	selection, err := s.selection(contextName)
 	if err != nil {
 		return err
 	}
@@ -100,12 +101,18 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 	return output.Result(s.Streams.Out, mode, outcome.Result)
 }
 
-// selectedContext reports the context this invocation runs against.
+// selection resolves the context this invocation runs against: the --context
+// flag wins over the WSO2_CONTEXT environment variable, which wins over the
+// document's default context.
 //
 // A shell with no context document still runs commands: the selection is then
 // an empty one, and a module that needs access is refused by the broker with
 // guidance rather than run against a guessed target.
-func (s Shell) selectedContext() (contexts.Selection, error) {
+func (s Shell) selection(flagName string) (contexts.Selection, error) {
+	name := flagName
+	if name == "" {
+		name = os.Getenv("WSO2_CONTEXT")
+	}
 	root, err := s.stateRoot()
 	if err != nil {
 		return contexts.Selection{}, err
@@ -114,7 +121,7 @@ func (s Shell) selectedContext() (contexts.Selection, error) {
 	if err != nil {
 		return contexts.Selection{}, err
 	}
-	return document.Select("")
+	return document.Select(name)
 }
 
 // parseProductArgs separates the shell's own flags from the module's arguments.
@@ -122,7 +129,7 @@ func (s Shell) selectedContext() (contexts.Selection, error) {
 // The shell parses only what it owns. Everything after the first argument it
 // does not recognize belongs to the module, so a module can add flags without
 // the shell being released.
-func parseProductArgs(namespace string, args []string) (command, arguments []string, mode output.Mode, err error) {
+func parseProductArgs(namespace string, args []string) (command, arguments []string, mode output.Mode, contextName string, err error) {
 	mode = output.ModeTable
 	remaining := args
 
@@ -131,11 +138,11 @@ func parseProductArgs(namespace string, args []string) (command, arguments []str
 		switch {
 		case argument == "--output" || argument == "-o":
 			if len(remaining) < 2 {
-				return nil, nil, "", missingOutputValue(namespace, argument)
+				return nil, nil, "", "", missingOutputValue(namespace, argument)
 			}
 			parsed, ok := output.ParseMode(remaining[1])
 			if !ok {
-				return nil, nil, "", unknownOutputMode(namespace, remaining[1])
+				return nil, nil, "", "", unknownOutputMode(namespace, remaining[1])
 			}
 			mode = parsed
 			remaining = remaining[2:]
@@ -143,13 +150,22 @@ func parseProductArgs(namespace string, args []string) (command, arguments []str
 			value := strings.TrimPrefix(argument, "--output=")
 			parsed, ok := output.ParseMode(value)
 			if !ok {
-				return nil, nil, "", unknownOutputMode(namespace, value)
+				return nil, nil, "", "", unknownOutputMode(namespace, value)
 			}
 			mode = parsed
 			remaining = remaining[1:]
+		case argument == "--context":
+			if len(remaining) < 2 {
+				return nil, nil, "", "", missingContextValue(namespace)
+			}
+			contextName = remaining[1]
+			remaining = remaining[2:]
+		case strings.HasPrefix(argument, "--context="):
+			contextName = strings.TrimPrefix(argument, "--context=")
+			remaining = remaining[1:]
 		case strings.HasPrefix(argument, "-"):
 			// An unrecognized flag is the module's to interpret or reject.
-			return command, remaining, mode, nil
+			return command, remaining, mode, contextName, nil
 		default:
 			// The command path is the leading run of plain words; everything
 			// from the first flag onward is the module's.
@@ -157,7 +173,7 @@ func parseProductArgs(namespace string, args []string) (command, arguments []str
 			remaining = remaining[1:]
 		}
 	}
-	return command, remaining, mode, nil
+	return command, remaining, mode, contextName, nil
 }
 
 // contractOutputMode maps the shell's rendering choice onto the contract value
@@ -171,6 +187,12 @@ func contractOutputMode(mode output.Mode) protocol.OutputMode {
 		return protocol.OutputModeJSON
 	}
 	return protocol.OutputModeTable
+}
+
+func missingContextValue(namespace string) problem.Problem {
+	return problem.New(problem.CategoryUsage, "shell.missing_flag_value",
+		"--context needs a value").
+		WithRecovery(fmt.Sprintf("Run wso2 %s --context <name>.", namespace))
 }
 
 func missingOutputValue(namespace, flag string) problem.Problem {
