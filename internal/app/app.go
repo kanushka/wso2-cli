@@ -44,6 +44,11 @@ type Shell struct {
 	StateRoot string
 	// Streams are the user-facing output destinations.
 	Streams output.Streams
+	// OpenBrowser overrides how an interactive login opens the authorization
+	// URL. It is nil in production, which is the OS browser opener; a test uses
+	// it to drive a login without a display. It can only change how the URL is
+	// opened, never what is authorized.
+	OpenBrowser func(url string) error
 }
 
 // builtin is one shell-owned command.
@@ -59,6 +64,7 @@ type builtin struct {
 func builtins() []builtin {
 	return []builtin{
 		{name: "help", summary: "Show the shell command tree.", run: Shell.help},
+		{name: "login", summary: "Log in to the selected context's identity.", run: Shell.login},
 		{name: "version", summary: "Show the shell, protocol, and installed module versions.", run: Shell.version},
 	}
 }

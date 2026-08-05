@@ -164,11 +164,24 @@ func TestACopiedAndModifiedExecutableIsRejectedBeforeLaunch(t *testing.T) {
 	}
 }
 
-func TestVersionRunsWithoutNetworkAccessInTheShellDependencyGraph(t *testing.T) {
-	// "Works offline" is a property of the code, not of the test machine: the
-	// shell binary must not carry an HTTP client at all in this slice.
+// inventoryPackages are every package wso2 version reaches to answer. They are
+// listed rather than derived because the point is to pin the set: a package
+// that joins it has to be added here deliberately, in a change a reviewer sees.
+var inventoryPackages = []string{
+	"./internal/modules", "./internal/version", "./internal/state",
+	"./internal/output", "./internal/semver", "./internal/exit",
+}
+
+func TestVersionResolvesInventoryWithoutNetworkAccessInItsDependencyGraph(t *testing.T) {
+	// "Works offline" is a property of the code, not of the test machine.
+	//
+	// This once asserted the whole shell binary carried no HTTP client, which
+	// held only while no shell command spoke to a network. wso2 login does, so
+	// the binary-wide claim is now false for a good reason and the real
+	// invariant is stated directly instead: nothing wso2 version reaches to
+	// read local inventory may carry an HTTP client.
 	root := repoRoot(t)
-	command := exec.Command("go", "list", "-deps", "./cmd/wso2")
+	command := exec.Command("go", append([]string{"list", "-deps"}, inventoryPackages...)...)
 	command.Dir = root
 	command.Env = os.Environ()
 	output, err := command.Output()
@@ -178,7 +191,7 @@ func TestVersionRunsWithoutNetworkAccessInTheShellDependencyGraph(t *testing.T) 
 
 	for _, dependency := range strings.Fields(string(output)) {
 		if dependency == "net/http" {
-			t.Fatal("the shell depends on net/http; wso2 version must resolve inventory from local state only")
+			t.Fatal("inventory resolution depends on net/http; wso2 version must resolve inventory from local state only")
 		}
 	}
 }
