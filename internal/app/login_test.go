@@ -192,7 +192,7 @@ func TestLoginHappyPathStoresSessionAndReportsIdentity(t *testing.T) {
 		go func() {
 			response, err := http.Get(authURL)
 			if err == nil {
-				response.Body.Close()
+				_ = response.Body.Close()
 			}
 		}()
 		return nil
@@ -260,7 +260,7 @@ func TestLoginCompletesFromThePrintedURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("follow the printed URL: %v", err)
 	}
-	response.Body.Close()
+	_ = response.Body.Close()
 
 	if code := <-codes; code != exit.OK {
 		t.Fatalf("login driven from the printed URL failed: exit %d, stderr %s", code, printed)
@@ -342,7 +342,7 @@ func TestLoginRefusesALoginThatYieldsNoRefreshToken(t *testing.T) {
 		go func() {
 			response, err := http.Get(authURL)
 			if err == nil {
-				response.Body.Close()
+				_ = response.Body.Close()
 			}
 		}()
 		return nil

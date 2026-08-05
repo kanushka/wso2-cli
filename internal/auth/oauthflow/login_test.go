@@ -82,7 +82,7 @@ func testContext(t *testing.T, timeout time.Duration) context.Context {
 func visit(issuer *fakeissuer.Issuer, target string) {
 	response, err := issuer.HTTPClient().Get(target)
 	if err == nil {
-		response.Body.Close()
+		_ = response.Body.Close()
 	}
 }
 
@@ -97,7 +97,7 @@ func interceptCode(t *testing.T, issuer *fakeissuer.Issuer, authURL string) (cod
 	if err != nil {
 		t.Fatalf("authorize: %v", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	location, err := response.Location()
 	if err != nil {
 		t.Fatalf("authorize did not redirect: %v", err)
@@ -221,7 +221,7 @@ func TestStateMismatchDoesNotCompleteTheLogin(t *testing.T) {
 	if result.Token != nil {
 		t.Fatal("a callback carrying the wrong state produced a token")
 	}
-	requireProblem(t, err, "auth.credential_unavailable")
+	_ = requireProblem(t, err, "auth.credential_unavailable")
 }
 
 func TestLoginSurvivesAStateMismatchAndCompletes(t *testing.T) {
@@ -270,7 +270,7 @@ func TestLoginRefusesAnIdentityTokenWithoutTheNonce(t *testing.T) {
 	if err == nil {
 		t.Fatal("an identity token with no nonce was accepted")
 	}
-	requireProblem(t, err, "auth.credential_unavailable")
+	_ = requireProblem(t, err, "auth.credential_unavailable")
 }
 
 func TestLoginRefusesAnIssuerWithoutS256(t *testing.T) {
@@ -287,7 +287,7 @@ func TestLoginRefusesAnIssuerWithoutS256(t *testing.T) {
 	if err == nil {
 		t.Fatal("an issuer that does not advertise S256 was accepted")
 	}
-	requireProblem(t, err, "auth.discovery_failed")
+	_ = requireProblem(t, err, "auth.discovery_failed")
 }
 
 func TestLoginRefusesAnUnreachableIssuer(t *testing.T) {
@@ -306,7 +306,7 @@ func TestLoginRefusesAnUnreachableIssuer(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unreachable issuer was accepted")
 	}
-	requireProblem(t, err, "auth.discovery_failed")
+	_ = requireProblem(t, err, "auth.discovery_failed")
 }
 
 func TestLoginRefusesWhenNoLoopbackPortIsFree(t *testing.T) {
@@ -316,7 +316,7 @@ func TestLoginRefusesWhenNoLoopbackPortIsFree(t *testing.T) {
 		// under test either way.
 		listener, err := net.Listen("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if err == nil {
-			t.Cleanup(func() { listener.Close() })
+			t.Cleanup(func() { _ = listener.Close() })
 		}
 	}
 	printed := &recorder{}
