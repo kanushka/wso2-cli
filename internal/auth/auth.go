@@ -178,15 +178,25 @@ func (b *Broker) checkDeclared(request Request) error {
 	return nil
 }
 
-// credential reads the source credential the context names.
-//
-// The value stays in this process: it is the issuer's signing key and is never
-// written to state, passed to the module, or included in a problem. Neither is
-// the name of the variable holding it, which is the module's own answer to
-// "where would I look?" and therefore travels only to the user.
+// credential reads the source credential the development context names.
 func (b *Broker) credential() (string, error) {
-	name := b.Selection.Identity.Auth.CredentialVariable
-	if name == "" {
+	return b.namedSecret(b.Selection.Identity.Auth.CredentialVariable, "the credential")
+}
+
+// namedSecret reads the environment variable an identity names, into process
+// memory and nowhere else.
+//
+// It is the one door a secret comes through, so the shape of its refusal is
+// decided here for every kind that uses one. The value is never written to
+// state, passed to the module, or included in a problem. Neither is the name
+// of the variable holding it, which is the module's own answer to "where would
+// I look?" and therefore travels only to the user — as guidance, on the side of
+// the refusal the module never sees.
+//
+// description says what the variable holds, in the user's terms; it is the
+// difference between "set this" and an instruction someone can follow.
+func (b *Broker) namedSecret(variable, description string) (string, error) {
+	if variable == "" {
 		return "", denial("auth.credential_unavailable",
 			fmt.Sprintf("the %q context names no credential source", b.Selection.Context.Name),
 			"Select a context that names the environment variable holding the credential.")
@@ -195,13 +205,18 @@ func (b *Broker) credential() (string, error) {
 	if lookup == nil {
 		lookup = os.LookupEnv
 	}
-	value, present := lookup(name)
+	value, present := lookup(variable)
+	// A variable set to whitespace is treated as unset. A CI job that exports
+	// an empty secret has the same problem as one that exports none, and
+	// sending the blank to the issuer would report it as a rejected credential
+	// instead of a missing one.
 	if !present || strings.TrimSpace(value) == "" {
 		return "", Denial{
 			Problem: problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable",
 				fmt.Sprintf("the credential source the %q context names is not set", b.Selection.Context.Name)).
 				WithRecovery("Set the credential source this context names, then retry the command."),
-			Guidance: fmt.Sprintf("Set %s to the credential for this context, then retry the command.", name),
+			Guidance: fmt.Sprintf("Set %s to %s for this context, then retry the command.",
+				variable, description),
 		}
 	}
 	return value, nil

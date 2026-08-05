@@ -53,6 +53,22 @@ type Options struct {
 	// returns the original full scope set, "reject" answers invalid_scope.
 	// The default is "honor".
 	RefreshScopeMode string
+	// ClientScopeMode is how the client-credentials grant treats the scopes a
+	// request asks for: "honor" issues exactly them, "ignore" issues
+	// ClientScopes whatever was asked for, "reject" answers invalid_scope. The
+	// default is "honor". It is separate from RefreshScopeMode because a
+	// deployment may narrow one grant and not the other.
+	ClientScopeMode string
+	// ClientScopes is the permission set the registered client carries. It is
+	// what an "ignore" issuer answers a client-credentials request with,
+	// modeling a deployment that hands out the application's whole authority
+	// regardless of what a request asked for.
+	ClientScopes []string
+	// ClientSecret is the secret the registered client must present on the
+	// client-credentials grant. When empty the issuer takes any non-empty
+	// secret, so only a test whose subject is a wrong credential has to state
+	// one.
+	ClientSecret string
 	// Audience is the aud claim minted into access tokens.
 	Audience string
 	// RotateRefreshTokens issues a new refresh token on every refresh,
@@ -114,6 +130,9 @@ func New(t *testing.T, opts Options) *Issuer {
 	t.Helper()
 	if opts.RefreshScopeMode == "" {
 		opts.RefreshScopeMode = "honor"
+	}
+	if opts.ClientScopeMode == "" {
+		opts.ClientScopeMode = "honor"
 	}
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -354,16 +373,26 @@ func (i *Issuer) clientCredentialsGrant(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		clientID, clientSecret = r.PostForm.Get("client_id"), r.PostForm.Get("client_secret")
 	}
-	if clientID == "" || clientSecret == "" {
+	if clientID == "" || clientSecret == "" ||
+		(i.opts.ClientSecret != "" && clientSecret != i.opts.ClientSecret) {
 		oauthError(w, http.StatusUnauthorized, "invalid_client")
 		return
 	}
-	scopes := splitScopes(r.PostForm.Get("scope"))
+	issued := splitScopes(r.PostForm.Get("scope"))
+	switch i.opts.ClientScopeMode {
+	case "ignore":
+		// The deployment hands back the registered client's whole authority,
+		// whatever the request narrowed itself to.
+		issued = i.opts.ClientScopes
+	case "reject":
+		oauthError(w, http.StatusBadRequest, "invalid_scope")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token": i.mintAccessToken("client-1", scopes),
+		"access_token": i.mintAccessToken("client-1", issued),
 		"token_type":   "Bearer",
 		"expires_in":   300,
-		"scope":        strings.Join(scopes, " "),
+		"scope":        strings.Join(issued, " "),
 	})
 }
 

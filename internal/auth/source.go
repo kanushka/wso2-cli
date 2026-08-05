@@ -63,7 +63,7 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 			return nil, err
 		}
 		if kind == contexts.KindClientCredentials {
-			return unavailableSource{}, nil
+			return b.inlineSource()
 		}
 		return browserSource{
 			namespace: b.namespace(),
@@ -172,6 +172,28 @@ func (b *Broker) developmentSource() (source, error) {
 	}, nil
 }
 
+// inlineSource admits a non-interactive identity that carries its own
+// credential.
+//
+// The secret is read here rather than at the moment of the grant, so a job that
+// forgot to export it is told so before the shell reaches out to an issuer that
+// was never going to be able to help.
+func (b *Broker) inlineSource() (source, error) {
+	variable := b.Selection.Identity.Auth.ClientSecretVariable
+	secret, err := b.namedSecret(variable, "the client secret")
+	if err != nil {
+		return nil, err
+	}
+	return clientCredentialsSource{
+		namespace:      b.namespace(),
+		contextName:    b.Selection.Context.Name,
+		identity:       b.Selection.Identity,
+		secret:         secret,
+		secretVariable: variable,
+		client:         b.httpClient(),
+	}, nil
+}
+
 // httpClient is what reaches an issuer. It defaults to the process-wide client
 // rather than one this package builds, so a deployment's proxy and certificate
 // configuration applies to shell traffic exactly as it does to everything else.
@@ -180,19 +202,4 @@ func (b *Broker) httpClient() *http.Client {
 		return b.HTTPClient
 	}
 	return http.DefaultClient
-}
-
-// unavailableSource stands in for an identity kind whose derivation this build
-// does not carry yet.
-//
-// It refuses as narrowing-unavailable rather than as an internal fault: from
-// where the caller stands, a shell that cannot narrow a session to the module's
-// request and a shell that will not are the same answer, and both recover by
-// using an identity this release can derive access for.
-type unavailableSource struct{}
-
-func (unavailableSource) mint(Request, time.Time) (Grant, error) {
-	return Grant{}, denial("auth.narrowing_unavailable",
-		"this build cannot derive access for the selected identity",
-		"Select a context whose identity this release can authenticate as.")
 }
