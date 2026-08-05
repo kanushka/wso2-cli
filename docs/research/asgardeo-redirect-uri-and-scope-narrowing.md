@@ -235,15 +235,76 @@ convention and still live via redirect); the rendered page title/URL is
 
 ## 3. Summary for the broker decision
 
-| Question | Confirmed (Asgardeo docs) | Inferred (WSO2 IS only) | Unknown — needs empirical test |
+The fourth column is the empirical one. Every cell in it is answered by a run
+against a live deployment, and section 4 says exactly how to produce and record
+one. A cell marked **pending live run** has not been measured — it is not a
+negative finding, and nothing in the shell should be designed as though it were.
+
+| Question | Confirmed (Asgardeo docs) | Inferred (WSO2 IS only) | Empirical verdict |
 |---|---|---|---|
-| Fixed-port loopback (`127.0.0.1:<port>`) registrable | `localhost:<port>` proven registrable via quickstart; REST schema imposes no blocking restriction | — | Literal `127.0.0.1` vs `localhost` treated identically? |
-| Any-port loopback (RFC 8252 §7.3) | Not documented at all | IS 6.0.0+: exact port match waived for loopback IPs | Does Asgardeo's SaaS backend have this IS 6.0.0+ behavior? |
-| Redirect URI validation rules | Exact match by default; `regexp=(url1\|url2)` prefix for OR-ing multiple exact URLs | Regex support IS-version-gated (5.2.0+); loopback flexibility IS-version-gated (6.0.0+) | True single-URL wildcard syntax (not just OR-regex) — undocumented anywhere |
-| Refresh-grant scope narrowing | Docs show no `scope` param on refresh_token grant at all (asymmetric vs. client_credentials/password sections, which do show one) | `RefreshGrantHandler.validateScope()`: subset requests honored and narrow the token; over-broad requests rejected with `invalid_scope`; omitted scope keeps full original grant | Does Asgardeo run this same handler unmodified for ordinary API scopes? |
+| Fixed-port loopback (`127.0.0.1:<port>`) registrable | `localhost:<port>` proven registrable via quickstart; REST schema imposes no blocking restriction | — | **Pending live run.** Any successful `make smoke-login` answers this incidentally: the walkthrough registers the literal `127.0.0.1` form on all four ports and the login binds one of them. Record: verdict, date, deployment. |
+| Any-port loopback (RFC 8252 §7.3) | Not documented at all | IS 6.0.0+: exact port match waived for loopback IPs | **Pending live run.** `make empirical-asgardeo`, experiment A. Record the `ASGARDEO ANY-PORT LOOPBACK: {supported\|rejected}` verdict, its date, and the `deployment:` line the run printed under it. |
+| Redirect URI validation rules | Exact match by default; `regexp=(url1\|url2)` prefix for OR-ing multiple exact URLs | Regex support IS-version-gated (5.2.0+); loopback flexibility IS-version-gated (6.0.0+) | **Not measured, and no experiment planned.** The open part is whether a true single-URL wildcard syntax exists, and an experiment can only ever fail to find one — absence of a syntax is not observable by trying one. This stays a documentation question. |
+| Refresh-grant scope narrowing | Docs show no `scope` param on refresh_token grant at all (asymmetric vs. client_credentials/password sections, which do show one) | `RefreshGrantHandler.validateScope()`: subset requests honored and narrow the token; over-broad requests rejected with `invalid_scope`; omitted scope keeps full original grant | **Pending live run.** `make empirical-asgardeo`, experiment B. Record the `ASGARDEO REFRESH NARROWING: {honored\|ignored\|rejected}` verdict, its date, and the `deployment:` line. |
 
 Both questions remain genuinely open for Asgardeo specifically; the WSO2 IS
 evidence is suggestive (shared codebase lineage, per the parent document's
-landscape findings) but not a substitute for a live test against an
-Asgardeo tenant. The broker decision should not assume Asgardeo parity with
-IS on either point without running the empirical tests described above.
+landscape findings) but not a substitute for a live test against an Asgardeo
+tenant. The broker decision does not assume Asgardeo parity with IS on either
+point: the shell verifies the narrowing it asked for and refuses
+(`auth.narrowing_unavailable`) when it cannot prove it, which is the behavior
+that is correct under every one of the three possible verdicts rather than the
+behavior that bets on one.
+
+## 4. Producing and recording the verdicts
+
+**Added 2026-08-05.** The experiments described in §1.2 and §2 are implemented
+and runnable. They were not runnable when this document was first written, which
+is why the cells above still say pending: the harness exists, the tenant run does
+not.
+
+The runs live in `test/smoke/asgardeo_empirical_test.go` behind the `smoke`
+build tag, so they never execute in the default test gate. To produce the
+verdicts, against a real Asgardeo tenant and again against a local Identity
+Server 7.x:
+
+```sh
+export WSO2_SMOKE_ISSUER='https://api.asgardeo.io/t/<org>/oauth2/token'
+export WSO2_SMOKE_CLIENT_ID='<client id>'
+export WSO2_SMOKE_AUDIENCE='<api resource identifier>'
+export WSO2_SMOKE_SCOPE='<scope-a> <scope-b>'   # at least two
+
+make empirical-asgardeo
+```
+
+Registering the application the variables describe is covered by
+[the login walkthrough](../guides/login.md). What the verdict words mean, and
+the one case that needs corroborating from the browser before it is believed
+(`rejected` on the any-port experiment, which is observed as a flow that never
+returns), is covered by
+[`test/smoke/RUNNING.md`](../../test/smoke/RUNNING.md).
+
+Recording is a manual edit to the fourth column above, and is part of executing
+a live run rather than something the harness does. Record three things per cell
+and nothing less: the verdict, the date, and the deployment the run printed
+under it. The verdict lines are prefixed `ASGARDEO` because that names the
+question; the `deployment:` line under each one is what says where the answer
+came from, and a verdict recorded without it cannot be told apart from one
+measured against an Identity Server.
+
+### What each verdict would mean for the shell
+
+- **Any-port `supported`:** Asgardeo is at IS parity, and the four-port
+  registration in the walkthrough could in principle collapse to one. It should
+  not, while IS deployments older than 6.0.0 remain in scope.
+- **Any-port `rejected`:** exact-match only. The four registered ports are load-
+  bearing, and the shell's refusal to fall back to an unregistered port is what
+  keeps the failure legible.
+- **Narrowing `honored`:** the broker's scoped refresh works as designed on
+  Asgardeo, and a module receives exactly what it asked for.
+- **Narrowing `ignored` or `rejected`:** brokered acquisition refuses with
+  `auth.narrowing_unavailable` on Asgardeo. Login and session persistence are
+  unaffected and still pass. That refusal is the designed outcome — the shell
+  does not hand a module more authority than it requested — and is documented as
+  such in the walkthrough's troubleshooting section. It is not a fallback and
+  must not be relaxed into one.

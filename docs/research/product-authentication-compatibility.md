@@ -48,6 +48,26 @@ Evidence of absence: no such client appears in the application guides or the
 IS app-configuration references (landscape §§1–2). Until one ships, the
 wso2-cli needs per-context client configuration or registration.
 
+**Standing ask, recorded 2026-08-05 — owner: the Asgardeo service team
+(`wso2/identity-apps`), and `wso2/product-is` for Identity Server.** The
+wso2-cli login slice ships *against* this gap rather than waiting for it to
+close: every tenant and every deployment registers its own public client by
+hand, and [the login walkthrough](../guides/login.md) §§2–3 is that manual
+registration written out in full — a standard-based application, public client,
+PKCE mandatory with `S256`, the four loopback callbacks
+`http://127.0.0.1:{10425,10426,10427,10428}/callback`, the refresh-token grant,
+and an API resource whose identifier becomes the audience.
+
+The ask is a WSO2-seeded, well-known `wso2cli` public client, provisioned in
+every Asgardeo organization and every Identity Server deployment with exactly
+that shape. What it buys is specific and measurable: the walkthrough's entire
+registration half (§§2–3, two of its nine sections) collapses to a default
+`clientId` the shell ships, `clientId` stops being a field a first-time user has
+to supply in the context document, and the only value that user still provides
+is the issuer. Until it ships, those sections stay, and every reported
+`auth.discovery_failed` or redirect-mismatch from a hand-registered application
+is a cost attributable to this gap.
+
 **OUR GAP:** the plan should pin a fixed loopback callback port (or a small
 documented range) rather than assuming ephemeral ports, and treat "loopback
 URI not registrable" as a per-deployment condition with device code as the
