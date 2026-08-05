@@ -155,13 +155,18 @@ func parseProductArgs(namespace string, args []string) (command, arguments []str
 			mode = parsed
 			remaining = remaining[1:]
 		case argument == "--context":
-			if len(remaining) < 2 {
+			// An empty value is refused rather than treated as absent: a user
+			// who named a context explicitly must not silently get another.
+			if len(remaining) < 2 || remaining[1] == "" {
 				return nil, nil, "", "", missingContextValue(namespace)
 			}
 			contextName = remaining[1]
 			remaining = remaining[2:]
 		case strings.HasPrefix(argument, "--context="):
 			contextName = strings.TrimPrefix(argument, "--context=")
+			if contextName == "" {
+				return nil, nil, "", "", missingContextValue(namespace)
+			}
 			remaining = remaining[1:]
 		case strings.HasPrefix(argument, "-"):
 			// An unrecognized flag is the module's to interpret or reject.

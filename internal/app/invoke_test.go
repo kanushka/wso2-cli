@@ -128,9 +128,19 @@ func TestAnOutputFlagWithoutAValueIsAUsageProblem(t *testing.T) {
 }
 
 func TestMissingContextFlagValue(t *testing.T) {
-	_, _, _, _, err := parseProductArgs("reference", []string{"status", "--context"})
-	if code := usageProblemCode(t, err); code != "shell.missing_flag_value" {
-		t.Errorf("problem code is %q, want %q", code, "shell.missing_flag_value")
+	// An explicitly empty value is refused too: a user who named a context and
+	// got the default one instead would never see that it happened.
+	for name, args := range map[string][]string{
+		"no value at all":                         {"status", "--context"},
+		"an empty value":                          {"status", "--context", ""},
+		"an empty value joined by an equals sign": {"status", "--context="},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, _, _, err := parseProductArgs("reference", args)
+			if code := usageProblemCode(t, err); code != "shell.missing_flag_value" {
+				t.Errorf("problem code is %q, want %q", code, "shell.missing_flag_value")
+			}
+		})
 	}
 }
 
