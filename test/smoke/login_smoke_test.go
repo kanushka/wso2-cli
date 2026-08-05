@@ -119,9 +119,17 @@ func TestLoginSmoke(t *testing.T) {
 	case refusalCode(err) == codeNarrowingUnavailable:
 		// Documented, correct behavior. See this test's own doc comment and
 		// docs/guides/login.md's troubleshooting section.
-		t.Logf("LOGIN SMOKE: refused %s — the deployment would not prove a narrowed grant. "+
-			"Login and session persistence passed; this refusal is the designed outcome, "+
-			"not a failure.\n  %v", codeNarrowingUnavailable, err)
+		//
+		// auth.narrowing_unavailable covers five distinct causes — see
+		// internal/auth/narrowing.go's verify() and the table under
+		// auth.narrowing_unavailable in docs/guides/login.md section 8 — so this
+		// summary must not name one of them (a "narrowed grant" specifically).
+		// The interpolated error text below is what actually says which of the
+		// five happened; this sentence only states what is true regardless: the
+		// shell declined to hand the module more authority than it asked for.
+		t.Logf("LOGIN SMOKE: refused %s — the shell would not hand the module a grant it could not "+
+			"prove was exactly what it asked for. Login and session persistence passed; this refusal "+
+			"is the designed outcome, not a failure.\n  %v", codeNarrowingUnavailable, err)
 	default:
 		t.Fatalf("the broker refused for a reason this slice does not accept: %v", err)
 	}
