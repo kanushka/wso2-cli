@@ -19,8 +19,11 @@ package acceptance_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -63,6 +66,13 @@ const (
 	referenceWriteScope = "reference:status:write"
 	// loginClientID is the public OAuth client the shell presents itself as.
 	loginClientID = "wso2cli"
+	// inlineSecretVariable is the environment variable a client-credentials
+	// identity names as its client secret source.
+	inlineSecretVariable = "WSO2_REFERENCE_CLIENT_SECRET"
+	// inlineClientSecret is the canary a CI job would really export. The
+	// deployment checks it, so a command that succeeds could only have read it
+	// from the variable — and no surface the shell writes may contain it.
+	inlineClientSecret = "canary-ci-client-secret-6a20"
 )
 
 // recordingService stands in for the product service, recording the bearer
@@ -483,6 +493,213 @@ func TestNoTokenMaterialReachesAnyOutputSurface(t *testing.T) {
 		"login diagnostics":      loginErr,
 		"status standard output": deployment.out.String(),
 		"status diagnostics":     deployment.errOut.String(),
+	}
+	for label, secret := range material {
+		if secret == "" {
+			t.Fatalf("%s is empty, so this sweep scans for nothing", label)
+		}
+		for surface, stream := range surfaces {
+			if strings.Contains(stream, secret) {
+				t.Errorf("%s appeared on %s:\n%s", label, surface, stream)
+			}
+		}
+	}
+}
+
+// deployInline installs the same deployment as a non-interactive identity: the
+// credential is an environment variable a CI job exported, there is no secure
+// store reference, and no login ever happens.
+//
+// secret is what the job exported. The empty string models the variable being
+// absent, which is what an unset one and a blank one both amount to.
+func deployInline(t *testing.T, options fakeissuer.Options, secret string) *loginDeployment {
+	t.Helper()
+	// The deployment holds the client to a secret, so a grant proves the shell
+	// read the variable rather than that the fixture is permissive.
+	options.ClientSecret = inlineClientSecret
+	deployment := deployLogin(t, options, func(document *contexts.Document) {
+		identity := &document.Identities[0].Auth
+		identity.Kind = contexts.KindClientCredentials
+		// A non-interactive identity holds no secure-store reference: there is
+		// no session to keep.
+		identity.CredentialRef = ""
+		identity.ClientSecretVariable = inlineSecretVariable
+	})
+	t.Setenv(inlineSecretVariable, secret)
+	return deployment
+}
+
+func TestAnInlineIdentityAuthenticatesACommandWithNoLoginStep(t *testing.T) {
+	// The CI shape end to end: one module command, no login, and what the
+	// module presents to its product service is a token the deployment minted
+	// for exactly the permission the module asked for.
+	deployment := deployInline(t, fakeissuer.Options{}, inlineClientSecret)
+
+	if code := deployment.status(t); code != exit.OK {
+		t.Fatalf("reference status exited %d\nstderr:\n%s", code, deployment.errOut)
+	}
+
+	presented := deployment.service.presented()
+	if len(presented) != 1 {
+		t.Fatalf("the product service was shown %d bearer tokens, want 1", len(presented))
+	}
+	active, scopes, audiences := deployment.issuer.Introspect(t, presented[0])
+	if !active {
+		t.Fatal("the module presented a token the issuer did not mint")
+	}
+	if len(scopes) != 1 || scopes[0] != referenceReadScope {
+		t.Errorf("presented scopes %v, want exactly [%s]", scopes, referenceReadScope)
+	}
+	if len(audiences) != 1 || audiences[0] != referenceAudience {
+		t.Errorf("presented audience %v, want [%s]", audiences, referenceAudience)
+	}
+
+	// Nothing was kept. The credential was already on the machine, so a stored
+	// session would be a second copy of an authority the job already has.
+	for _, ref := range []string{loginCredentialRef, loginIdentityName} {
+		if _, err := keyring.Get(session.Service, ref); !errors.Is(err, keyring.ErrNotFound) {
+			t.Errorf("the secure store holds an entry under %q after an inline run", ref)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(deployment.stateRoot, "cli", "locks")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("an inline run left session state under the state root: %v", err)
+	}
+}
+
+func TestAnInlineIdentityWithNoSecretTellsTheUserWhichVariableToSet(t *testing.T) {
+	// The refusal a job hits on its first run. It has to name the variable, or
+	// the operator has nothing to act on; the module receives the same refusal
+	// without it.
+	for name, exported := range map[string]string{
+		"the variable is empty": "",
+		"the variable is blank": "   ",
+	} {
+		t.Run(name, func(t *testing.T) {
+			deployment := deployInline(t, fakeissuer.Options{}, exported)
+
+			code := deployment.status(t)
+
+			if code != exitAuthPolicy {
+				t.Fatalf("exit = %d, want the authentication class %d\nstderr:\n%s",
+					code, exitAuthPolicy, deployment.errOut)
+			}
+			stderr := deployment.errOut.String()
+			if !strings.Contains(stderr, "auth.credential_unavailable") {
+				t.Errorf("stderr does not name the refusal:\n%s", stderr)
+			}
+			if !strings.Contains(stderr, inlineSecretVariable) {
+				t.Errorf("stderr does not name the variable to set:\n%s", stderr)
+			}
+			if len(deployment.service.presented()) != 0 {
+				t.Error("a refused command still reached the product service")
+			}
+		})
+	}
+}
+
+func TestAnInlineDeploymentThatCannotNarrowIsRefusedRatherThanGrantedMore(t *testing.T) {
+	// The verification the browser derivation applies is the same one applied
+	// here. A deployment that answers with the registered client's whole
+	// authority, or refuses to narrow at all, hands the module nothing.
+	for name, options := range map[string]fakeissuer.Options{
+		"the deployment ignores the narrower request": {
+			ClientScopeMode: "ignore",
+			ClientScopes:    []string{referenceReadScope, referenceWriteScope},
+		},
+		"the deployment refuses to narrow": {ClientScopeMode: "reject"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			deployment := deployInline(t, options, inlineClientSecret)
+
+			code := deployment.status(t)
+
+			if code != exitAuthPolicy {
+				t.Fatalf("exit = %d, want the authentication class %d\nstderr:\n%s",
+					code, exitAuthPolicy, deployment.errOut)
+			}
+			if !strings.Contains(deployment.errOut.String(), "auth.narrowing_unavailable") {
+				t.Errorf("stderr does not name the refusal:\n%s", deployment.errOut)
+			}
+			if len(deployment.service.presented()) != 0 {
+				t.Error("a refused command still reached the product service")
+			}
+		})
+	}
+}
+
+func TestNonInteractiveCIRefusesLoginWhileTheInlinePathStillWorks(t *testing.T) {
+	// Both halves of the CI contract, in one environment. There is no human to
+	// complete a login, so wso2 login refuses — and it refuses as not required
+	// rather than as impossible, because this identity was never going to need
+	// one. The command the job actually runs succeeds in the same breath.
+	deployment := deployInline(t, fakeissuer.Options{}, inlineClientSecret)
+	t.Setenv("WSO2_NON_INTERACTIVE", "1")
+	deployment.shell.OpenBrowser = func(string) error {
+		t.Error("a non-interactive run opened a browser")
+		return nil
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if code := deployment.shell.Run([]string{"login"}); code != exitAuthPolicy {
+			t.Errorf("wso2 login exited %d, want the authentication class %d", code, exitAuthPolicy)
+		}
+		if code := deployment.status(t); code != exit.OK {
+			t.Errorf("reference status exited %d, want %d", code, exit.OK)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("a non-interactive run waited instead of answering")
+	}
+
+	if !strings.Contains(deployment.errOut.String(), "auth.login_not_required") {
+		t.Errorf("stderr does not name the login refusal:\n%s", deployment.errOut)
+	}
+	presented := deployment.service.presented()
+	if len(presented) != 1 {
+		t.Fatalf("the product service was shown %d bearer tokens, want 1", len(presented))
+	}
+	if active, _, _ := deployment.issuer.Introspect(t, presented[0]); !active {
+		t.Error("the module presented a token the issuer did not mint")
+	}
+}
+
+func TestNoClientSecretReachesAnyOutputSurface(t *testing.T) {
+	// The secret is the one thing on the machine worth stealing, and a CI log
+	// is the easiest place to lose it. The sweep covers a run that used it and
+	// a run that was refused for want of it — the refusal names the variable,
+	// which is exactly the message most likely to quote the value by mistake.
+	//
+	// The module's own environment is not swept here because it is empty by
+	// construction: the shell builds the child environment from nothing, which
+	// internal/rpc's TestAModuleInheritsNoneOfTheShellsEnvironment pins.
+	deployment := deployInline(t, fakeissuer.Options{}, inlineClientSecret)
+	if code := deployment.status(t); code != exit.OK {
+		t.Fatalf("reference status exited %d\nstderr:\n%s", code, deployment.errOut)
+	}
+	presented := deployment.service.presented()
+	if len(presented) != 1 {
+		t.Fatalf("the product service was shown %d bearer tokens, want 1", len(presented))
+	}
+
+	refused := deployInline(t, fakeissuer.Options{}, "")
+	if code := refused.status(t); code != exitAuthPolicy {
+		t.Fatalf("a run with no secret exited %d, want the authentication class %d",
+			code, exitAuthPolicy)
+	}
+
+	material := map[string]string{
+		"the client secret":         inlineClientSecret,
+		"the module's access token": presented[0],
+	}
+	surfaces := map[string]string{
+		"the granted run's standard output": deployment.out.String(),
+		"the granted run's diagnostics":     deployment.errOut.String(),
+		"the refused run's standard output": refused.out.String(),
+		"the refused run's diagnostics":     refused.errOut.String(),
 	}
 	for label, secret := range material {
 		if secret == "" {
