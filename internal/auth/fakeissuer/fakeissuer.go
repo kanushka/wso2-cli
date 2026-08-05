@@ -61,15 +61,23 @@ type Options struct {
 	// OmitRefreshScopeField leaves the scope member out of refresh responses,
 	// modeling issuers that answer without stating the effective scopes.
 	OmitRefreshScopeField bool
+	// AllowAnyLoopbackPort accepts a callback on any 127.0.0.1 port instead of
+	// only the four registered ones, so a test can bind an ephemeral port and
+	// run in parallel with anything else on the machine.
+	AllowAnyLoopbackPort bool
+	// OmitS256 leaves code_challenge_methods_supported out of the discovery
+	// document, modeling a deployment that does not advertise PKCE.
+	OmitS256 bool
 }
 
 // Issuer is one running fake issuer. Its URL doubles as the issuer identifier.
 type Issuer struct {
 	URL string
 
-	opts  Options
-	key   *rsa.PrivateKey
-	keyID string
+	opts   Options
+	key    *rsa.PrivateKey
+	keyID  string
+	client *http.Client
 
 	mutex         sync.Mutex
 	codes         map[string]codeGrant
@@ -122,8 +130,14 @@ func New(t *testing.T, opts Options) *Issuer {
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 	issuer.URL = server.URL
+	issuer.client = server.Client()
 	return issuer
 }
+
+// HTTPClient is a client that reaches this issuer. The issuer speaks plain
+// HTTP on the loopback interface, so this is an ordinary client; it exists so a
+// test never has to decide which client to hand the code under test.
+func (i *Issuer) HTTPClient() *http.Client { return i.client }
 
 // SeedSession mints a live refresh token directly, so broker tests need no
 // browser step. The returned value goes into session.Session.RefreshToken.
@@ -156,7 +170,7 @@ func (i *Issuer) Introspect(t *testing.T, token string) (active bool, scopes, au
 }
 
 func (i *Issuer) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+	document := map[string]any{
 		"issuer":                                i.URL,
 		"authorization_endpoint":                i.URL + "/authorize",
 		"token_endpoint":                        i.URL + "/token",
@@ -167,7 +181,11 @@ func (i *Issuer) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
 		"id_token_signing_alg_values_supported": []string{"RS256"},
 		"code_challenge_methods_supported":      []string{"S256"},
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token", "client_credentials"},
-	})
+	}
+	if i.opts.OmitS256 {
+		delete(document, "code_challenge_methods_supported")
+	}
+	writeJSON(w, http.StatusOK, document)
 }
 
 func (i *Issuer) handleJWKS(w http.ResponseWriter, _ *http.Request) {
@@ -184,7 +202,7 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case query.Get("client_id") == "":
 		http.Error(w, "missing client_id", http.StatusBadRequest)
-	case !loopbackRedirect.MatchString(redirectURI):
+	case !i.acceptsRedirect(redirectURI):
 		http.Error(w, "redirect_uri is not a registered loopback callback", http.StatusBadRequest)
 	case query.Get("code_challenge") == "" || query.Get("code_challenge_method") != "S256":
 		http.Error(w, "an S256 code challenge is required", http.StatusBadRequest)
@@ -202,6 +220,22 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		callback := url.Values{"code": {code}, "state": {query.Get("state")}}
 		http.Redirect(w, r, redirectURI+"?"+callback.Encode(), http.StatusFound)
 	}
+}
+
+// acceptsRedirect reports whether the callback URL is one this issuer is
+// registered for. The registration is the four documented loopback ports; a
+// test that binds an ephemeral port opts into the wider check explicitly, so
+// the strict rule is what every other test exercises.
+func (i *Issuer) acceptsRedirect(raw string) bool {
+	if loopbackRedirect.MatchString(raw) {
+		return true
+	}
+	if !i.opts.AllowAnyLoopbackPort {
+		return false
+	}
+	parsed, err := url.Parse(raw)
+	return err == nil && parsed.Scheme == "http" &&
+		parsed.Hostname() == "127.0.0.1" && parsed.Path == "/callback"
 }
 
 func (i *Issuer) handleToken(w http.ResponseWriter, r *http.Request) {
@@ -228,7 +262,7 @@ func (i *Issuer) exchangeCode(w http.ResponseWriter, r *http.Request) {
 	i.mutex.Unlock()
 	sum := sha256.Sum256([]byte(r.PostForm.Get("code_verifier")))
 	proof := base64.RawURLEncoding.EncodeToString(sum[:])
-	if !found || grant.clientID != r.PostForm.Get("client_id") ||
+	if !found || grant.clientID != presentedClientID(r) ||
 		grant.redirectURI != r.PostForm.Get("redirect_uri") ||
 		subtle.ConstantTimeCompare([]byte(proof), []byte(grant.challenge)) != 1 {
 		oauthError(w, http.StatusBadRequest, "invalid_grant")
@@ -246,6 +280,17 @@ func (i *Issuer) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		"id_token":      i.mintIDToken(grant.clientID, grant.nonce),
 		"scope":         strings.Join(grant.scopes, " "),
 	})
+}
+
+// presentedClientID reads the client identifier a token request identifies
+// itself with. A public client states it in the body and a confidential one may
+// present it as HTTP Basic credentials; a real issuer accepts both, so the
+// fixture does too rather than pinning the code under test to one style.
+func presentedClientID(r *http.Request) string {
+	if clientID, _, ok := r.BasicAuth(); ok {
+		return clientID
+	}
+	return r.PostForm.Get("client_id")
 }
 
 func (i *Issuer) refreshGrant(w http.ResponseWriter, r *http.Request) {
