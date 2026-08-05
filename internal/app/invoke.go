@@ -49,6 +49,13 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 	if err != nil {
 		return err
 	}
+	// The state root reaches the broker for the session rotation lock alone.
+	// No session material is written under it; the OS secure store holds all
+	// of that.
+	root, err := s.stateRoot()
+	if err != nil {
+		return err
+	}
 	// The invocation is minted here, before anything is launched, so the
 	// broker and the module session bind access to the same command.
 	invocationID, err := rpc.NewInvocationID()
@@ -73,6 +80,7 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 			Capabilities: resolved.Receipt.Capabilities,
 			Selection:    selection,
 			InvocationID: invocationID,
+			StateRoot:    root,
 		},
 	}
 	outcome, invokeErr := launcher.Invoke(context.Background(), rpc.Invocation{

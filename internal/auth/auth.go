@@ -27,6 +27,7 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -144,11 +145,11 @@ func (b *Broker) Acquire(request Request) (Grant, error) {
 	// its installation is told so whatever context happens to be selected.
 	resolved, err := b.resolveSource(request)
 	if err != nil {
-		return Grant{}, err
+		return Grant{}, asDenial(err)
 	}
 	grant, err := resolved.mint(request, b.now())
 	if err != nil {
-		return Grant{}, err
+		return Grant{}, asDenial(err)
 	}
 
 	b.granted = true
@@ -218,6 +219,25 @@ func (b *Broker) namespace() string {
 		return "product"
 	}
 	return b.Namespace
+}
+
+// asDenial restates any typed problem a source raised as a broker denial.
+//
+// A source may borrow a problem from a package that knows nothing about this
+// broker — the session store's own auth.login_required, for one. Everything
+// Acquire refuses with is a Denial, so one type answers for every refusal and
+// the shell has a single place to decide what a module is told versus what the
+// user is told.
+func asDenial(err error) error {
+	var refusal Denial
+	if errors.As(err, &refusal) {
+		return refusal
+	}
+	var typed problem.Problem
+	if errors.As(err, &typed) {
+		return Denial{Problem: typed}
+	}
+	return err
 }
 
 // denial reports a broker refusal the module and the user can both be told in

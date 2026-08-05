@@ -18,9 +18,12 @@ package auth
 
 import (
 	"fmt"
+	"net/http"
 	"slices"
+	"strings"
 	"time"
 
+	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
 )
 
@@ -166,8 +169,108 @@ func (b *Broker) developmentSource() (source, error) {
 // productionSource is the derivation for an identity whose access comes from a
 // real issuer. It is reached only after the checks above have admitted the
 // request.
-func (b *Broker) productionSource(_ string, _ contexts.Product) (source, error) {
-	return unavailableSource{}, nil
+func (b *Broker) productionSource(kind string, _ contexts.Product) (source, error) {
+	switch kind {
+	case contexts.KindOAuthBrowser:
+		return browserSource{
+			namespace: b.namespace(),
+			identity:  b.Selection.Identity,
+			sessions:  session.Store{StateRoot: b.StateRoot},
+			client:    b.httpClient(),
+		}, nil
+	default:
+		return unavailableSource{}, nil
+	}
+}
+
+// httpClient is what reaches an issuer. It defaults to the process-wide client
+// rather than one this package builds, so a deployment's proxy and certificate
+// configuration applies to shell traffic exactly as it does to everything else.
+func (b *Broker) httpClient() *http.Client {
+	if b.HTTPClient != nil {
+		return b.HTTPClient
+	}
+	return http.DefaultClient
+}
+
+// narrowingRecovery is the way back from every refusal to hand a module a grant
+// the shell could not prove was narrowed to its request.
+const narrowingRecovery = "Check the deployment's API resource registration and the permissions " +
+	"granted to the registered OAuth application, then retry. The shell does not hand a module " +
+	"broader access than it asked for."
+
+// verifyIssued proves an issued token is exactly what the module asked for.
+//
+// It is the check the whole derivation exists to make. A deployment may answer
+// a narrowed request with the session's full authority, or with a token bound
+// to some other audience, and both look like success at the protocol level. The
+// shell refuses rather than degrades: a module that receives more than it asked
+// for has been handed authority nobody decided to give it, and a module that
+// receives a token its audience will reject fails later for a reason no one can
+// diagnose from where it fails.
+func verifyIssued(request Request, namespace, accessToken, statedScopes string) (bearerFacts, error) {
+	facts, err := bearerClaims(accessToken)
+	if err != nil {
+		// Without readable claims the shell cannot prove the audience binding,
+		// and an unprovable grant is not one this broker issues.
+		return bearerFacts{}, denial("auth.narrowing_unavailable",
+			fmt.Sprintf("the deployment issued access for the %q module in a form the shell cannot "+
+				"check against what the module asked for", namespace),
+			narrowingRecovery)
+	}
+	// The response's own statement wins, because it is the deployment speaking
+	// about what it issued. The token's claim answers for issuers that state
+	// nothing.
+	effective := strings.Fields(statedScopes)
+	if len(effective) == 0 {
+		effective = facts.Scopes
+	}
+	if len(effective) == 0 {
+		return bearerFacts{}, denial("auth.narrowing_unavailable",
+			fmt.Sprintf("the deployment did not state which permissions it issued for the %q module, "+
+				"so the shell cannot prove they are the ones it asked for", namespace),
+			narrowingRecovery)
+	}
+	if !sameScopeSet(effective, request.Scopes) {
+		// Scope names are not secrets, and naming both sides is the difference
+		// between a refusal and a registration a user can go and fix.
+		return bearerFacts{}, denial("auth.narrowing_unavailable",
+			fmt.Sprintf("the %q module asked for the permissions %s and the deployment issued %s",
+				namespace, scopeList(request.Scopes), scopeList(effective)),
+			narrowingRecovery)
+	}
+	if !slices.Contains(facts.Audiences, request.Audience) {
+		return bearerFacts{}, denial("auth.narrowing_unavailable",
+			fmt.Sprintf("the deployment issued access that is not bound to the %q audience the %q "+
+				"module needs", request.Audience, namespace),
+			narrowingRecovery)
+	}
+	return facts, nil
+}
+
+// sameScopeSet reports whether two permission lists carry the same members,
+// whatever their order or repetition.
+func sameScopeSet(issued, requested []string) bool {
+	for _, scope := range issued {
+		if !slices.Contains(requested, scope) {
+			return false
+		}
+	}
+	for _, scope := range requested {
+		if !slices.Contains(issued, scope) {
+			return false
+		}
+	}
+	return true
+}
+
+// scopeList renders permissions for a refusal in a stable order.
+func scopeList(scopes []string) string {
+	sorted := slices.Sorted(slices.Values(scopes))
+	if len(sorted) == 0 {
+		return "none"
+	}
+	return strings.Join(sorted, ", ")
 }
 
 // unavailableSource stands in for an identity kind whose derivation this build
