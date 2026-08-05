@@ -61,8 +61,8 @@ func acquireLock(path string) (release func(), err error) {
 	for {
 		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if err == nil {
-			file.Close()
-			return func() { os.Remove(path) }, nil
+			_ = file.Close()
+			return func() { _ = os.Remove(path) }, nil
 		}
 		if !errors.Is(err, fs.ErrExist) {
 			return nil, lockFailed()
@@ -70,7 +70,7 @@ func acquireLock(path string) (release func(), err error) {
 		if !tookOverStale {
 			if info, statErr := os.Stat(path); statErr == nil && time.Since(info.ModTime()) > lockStaleAfter {
 				tookOverStale = true
-				os.Remove(path)
+				_ = os.Remove(path)
 				continue
 			}
 		}

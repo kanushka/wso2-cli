@@ -68,7 +68,7 @@ func authorize(t *testing.T, issuer *fakeissuer.Issuer, challenge, scope, state 
 	if err != nil {
 		t.Fatalf("authorize: %v", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusFound {
 		t.Fatalf("authorize status = %d", response.StatusCode)
 	}
@@ -94,7 +94,7 @@ func token(t *testing.T, issuer *fakeissuer.Issuer, form url.Values) (map[string
 	if err != nil {
 		t.Fatalf("token request: %v", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	var body map[string]any
 	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
 		t.Fatalf("token response decode: %v", err)
@@ -113,7 +113,7 @@ func TestDiscoveryAdvertisesS256(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discovery: %v", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	var document struct {
 		Issuer                string   `json:"issuer"`
 		AuthorizationEndpoint string   `json:"authorization_endpoint"`
@@ -256,7 +256,7 @@ func TestAuthorizeRejectsForeignRedirect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("authorize: %v", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusBadRequest {
 		t.Fatalf("foreign redirect accepted: %d", response.StatusCode)
 	}
@@ -422,7 +422,7 @@ func TestClientCredentialsAcceptsBasicAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("token request: %v", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("basic-authenticated grant status = %d", response.StatusCode)
 	}

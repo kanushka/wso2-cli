@@ -143,7 +143,7 @@ func (i *Issuer) Introspect(t *testing.T, token string) (active bool, scopes, au
 	if err != nil {
 		t.Fatalf("fakeissuer: introspect: %v", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	var report struct {
 		Active   bool     `json:"active"`
 		Scope    string   `json:"scope"`
