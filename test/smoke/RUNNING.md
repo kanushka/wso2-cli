@@ -83,9 +83,31 @@ cp test/smoke/env.example test/smoke/.env   # then fill it in
 make smoke-login
 ```
 
-A browser opens; sign in. The run then proves three things in order: `wso2 login`
+A browser opens; sign in. The run then proves four things in order: `wso2 login`
 exits zero, the refresh token is readable back out of the operating system's
-secure store, and the broker derives one access token from that session.
+secure store, the broker derives an access token from that session, and it
+derives a second one carrying strictly less than the session holds:
+
+```
+LOGIN SMOKE: granted  — asked for everything the session carries, received access of
+                        1261 characters bound to "reference-status" carrying
+                        [reference:status:read reference:status:write]
+LOGIN SMOKE: narrowed — asked for one permission out of the 2 the session holds,
+                        received access of 1230 characters bound to "reference-status"
+                        carrying [reference:status:read]
+```
+
+The second line is the one that measures anything about narrowing. When the
+request is every permission the session already carries, the shell compares the
+issued scopes against an identical request, so that check holds however the
+deployment behaved — a deployment that disregarded the request entirely would
+still be reported as granted. Only a strict subset can fail, and a strict subset
+is what a module actually asks for.
+
+The two acquisitions run as two separate invocations because the shell allows a
+module one acquisition per command and refuses a second with
+`auth.already_granted`. Against a deployment that rotates refresh tokens, the
+second acquisition also proves the first persisted its replacement.
 
 Run it once per deployment. Two things change between them, and only one of them
 is obvious:
@@ -107,18 +129,26 @@ any of this can reach it — see section 3.6 of the walkthrough.
 
 ### The one refusal that is not a failure
 
-If the deployment will not prove a narrowed grant, the acquisition step reports:
+If the deployment will not prove a grant is exactly what was asked for, the
+acquisition step reports:
 
 ```
-LOGIN SMOKE: refused auth.narrowing_unavailable — the deployment would not prove
-a narrowed grant. Login and session persistence passed; this refusal is the
-designed outcome, not a failure.
+LOGIN SMOKE: refused auth.narrowing_unavailable — asked for one permission out of
+the 2 the session holds, and the shell would not hand the module a grant it could
+not prove was exactly what it asked for. Login and session persistence passed;
+this refusal is the designed outcome, not a failure.
 ```
 
 and the run passes. The shell does not hand a module more authority than it
 asked for, so refusing is the correct behavior, not a fallback. The walkthrough's
 troubleshooting section explains what to change in the registration if you want
 a grant instead.
+
+Read which acquisition refused. On the **narrowed** one it is a statement about
+the deployment: it would not issue a token carrying strictly less than the
+session. On the **broad** one it is almost always the registration instead —
+most often an audience the deployment never binds — and the run stops there
+rather than repeating one finding twice.
 
 ## The experiments
 

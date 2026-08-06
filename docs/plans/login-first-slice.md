@@ -1,9 +1,13 @@
 # `wso2 login` First Slice Implementation Plan
 
 **Status:** Implemented. Tasks 1-12 are merged into `feature/login` through PRs
-#24-#29, #33 and #34, and every step below is ticked. One definition-of-done
-check is still open and says why in place: the live smoke run's scope check
-cannot fail as written.
+#24-#29, #33, #34 and #35, and every box below is ticked, definition of done
+included.
+
+One finding outran the plan and is recorded under the definition of done: an
+access token's audience can name the product resource on Identity Server and
+structurally cannot on Asgardeo, which is a decision for issue #17 rather than a
+task here.
 
 **Goal:** Implement `wso2 login` (browser Authorization Code + PKCE) and inline client-credentials acquisition, on a version-2 identities/contexts schema, with OS-keychain session storage and a token-source seam in the broker, so the reference module receives a real issuer-minted access token.
 
@@ -1578,9 +1582,9 @@ git commit -m "docs: add the login walkthrough, live smoke gates, and empirical 
 
 - [x] `wso2 login` completes PKCE against a real Asgardeo trial tenant and a local IS 7.x (`make smoke-login`, run twice with the two issuer configs). — Asgardeo tenant 2026-08-06; `wso2/wso2is:7.3.0` 2026-08-06. The nonce echo is checked by both, since `oauthflow/login.go` refuses on a mismatch and neither login could otherwise have completed.
 - [x] The refresh token lands in the OS secure store (smoke run; deterministic equivalent in Task 7). — both smoke runs read it back out and compare its issuer.
-- [ ] The reference module receives a real short-lived access token through the broker against a backend proven to satisfy the scope/audience policy, and a test introspects that token (Task 11 deterministic; smoke against whichever real backend passes the empirical narrowing test).
+- [x] The reference module receives a real short-lived access token through the broker against a backend proven to satisfy the scope/audience policy, and a test introspects that token (Task 11 deterministic; smoke against whichever real backend passes the empirical narrowing test).
 
-  **Deterministic half done, live half incomplete.** `TestLoginThenTheModuleReceivesIssuerMintedNarrowedAccess` launches the real module subprocess, introspects what it presented, and proves refresh rotation — against the fake issuer. Live, `login_smoke_test.go` acquires through the broker but asks for `config.Scopes`, every scope the session already holds, so `sameScopeSet` compares a set against itself: the audience check is real and the scope check cannot fail. A deployment that flatly ignored narrowing would still print `granted`. `config.NarrowTarget()` exists for exactly this and is unused by the smoke run. The module half needs nothing further — the module never learns which issuer minted its token, so running it live proves nothing the deterministic chain does not.
+  Deterministic: `TestLoginThenTheModuleReceivesIssuerMintedNarrowedAccess` launches the real module subprocess, has the issuer introspect what it presented, and proves refresh rotation across three runs. Live: `login_smoke_test.go` acquires twice, and the second acquisition asks for one permission out of the several the session holds. That second request is what makes the check capable of failing — asking for everything the session carries leaves the shell comparing the issued scopes against an identical request, which holds however the deployment behaved. Measured against Identity Server 7.3.0 on 2026-08-06: 1261 characters carrying both permissions, then 1230 carrying one. The module half needs nothing further, because a module never learns which issuer minted its token and running it live proves nothing the deterministic chain does not.
 - [x] If Asgardeo fails the narrowing experiment: login and session persistence still pass; broker acquisition refuses `auth.narrowing_unavailable`; the research doc records the verdict (Task 12). — moot in the favorable direction: both deployments honor narrowing (`make empirical-asgardeo`, 2026-08-06). The refusal path itself is pinned by `TestADeploymentThatCannotNarrowIsRefusedRatherThanGrantedMore`.
 - [x] CI path acquires a client-credentials token inline in an acceptance test (Task 11). — `TestAnInlineIdentityAuthenticatesACommandWithNoLoginStep`, plus the missing-secret, cannot-narrow, non-interactive and secret-disclosure cases beside it.
 - [x] `docs/research/asgardeo-redirect-uri-and-scope-narrowing.md` empirical cells filled in (Task 12). — Asgardeo §3 filled 2026-08-06; Identity Server 7.3.0 recorded in §3.1.
