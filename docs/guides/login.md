@@ -752,15 +752,17 @@ The message tells you which of five things happened:
 | "in a form the shell cannot check" | The access token is opaque. | Set the application to issue JWT access tokens (section 2.5). |
 | "did not state which permissions it issued" | The deployment returned no scope, and the token claims none. | Check the API resource is authorized on the application with the scopes selected. |
 | "asked for the permissions X and the deployment issued Y" | The deployment ignored the narrower request and issued something else. | The deployment does not narrow on this grant. See below. |
-| "is not bound to the ... audience" | The token's `aud` does not carry your audience. | The `audience` in your context document is not the API resource identifier, or the resource is not authorized on the application. |
+| "is not bound to the ... audience" | The token's `aud` does not carry your audience. | The `audience` in your context document names something the deployment never puts in `aud`. Which value that is differs by product: the **client ID** on Asgardeo (section 2.5), the **API resource identifier** on Identity Server, and there only once it is in the application's audience list (section 3.5). Failing that, the resource is not authorized on the application. |
 | "refused to narrow this session" | The token endpoint answered `invalid_scope`. | A scope in your context document is not one the application is authorized for. |
 
 The middle case — a deployment that will not narrow — is a property of the
-deployment, not something to work around in the shell. Whether Asgardeo narrows
-on the refresh grant is
-[recorded in the research document](../research/asgardeo-redirect-uri-and-scope-narrowing.md)
-once measured against a live tenant. Where it does not narrow, login and session
-persistence still work; brokered acquisition refuses, and that refusal is
+deployment, not something to work around in the shell. Both supported products
+do narrow: measured on 2026-08-06 against a live Asgardeo tenant and against
+Identity Server 7.3.0, a session carrying two permissions was refreshed down to
+one and answered with exactly that one. Both verdicts are in
+[the research document](../research/asgardeo-redirect-uri-and-scope-narrowing.md).
+So this row should be rare, and where it does appear, login and session
+persistence still work while brokered acquisition refuses — and that refusal is
 correct.
 
 ### `auth.organization_switch_unsupported`

@@ -137,6 +137,9 @@ LOGIN SMOKE: refused auth.narrowing_unavailable — asked for one permission out
 the 2 the session holds, and the shell would not hand the module a grant it could
 not prove was exactly what it asked for. Login and session persistence passed;
 this refusal is the designed outcome, not a failure.
+  auth_policy: auth.narrowing_unavailable: the "reference" module asked for the
+  permissions reference:status:read and the deployment issued
+  reference:status:read, reference:status:write
 ```
 
 and the run passes. The shell does not hand a module more authority than it
@@ -144,8 +147,25 @@ asked for, so refusing is the correct behavior, not a fallback. The walkthrough'
 troubleshooting section explains what to change in the registration if you want
 a grant instead.
 
-Read which acquisition refused. On the **narrowed** one it is a statement about
-the deployment: it would not issue a token carrying strictly less than the
+**The indented line is the one to read.** The sentence above it is the same for
+every refusal, because `auth.narrowing_unavailable` covers five distinct causes
+and a summary naming one of them would be wrong four times out of five. The
+indented line is the shell's own message and says which one happened. The
+example above is a deployment that disregarded the request — it answered a
+one-permission request with both. The other four read:
+
+| The indented line says | What happened |
+| --- | --- |
+| refused to narrow this session | the token endpoint answered `invalid_scope`. Not always the deployment's verdict: an authorization policy the signed-in user does not satisfy answers identically. See the `rejected` narrowing verdict below. |
+| in a form the shell cannot check | the access token is opaque, so nothing about it can be proven |
+| did not state which permissions it issued | neither the response nor the token named a scope |
+| not bound to the *audience* | the token is real but carries a different `aud` — on Asgardeo, almost always because the audience is set to the API resource rather than the client ID |
+
+Section 8 of [the walkthrough](../../docs/guides/login.md) tabulates the same
+five against what to change in the registration.
+
+Read which acquisition refused, too. On the **narrowed** one it is a statement
+about the deployment: it would not issue a token carrying strictly less than the
 session. On the **broad** one it is almost always the registration instead —
 most often an audience the deployment never binds — and the run stops there
 rather than repeating one finding twice.
