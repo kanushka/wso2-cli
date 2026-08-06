@@ -111,6 +111,7 @@ func (s Shell) login(args []string) error {
 		Issuer:      selected.Identity.Auth.Issuer,
 		ClientID:    selected.Identity.Auth.ClientID,
 		Scopes:      productScopeUnion(selected.Identity),
+		Resource:    productResource(selected.Identity),
 		OpenBrowser: s.OpenBrowser,
 		// The authorization URL is an instruction to act on, not this
 		// command's result, so it goes to the diagnostic stream: a user who
@@ -196,6 +197,26 @@ func productScopeUnion(identity contexts.Identity) []string {
 	}
 	slices.Sort(union)
 	return union
+}
+
+// productResource is the protected resource this login binds its session to,
+// and is empty for a deployment that decides the audience from the
+// application's registration instead.
+//
+// It reads the identity's only product, which is all there can be: a deployment
+// that takes a resource indicator accepts one per authorization, so the context
+// schema refuses an identity that derives this way and serves more than one
+// product. The comment on productScopeUnion says a per-product login would mean
+// one browser login per product; on these deployments that is not a choice the
+// shell is making, it is what the deployment allows.
+func productResource(identity contexts.Identity) string {
+	if identity.Auth.Derivation() != contexts.DerivationTokenResource {
+		return ""
+	}
+	for _, namespace := range slices.Sorted(maps.Keys(identity.Products)) {
+		return identity.Products[namespace].Audience
+	}
+	return ""
 }
 
 // parseLoginArgs reads the flags wso2 login owns and refuses everything else.

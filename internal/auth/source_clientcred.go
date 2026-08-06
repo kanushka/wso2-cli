@@ -75,10 +75,19 @@ func (s clientCredentialsSource) mint(request Request, now time.Time) (Grant, er
 	// registered for every permission the deployment will ever need from
 	// automation, and asking for that whole set would hand one module the
 	// authority of all of them.
-	issued, err := requestToken(ctx, s.client, endpoint, url.Values{
+	form := url.Values{
 		"grant_type": {"client_credentials"},
 		"scope":      {strings.Join(request.Scopes, " ")},
-	}, clientAuth{id: s.identity.Auth.ClientID, secret: s.secret})
+	}
+	// A deployment that decides the audience per request is told which one, and
+	// the module's own request is what names it. There is no earlier
+	// authorization for this grant to inherit a binding from, so the indicator
+	// is the only thing that can bind the token at all.
+	if s.identity.Auth.Derivation() == contexts.DerivationTokenResource {
+		form.Set("resource", request.Audience)
+	}
+	issued, err := requestToken(ctx, s.client, endpoint, form,
+		clientAuth{id: s.identity.Auth.ClientID, secret: s.secret})
 	if err != nil {
 		return Grant{}, s.refusedGrant(err)
 	}
@@ -98,6 +107,11 @@ func (s clientCredentialsSource) mint(request Request, now time.Time) (Grant, er
 func (s clientCredentialsSource) refusedGrant(err error) error {
 	var refusal issuerRefusal
 	switch {
+	case errors.As(err, &refusal) && refusal.requiresResourceIndicator():
+		return denial("auth.narrowing_unavailable",
+			fmt.Sprintf("the deployment will not issue access for the %q module without being told "+
+				"which protected resource it is for", s.namespace),
+			indicatorRecovery)
 	case errors.As(err, &refusal) && refusal.refusedToNarrow():
 		return denial("auth.narrowing_unavailable",
 			fmt.Sprintf("the deployment refused to issue access limited to the permissions the %q "+

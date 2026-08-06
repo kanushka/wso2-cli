@@ -46,6 +46,17 @@ const narrowingRecovery = "Check the deployment's API resource registration and 
 	"granted to the registered OAuth application, then retry. The shell does not hand a module " +
 	"broader access than it asked for."
 
+// indicatorRecovery is the way back from a deployment that will not issue
+// access without being told which protected resource it is for.
+//
+// It is a different instruction from every other narrowing refusal, because
+// nothing about the deployment is wrong: the context document did not say what
+// kind of deployment this is, so the shell asked in a shape this one does not
+// accept.
+const indicatorRecovery = "This deployment binds access to one named resource and will not issue " +
+	"any without being told which. Name the identity provider on this identity in the context " +
+	"document, then retry."
+
 // verify proves an issued token is exactly what the module asked for.
 //
 // It is the check the whole derivation exists to make. A deployment may answer

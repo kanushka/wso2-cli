@@ -80,6 +80,17 @@ func (r issuerRefusal) refusedToNarrow() bool {
 	return r.status == http.StatusBadRequest && r.code == "invalid_scope"
 }
 
+// requiresResourceIndicator reports RFC 8707's answer for a request that named
+// no protected resource on a deployment that decides the audience from one.
+//
+// It is worth telling apart from every other refusal because it is the one
+// caused by the context document rather than by the deployment: the identity
+// did not say which product this deployment binds access to, and the fix is a
+// line in a document rather than a change to a registration.
+func (r issuerRefusal) requiresResourceIndicator() bool {
+	return r.status == http.StatusBadRequest && r.code == "invalid_target"
+}
+
 // rejectedClient reports the deployment declining the credentials the request
 // identified its client with.
 func (r issuerRefusal) rejectedClient() bool {

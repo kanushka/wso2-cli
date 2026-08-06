@@ -73,8 +73,19 @@ type Options struct {
 	// secret, so only a test whose subject is a wrong credential has to state
 	// one.
 	ClientSecret string
-	// Audience is the aud claim minted into access tokens.
+	// Audience is the aud claim minted into access tokens. A request carrying a
+	// resource indicator overrides it, exactly as a deployment that binds tokens
+	// to a named resource server does.
 	Audience string
+	// RequireResource refuses any authorization request that carries no RFC 8707
+	// resource indicator, and mints the audience from the one it was given.
+	//
+	// It models a deployment that decides the audience at authorization time
+	// rather than from the application's registration — ThunderID, measured at
+	// v1.0.0-beta, which answers invalid_target without one. The consequence
+	// worth modeling is not the refusal but what follows from it: a session
+	// established this way reaches exactly one protected resource.
+	RequireResource bool
 	// RotateRefreshTokens issues a new refresh token on every refresh,
 	// invalidating the one presented.
 	RotateRefreshTokens bool
@@ -129,6 +140,7 @@ type codeGrant struct {
 	redirectURI string
 	nonce       string
 	clientID    string
+	resource    string
 }
 
 type tokenRecord struct {
@@ -316,6 +328,16 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "redirect_uri is not a registered loopback callback", http.StatusBadRequest)
 	case query.Get("code_challenge") == "" || query.Get("code_challenge_method") != "S256":
 		http.Error(w, "an S256 code challenge is required", http.StatusBadRequest)
+	case i.opts.RequireResource && query.Get("resource") == "":
+		// The refusal is redirected rather than served, because that is what a
+		// deployment requiring a resource indicator does: the browser comes back
+		// to the callback carrying an error, and the login reads it there.
+		refusal := url.Values{
+			"error":             {"invalid_target"},
+			"error_description": {"No resource parameter supplied and no default resource server is configured"},
+			"state":             {query.Get("state")},
+		}
+		http.Redirect(w, r, redirectURI+"?"+refusal.Encode(), http.StatusFound)
 	default:
 		code := randomToken("code")
 		i.mutex.Lock()
@@ -325,6 +347,7 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 			redirectURI: redirectURI,
 			nonce:       query.Get("nonce"),
 			clientID:    query.Get("client_id"),
+			resource:    query.Get("resource"),
 		}
 		i.mutex.Unlock()
 		callback := url.Values{"code": {code}, "state": {query.Get("state")}}
@@ -379,7 +402,7 @@ func (i *Issuer) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := map[string]any{
-		"access_token": i.mintAccessToken("user-1", grant.scopes),
+		"access_token": i.mintAccessTokenFor("user-1", grant.scopes, grant.resource),
 		"token_type":   "Bearer",
 		"expires_in":   300,
 		"id_token":     i.mintIDToken(grant.clientID, grant.nonce),
@@ -481,6 +504,14 @@ func (i *Issuer) clientCredentialsGrant(w http.ResponseWriter, r *http.Request) 
 		oauthError(w, http.StatusUnauthorized, "invalid_client")
 		return
 	}
+	resource := r.PostForm.Get("resource")
+	// There is no earlier authorization for this grant to inherit a binding
+	// from, so a deployment that decides the audience per request has nothing to
+	// go on and refuses outright.
+	if i.opts.RequireResource && resource == "" {
+		oauthError(w, http.StatusBadRequest, "invalid_target")
+		return
+	}
 	requested := splitScopes(r.PostForm.Get("scope"))
 	issued := requested
 	switch i.opts.ClientScopeMode {
@@ -495,7 +526,7 @@ func (i *Issuer) clientCredentialsGrant(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token": i.mintAccessToken("client-1", issued),
+		"access_token": i.mintAccessTokenFor("client-1", issued, resource),
 		"token_type":   "Bearer",
 		"expires_in":   300,
 		"scope":        strings.Join(issued, " "),
@@ -563,11 +594,23 @@ func (i *Issuer) handleIntrospect(w http.ResponseWriter, r *http.Request) {
 // mintAccessToken signs a real RS256 access token and records it for
 // introspection.
 func (i *Issuer) mintAccessToken(subject string, scopes []string) string {
+	return i.mintAccessTokenFor(subject, scopes, "")
+}
+
+// mintAccessTokenFor mints access bound to one named resource, falling back to
+// the registration's audience when the request named none. A deployment that
+// takes a resource indicator binds the token to it and to nothing else, which
+// is the whole reason the indicator is worth sending.
+func (i *Issuer) mintAccessTokenFor(subject string, scopes []string, resource string) string {
+	audience := i.opts.Audience
+	if resource != "" {
+		audience = resource
+	}
 	now := time.Now()
 	token := i.sign(map[string]any{
 		"iss":   i.URL,
 		"sub":   subject,
-		"aud":   i.opts.Audience,
+		"aud":   audience,
 		"scope": strings.Join(scopes, " "),
 		"exp":   now.Add(5 * time.Minute).Unix(),
 		"iat":   now.Unix(),
@@ -575,7 +618,7 @@ func (i *Issuer) mintAccessToken(subject string, scopes []string) string {
 	i.mutex.Lock()
 	i.accessTokens[token] = tokenRecord{
 		scopes:   append([]string(nil), scopes...),
-		audience: i.opts.Audience,
+		audience: audience,
 		subject:  subject,
 	}
 	i.mutex.Unlock()

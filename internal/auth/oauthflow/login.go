@@ -92,6 +92,16 @@ type Login struct {
 	// defaults to standard output, because a login whose URL goes nowhere is
 	// a login nobody can complete.
 	Out io.Writer
+	// Resource is the protected resource this session is for, sent as an RFC
+	// 8707 resource indicator. It is empty for a deployment that decides the
+	// audience from the application's registration instead, and naming one
+	// there would ask for a narrowing the deployment has no way to honor.
+	//
+	// It belongs to the login rather than to the grant that follows because the
+	// deployments that take it decide the audience once, at authorization: a
+	// session established without it cannot be bound to a resource afterwards,
+	// and one established with it reaches that resource and no other.
+	Resource string
 	// Ports overrides LoopbackPorts. Tests bind an ephemeral port with []int{0}.
 	Ports []int
 }
@@ -165,9 +175,18 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 		RedirectURL: redirectURL(listener),
 		Scopes:      l.scopes(),
 	}
-	authURL := config.AuthCodeURL(state,
+	authOptions := []oauth2.AuthCodeOption{
 		oauth2.S256ChallengeOption(verifier),
-		oidc.Nonce(nonce))
+		oidc.Nonce(nonce),
+	}
+	// The indicator is sent on both legs. The authorization request is what
+	// binds the session, and the exchange repeats it because a deployment is
+	// entitled to check that the code it is redeeming was asked for on the same
+	// terms it was issued under.
+	if l.Resource != "" {
+		authOptions = append(authOptions, oauth2.SetAuthURLParam("resource", l.Resource))
+	}
+	authURL := config.AuthCodeURL(state, authOptions...)
 	if _, err := fmt.Fprintf(l.out(), "Open this URL to log in:\n%s\n", authURL); err != nil {
 		return Result{}, notCompleted("the shell could not print the authorization URL this login needs",
 			"Run wso2 login with standard output attached to your terminal.")
@@ -180,7 +199,11 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	token, err := config.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+	exchangeOptions := []oauth2.AuthCodeOption{oauth2.VerifierOption(verifier)}
+	if l.Resource != "" {
+		exchangeOptions = append(exchangeOptions, oauth2.SetAuthURLParam("resource", l.Resource))
+	}
+	token, err := config.Exchange(ctx, code, exchangeOptions...)
 	if err != nil {
 		return Result{}, notCompleted("the identity provider refused to exchange this login for a session",
 			"Retry wso2 login. If it keeps failing, confirm the client identifier and the registered "+
