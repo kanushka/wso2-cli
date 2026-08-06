@@ -37,9 +37,9 @@ SMOKE_PACKAGE := ./test/smoke/
 # A file describing one deployment, sourced by the live targets when it exists.
 #
 # Go has no dotenv convention and this module stays lean, so nothing parses this
-# file: it is an ordinary shell fragment, and `source test/smoke/.env` in your
-# own shell has exactly the same effect as letting these targets read it. That
-# is the point — one file, usable either way, and no dependency to make it work.
+# file: it is an ordinary shell fragment, and `. test/smoke/.env` in your own
+# shell has exactly the same effect as letting these targets read it. That is
+# the point — one file, usable either way, and no dependency to make it work.
 #
 # Keep one per deployment and name the one you want:
 #

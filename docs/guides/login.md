@@ -335,17 +335,24 @@ one product from another on Identity Server, and cannot on Asgardeo.
   ```
 
   On macOS, note that Go **ignores `SSL_CERT_FILE`** — `crypto/x509` honors it
-  on every Unix except Darwin — so the keychain is the only way in. Export the
-  certificate and trust it for your own user:
+  on every Unix except Darwin — so the keychain is the only way in. Take the
+  certificate from the port rather than out of a keystore. A container has no
+  keystore on your filesystem to read, and the port is in any case the only
+  place that answers what the deployment actually serves:
 
   ```sh
-  keytool -exportcert -rfc -alias wso2carbon \
-    -keystore repository/resources/security/wso2carbon.p12 -storepass wso2carbon \
-    -file wso2carbon-localhost.pem
+  openssl s_client -connect localhost:9443 -servername localhost </dev/null 2>/dev/null \
+    | openssl x509 -outform pem > wso2carbon-localhost.pem
 
   security add-trusted-cert -r trustRoot -p ssl \
     -k ~/Library/Keychains/login.keychain-db wso2carbon-localhost.pem
   ```
+
+  Use the port the deployment answers on, which is not 9443 if it carries an
+  offset. Against 7.3.0 this produces the same bytes as
+  `keytool -exportcert -alias wso2carbon -keystore repository/resources/security/wso2carbon.p12 -storepass wso2carbon`
+  from an unpacked distribution's root — that is the command to reach for if you
+  need the certificate before the deployment is running.
 
   **Understand what that second command grants before running it.** The default
   certificate is `CA:TRUE`, and its private key ships inside every Identity
