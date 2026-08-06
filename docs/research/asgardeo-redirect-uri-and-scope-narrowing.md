@@ -270,9 +270,35 @@ access tokens, because the value is not configurable. The consequence for broker
 policy is direct: on Asgardeo the only value that can satisfy the shell's
 audience check is the client ID, so `products.<namespace>.audience` cannot carry
 product-level meaning there, and the check cannot distinguish a token brokered
-for one namespace from one brokered for another. Whether Identity Server 7.x
-behaves the same way is unmeasured and is the open question this finding
-replaces the previous two with.
+for one namespace from one brokered for another.
+
+### 3.1 The same questions against Identity Server 7.3.0
+
+Measured 2026-08-06 against `https://localhost:9443/oauth2/token` — the
+`wso2/wso2is:7.3.0` container, registered as the walkthrough's section 3
+describes. This is a second deployment, not a second reading of the first: the
+cells above stay Asgardeo's.
+
+| Question | Verdict |
+|---|---|
+| Any-port loopback (RFC 8252 §7.3) | **Supported.** `make empirical-asgardeo` experiment A completed a login through `127.0.0.1:16000`. Stronger than the IS 6.0.0+ documentation implies: the application registered its callbacks as `regexp=(…10425…\|…10428…)`, enumerating four ports explicitly, and the port was waived anyway. Loopback flexibility is applied ahead of the registered pattern rather than as a fallback when none matches. |
+| Refresh-grant scope narrowing | **Honored.** Experiment B established a session for both permissions, asked for `reference:status:read` alone, and received exactly that — the plain verdict, so the protocol scopes were dropped too. |
+| Access token `aud` | **The API resource identifier, once it is registered as an audience.** With the application's audience list empty, `aud` is the client ID alone, as on Asgardeo. With `reference-status` in that list, an access token carries `["<client id>", "reference-status"]`. Confirmed through the browser code flow by a passing `make smoke-login`, whose brokered acquisition was granted against `WSO2_SMOKE_AUDIENCE=reference-status`. |
+
+**The third finding is therefore product-specific, not platform-wide.** The
+field is in the same place on both consoles — under the application's ID token
+settings — and does different work: on Asgardeo it reaches the ID token only, on
+Identity Server 7.3.0 it reaches both. So the shell's audience check *can* carry
+product-level meaning on Identity Server and *cannot* on Asgardeo, and the
+design question this leaves is not whether the check is worth having but what
+the broker's policy should say when one supported product can satisfy a clause
+and another structurally cannot.
+
+Nothing here changes the broker's behavior, which already verifies rather than
+assumes. What it changes is what a context document should say: `audience` is
+the client ID on Asgardeo and the API resource identifier on Identity Server,
+and carrying one product's value to the other costs a browser sign-in and ends
+in `auth.narrowing_unavailable`.
 
 ## 4. Producing and recording the verdicts
 
