@@ -337,6 +337,50 @@ func (c Config) Document() contexts.Document {
 	}
 }
 
+// CIDocument is the schema version 2 document the non-interactive run installs.
+//
+// It is a second document rather than a second identity inside the first,
+// because the two runs must not be able to reach each other's material. The
+// interactive identity holds a secure-store reference and no secret; this one
+// holds a secret's variable and no reference, which is what the schema requires
+// of a kind that never logs in. Building it here, rather than in the tagged
+// half of the package, is what lets this package's own tests prove the shell
+// will read it before a live run depends on it.
+func (c Config) CIDocument() contexts.Document {
+	return contexts.Document{
+		SchemaVersion:  contexts.SchemaVersion,
+		DefaultContext: CIContextName,
+		Identities: []contexts.Identity{{
+			Name: CIIdentityName,
+			Type: c.IdentityType,
+			Auth: contexts.IdentityAuth{
+				Kind:     contexts.KindClientCredentials,
+				Issuer:   c.Issuer,
+				ClientID: c.CIClientID,
+				Tenant:   c.Tenant,
+				// The deployment is the same deployment, so it derives the same
+				// way. A confidential client on a deployment that binds by
+				// resource needs the indicator too, and has no earlier
+				// authorization to inherit one from.
+				Provider:             c.Provider,
+				ClientSecretVariable: SecretVariable,
+			},
+			Products: map[string]contexts.Product{
+				Namespace: {
+					Endpoint: c.Endpoint,
+					Audience: c.Audience,
+					Scopes:   slices.Clone(c.Scopes),
+				},
+			},
+		}},
+		Contexts: []contexts.Context{{
+			Name:         CIContextName,
+			Identity:     CIIdentityName,
+			Organization: c.Tenant,
+		}},
+	}
+}
+
 // Capabilities are the receipt a module installed for this run would carry.
 //
 // The broker checks a request against the receipt before it checks anything

@@ -76,7 +76,7 @@ func TestALoginWithoutAResourceIsRefusedByADeploymentThatRequiresOne(t *testing.
 	if err == nil {
 		t.Fatal("a login carrying no resource indicator completed against a deployment that requires one")
 	}
-	requireProblem(t, err, "auth.credential_unavailable")
+	_ = requireProblem(t, err, "auth.credential_unavailable")
 }
 
 // A deployment that binds no audience at authorization time must be unaffected,

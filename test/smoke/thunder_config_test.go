@@ -83,6 +83,62 @@ func TestAnUnknownProviderIsRefusedBeforeAnyRun(t *testing.T) {
 	}
 }
 
+// The non-interactive run installs its own document, because the identity it
+// authenticates as is a different one: a confidential client with a secret,
+// holding no secure-store reference and never logging in.
+func TestTheNonInteractiveDocumentIsReadableByTheShell(t *testing.T) {
+	values := thunderEnvironment()
+	values[smoke.CIClientIDVar] = "wso2-cli-ci"
+	config, err := smoke.Load(environment(values))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	document := config.CIDocument()
+	encoded, err := document.Encode()
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if _, err := contexts.Decode(encoded); err != nil {
+		t.Fatalf("the shell refused the document a CI run installs: %v", err)
+	}
+
+	identity := document.Identities[0]
+	if identity.Auth.Kind != contexts.KindClientCredentials {
+		t.Fatalf("the CI identity is of kind %q, want %q",
+			identity.Auth.Kind, contexts.KindClientCredentials)
+	}
+	if identity.Auth.ClientID != "wso2-cli-ci" {
+		t.Fatalf("the CI identity presents %q, want the configured confidential client",
+			identity.Auth.ClientID)
+	}
+	if identity.Auth.ClientSecretVariable != smoke.SecretVariable {
+		t.Fatalf("the CI identity reads its secret from %q, want %q",
+			identity.Auth.ClientSecretVariable, smoke.SecretVariable)
+	}
+	// A non-interactive identity never logs in, so it must hold no reference to
+	// a stored session. The schema refuses one; so must the document this run
+	// builds, or a live run fails on a defect this package could have caught.
+	if identity.Auth.CredentialRef != "" {
+		t.Fatalf("the CI identity names a secure-store reference %q; it never logs in",
+			identity.Auth.CredentialRef)
+	}
+}
+
+// The CI document derives the same way the interactive one does, because the
+// deployment is the same deployment. A confidential client on Thunder needs the
+// resource indicator too — it has no earlier authorization to inherit one from.
+func TestTheNonInteractiveDocumentDerivesLikeTheDeployment(t *testing.T) {
+	values := thunderEnvironment()
+	values[smoke.CIClientIDVar] = "wso2-cli-ci"
+	config, err := smoke.Load(environment(values))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := config.CIDocument().Identities[0].Auth.Derivation(); got != contexts.DerivationTokenResource {
+		t.Fatalf("the CI identity derives by %q, want %q", got, contexts.DerivationTokenResource)
+	}
+}
+
 // A deployment description names no secret and no secret's variable. The
 // non-interactive run needs one, so the name it reads is fixed here instead,
 // where nobody is invited to paste a value beside it.

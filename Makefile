@@ -83,9 +83,11 @@ help:
 	@echo '  make acceptance           Run the full architecture-proof acceptance gate.'
 	@echo '  make smoke-build          Compile the live runs without executing them.'
 	@echo ''
-	@echo 'Against a real deployment (Asgardeo or a local Identity Server 7.x):'
+	@echo 'Against a real deployment (Asgardeo, Identity Server 7.x, or ThunderID):'
 	@echo '  make smoke-login          Log in and broker one acquisition. Opens a browser.'
+	@echo '  make smoke-ci             Broker one acquisition the way CI does. No browser.'
 	@echo '  make empirical-asgardeo   Run the two one-time experiments and print their verdicts.'
+	@echo '  make empirical-thunder    The same questions against a Thunder deployment.'
 	@echo ''
 	@echo 'Both live targets skip cleanly when no deployment is configured.'
 	@echo 'They read $(SMOKE_ENV) when it exists; name another with'
@@ -134,3 +136,21 @@ smoke-login:
 empirical-asgardeo:
 	@$(smoke_env) WSO2_EMPIRICAL=1 \
 		$(GO) test $(SMOKE_FLAGS) $(SMOKE_PACKAGE) -run TestAsgardeoEmpirical
+
+# Answers the questions that decided how the shell derives access on a
+# deployment which binds tokens to a named resource, and prints one verdict line
+# each for recording. Skips unless the configured deployment says it is a
+# Thunder one, because the experiments are meaningless against a product that
+# takes no resource indicator.
+.PHONY: empirical-thunder
+empirical-thunder:
+	@$(smoke_env) WSO2_EMPIRICAL=1 \
+		$(GO) test $(SMOKE_FLAGS) $(SMOKE_PACKAGE) -run TestThunderEmpirical
+
+# Brokers one acquisition the way a CI job does: inline, from a client secret
+# already in this shell, with no login and no browser. Needs no human, so unlike
+# smoke-login it can run unattended. The secret comes from the environment and
+# from no file; RUNNING.md says which variable.
+.PHONY: smoke-ci
+smoke-ci:
+	@$(smoke_env) $(GO) test $(SMOKE_FLAGS) $(SMOKE_PACKAGE) -run TestCISmoke
