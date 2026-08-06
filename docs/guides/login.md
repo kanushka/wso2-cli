@@ -54,6 +54,10 @@ clicking is for.
    opaque token, and it refuses rather than hand over a grant it could not
    check. See `auth.narrowing_unavailable` in section 8.
 
+A sixth is optional and needed only for logging in from a machine with no
+browser: **the device code grant**. Section 5.1 covers it, and nothing else in
+the registration changes.
+
 ---
 
 ## 2. Register the application in Asgardeo
@@ -460,7 +464,7 @@ For an Identity Server deployment, also set `"type": "onprem"` and use the
 | `defaultContext` | The context used when no `--context` flag and no `WSO2_CONTEXT` is given. Must name a context declared below. |
 | `identities[].name` | Lower-case letters, digits and dashes, starting with a letter, up to 64 characters. |
 | `identities[].type` | `cloud` or `onprem`. Nothing else is accepted. |
-| `auth.kind` | `oauth-browser` for a person at a browser. `client-credentials` for CI — see section 7. `oauth-device` and `pat` are named by the schema but not implemented in this release. |
+| `auth.kind` | `oauth-browser` for a person at a browser. `oauth-device` for an identity that can only be established without one — see section 5.1. `client-credentials` for CI — see section 7. `pat` is named by the schema but not implemented in this release. |
 | `auth.issuer` | The issuer, verbatim from its discovery document. |
 | `auth.clientId` | The registered public client. |
 | `auth.tenant` | The identity's home organization. |
@@ -515,6 +519,92 @@ anything. You still have to complete the sign-in in a browser that can reach
 a missing desktop.
 
 The command waits up to five minutes for you.
+
+## 5.1 Logging in without a browser
+
+If the machine you are typing on has no browser that can reach it — you are over
+SSH, or inside a container — the login above cannot finish. It waits for the
+identity provider to redirect back to `127.0.0.1` on *this* machine, and your
+browser's `127.0.0.1` is somewhere else.
+
+The device authorization grant solves that. Nothing is bound to loopback, and
+the approval happens on any other device you like.
+
+**When to use it.** Set `"kind": "oauth-device"` on the identity when that
+identity can *only* be established this way — a deployment where the loopback
+callback URLs cannot be registered, or one whose users are never at a machine
+with a reachable browser. It is a property of the identity, not of where you
+happen to be sitting today.
+
+If you are usually at a laptop and occasionally on a build box, that is the case
+`wso2 login --device-code` is meant for, and **that flag is not in this
+release**. Until it arrives, the way to have both is two identities — one
+`oauth-browser`, one `oauth-device` — with different `credentialRef` values, and
+a context for each.
+
+**What to register.** Everything from section 2 or 3 applies unchanged, with two
+differences:
+
+- Add the **Device Code** grant to the application's allowed grant types.
+  Asgardeo and Identity Server 7.x both support it; on Asgardeo it appears in
+  the same **Allowed grant types** list as Code and Refresh Token.
+- The four loopback callback URLs are not used by this flow. Leave them
+  registered anyway if the same application also serves browser logins.
+
+Thunder-backed products cannot use this flow at all — Thunder registers no
+device grant handler, so its deployments advertise none and the shell refuses
+before printing anything.
+
+**The context document** is the section 4.2 document with one word changed:
+
+```json
+      "auth": {
+        "kind": "oauth-device",
+        "issuer": "https://api.asgardeo.io/t/acme/oauth2/token",
+        "clientId": "REPLACE_WITH_YOUR_CLIENT_ID",
+        "tenant": "acme",
+        "credentialRef": "acme-cloud-device"
+      }
+```
+
+Every other field means exactly what it means for `oauth-browser`, and
+`credentialRef` is required in the same way. Give it a different value from your
+browser identity's if you keep both, so the two sessions do not share a slot.
+
+**What you see:**
+
+```
+$ wso2 login
+
+To log in, visit:
+
+    https://api.asgardeo.io/t/acme/authenticationendpoint/device.do
+
+and enter the code:
+
+    WDJB-MJHT
+
+Or open this link, which carries the code:
+
+    https://api.asgardeo.io/t/acme/authenticationendpoint/device.do?user_code=WDJB-MJHT
+
+Waiting for you to approve this login...
+```
+
+Open the first URL on your phone or your laptop, type the code, and sign in. The
+terminal finishes on its own. The third line is a shortcut for a device you can
+paste a link into; the code is deliberately printed on its own line so it
+survives being read aloud.
+
+The shell polls at the rate the deployment asks for and stops when the code
+expires — usually after ten to fifteen minutes, and never later than fifteen.
+Nothing is opened on this machine.
+
+**One difference from browser login worth knowing.** A browser login always
+reports a `Subject`. A device login reports one only if the deployment returned
+an identity token from this grant, which not every deployment does; RFC 8628
+does not require it. The session is established either way, and every product
+command afterwards behaves identically.
 
 ---
 
@@ -710,6 +800,15 @@ usable. In order of likelihood:
 - **The issuer does not advertise `S256`.** Set PKCE to mandatory on the
   application, as in section 2.2.
 
+There is a third, on a device login only:
+
+> the identity provider does not advertise the device authorization grant
+
+The deployment does not offer the grant, so there is no point printing a code
+nobody could approve. Either enable the **Device Code** grant on the
+application (section 5.1), or use an `oauth-browser` context. Thunder-backed
+deployments have no device grant at all and cannot be made to.
+
 There is a second, differently worded `auth.discovery_failed`:
 
 > no loopback callback port is available for the browser login
@@ -796,6 +895,18 @@ On a browser login: the flow ended without producing tokens — you closed the
 browser, the consent was denied, or the deployment redirected back with an
 error.
 
+On a device login (section 5.1), the message says which of four endings it was:
+
+| The message says | What it means | What to do |
+| --- | --- | --- |
+| "the login was declined at the identity provider" | You, or someone at the approval screen, refused the request. | Run `wso2 login` again and approve it. Check the code on screen matches the one in your terminal. |
+| "the approval window closed before this login was approved" | The device code expired before anyone approved it. | Run `wso2 login` again and approve it promptly. |
+| "this login was not approved in time" | The same, reached by the shell's own deadline rather than the deployment's answer. | As above. |
+| "would not start a device authorization" | The deployment refused the request before any code was issued. | Confirm `clientId`, and that the application is registered for the device grant. |
+
+All four leave you in the same place — no session — which is why they share one
+code. Only the sentence differs, because only the sentence can.
+
 The browser reached "Login complete" and the code exchange succeeded, but the
 identity token that came back was not one the shell would accept. The message
 says which kind of failure it was:
@@ -840,12 +951,14 @@ There is no session to establish; just run the command (section 7).
 ### `auth.non_interactive`
 
 `wso2 login` was run with `--non-interactive`, or with `WSO2_NON_INTERACTIVE`
-set. This is the guard that stops a CI job from waiting on a browser forever.
+set. This is the guard that stops a CI job from waiting on a browser forever —
+or, on a device context, from waiting forever on an approval no one is there to
+give. The message names which of the two it refused.
 
 ### `auth.kind_not_implemented`
 
-The context's `auth.kind` is `oauth-device` or `pat`. The schema names them; this
-release does not implement them. Use `oauth-browser` or `client-credentials`.
+The context's `auth.kind` is `pat`. The schema names it; this release does not
+implement it. Use `oauth-browser`, `oauth-device`, or `client-credentials`.
 
 ### `auth.session_issuer_mismatch`
 
@@ -933,8 +1046,16 @@ before it reaches a browser.
 
 ```sh
 make smoke-login          # log in, prove the session persisted, broker one acquisition
+make smoke-login-device   # the same, approved on another device (section 5.1)
 make empirical-asgardeo   # answer the two open questions about Asgardeo's behavior
 ```
+
+`make smoke-login-device` reads the same variables and needs no new ones — the
+only thing it wants from the deployment is the device grant enabled on the same
+application. It also reports whether that deployment's device grant returned an
+identity token, which is a per-deployment fact this repository has not yet
+measured on either product; the answer belongs in the research document beside
+the other verdicts.
 
 A passing smoke run ends with the acquisition granted:
 

@@ -52,3 +52,10 @@ _Avoid_: Integrity-checked module
 A non-production vertical slice that validates the riskiest architectural
 boundaries without claiming user-ready product value.
 _Avoid_: Pilot release, minimum viable product
+
+**Login mode**:
+How one interactive identity's session is established on the machine at hand —
+through a browser on this machine, or through a code approved on another
+device. It is a property of the machine and the moment, not of the identity's
+credentials, so the same identity may be established either way.
+_Avoid_: Login type, authentication kind
