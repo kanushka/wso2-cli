@@ -16,6 +16,40 @@ These runs need a human. They open a real browser and wait for a real sign-in.
 Register the application first — [the walkthrough](../../docs/guides/login.md)
 covers Asgardeo and Identity Server 7.x — then describe it with these variables.
 
+Describing it once in a file beats re-exporting it into every shell. Copy
+[`env.example`](env.example) and fill it in:
+
+```sh
+cp test/smoke/env.example test/smoke/.env
+make smoke-login
+```
+
+Both live targets source `test/smoke/.env` when it exists and print which file
+they read. Keep one per deployment and name the one you want:
+
+```sh
+make smoke-login SMOKE_ENV=test/smoke/asgardeo.env
+```
+
+Nothing parses these files. Go has no dotenv convention and this module has no
+dependency that would add one — the file is an ordinary shell fragment, so
+sourcing it yourself does exactly what `make` does, which is what to do when
+running `go test` directly:
+
+```sh
+. test/smoke/asgardeo.env
+go test -tags smoke -count=1 -v -timeout 30m ./test/smoke/ -run TestLoginSmoke
+```
+
+Sourcing overwrites what the calling shell already exported, so the file you
+name always wins and switching deployments does not need a fresh terminal. That
+matters most in the case that would otherwise be baffling: a leftover export
+from the last deployment quietly outranking the file you just edited.
+
+`*.env` is ignored by git. Nothing secret belongs in one anyway — a public
+client has no secret — and a client secret in a file this casual is a mistake
+worth avoiding on purpose.
+
 | Variable | Required | Meaning |
 | --- | --- | --- |
 | `WSO2_SMOKE_ISSUER` | yes | The issuer exactly as its discovery document states it. Asgardeo: `https://api.asgardeo.io/t/<org>/oauth2/token`. Identity Server 7.x: `https://localhost:9443/oauth2/token`. |
@@ -45,11 +79,7 @@ believed they had configured would be worse than one that stopped.
 ## The smoke run
 
 ```sh
-export WSO2_SMOKE_ISSUER='https://api.asgardeo.io/t/<org>/oauth2/token'
-export WSO2_SMOKE_CLIENT_ID='<client id>'
-export WSO2_SMOKE_AUDIENCE='<api resource identifier>'
-export WSO2_SMOKE_SCOPE='reference:status:read reference:status:write'
-
+cp test/smoke/env.example test/smoke/.env   # then fill it in
 make smoke-login
 ```
 
@@ -57,14 +87,23 @@ A browser opens; sign in. The run then proves three things in order: `wso2 login
 exits zero, the refresh token is readable back out of the operating system's
 secure store, and the broker derives one access token from that session.
 
-Run it once per deployment. Against a local Identity Server, the only change is
-the issuer:
+Run it once per deployment. Two things change between them, and only one of them
+is obvious:
 
 ```sh
 export WSO2_SMOKE_ISSUER='https://localhost:9443/oauth2/token'
 export WSO2_SMOKE_IDENTITY_TYPE=onprem
-make smoke-login
 ```
+
+The other is the audience. On Asgardeo it has to be the **client ID**, because
+that is the only value Asgardeo ever puts in an access token's `aud`. On
+Identity Server it is the **API resource identifier**, which reaches `aud` once
+the identifier is in the application's audience list. Sections 2.5 and 3.5 of
+[the walkthrough](../../docs/guides/login.md) cover both. This is the main
+reason to keep a file per deployment rather than editing one in place.
+
+A local Identity Server also has to be trusted by the operating system before
+any of this can reach it — see section 3.6 of the walkthrough.
 
 ### The one refusal that is not a failure
 

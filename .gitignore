@@ -4,9 +4,14 @@
 *.swp
 *.swo
 
-# Local environment and diagnostic files
+# Local environment and diagnostic files.
+#
+# *.env covers the per-deployment files the live smoke targets read, which name
+# a real deployment and the account signed into it. test/smoke/env.example is
+# the checked-in template and does not match any of these patterns.
 .env
 .env.*
+*.env
 *.log
 
 # Build and coverage output
