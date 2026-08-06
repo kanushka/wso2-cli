@@ -29,10 +29,14 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -90,6 +94,15 @@ type Options struct {
 	// OmitRefreshToken answers the authorization code grant without a refresh
 	// token, modeling an application that was never granted offline access.
 	OmitRefreshToken bool
+	// NegativeSerialCertificate publishes an x5c certificate chain on the JWKS
+	// key whose certificate carries a negative serial number: forbidden by RFC
+	// 5280 section 4.1.2.2, emitted by WSO2 deployments for years, and rejected
+	// outright by Go's x509 parser since 1.23.
+	//
+	// The signing key itself stays valid — n and e are untouched — so this
+	// models the real failure exactly: a deployment whose keys can verify a
+	// token perfectly well, behind a certificate that nothing needs to read.
+	NegativeSerialCertificate bool
 }
 
 // Issuer is one running fake issuer. Its URL doubles as the issuer identifier.
@@ -100,6 +113,9 @@ type Issuer struct {
 	key    *rsa.PrivateKey
 	keyID  string
 	client *http.Client
+	// certificate is the DER published in the key's x5c chain, empty unless a
+	// test asked for one.
+	certificate []byte
 
 	mutex         sync.Mutex
 	codes         map[string]codeGrant
@@ -141,6 +157,9 @@ func New(t *testing.T, opts Options) *Issuer {
 		codes:         map[string]codeGrant{},
 		refreshTokens: map[string][]string{},
 		accessTokens:  map[string]tokenRecord{},
+	}
+	if opts.NegativeSerialCertificate {
+		issuer.certificate = negativeSerialCertificate(t, key)
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/openid-configuration", issuer.handleDiscovery)
@@ -210,9 +229,79 @@ func (i *Issuer) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (i *Issuer) handleJWKS(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{
+	key := jose.JSONWebKey{
 		Key: i.key.Public(), KeyID: i.keyID, Algorithm: string(jose.RS256), Use: "sig",
-	}}})
+	}
+	if len(i.certificate) == 0 {
+		writeJSON(w, http.StatusOK, jose.JSONWebKeySet{Keys: []jose.JSONWebKey{key}})
+		return
+	}
+	// The chain is attached after go-jose has rendered the key, because
+	// go-jose cannot marshal a certificate it would refuse to parse — which is
+	// the entire point of this fixture.
+	rendered, err := key.MarshalJSON()
+	if err != nil {
+		http.Error(w, "fakeissuer: render key: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(rendered, &members); err != nil {
+		http.Error(w, "fakeissuer: reread key: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	chain, err := json.Marshal([]string{base64.StdEncoding.EncodeToString(i.certificate)})
+	if err != nil {
+		http.Error(w, "fakeissuer: render chain: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	members["x5c"] = chain
+	writeJSON(w, http.StatusOK, map[string]any{"keys": []any{members}})
+}
+
+// negativeSerialCertificate returns a self-signed certificate for key whose
+// serial number is negative.
+//
+// It cannot be minted directly: crypto/x509.CreateCertificate refuses a
+// negative serial ("serial number must be positive"), which is why the value
+// is edited into the encoding afterwards. A serial whose leading value byte
+// has its high bit set is encoded by Go with a 0x00 pad to keep it positive;
+// removing that pad reinterprets the same four bytes as a negative
+// two's-complement integer, which is precisely the encoding real deployments
+// publish. Removing a byte shortens the two enclosing SEQUENCEs by one each.
+func negativeSerialCertificate(t *testing.T, key *rsa.PrivateKey) []byte {
+	t.Helper()
+	const padded = "\x02\x05\x00\xc5\xb0\x7c\x97" // INTEGER, 5 bytes, positive
+	const negative = "\x02\x04\xc5\xb0\x7c\x97"   // INTEGER, 4 bytes, negative
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(0xC5B07C97),
+		Subject:      pkix.Name{CommonName: "fakeissuer negative serial"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("fakeissuer: create certificate: %v", err)
+	}
+	at := strings.Index(string(der), padded)
+	if at < 0 {
+		t.Fatal("fakeissuer: the serial number is not encoded where this fixture expects it")
+	}
+	edited := make([]byte, 0, len(der)-1)
+	edited = append(edited, der[:at]...)
+	edited = append(edited, negative...)
+	edited = append(edited, der[at+len(padded):]...)
+	// Both the Certificate and the TBSCertificate SEQUENCE use a long-form
+	// two-byte length, and each now describes one byte less.
+	for _, offset := range []int{2, 6} {
+		if edited[offset-2] != 0x30 || edited[offset-1] != 0x82 {
+			t.Fatalf("fakeissuer: unexpected DER header at offset %d", offset-2)
+		}
+		binary.BigEndian.PutUint16(edited[offset:], binary.BigEndian.Uint16(edited[offset:])-1)
+	}
+	if _, err := x509.ParseCertificate(edited); err == nil {
+		t.Fatal("fakeissuer: the certificate this fixture exists to make unparseable parses")
+	}
+	return edited
 }
 
 // handleAuthorize auto-approves: the "user" always consents, so a test's whole

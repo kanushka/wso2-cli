@@ -141,12 +141,41 @@ only verdicts whose deployment line names the deployment you mean to record.
   above the verdict prints both permission sets; copy them into the research
   document with the verdict.
 - `rejected` — the token endpoint answered `invalid_scope`.
+  **Corroborate this one before recording it.** `invalid_scope` is also exactly
+  what the token endpoint answers when the application's API resource
+  authorization carries an authorization policy (RBAC) that the signing-in user
+  does not satisfy — a registration gap, not a protocol finding about the
+  deployment. The first live Asgardeo run hit it twice before producing a real
+  verdict, and from the verdict line alone it is indistinguishable from a
+  genuine "this deployment refuses to narrow" result. Before recording `rejected`, go to the application's
+  Authorization tab and confirm the resource's policy reads `No Authorization
+  Policy`, or, if it reads `Role Based Access Control (RBAC)`, that the
+  signing-in user holds a role granting every scope the resource lists. Only
+  once that is confirmed does `invalid_scope` say something about the
+  deployment rather than about who was signed in when the experiment ran.
+  Recording it without checking puts a false claim about Asgardeo into a
+  research document whose whole purpose is being trustworthy about exactly
+  that.
 - `inconclusive (opaque access token)` — the deployment issues opaque access
   tokens, so nothing can be proven about what they carry. Configure the
   application to issue JWT access tokens and run it again; until then this
   question has no answer on this deployment.
 - `inconclusive (audience not bound)` — a token came back that is not bound to
-  the configured audience. Fix the API resource registration first.
+  the configured audience. On Asgardeo this is not a registration defect to
+  fix: Asgardeo binds a JWT access token's `aud` claim to the **client ID**,
+  never to the API resource identifier whose scopes the token carries, and this
+  is not configurable — the application's Protocol tab exposes an Audience
+  field only under **ID Token**, and the Access Token section has no audience
+  control at all. See section 2.5 of
+  [the walkthrough](../../docs/guides/login.md), and
+  [the research document](../../docs/research/asgardeo-redirect-uri-and-scope-narrowing.md)
+  this file already links above. The remedy is to set `WSO2_SMOKE_AUDIENCE`
+  here, and `products.<namespace>.audience` in a real context document, to the
+  **client ID** — that is the only value Asgardeo ever puts in `aud`. On a
+  deployment that does bind tokens to API resources, the resource identifier is
+  the correct value to configure, and an unbound token there means the resource
+  is not authorized on the application instead. Whether Identity Server 7.x
+  behaves like Asgardeo here is not yet measured.
 
 ### Recording the verdicts
 
