@@ -55,7 +55,7 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 			"Select a context that names the organization and credential source to use.")
 	case contexts.MethodDevelopmentCredential:
 		return b.developmentSource()
-	case contexts.KindOAuthBrowser, contexts.KindClientCredentials:
+	case contexts.KindOAuthBrowser, contexts.KindOAuthDevice, contexts.KindClientCredentials:
 		if err := b.checkProduct(request); err != nil {
 			return nil, err
 		}
@@ -65,18 +65,23 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 		if kind == contexts.KindClientCredentials {
 			return b.inlineSource()
 		}
-		return browserSource{
+		// Both interactive kinds land here, and deliberately on the same
+		// source. How a session was established is a fact about a login that
+		// already happened; what is left behind is a refresh token, and every
+		// step from here — the rotation lock, the scoped refresh, the proof
+		// that the narrowing held — reads that and nothing else.
+		return sessionSource{
 			namespace: b.namespace(),
 			identity:  b.Selection.Identity,
 			sessions:  session.Store{StateRoot: b.StateRoot},
 			client:    b.httpClient(),
 		}, nil
-	case contexts.KindOAuthDevice, contexts.KindPAT:
+	case contexts.KindPAT:
 		return nil, denial("auth.kind_not_implemented",
 			fmt.Sprintf("the %q context uses an authentication kind this release does not implement",
 				b.Selection.Context.Name),
-			"Select a context whose identity logs in through the browser, or one that uses "+
-				"client credentials. Device and personal access token login are planned.")
+			"Select a context whose identity logs in through the browser or through a device code, "+
+				"or one that uses client credentials. Personal access token login is planned.")
 	default:
 		return nil, denial("auth.method_unsupported",
 			fmt.Sprintf("the %q context uses an authentication method this shell does not implement",
