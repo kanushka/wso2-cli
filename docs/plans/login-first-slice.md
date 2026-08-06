@@ -1,5 +1,9 @@
 # `wso2 login` First Slice Implementation Plan
 
+**Status:** Implemented. Tasks 1-12 are merged into `feature/login` through PRs
+#24-#29, #33 and #34, and every step below is ticked. One definition-of-done
+check is still open and says why in place: the live smoke run's scope check
+cannot fail as written.
 
 **Goal:** Implement `wso2 login` (browser Authorization Code + PKCE) and inline client-credentials acquisition, on a version-2 identities/contexts schema, with OS-keychain session storage and a token-source seam in the broker, so the reference module receives a real issuer-minted access token.
 
@@ -124,7 +128,7 @@ func (i Identity) Synthetic() bool
 
 The v1 `Auth`, `MethodDevelopmentCredential`, and the old `Context` fields (`OrganizationID`, `Endpoint`, `Auth`) are **removed from the exported surface** in this task's end state — Task 2 restores v1 *reading* via a legacy decode path, and Task 3/8 update the callers. Until Task 8 lands the tree will not compile green between tasks unless you follow the step order below, which keeps a temporary shim.
 
-- [ ] **Step 1: Write failing tests for v2 decode and validation**
+- [x] **Step 1: Write failing tests for v2 decode and validation**
 
 Add to `internal/contexts/contexts_test.go` (follow the existing test style in that file — read it first):
 
@@ -218,12 +222,12 @@ func TestValidateClientCredentialsIdentity(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests, verify they fail**
+- [x] **Step 2: Run tests, verify they fail**
 
 Run: `go test ./internal/contexts/ -run 'TestDecodeV2|TestValidateV2|TestValidateClientCredentials' -v`
 Expected: FAIL — compile errors for the new identifiers (`KindOAuthBrowser`, `Identities`, …).
 
-- [ ] **Step 3: Implement the v2 types and validation**
+- [x] **Step 3: Implement the v2 types and validation**
 
 Create `internal/contexts/identity.go` with the types from the Interfaces block plus validation:
 
@@ -389,12 +393,12 @@ Temporarily keep `MethodDevelopmentCredential` (Task 2 uses it) and add a **temp
 
 (That comment is the actual guidance: **Task 1 and Task 2 are one commit window** — do not commit between them if the acceptance suite is red; commit after Task 2 makes it green. Unit tests inside `internal/contexts` must pass at the end of Task 1.)
 
-- [ ] **Step 4: Run the package tests**
+- [x] **Step 4: Run the package tests**
 
 Run: `go test ./internal/contexts/ -v`
 Expected: new tests PASS; pre-existing v1-shaped tests now FAIL — rewrite those v1 unit tests to the v2 shape (same properties: trailing-document refusal, unknown-member tolerance, endpoint credential rejection now on products, name patterns). The v1 *document* tests move to Task 2's legacy tests.
 
-- [ ] **Step 5: Do not commit yet** — proceed straight to Task 2 (they share one commit window because the fixture and acceptance suite straddle both).
+- [x] **Step 5: Do not commit yet** — proceed straight to Task 2 (they share one commit window because the fixture and acceptance suite straddle both).
 
 ---
 
@@ -423,7 +427,7 @@ Mapping, exactly: each v1 context `{name, organizationId, endpoint, auth{method,
 
 `DefaultContext` carries over. The v1 validation rules (name pattern, variable pattern, endpoint credential rejection, duplicate names, default-names-a-context) are enforced on the legacy document with the same problem codes as today.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 `internal/contexts/legacy_test.go`:
 
@@ -485,12 +489,12 @@ func TestUnknownSchemaVersionFailsClosed(t *testing.T) {
 
 Note this introduces `Document.Select(name string) (Selection, error)` — declared here, implemented in Task 3. For this task, add the minimal form: `Select("")` returns the default context and its identity (empty selection when no contexts exist, exactly like today's `Selected`).
 
-- [ ] **Step 2: Run tests, verify they fail**
+- [x] **Step 2: Run tests, verify they fail**
 
 Run: `go test ./internal/contexts/ -run 'TestLegacy|TestSynthetic|TestUnknownSchema' -v`
 Expected: FAIL (v1 decodes rejected by v2 validation; `Select` undefined).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `contexts.go`, dispatch inside `Decode` on a version probe:
 
@@ -581,12 +585,12 @@ Delete the old `Selected` method and update its callers to `Select("")`. Update 
 func WriteV2(stateRoot string, document contexts.Document) error
 ```
 
-- [ ] **Step 4: Run the full suite**
+- [x] **Step 4: Run the full suite**
 
 Run: `go test ./...`
 Expected: PASS everywhere, including the acceptance suite (which now exercises v1-compat read end to end). Fix expectations that referenced removed API.
 
-- [ ] **Step 5: Vet and commit (Tasks 1+2 together)**
+- [x] **Step 5: Vet and commit (Tasks 1+2 together)**
 
 ```bash
 go vet ./...
@@ -615,7 +619,7 @@ func parseProductArgs(namespace string, args []string) (command, arguments []str
 func (s Shell) selection(flagName string) (contexts.Selection, error)
 ```
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 In `internal/app/invoke_test.go` (read the existing tests first and follow their harness style):
 
@@ -647,12 +651,12 @@ func TestMissingContextFlagValue(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests, verify they fail**
+- [x] **Step 2: Run tests, verify they fail**
 
 Run: `go test ./internal/app/ -run TestContext -v`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `parseProductArgs`, add cases alongside `--output` (same shape) for `--context <name>` and `--context=<name>`, returning the name. In `invoke.go`:
 
@@ -676,12 +680,12 @@ func (s Shell) selection(flagName string) (contexts.Selection, error) {
 
 `invokeModule` uses the returned `contextName` and passes the `Selection` into the broker and the endpoint from `selection.Identity.Products[namespace].Endpoint` into `rpc.InvocationContext`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `go test ./internal/app/ ./test/acceptance/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 go vet ./... && git add internal/app && git commit -m "feat: resolve the invocation context from flag, environment, then default"
@@ -733,7 +737,7 @@ func (s Store) WithLock(ref string, fn func() error) error
 
 Dependency step: `go get github.com/zalando/go-keyring@latest` (record the version go.mod picks).
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```go
 package session_test
@@ -813,12 +817,12 @@ func TestWithLockSerializesWriters(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests, verify they fail**
+- [x] **Step 2: Run tests, verify they fail**
 
 Run: `go test ./internal/auth/session/ -v`
 Expected: FAIL (package does not exist).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `session.go`: JSON-encode the blob into `keyring.Set(Service, ref, string(data))`; decode on load. Error mapping:
 
@@ -848,12 +852,12 @@ func (s Store) Load(ref string) (Session, error) {
 
 `lock.go`: portable lock via `os.OpenFile(path, os.O_CREATE|os.O_EXCL, 0o600)` with retry every 25 ms, deadline 5 s, staleness takeover after 30 s (check the lock file's mtime; remove and retry once). Lock path: `filepath.Join(stateRoot, "cli", "locks", ref+".lock")`, `os.MkdirAll(dir, 0o700)` first. Release removes the file in a deferred call. Deadline exhaustion returns `problem.New(problem.CategoryAuthPolicy, "auth.login_required", "another WSO2 CLI invocation is updating this session")` with recovery "Retry the command." — it is recoverable by retry, and the spec's code list stays closed (no new busy code).
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `go test ./internal/auth/session/ -race -v`
 Expected: PASS (the lock test specifically must pass with `-race`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 go vet ./... && git add go.mod go.sum internal/auth/session && git commit -m "feat: store interactive sessions in the OS secure store with rotation-safe locking"
@@ -906,15 +910,15 @@ Endpoints served: `/.well-known/openid-configuration` (issuer, `authorization_en
 
 Access tokens are real RS256 JWTs signed with a per-issuer `rsa.PrivateKey` via `github.com/go-jose/go-jose/v4`, claims: `iss`, `sub` (`"user-1"` for interactive, `"client-1"` for client credentials), `aud` (Options.Audience), `scope` (space-joined), `exp` (+5 min), `iat`. ID tokens likewise with `email: "dev@example.test"` and `nonce` echo. Refresh responses include the `scope` field (except add a knob later if a test needs its absence: `OmitRefreshScopeField bool` — include it now, default false).
 
-- [ ] **Step 1: Write failing tests** — in `fakeissuer_test.go`, drive the issuer with plain `http.Client` calls: discovery returns S256; full code+PKCE exchange round-trips and the access token verifies against `/jwks` (use `go-oidc` provider + verifier in the test); refresh with `RefreshScopeMode: "honor"` narrows `scope`; `"ignore"` returns the full set; `"reject"` returns HTTP 400 `{"error":"invalid_scope"}`; rotation returns a new refresh token and invalidates the old one; `Introspect` reports issued tokens active with their scopes.
+- [x] **Step 1: Write failing tests** — in `fakeissuer_test.go`, drive the issuer with plain `http.Client` calls: discovery returns S256; full code+PKCE exchange round-trips and the access token verifies against `/jwks` (use `go-oidc` provider + verifier in the test); refresh with `RefreshScopeMode: "honor"` narrows `scope`; `"ignore"` returns the full set; `"reject"` returns HTTP 400 `{"error":"invalid_scope"}`; rotation returns a new refresh token and invalidates the old one; `Introspect` reports issued tokens active with their scopes.
 
-- [ ] **Step 2: Run tests, verify they fail** — `go test ./internal/auth/fakeissuer/ -v` → FAIL (package missing).
+- [x] **Step 2: Run tests, verify they fail** — `go test ./internal/auth/fakeissuer/ -v` → FAIL (package missing).
 
-- [ ] **Step 3: Implement** the issuer as a single `http.ServeMux` on `httptest.NewServer`, with an internal `sync.Mutex`-guarded state: `codes map[string]codeGrant{challenge, scopes, redirectURI, nonce}`, `refreshTokens map[string][]string` (token → scopes), `accessTokens map[string]tokenRecord{scopes, audience}`. Keep it under ~350 lines; it is a test fixture, not a product.
+- [x] **Step 3: Implement** the issuer as a single `http.ServeMux` on `httptest.NewServer`, with an internal `sync.Mutex`-guarded state: `codes map[string]codeGrant{challenge, scopes, redirectURI, nonce}`, `refreshTokens map[string][]string` (token → scopes), `accessTokens map[string]tokenRecord{scopes, audience}`. Keep it under ~350 lines; it is a test fixture, not a product.
 
-- [ ] **Step 4: Run tests** — `go test ./internal/auth/fakeissuer/ -v` → PASS.
+- [x] **Step 4: Run tests** — `go test ./internal/auth/fakeissuer/ -v` → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 go vet ./... && git add go.mod go.sum internal/auth/fakeissuer && git commit -m "test: add a fake OIDC issuer for deterministic authentication tests"
@@ -968,7 +972,7 @@ func (l Login) Run(ctx context.Context) (Result, error)
 
 Problem mapping inside `Run`: discovery failure or a discovery document without `S256` → `auth.discovery_failed`. A loopback bind failure (all four ports busy) also returns `auth.discovery_failed` with the message "no loopback callback port is available for the browser login" and a recovery naming the four ports — the spec's code list stays closed, and the message states the real cause. (Record this in the walkthrough's troubleshooting section.)
 
-- [ ] **Step 1: Write the failing happy-path test**
+- [x] **Step 1: Write the failing happy-path test**
 
 ```go
 func TestBrowserLoginRoundTrip(t *testing.T) {
@@ -1016,9 +1020,9 @@ Add `AllowAnyLoopbackPort bool` to `fakeissuer.Options` and an `HTTPClient()` ac
 
 Also write: `TestLoginFailsWithoutS256` (fake issuer knob `OmitS256 bool` → `auth.discovery_failed`), `TestStateMismatchRejected` (drive the callback URL manually with a wrong `state`, expect the flow to keep waiting/reject — assert the exchange fails and no Result is produced), `TestBrowserOpenFailureStillCompletes` (OpenBrowser returns an error; the test then fetches the printed URL from `printed` and the login still completes).
 
-- [ ] **Step 2: Run tests, verify they fail** — `go test ./internal/auth/oauthflow/ -v` → FAIL.
+- [x] **Step 2: Run tests, verify they fail** — `go test ./internal/auth/oauthflow/ -v` → FAIL.
 
-- [ ] **Step 3: Implement `login.go`**
+- [x] **Step 3: Implement `login.go`**
 
 Flow, using go-oidc + x/oauth2 exactly:
 
@@ -1075,9 +1079,9 @@ func Open(target string) error {
 }
 ```
 
-- [ ] **Step 4: Run tests** — `go test ./internal/auth/oauthflow/ -race -v` → PASS.
+- [x] **Step 4: Run tests** — `go test ./internal/auth/oauthflow/ -race -v` → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 go vet ./... && git add go.mod go.sum internal/auth/oauthflow internal/auth/fakeissuer && git commit -m "feat: implement the browser authorization code login with PKCE"
@@ -1120,7 +1124,7 @@ Behavior table (each row is a test):
 | Kind `oauth-device` or `pat` | `auth.kind_not_implemented` |
 | Kind `oauth-browser`, happy path | PKCE flow; save session; print subject, email, and product namespaces |
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 `internal/app/login_test.go`, in-process with `keyring.MockInit()` and a v2 fixture document pointing at a `fakeissuer`:
 
@@ -1188,9 +1192,9 @@ func TestLoginHappyPathStoresSessionAndReportsIdentity(t *testing.T) {
 
 Note the login flow must use the fake issuer's HTTP client for discovery/exchange: give `Shell` one more test seam? No — the fake issuer is an `httptest.Server` reachable over real HTTP on 127.0.0.1, so the default client works. Ensure `fakeissuer` uses `httptest.NewServer` (HTTP, not TLS) so no client injection is needed here; `HTTPClient()` then just returns `http.DefaultClient` — simplify Task 5/6 accordingly if TLS was used.
 
-- [ ] **Step 2: Run tests, verify they fail** — `go test ./internal/app/ -run TestLogin -v` → FAIL.
+- [x] **Step 2: Run tests, verify they fail** — `go test ./internal/app/ -run TestLogin -v` → FAIL.
 
-- [ ] **Step 3: Implement `login.go`**
+- [x] **Step 3: Implement `login.go`**
 
 ```go
 // login establishes the selected context's interactive session.
@@ -1263,9 +1267,9 @@ func (s Shell) login(args []string) error {
 
 `productScopeUnion` returns the sorted, de-duplicated union of `identity.Products[*].Scopes`. Register the builtin in `app.go`: `{name: "login", summary: "Log in to the selected context's identity.", run: Shell.login}`.
 
-- [ ] **Step 4: Run tests** — `go test ./internal/app/ -race -v` → PASS.
+- [x] **Step 4: Run tests** — `go test ./internal/app/ -race -v` → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 go vet ./... && git add internal/app && git commit -m "feat: add wso2 login for browser-based interactive identities"
@@ -1322,15 +1326,15 @@ type Broker struct {
    - Product scopes non-empty and any requested scope ∉ product scopes → `auth.product_not_configured`.
    - `Selection.Context.Organization != ""` and `Selection.Context.Organization != Selection.Identity.Auth.Tenant` → `auth.organization_switch_unsupported` ("this release cannot switch to the target organization; the identity's session stays in its home tenant").
 
-- [ ] **Step 1: Write failing tests** — extend `auth_test.go` with a table covering every row above, using a helper that builds a `Broker` with a v2 `contexts.Selection`. Existing dev-path tests keep passing unmodified except for the `Broker` field rename (`Context` → `Selection`); update them mechanically. One ordering test: a non-reference namespace with **no** identity now refuses `auth.context_not_selected` (previously `auth.namespace_not_brokered`) — check whether an existing test pinned the old order; if so, update it and note the change in the commit message body.
+- [x] **Step 1: Write failing tests** — extend `auth_test.go` with a table covering every row above, using a helper that builds a `Broker` with a v2 `contexts.Selection`. Existing dev-path tests keep passing unmodified except for the `Broker` field rename (`Context` → `Selection`); update them mechanically. One ordering test: a non-reference namespace with **no** identity now refuses `auth.context_not_selected` (previously `auth.namespace_not_brokered`) — check whether an existing test pinned the old order; if so, update it and note the change in the commit message body.
 
-- [ ] **Step 2: Run tests, verify failures** — `go test ./internal/auth/ -v`.
+- [x] **Step 2: Run tests, verify failures** — `go test ./internal/auth/ -v`.
 
-- [ ] **Step 3: Implement** — move the devtoken minting body of today's `Acquire` into `source_dev.go` (`devSource{credential string, claims devtoken.Claims}` built by the broker after its checks; `mint` calls `devtoken.Mint` exactly as today). `source.go` holds the kind-resolution switch. For this task only, `KindOAuthBrowser`/`KindClientCredentials` resolve to a placeholder `source` returning `auth.narrowing_unavailable` with message "this build cannot derive access for this identity yet" — Tasks 9–10 replace it; the placeholder keeps this task shippable and its checks testable.
+- [x] **Step 3: Implement** — move the devtoken minting body of today's `Acquire` into `source_dev.go` (`devSource{credential string, claims devtoken.Claims}` built by the broker after its checks; `mint` calls `devtoken.Mint` exactly as today). `source.go` holds the kind-resolution switch. For this task only, `KindOAuthBrowser`/`KindClientCredentials` resolve to a placeholder `source` returning `auth.narrowing_unavailable` with message "this build cannot derive access for this identity yet" — Tasks 9–10 replace it; the placeholder keeps this task shippable and its checks testable.
 
-- [ ] **Step 4: Run the whole suite** — `go test ./... -race` → PASS.
+- [x] **Step 4: Run the whole suite** — `go test ./... -race` → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 go vet ./... && git add internal/auth internal/app && git commit -m "feat: resolve broker access through per-kind token sources"
@@ -1385,7 +1389,7 @@ func (s browserSource) mint(request Request, now time.Time) (Grant, error)
 7. If the response contains a rotated `refresh_token`, `sessions.Save` the new session **before** returning (this is inside the lock).
 8. Return `Grant{Token: accessToken, ExpiresAt: from expires_in (fallback: JWT exp)}`.
 
-- [ ] **Step 1: Write failing tests** — table against the fake issuer:
+- [x] **Step 1: Write failing tests** — table against the fake issuer:
 
 | Test | Issuer options / setup | Expected |
 | --- | --- | --- |
@@ -1400,13 +1404,13 @@ func (s browserSource) mint(request Request, now time.Time) (Grant, error)
 
 Use `keyring.MockInit()` per test; seed sessions via `fakeissuer.SeedSession` + `session.Store.Save`.
 
-- [ ] **Step 2: Run tests, verify failures.** — `go test ./internal/auth/ -run TestBrowserSource -v`
+- [x] **Step 2: Run tests, verify failures.** — `go test ./internal/auth/ -run TestBrowserSource -v`
 
-- [ ] **Step 3: Implement** the three files per the interfaces; wire the real `browserSource` into Task 8's kind switch (replacing the placeholder). `bearerClaims`: split on `.`, `base64.RawURLEncoding` decode part 1, JSON into `{Aud any; Scope string; Exp int64}`, normalize `aud` string-or-array.
+- [x] **Step 3: Implement** the three files per the interfaces; wire the real `browserSource` into Task 8's kind switch (replacing the placeholder). `bearerClaims`: split on `.`, `base64.RawURLEncoding` decode part 1, JSON into `{Aud any; Scope string; Exp int64}`, normalize `aud` string-or-array.
 
-- [ ] **Step 4: Run tests** — `go test ./internal/auth/... -race` → PASS.
+- [x] **Step 4: Run tests** — `go test ./internal/auth/... -race` → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 go vet ./... && git add internal/auth && git commit -m "feat: derive module access from the stored session by scoped refresh"
@@ -1436,15 +1440,15 @@ func (s clientCredentialsSource) mint(request Request, now time.Time) (Grant, er
 
 `mint`: read the secret from the env var named by `identity.Auth.ClientSecretVariable` via `lookup` — absent/blank → the existing two-part `auth.credential_unavailable` denial shape (module-safe problem + user guidance naming the variable, exactly like the dev source's `credential()` does today). Then `clientcredentials.Config{ClientID, ClientSecret, TokenURL, Scopes: request.Scopes}` → `.Token(ctx)`. Verify effective scopes and audience with the same helpers and the same `auth.narrowing_unavailable` refusals as Task 9 (shared verification function `verifyIssued(request Request, accessToken string, responseScopes string) error` — extract it in this task and reuse it from `source_browser.go`). Nothing is persisted anywhere.
 
-- [ ] **Step 1: Write failing tests** — happy path (grant issued, introspection confirms scopes/aud, nothing written to the keychain mock or state dir), missing env var → `auth.credential_unavailable` with guidance naming the variable, scope-ignore issuer → `auth.narrowing_unavailable`, secret never in any problem message (assert the secret string is absent from every error and output surface in the test).
+- [x] **Step 1: Write failing tests** — happy path (grant issued, introspection confirms scopes/aud, nothing written to the keychain mock or state dir), missing env var → `auth.credential_unavailable` with guidance naming the variable, scope-ignore issuer → `auth.narrowing_unavailable`, secret never in any problem message (assert the secret string is absent from every error and output surface in the test).
 
-- [ ] **Step 2: Run tests, verify failures.**
+- [x] **Step 2: Run tests, verify failures.**
 
-- [ ] **Step 3: Implement and wire into the kind switch.**
+- [x] **Step 3: Implement and wire into the kind switch.**
 
-- [ ] **Step 4: Run tests** — `go test ./internal/auth/... -race` → PASS.
+- [x] **Step 4: Run tests** — `go test ./internal/auth/... -race` → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 go vet ./... && git add internal/auth && git commit -m "feat: acquire client-credentials access inline during the invoking command"
@@ -1463,7 +1467,7 @@ go vet ./... && git add internal/auth && git commit -m "feat: acquire client-cre
 
 These tests run the shell **in-process** (`app.Shell{...}.Run(...)`) because the OS keychain must be the go-keyring mock; the module is still launched as a real subprocess by the shell, so the full shell→broker→module chain is exercised. State the reason in a file comment.
 
-- [ ] **Step 1: Write the failing chain test**
+- [x] **Step 1: Write the failing chain test**
 
 ```go
 func TestLoginThenModuleReceivesRealToken(t *testing.T) {
@@ -1513,13 +1517,13 @@ func TestRotationSurvivesConsecutiveInvocations(t *testing.T) // two module runs
 func TestNoTokenMaterialOnAnyOutputSurface(t *testing.T)      // sweep stdout+stderr of login and status runs for refresh/access token substrings (canary style, mirroring failclosed_test.go)
 ```
 
-- [ ] **Step 2: Run tests, verify failures** — `go test ./test/acceptance/ -run 'TestLogin|TestModuleRun|TestClientCredentials|TestNonInteractive|TestRotation|TestNoToken' -v`
+- [x] **Step 2: Run tests, verify failures** — `go test ./test/acceptance/ -run 'TestLogin|TestModuleRun|TestClientCredentials|TestNonInteractive|TestRotation|TestNoToken' -v`
 
-- [ ] **Step 3: Fix whatever the chain surfaces.** This is the integration task: expect wiring gaps (broker HTTP client, endpoint pass-through, status service audience). No new features — only completing the wiring the earlier tasks defined.
+- [x] **Step 3: Fix whatever the chain surfaces.** This is the integration task: expect wiring gaps (broker HTTP client, endpoint pass-through, status service audience). No new features — only completing the wiring the earlier tasks defined.
 
-- [ ] **Step 4: Full suite** — `go test ./... -race` → PASS.
+- [x] **Step 4: Full suite** — `go test ./... -race` → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 go vet ./... && git add test/acceptance && git commit -m "test: prove the reference module receives issuer-minted narrowed access"
@@ -1539,14 +1543,14 @@ go vet ./... && git add test/acceptance && git commit -m "test: prove the refere
 - Consumes: `oauthflow.Login`, `session.Store`, broker sources — via `app.Shell` in-process.
 - Produces: `make smoke-login`, `make empirical-asgardeo`.
 
-- [ ] **Step 1: Smoke test** — `login_smoke_test.go` reads env: `WSO2_SMOKE_ISSUER`, `WSO2_SMOKE_CLIENT_ID`, `WSO2_SMOKE_AUDIENCE`, `WSO2_SMOKE_SCOPE`; skips (`t.Skip`) when unset. It writes a temp v2 document, runs `wso2 login` in-process (real browser opens — this is a human-driven test), then runs the broker acquisition path directly (`auth.Broker` with the real selection) and reports the outcome. Works identically against Asgardeo and a local IS container.
+- [x] **Step 1: Smoke test** — `login_smoke_test.go` reads env: `WSO2_SMOKE_ISSUER`, `WSO2_SMOKE_CLIENT_ID`, `WSO2_SMOKE_AUDIENCE`, `WSO2_SMOKE_SCOPE`; skips (`t.Skip`) when unset. It writes a temp v2 document, runs `wso2 login` in-process (real browser opens — this is a human-driven test), then runs the broker acquisition path directly (`auth.Broker` with the real selection) and reports the outcome. Works identically against Asgardeo and a local IS container.
 
-- [ ] **Step 2: Empirical experiments** — `asgardeo_empirical_test.go`, same env gating plus `WSO2_EMPIRICAL=1`:
+- [x] **Step 2: Empirical experiments** — `asgardeo_empirical_test.go`, same env gating plus `WSO2_EMPIRICAL=1`:
   - **Experiment A (any-port loopback):** run `oauthflow.Login` with `Ports: []int{16000}` while the registered app only lists 10425–10428. Success ⇒ IS-parity port-agnostic matching; redirect-URI-mismatch error ⇒ exact-match only. Print a one-line verdict: `ASGARDEO ANY-PORT LOOPBACK: {supported|rejected}`.
   - **Experiment B (refresh scope narrowing):** log in with two scopes, then refresh with one via the browser source; print `ASGARDEO REFRESH NARROWING: {honored|ignored|rejected}` from which refusal (if any) the source produced.
   - The test always passes; its output is evidence. After running it for real, **record both verdicts** in `docs/research/asgardeo-redirect-uri-and-scope-narrowing.md` §3 (replace the "unknown — needs empirical test" cells) — that recording step is manual and part of executing this task against a real tenant.
 
-- [ ] **Step 3: Makefile targets**
+- [x] **Step 3: Makefile targets**
 
 ```make
 smoke-login:
@@ -1556,11 +1560,11 @@ empirical-asgardeo:
 	WSO2_EMPIRICAL=1 go test -tags smoke ./test/smoke/ -run TestAsgardeoEmpirical -v
 ```
 
-- [ ] **Step 4: Walkthrough** — `docs/guides/login.md` covering, in order: registering the public client in Asgardeo (standard-based app, PKCE mandatory, the four callback URLs listed explicitly) and in IS 7.x (same, or one `regexp=(...)` entry OR-ing the four); authoring the v2 identity/context JSON by hand (complete copy-paste example matching Task 1's `validV2()` shape, with the real Asgardeo issuer URL shape `https://api.asgardeo.io/t/{org}/oauth2/token`); first `wso2 login`; the CI client-credentials setup (M2M app, `clientSecretVariable`, no login step); troubleshooting (ports busy, keyring unavailable, `auth.narrowing_unavailable` meaning, `auth.organization_switch_unsupported` meaning). Follow the repo's doc conventions (status header, authoritative links to the spec and architecture).
+- [x] **Step 4: Walkthrough** — `docs/guides/login.md` covering, in order: registering the public client in Asgardeo (standard-based app, PKCE mandatory, the four callback URLs listed explicitly) and in IS 7.x (same, or one `regexp=(...)` entry OR-ing the four); authoring the v2 identity/context JSON by hand (complete copy-paste example matching Task 1's `validV2()` shape, with the real Asgardeo issuer URL shape `https://api.asgardeo.io/t/{org}/oauth2/token`); first `wso2 login`; the CI client-credentials setup (M2M app, `clientSecretVariable`, no login step); troubleshooting (ports busy, keyring unavailable, `auth.narrowing_unavailable` meaning, `auth.organization_switch_unsupported` meaning). Follow the repo's doc conventions (status header, authoritative links to the spec and architecture).
 
-- [ ] **Step 5: Backend ask** — append to `docs/research/product-authentication-compatibility.md` §1.1's backend-gap paragraph a dated note: the wso2-cli slice ships with per-tenant manual registration; the standing ask to the Asgardeo service team is a seeded, well-known `wso2cli` public client (PKCE-mandatory, loopback callbacks 10425–10428), after which the walkthrough's registration section collapses to a default `clientId`.
+- [x] **Step 5: Backend ask** — append to `docs/research/product-authentication-compatibility.md` §1.1's backend-gap paragraph a dated note: the wso2-cli slice ships with per-tenant manual registration; the standing ask to the Asgardeo service team is a seeded, well-known `wso2cli` public client (PKCE-mandatory, loopback callbacks 10425–10428), after which the walkthrough's registration section collapses to a default `clientId`.
 
-- [ ] **Step 6: Full suite, vet, commit**
+- [x] **Step 6: Full suite, vet, commit**
 
 ```bash
 go test ./... && go vet ./...
@@ -1572,9 +1576,20 @@ git commit -m "docs: add the login walkthrough, live smoke gates, and empirical 
 
 ## Definition of done (from the spec, verbatim checks)
 
-- [ ] `wso2 login` completes PKCE against a real Asgardeo trial tenant and a local IS 7.x (`make smoke-login`, run twice with the two issuer configs).
-- [ ] The refresh token lands in the OS secure store (smoke run; deterministic equivalent in Task 7).
+- [x] `wso2 login` completes PKCE against a real Asgardeo trial tenant and a local IS 7.x (`make smoke-login`, run twice with the two issuer configs). — Asgardeo tenant 2026-08-06; `wso2/wso2is:7.3.0` 2026-08-06. The nonce echo is checked by both, since `oauthflow/login.go` refuses on a mismatch and neither login could otherwise have completed.
+- [x] The refresh token lands in the OS secure store (smoke run; deterministic equivalent in Task 7). — both smoke runs read it back out and compare its issuer.
 - [ ] The reference module receives a real short-lived access token through the broker against a backend proven to satisfy the scope/audience policy, and a test introspects that token (Task 11 deterministic; smoke against whichever real backend passes the empirical narrowing test).
-- [ ] If Asgardeo fails the narrowing experiment: login and session persistence still pass; broker acquisition refuses `auth.narrowing_unavailable`; the research doc records the verdict (Task 12).
-- [ ] CI path acquires a client-credentials token inline in an acceptance test (Task 11).
-- [ ] `docs/research/asgardeo-redirect-uri-and-scope-narrowing.md` empirical cells filled in (Task 12).
+
+  **Deterministic half done, live half incomplete.** `TestLoginThenTheModuleReceivesIssuerMintedNarrowedAccess` launches the real module subprocess, introspects what it presented, and proves refresh rotation — against the fake issuer. Live, `login_smoke_test.go` acquires through the broker but asks for `config.Scopes`, every scope the session already holds, so `sameScopeSet` compares a set against itself: the audience check is real and the scope check cannot fail. A deployment that flatly ignored narrowing would still print `granted`. `config.NarrowTarget()` exists for exactly this and is unused by the smoke run. The module half needs nothing further — the module never learns which issuer minted its token, so running it live proves nothing the deterministic chain does not.
+- [x] If Asgardeo fails the narrowing experiment: login and session persistence still pass; broker acquisition refuses `auth.narrowing_unavailable`; the research doc records the verdict (Task 12). — moot in the favorable direction: both deployments honor narrowing (`make empirical-asgardeo`, 2026-08-06). The refusal path itself is pinned by `TestADeploymentThatCannotNarrowIsRefusedRatherThanGrantedMore`.
+- [x] CI path acquires a client-credentials token inline in an acceptance test (Task 11). — `TestAnInlineIdentityAuthenticatesACommandWithNoLoginStep`, plus the missing-secret, cannot-narrow, non-interactive and secret-disclosure cases beside it.
+- [x] `docs/research/asgardeo-redirect-uri-and-scope-narrowing.md` empirical cells filled in (Task 12). — Asgardeo §3 filled 2026-08-06; Identity Server 7.3.0 recorded in §3.1.
+
+**One finding outran this plan.** Asgardeo binds an access token's `aud` to the
+client ID and exposes no way to change it, while Identity Server 7.3.0 adds the
+API resource identifier once it is registered as an audience. So the spec's
+"the issued token's audience covers the requested product audience" is
+satisfiable on one supported product and structurally not on the other. Nothing
+in the broker needs to change — it verifies rather than assumes — but what
+`products.<namespace>.audience` can *mean* differs by product, and that is a
+decision for issue #17 rather than a task here.
