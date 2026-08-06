@@ -92,6 +92,14 @@ func experimentIndicatorRequired(t *testing.T, config smoke.Config) {
 
 	var verdict string
 	switch {
+	case refusalCode(err) == codeDiscoveryFailed:
+		// The shell never reached the deployment, so it never asked the
+		// question. Reporting that as "required" would record the strongest
+		// possible finding on the strength of an unreachable host — which is
+		// exactly what this experiment did the first time it was run against a
+		// deployment whose certificate had been regenerated.
+		verdict = "inconclusive (" + codeDiscoveryFailed + "; the shell could not reach the deployment)"
+		t.Logf("the login ended with %s: %s", refusalCode(err), refusalMessage(err))
 	case err != nil:
 		verdict = "required (the deployment refused a login carrying no indicator)"
 		t.Logf("the login ended with %s: %s", refusalCode(err), refusalMessage(err))
