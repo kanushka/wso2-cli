@@ -16,6 +16,12 @@ Two audiences, one path. Sections 2 and 3 are alternatives — register the
 application in Asgardeo **or** in Identity Server 7.x, whichever you are
 targeting — and everything after them is the same for both.
 
+Registering against **ThunderID** is a third alternative, and it lives in
+[its own walkthrough](login-thunder.md) because Thunder decides an access
+token's audience differently enough to change what you register and what you
+write down. Read that instead of sections 2 and 3, then rejoin this guide at
+section 4.
+
 ---
 
 ## 1. What the shell needs from a deployment

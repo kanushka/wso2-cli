@@ -305,6 +305,79 @@ the client ID on Asgardeo and the API resource identifier on Identity Server,
 and carrying one product's value to the other costs a browser sign-in and ends
 in `auth.narrowing_unavailable`.
 
+### 3.2 The same questions against ThunderID 1.0.0-beta
+
+Measured 2026-08-06 against `https://localhost:8490` — the
+`ghcr.io/thunder-id/thunderid:1.0.0-beta` container, registered as
+[the Thunder walkthrough](../guides/login-thunder.md) describes. A third
+deployment, not a re-reading of either above. The host port is 8490 rather than
+the default 8090 only because another container held 8090 on the machine that
+ran this; the deployment's advertised public URL was changed to match, which is
+what the walkthrough's port-offset recipe does.
+
+**This product answers a question the other two never raise**, so the table has
+a row they do not: where the audience is decided. On Asgardeo and Identity
+Server it is decided by the application's registration. On Thunder it is decided
+per request, by an RFC 8707 resource indicator.
+
+| Question | Verdict |
+|---|---|
+| Refresh-grant scope narrowing | **Honoured.** A session established for `read write` was refreshed asking for `read` alone and received exactly that — the plain verdict, so the protocol scopes were dropped too. Same as both other products. |
+| Access token `aud` | **The resource server's identifier, exactly and alone.** No client ID beside it. Stronger than Asgardeo, where `aud` is the client ID and cannot distinguish products, and cleaner than Identity Server 7.3.0, where it is the client ID plus the registered audiences. |
+| Resource indicator on the **authorization** request | **Required.** Without one the flow is refused and the browser returns to the callback carrying `error=invalid_target`, `"No resource parameter supplied and no default resource server is configured"`. No session is established. |
+| Resource indicator on the **refresh** grant | **Not required.** The refresh token inherits the binding established at authorization; a refresh carrying no indicator returned a token still bound to the original resource server. |
+| Resource indicator on **client credentials** | **Required.** There is no earlier authorization to inherit from, and the grant is refused with `invalid_target` without one. |
+| Multiple resource indicators | **Rejected** — *"Only a single resource parameter is supported."* |
+| Resource server identifier format | **Must be an absolute URI.** A bare `reference-status` is refused with `"Invalid resource parameter: must be an absolute URI"`. |
+| Unauthorised scopes on client credentials | **Silently dropped.** The grant succeeded and issued a token stating no scope at all, rather than refusing. The broker then refuses, because it cannot prove the token carries what was asked for. |
+| Device authorization grant | **Absent.** No `device_authorization_endpoint` in the discovery document, confirming from a running deployment what the landscape research inferred from source. |
+
+**The two "required" verdicts have an exception, and it matters.** Thunder's own
+refusal names it: *no default resource server is configured*. A resource server
+carries a **Set as default** action, whose confirmation states that requests
+without a resource parameter will fall back to it. Measured on the same
+deployment: with the default set, a client-credentials grant carrying no
+indicator succeeded, and the issued token's `aud` was the default's identifier.
+The same request had been refused minutes earlier.
+
+So the indicator is required *unless* a default resource server is configured.
+Both halves belong here, because a reader who has set a default and one who has
+not would otherwise measure different things and each conclude the other was
+wrong. The walkthrough tells a reader not to set one, and why: a default binds
+every token to the same audience whichever product asked, which is exactly the
+Asgardeo weakness recorded in §3 and issue #37, reintroduced on the one product
+whose audience model can avoid it.
+
+**What this changed in the shell.** Unlike §3 and §3.1, this measurement forced
+production code. The scoped refresh the broker implements cannot establish a
+session on a Thunder deployment at all, because the refusal happens at
+authorization, before any session exists. An identity may now name its identity
+provider, and the shell sends the indicator where it does — on the authorization
+request, and on the client-credentials grant. The refresh grant was left alone,
+because the binding is inherited.
+
+**A consequence worth stating separately.** One resource indicator per
+authorization means one Thunder session reaches one product. The context schema
+refuses an identity that derives this way and declares more than one product,
+rather than letting the contradiction surface at the end of a browser sign-in.
+Lifting that needs per-product sessions, which is
+[its own issue](https://github.com/wso2/wso2-cli/issues/43) and was already
+recorded as a required gap in
+[product-authentication-compatibility.md](product-authentication-compatibility.md)
+§1.5.
+
+**One question this document asks of the other products is not answered here.**
+Any-port loopback was not measured against Thunder. The walkthrough registers
+all four callback ports explicitly, as it does for the other two, so nothing in
+the shell depends on the answer; it is simply not evidence anyone has gathered.
+
+**And one incidental finding.** A resource server's permissions cannot contain
+its own delimiter, which is `:` by default: a handle of `reference:status:read`
+is refused with `Delimiter conflict in handle`. Hierarchical permissions are
+built as a tree of resources whose handles Thunder joins with the delimiter. The
+reference module's permission names are therefore expressible, but not as flat
+strings the way they are on the other two products.
+
 ## 4. Producing and recording the verdicts
 
 **Added 2026-08-05.** The experiments described in §1.2 and §2 are implemented
