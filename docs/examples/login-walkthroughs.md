@@ -18,7 +18,7 @@ developer asks first: **"what do I type, and what happens?"**
 > contexts, fresh-machine cloud tenant resolution, a WSO2-published CLI client,
 > and organization switch are all deferred or are backend asks — each is listed
 > in [Gaps](#gaps-these-walkthroughs-depend-on). See the
-> [login slice design](../superpowers/specs/2026-08-04-login-first-slice-design.md)
+> [login first slice plan](../plans/login-first-slice.md)
 > for what is in scope now.
 
 ## How to read this
@@ -27,7 +27,7 @@ Commands carry one of two marks:
 
 | Mark | Meaning |
 | --- | --- |
-| **decided** | The surface is recorded in the architecture, the requirements, or the [login slice design](../superpowers/specs/2026-08-04-login-first-slice-design.md) |
+| **decided** | The surface is recorded in the architecture, the requirements, or the [login first slice plan](../plans/login-first-slice.md) |
 | **proposed** | New surface introduced by this document for review. Not yet agreed |
 
 Configuration blocks show the file *after* the commands above them ran.
