@@ -27,13 +27,14 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/wso2/wso2-cli/internal/auth/devtoken"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/sdk/problem"
@@ -104,14 +105,21 @@ type Broker struct {
 	// are the ceiling: a module cannot ask at runtime for more than its
 	// installation declared.
 	Capabilities modules.Capabilities
-	// Context is the selected invocation context. It names the organization
-	// and the credential source, and holds no credential.
-	Context contexts.Context
+	// Selection is the resolved invocation context and its identity. It names
+	// the organization and the credential source, and holds no credential.
+	Selection contexts.Selection
 	// InvocationID is the invocation access is bound to.
 	InvocationID string
 	// Credentials reads a named environment variable. It defaults to the
 	// process environment, and a test replaces it.
 	Credentials func(name string) (string, bool)
+	// StateRoot is the shell-owned state root. It hosts the advisory locks
+	// that keep refresh-token rotation single-writer; no session material is
+	// ever written under it.
+	StateRoot string
+	// HTTPClient serves issuer traffic. It defaults to http.DefaultClient,
+	// and a test points it at an in-process issuer.
+	HTTPClient *http.Client
 	// Now reads the current time. It defaults to time.Now.
 	Now func() time.Time
 
@@ -125,12 +133,6 @@ type Broker struct {
 // Every refusal is a typed problem in the authentication class, with recovery
 // guidance a user can act on and no detail of the credential behind it.
 func (b *Broker) Acquire(request Request) (Grant, error) {
-	if b.Namespace != ProofNamespace {
-		return Grant{}, denial("auth.namespace_not_brokered",
-			fmt.Sprintf("the %q module asked for access, and this shell brokers access for the "+
-				"non-production %q proof only", b.namespace(), ProofNamespace),
-			"Install a module the WSO2 CLI can authenticate, or run the command without it.")
-	}
 	if b.granted {
 		return Grant{}, denial("auth.already_granted",
 			fmt.Sprintf("the %q module asked for access twice in one command", b.namespace()),
@@ -139,32 +141,19 @@ func (b *Broker) Acquire(request Request) (Grant, error) {
 	if err := b.checkDeclared(request); err != nil {
 		return Grant{}, err
 	}
-	if err := b.checkContext(); err != nil {
-		return Grant{}, err
-	}
-
-	credential, err := b.credential()
+	// The receipt is checked before the identity is, so a module asking beyond
+	// its installation is told so whatever context happens to be selected.
+	resolved, err := b.resolveSource(request)
 	if err != nil {
-		return Grant{}, err
+		return Grant{}, asDenial(err)
 	}
-
-	now := b.now()
-	token, mintErr := devtoken.Mint(credential, devtoken.Claims{
-		Audience:     request.Audience,
-		Scopes:       request.Scopes,
-		Organization: b.Context.OrganizationID,
-		Invocation:   b.InvocationID,
-	}, now)
-	if mintErr != nil {
-		// The issuer's own error may name what it was given, so it is not
-		// carried into a problem the shell renders.
-		return Grant{}, denial("auth.access_not_issued",
-			fmt.Sprintf("the shell could not issue access for the %q module", b.namespace()),
-			"Retry the command. Report the failure if it persists.")
+	grant, err := resolved.mint(request, b.now())
+	if err != nil {
+		return Grant{}, asDenial(err)
 	}
 
 	b.granted = true
-	return Grant{Token: token, ExpiresAt: now.Add(devtoken.Lifetime).UTC()}, nil
+	return grant, nil
 }
 
 // checkDeclared intersects the request with the module receipt.
@@ -189,52 +178,46 @@ func (b *Broker) checkDeclared(request Request) error {
 	return nil
 }
 
-// checkContext proves the selected context can be authenticated against at all.
-func (b *Broker) checkContext() error {
-	if b.Context.Auth.Method == "" && b.Context.Auth.CredentialVariable == "" {
-		return denial("auth.context_not_selected",
-			fmt.Sprintf("the %q module needs access, and no WSO2 CLI context is selected", b.namespace()),
-			"Select a context that names the organization and credential source to use.")
-	}
-	if b.Context.Auth.Method != contexts.MethodDevelopmentCredential {
-		return denial("auth.method_unsupported",
-			fmt.Sprintf("the %q context uses an authentication method this shell does not implement",
-				b.Context.Name),
-			fmt.Sprintf("Select a context whose authentication method is %q.",
-				contexts.MethodDevelopmentCredential))
-	}
-	if b.Context.OrganizationID == "" {
-		return denial("auth.organization_not_selected",
-			fmt.Sprintf("the %q context names no organization to act within", b.Context.Name),
-			"Select a context that names the organization the command targets.")
-	}
-	return nil
+// credential reads the source credential the development context names.
+func (b *Broker) credential() (string, error) {
+	return b.namedSecret(b.Selection.Identity.Auth.CredentialVariable, "the credential")
 }
 
-// credential reads the source credential the context names.
+// namedSecret reads the environment variable an identity names, into process
+// memory and nowhere else.
 //
-// The value stays in this process: it is the issuer's signing key and is never
-// written to state, passed to the module, or included in a problem. Neither is
-// the name of the variable holding it, which is the module's own answer to
-// "where would I look?" and therefore travels only to the user.
-func (b *Broker) credential() (string, error) {
-	name := b.Context.Auth.CredentialVariable
-	if name == "" {
+// It is the one door a secret comes through, so the shape of its refusal is
+// decided here for every kind that uses one. The value is never written to
+// state, passed to the module, or included in a problem. Neither is the name
+// of the variable holding it, which is the module's own answer to "where would
+// I look?" and therefore travels only to the user — as guidance, on the side of
+// the refusal the module never sees.
+//
+// description says what the variable holds, in the user's terms; it is the
+// difference between "set this" and an instruction someone can follow.
+func (b *Broker) namedSecret(variable, description string) (string, error) {
+	if variable == "" {
 		return "", denial("auth.credential_unavailable",
-			fmt.Sprintf("the %q context names no credential source", b.Context.Name),
-			"Select a context that names the environment variable holding the credential.")
+			fmt.Sprintf("the %q context names no credential source", b.Selection.Context.Name),
+			fmt.Sprintf("Select a context that names the environment variable holding %s.",
+				description))
 	}
 	lookup := b.Credentials
 	if lookup == nil {
 		lookup = os.LookupEnv
 	}
-	value, present := lookup(name)
+	value, present := lookup(variable)
+	// A variable set to whitespace is treated as unset. A CI job that exports
+	// an empty secret has the same problem as one that exports none, and
+	// sending the blank to the issuer would report it as a rejected credential
+	// instead of a missing one.
 	if !present || strings.TrimSpace(value) == "" {
 		return "", Denial{
 			Problem: problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable",
-				fmt.Sprintf("the credential source the %q context names is not set", b.Context.Name)).
+				fmt.Sprintf("the credential source the %q context names is not set", b.Selection.Context.Name)).
 				WithRecovery("Set the credential source this context names, then retry the command."),
-			Guidance: fmt.Sprintf("Set %s to the credential for this context, then retry the command.", name),
+			Guidance: fmt.Sprintf("Set %s to %s for this context, then retry the command.",
+				variable, description),
 		}
 	}
 	return value, nil
@@ -252,6 +235,25 @@ func (b *Broker) namespace() string {
 		return "product"
 	}
 	return b.Namespace
+}
+
+// asDenial restates any typed problem a source raised as a broker denial.
+//
+// A source may borrow a problem from a package that knows nothing about this
+// broker — the session store's own auth.login_required, for one. Everything
+// Acquire refuses with is a Denial, so one type answers for every refusal and
+// the shell has a single place to decide what a module is told versus what the
+// user is told.
+func asDenial(err error) error {
+	var refusal Denial
+	if errors.As(err, &refusal) {
+		return refusal
+	}
+	var typed problem.Problem
+	if errors.As(err, &typed) {
+		return Denial{Problem: typed}
+	}
+	return err
 }
 
 // denial reports a broker refusal the module and the user can both be told in

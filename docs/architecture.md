@@ -167,60 +167,117 @@ The broker:
 
 - identifies the already verified module through the launch handshake;
 - checks the module's declared audience and scope capabilities;
-- resolves the selected context and relevant product session;
+- resolves the selected context, its identity, and the relevant product
+  session;
 - refreshes credentials without exposing refresh tokens;
 - returns short-lived or invocation-scoped access material and restricts
   audience and scope when the deployment supports them;
+- refuses rather than silently issuing broader or incorrectly targeted access
+  when a requested narrowing is unavailable;
 - redacts secrets and records security-relevant diagnostics without recording
   the secret value.
 
 The IPC endpoint must not be a world-discoverable local port.
 
-#### Cloud interactive login
+#### Identity
 
-For a cloud context, plain `wso2 login` uses the OAuth 2.0/OIDC Authorization
-Code flow with PKCE. It opens a browser for the user to authenticate and approve
-the request. The root shell completes the exchange and stores any interactive
-long-lived credential, such as a refresh token, in the OS secure store.
+An **identity** is one reusable login session, together with every product for
+which the broker can derive valid access from that session without another
+login or an independently supplied credential.
 
-This is the default developer login for WSO2 Cloud.
+An identity is not an issuer. Two products configured against the same issuer
+URL do not share an identity unless that session can actually produce access
+each of them accepts. A product that validates only its own resident issuer, or
+that requires its own separately authenticated OAuth client, personal access
+token, or password, belongs to a different identity and therefore to a
+different context.
 
-#### Cloud headless interactive login
+Whether a session can derive access for a product is a property of the running
+deployment, not of a configuration file. The configuration records the
+operator's assertion. A wrong assertion surfaces as a typed authentication or
+authorization failure when a command needs access, never as a malformed
+document.
 
-`wso2 login --device-code` uses the OAuth 2.0 Device Authorization Grant for a
-developer on a headless or remote machine. The CLI displays the verification
-instructions, and the user approves the request in a browser on another
-device. Resulting interactive long-lived credentials use the same OS secure
-storage as browser login.
+The broker derives product-specific access bound to the product's
+audience/resource and to scopes. One identity therefore does not mean one
+access token: a separate short-lived token may be derived for each product
+invocation. How narrowly that derivation can be bound is a per-backend
+capability, so the broker resolves a downscoping strategy per deployment and
+exposes what it can enforce instead of degrading silently.
 
-Device authorization is still interactive and must not be used by CI.
+Product-specific legacy authentication that cannot yield derived, short-lived
+access — a management password grant, or a long-lived token the shell can only
+pass through unchanged — remains compatibility-adapter territory. A module
+reached that way does not carry the same trust property, and the design states
+that rather than presenting it as equivalent.
+
+#### Interactive login modes
+
+> **What ships today.** This section describes the target architecture. The
+> first `wso2 login` slice implements browser Authorization Code with PKCE and
+> inline client credentials. The Device Authorization Grant and personal access
+> tokens validate as legal configuration and refuse at use with the stable code
+> `auth.kind_not_implemented` — accepted so that a document written for them
+> stays readable, not executed. See
+> [the login first slice](plans/login-first-slice.md).
+
+Browser Authorization Code with PKCE and the Device Authorization Grant are two
+**login modes for the same interactive OIDC identity**, not two stored
+authentication methods. An identity records that it authenticates interactively
+against an issuer; the mode is chosen at login time, by the machine the user is
+sitting at.
+
+`wso2 login` uses the OAuth 2.0/OIDC Authorization Code flow with PKCE, opening
+a browser for the user to authenticate and approve the request. This is the
+default interactive login.
+
+`wso2 login --device-code` uses the Device Authorization Grant for a developer
+on a headless or remote machine. The CLI displays the verification instructions
+and the user approves the request in a browser on another device.
+
+Device authorization is available only where the backend advertises it, through
+the discovery document's `device_authorization_endpoint` or the corresponding
+grant type. Where the advertisement is absent, the broker refuses with a stable
+error rather than falling back to a browser the user cannot open.
+
+The shell completes either exchange and stores any resulting long-lived
+interactive credential, such as a refresh token, in the OS secure store. Device
+authorization is still interactive and must not be used by CI.
 
 #### On-premises login
 
-An on-premises context explicitly configures the target product, endpoint, and
-authentication method. The root shell uses only mechanisms supported by that
-deployment, including:
-
-- browser OAuth/OIDC when the deployment exposes a suitable authorization
-  service;
-- a personal access token;
-- client credentials.
+An on-premises context explicitly configures its identity: the products it
+reaches, their endpoints, and the authentication method. The shell uses only
+mechanisms that deployment supports.
 
 The CLI must not infer that an on-premises endpoint supports WSO2 Cloud SSO,
-WSO2 Identity Server, shared authentication, or device authorization. Multiple
-products in one context may use different authentication methods.
+WSO2 Identity Server, shared authentication, or device authorization. Products
+that one login cannot reach belong to separate identities, and therefore to
+separate contexts. A single identity never mixes authentication methods across
+its products.
 
 #### CI authentication
 
 CI is always non-interactive. It authenticates with:
 
-- a personal access token;
-- client credentials;
+- client credentials, which are the preferred CI method;
+- a personal access token, where the product issues one;
 - a future workload-identity mechanism.
 
 Browser Authorization Code and Device Authorization flows are invalid in CI
 or any invocation using non-interactive mode. The CLI must fail with a stable
 configuration error instead of waiting for user approval.
+
+A non-interactive method establishes no reusable session, so there is nothing
+for a separate login step to persist. The shell acquires access inline during
+the invoking command, and CI does not require a preceding `wso2 login`.
+
+With client credentials the shell holds the client secret, performs the token
+exchange itself, and passes the module only the resulting short-lived access
+token; the secret never leaves the shell. A personal access token that a
+product accepts directly as bearer material cannot be narrowed or derived from,
+so it is compatibility-adapter territory under the identity rules above rather
+than an equivalent CI method.
 
 The CI platform injects the secret from its secret store. The shell reads it
 from the configured variable name or stdin, keeps it only in job-process
@@ -231,28 +288,113 @@ configuration, or module environment.
 
 The configuration store contains non-secret data:
 
+- named identities, as defined in §4.6;
 - named cloud and on-premises contexts;
-- regions, organizations, projects, and product endpoints;
-- the selected authentication method for each applicable context or product;
-- opaque OS-secure-store references for interactive sessions;
-- variable names or stdin-source declarations for CI secrets;
-- default context;
+- default context, and any per-namespace context bindings;
 - module pins and update policy;
 - mirror/offline policy;
 - output and interaction defaults.
 
-It never contains access tokens, refresh tokens, personal access tokens,
-client secrets, passwords, or private keys. Importing or exporting a context
-therefore moves target and authentication configuration but never a credential.
+#### Identities and contexts
+
+**Each context references exactly one identity. One identity may back several
+contexts.** Several projects or organizations reached through the same login
+are several contexts over one identity, not several logins.
+
+Configuration divides along that boundary:
+
+- an **identity** carries the authentication kind, the issuer, the client
+  identifier, and an opaque OS-secure-store reference or CI variable name;
+- a **product entry** on an identity carries the endpoint plus the
+  audience/resource metadata the broker needs to target access;
+- a **context** carries targeting only — organization, project — and the name
+  of its identity.
+
+A context therefore never mixes authentication methods across products. Where
+an identity's authentication cannot reach a product, that product belongs to
+another identity and another context.
+
+Where authentication itself needs a tenant — a home organization at the issuer
+— that belongs to the identity's authentication configuration and is named
+distinctly from the context's target organization, which the broker may reach
+through an organization-switch exchange on the same session.
+
+The legal authentication kinds are `oauth-browser`, `oauth-device`,
+`client-credentials`, and `pat`. Availability is per deployment, not universal:
+`oauth-device` is valid only where the backend advertises the grant, and `pat`
+only for products that accept product-issued long-lived tokens. Evidence for
+this set is recorded in
+[the authentication landscape research](research/wso2-authentication-landscape.md)
+and [product authentication compatibility](research/product-authentication-compatibility.md).
+
+#### Selection
+
+A command resolves its context in this order:
+
+1. the `--context` flag;
+2. the `WSO2_CONTEXT` environment variable;
+3. a context bound to the invoked product namespace, if one is recorded;
+4. the configured default context;
+5. none, which produces a typed refusal when a command requires access.
+
+Step 3 is a recorded decision, not an inference: a per-namespace binding exists
+only because a command wrote it, and it is reported by context listings like
+any other selection. Without it, a deployment whose products require separate
+logins would force `--context` onto nearly every invocation.
+
+Selecting a context never authenticates. `wso2 context use` writes the
+selection and performs no network call. A selected but unauthenticated context
+produces an authentication-class problem at first use.
+
+Login may create the context it authenticates, so that a first-run user is not
+required to write configuration by hand. Creation is explicit about the name it
+assigns and is reported; it never silently replaces an existing context.
+
+#### Credentials
+
+The store never contains access tokens, refresh tokens, personal access tokens,
+client secrets, passwords, or private keys. Importing or exporting an identity
+or context therefore moves target and authentication configuration but never a
+credential.
 
 Interactive long-lived credentials are stored in the OS keychain or another
 approved secure store and referenced by opaque identifiers. CI credentials
 remain owned by the CI secret store and exist in the CLI only in job memory.
 
-Concrete, non-secret context examples for browser PKCE, device authorization,
-on-premises browser OAuth/OIDC, Personal Access Tokens, and client credentials
-are maintained in
-[Authentication context examples](examples/authentication-contexts.md).
+#### Writing grants nothing
+
+The architecture proof holds the invariant that no shell command can write a
+context, so no shell command can grant itself access. A production
+`wso2 context create` ends that invariant, and replaces it with one that
+survives a writable store: **writing a context or an identity grants nothing.**
+
+It holds through five properties, each of which is testable:
+
+1. the types have nowhere to put a credential, and a value supplied where a
+   reference or variable name belongs is rejected rather than stored;
+2. a created identity and context, with no login, yield an
+   authentication-class refusal on first use;
+3. an imported identity and context grant the importer nothing they did not
+   already hold in their own OS secure store;
+4. a secure-store reference is a lookup key, not a capability: naming an entry
+   the invoking OS user cannot read fails as an authentication problem;
+5. export is credential-free by construction, because the document has no
+   credential to remove.
+
+#### Schema evolution
+
+The document carries a schema version. Unknown members are tolerated on read,
+so a newer shell may record non-secret facts an older one ignores, and a single
+unsupported authentication kind never renders a whole document unreadable.
+
+Unknown members are **not** preserved on write. Until a preservation mechanism
+exists, an older shell that rewrites a newer document drops what it did not
+understand, which matters as soon as commands can write configuration. A new
+*required* field is a schema revision, not an addition within a version.
+
+Concrete, non-secret examples are maintained in
+[Authentication context examples](examples/authentication-contexts.md), which
+illustrates the decisions recorded here and does not extend them.
 
 ### 4.8 Output and problem model
 
@@ -785,14 +927,30 @@ Every module is tested against the same black-box suite:
 - corrupted and malicious archives;
 - incompatible host and protocol versions;
 - cloud Authorization Code with PKCE as the default interactive login;
-- cloud Device Authorization as the explicit headless interactive fallback;
+- Device Authorization as the explicit headless login mode, and its refusal
+  with a stable error where the backend does not advertise the grant;
 - rejection of browser and device authorization in CI/non-interactive mode;
-- on-premises browser OAuth/OIDC, personal-access-token, and client-credential
-  configurations without assuming WSO2 Cloud SSO or Identity Server;
+- on-premises identities without assuming WSO2 Cloud SSO or Identity Server;
+- one identity backing several contexts: a single login serving every context
+  that references it, with no further authentication on switch;
+- per-product access derived from one session and bound to each product's
+  audience and scopes, rather than one token reused across products;
+- refusal, rather than a broader grant, where a requested narrowing is
+  unavailable;
+- a product the selected context's identity cannot reach failing with guidance
+  that names the contexts that can;
+- recorded namespace bindings selecting a context, and no selection occurring
+  without an explicit flag, variable, binding, or default;
+- context switching performing no network call and no login;
+- the five writing-grants-nothing properties of §4.7, including a created and
+  an imported context yielding an authentication-class refusal without a login;
+- client credentials completing inline with no separate login step, and the
+  client secret never reaching a module;
 - OS secure-store integration for interactive credentials;
 - CI secret-variable and stdin inputs with no filesystem or secure-store
   persistence;
-- context import/export proving that no credential values are present.
+- identity and context import/export proving that no credential values are
+  present.
 
 ### End-to-end tests
 

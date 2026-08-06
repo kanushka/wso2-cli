@@ -23,6 +23,7 @@
 package fixture
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,20 +32,62 @@ import (
 	"github.com/wso2/wso2-cli/internal/state"
 )
 
-// Install writes the context document into the given state root.
+// LegacyDocument is the schema version 1 document shape, kept here so the
+// acceptance harness can still install v1 documents and exercise the shell's
+// compatibility read. The shell itself never writes this shape.
+type LegacyDocument struct {
+	SchemaVersion  int             `json:"schemaVersion"`
+	DefaultContext string          `json:"defaultContext"`
+	Contexts       []LegacyContext `json:"contexts"`
+}
+
+// LegacyContext is one v1 context.
+type LegacyContext struct {
+	Name           string     `json:"name"`
+	OrganizationID string     `json:"organizationId"`
+	Endpoint       string     `json:"endpoint"`
+	Auth           LegacyAuth `json:"auth"`
+}
+
+// LegacyAuth is a v1 context's authentication arrangement.
+type LegacyAuth struct {
+	Method             string `json:"method"`
+	CredentialVariable string `json:"credentialVariable"`
+}
+
+// Install writes a schema version 1 document into the given state root.
+//
+// The written bytes are decoded back through the shell's own reader, so a
+// fixture cannot install a document the shell would refuse to read.
+func Install(stateRoot string, document LegacyDocument) error {
+	data, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return fmt.Errorf("fixture: cannot encode the legacy context document: %w", err)
+	}
+	data = append(data, '\n')
+	if _, err := contexts.Decode(data); err != nil {
+		return fmt.Errorf("fixture: %w", err)
+	}
+	return write(stateRoot, data)
+}
+
+// WriteV2 writes a schema version 2 document into the state root.
 //
 // The document is validated on the way out, so a fixture cannot install a
 // context the shell would refuse to read.
-func Install(stateRoot string, document contexts.Document) error {
+func WriteV2(stateRoot string, document contexts.Document) error {
+	data, err := document.Encode()
+	if err != nil {
+		return fmt.Errorf("fixture: %w", err)
+	}
+	return write(stateRoot, data)
+}
+
+func write(stateRoot string, data []byte) error {
 	if stateRoot == "" {
 		return fmt.Errorf("fixture: a state root is required")
 	}
 	if err := state.GuardIsolated("write", stateRoot); err != nil {
-		return fmt.Errorf("fixture: %w", err)
-	}
-
-	data, err := document.Encode()
-	if err != nil {
 		return fmt.Errorf("fixture: %w", err)
 	}
 	path := contexts.Path(stateRoot)
