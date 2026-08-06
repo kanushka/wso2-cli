@@ -123,6 +123,24 @@ func TestLoadSplitsScopesOnWhitespaceAndCommas(t *testing.T) {
 	}
 }
 
+func TestLoadRefusesAScopeListThatNamesNoPermission(t *testing.T) {
+	// Separators alone are not an empty string, so a check against the raw
+	// variable passes and a run reaches a live browser to ask for nothing.
+	for _, value := range []string{",", " , ", "\t\n"} {
+		values := configured()
+		values[smoke.ScopeVar] = value
+
+		_, err := smoke.Load(environment(values))
+		if !errors.Is(err, smoke.ErrNotConfigured) {
+			t.Errorf("a scope list of %q loaded as %v, want it reported unconfigured", value, err)
+			continue
+		}
+		if !strings.Contains(err.Error(), smoke.ScopeVar) {
+			t.Errorf("the refusal for %q does not name %s: %v", value, smoke.ScopeVar, err)
+		}
+	}
+}
+
 func TestLoadDerivesTheProductEndpointFromTheIssuer(t *testing.T) {
 	config, err := smoke.Load(environment(configured()))
 	if err != nil {

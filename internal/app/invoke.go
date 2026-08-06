@@ -211,6 +211,13 @@ func contextFlagValue(args []string) (name string, consumed int) {
 	if len(args) < 2 {
 		return "", 1
 	}
+	// A following option is a missing value, not a context named "--output".
+	// Taking it would refuse as an unknown context and send the reader looking
+	// for a context they never asked for, instead of at the flag they left
+	// empty. No context name may begin with "-", so this cannot swallow one.
+	if strings.HasPrefix(args[1], "-") {
+		return "", 1
+	}
 	return args[1], 2
 }
 

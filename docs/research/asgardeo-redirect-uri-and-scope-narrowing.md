@@ -161,13 +161,18 @@ convention and still live via redirect); the rendered page title/URL is
   "Refresh token grant" section shows a complete, literal sample request and
   response:
 
-  ```
+  ```sh
   curl -k https://api.asgardeo.io/t/<organization_name>/oauth2/token \
   --header "Content-Type: application/x-www-form-urlencoded" \
   --header "Authorization: Basic <Base64Encoded(CLIENT_ID:CLIENT_SECRET)>" \
   --data-urlencode "grant_type=refresh_token" \
   --data-urlencode "refresh_token=<REFRESH_TOKEN>"
   ```
+
+  Reproduced exactly as Asgardeo publishes it, `-k` included, because what this
+  section is evidence *about* is what the sample does and does not contain.
+  Do not copy it: `-k` disables server certificate verification, and this
+  request carries client credentials in an `Authorization: Basic` header.
 
   No `scope` parameter appears in the request, the response
   (`access_token`/`refresh_token`/`token_type`/`expires_in`, itself notably

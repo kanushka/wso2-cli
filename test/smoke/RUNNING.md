@@ -249,6 +249,16 @@ only verdicts whose deployment line names the deployment you mean to record.
   tokens, so nothing can be proven about what they carry. Configure the
   application to issue JWT access tokens and run it again; until then this
   question has no answer on this deployment.
+- `inconclusive (deployment stated no scope)` — a token came back, but neither
+  the response nor the token named a permission, so there is nothing to compare
+  against the request. Not a finding about narrowing: it says the deployment
+  declined to state what it issued. Check the API resource is authorized on the
+  application with its scopes selected, then run it again.
+- `inconclusive (unrecognized narrowing refusal)` — the deployment refused and
+  the refusal did not name permissions, so which of the narrowing causes it was
+  cannot be read off it. Record nothing from this one. The run's own output
+  carries the underlying message; section 8 of
+  [the walkthrough](../../docs/guides/login.md) maps it to what to change.
 - `inconclusive (audience not bound)` — a token came back that is not bound to
   the configured audience. On Asgardeo this is not a registration defect to
   fix: Asgardeo binds a JWT access token's `aud` claim to the **client ID**,

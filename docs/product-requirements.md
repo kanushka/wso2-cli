@@ -162,6 +162,13 @@ contract is frozen.
 
 ### 7.2 Authentication and credentials
 
+> **What ships today.** These are requirements on the product, not a description
+> of the current build. The first `wso2 login` slice implements browser
+> Authorization Code with PKCE and inline client credentials. Device
+> authorization and personal access tokens are accepted as legal configuration
+> and refuse at use with the stable code `auth.kind_not_implemented`; there is
+> no `--device-code` flag yet. See [the login first slice](plans/login-first-slice.md).
+
 - **P0:** The root shell owns authentication sessions and credential storage.
 - **P0:** An **identity** is one login session together with every product for
   which the shell can derive valid access from that session without another
@@ -247,6 +254,11 @@ Shared-login success means separate audience- and scope-bound product tokens
 derived from one session. It does not mean one token reused across products.
 
 ### 7.3 Contexts
+
+> **What ships today.** Context selection resolves the `--context` flag, then
+> `WSO2_CONTEXT`, then the configured default. The recorded namespace binding
+> named below is deferred to the workspace design: no document field carries
+> one, so it takes no part in resolution yet.
 
 - **P0:** Every context references exactly one identity.
 - **P0:** One identity may back several contexts, such as several projects or

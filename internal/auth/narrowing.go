@@ -92,6 +92,18 @@ func (r tokenResponse) verify(request Request, namespace string) (bearerFacts, e
 				"module needs", request.Audience, namespace),
 			narrowingRecovery)
 	}
+	// Both sources of a lifetime silent at once leaves nothing to expire, and
+	// expiry() then returns the zero time — which reaches a module as an epoch
+	// expiry, reading as access that died in 1970. Refuse instead of handing
+	// over a grant whose lifetime nobody stated. The response's own expires_in
+	// is only RECOMMENDED by RFC 6749 section 5.1, so this is reachable; when
+	// it is present it wins, exactly as expiry() has it.
+	if r.ExpiresIn <= 0 && facts.ExpiresAt.IsZero() {
+		return bearerFacts{}, denial("auth.narrowing_unavailable",
+			fmt.Sprintf("the deployment stated no lifetime for the access it issued for the %q "+
+				"module, and the token claims none either", namespace),
+			narrowingRecovery)
+	}
 	return facts, nil
 }
 

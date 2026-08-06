@@ -33,7 +33,10 @@ against every backend that validates IdP-issued JWTs (API Platform's
   official React quickstart registers `http://localhost:5173` as the
   authorized redirect URL, so a fixed-port loopback callback (the amctl
   pattern) is viable on the hosted service. Wildcard/ephemeral ports per
-  RFC 8252 §7.3 remain **unknown from public sources**.
+  RFC 8252 §7.3 remain **unknown from public sources** — measured **supported**
+  on 2026-08-06, see
+  [asgardeo-redirect-uri-and-scope-narrowing.md](asgardeo-redirect-uri-and-scope-narrowing.md)
+  §3.
   [React quickstart](https://wso2.com/asgardeo/docs/quick-starts/react/)
 - **The seeded-public-client pattern is documented practice on the Thunder
   side.** amctl's reference documentation ships a default client ID `amctl`
@@ -153,8 +156,15 @@ No backend gap. The plan's env/stdin secret sourcing covers CI.
      authorization time and (per RFC 6749 §6) possibly a narrower `scope` on
      the refresh grant — whether WSO2 honors refresh-time narrowing is
      **unknown from public sources** and needs empirical verification.
+     Measured **honored** on 2026-08-06, on both products.
      Audience follows the API-resource authorization model, not a
-     per-request parameter (landscape §1).
+     per-request parameter (landscape §1) — but what reaches an access
+     token's `aud` is deployment-specific and was not what this predicted:
+     Asgardeo binds it to the client ID with no way to change that, while
+     Identity Server 7.3.0 adds the API resource identifier once it is
+     registered as an audience on the application. See
+     [asgardeo-redirect-uri-and-scope-narrowing.md](asgardeo-redirect-uri-and-scope-narrowing.md)
+     §3 and §3.1.
    The broker therefore needs a per-backend downscoping strategy
    (token-exchange+resource on Thunder; scoped-refresh-or-nothing on
    Asgardeo/IS; none for product-internal tokens), and §4.6's "when the

@@ -134,6 +134,11 @@ func TestMissingContextFlagValue(t *testing.T) {
 		"no value at all":                         {"status", "--context"},
 		"an empty value":                          {"status", "--context", ""},
 		"an empty value joined by an equals sign": {"status", "--context="},
+		// Taking the next option as the name refuses as an unknown context and
+		// sends the reader looking for a context they never asked for, instead
+		// of at the flag they left empty. No context name may begin with "-".
+		"the next option, not a name":            {"status", "--context", "--output", "json"},
+		"the next option at the end of the line": {"status", "--context", "--output"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, _, _, _, err := parseProductArgs("reference", args)

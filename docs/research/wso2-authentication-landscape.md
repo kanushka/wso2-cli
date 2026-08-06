@@ -80,6 +80,15 @@ authorized redirect URLs. Whether `http://127.0.0.1:{port}` loopback redirects
 (RFC 8252 §7.3 style, with variable port) are accepted for the hosted service
 is **unknown from public sources** — no page found either permits or forbids
 loopback redirect registration.
+
+> **Measured since.** This was answered against a live deployment on
+> 2026-08-06 and the verdict is recorded in
+> [asgardeo-redirect-uri-and-scope-narrowing.md](asgardeo-redirect-uri-and-scope-narrowing.md)
+> §3. The finding above stays as written: it records what public sources
+> said at the research date, which is what makes the measurement worth
+> having.
+
+> Any-port loopback: **supported**, on both Asgardeo and Identity Server 7.3.0.
 [OIDC settings reference](https://wso2.com/asgardeo/docs/references/app-settings/oidc-settings-for-app/)
 
 M2M applications get a client ID/secret and "obtain an M2M token using client
@@ -469,6 +478,12 @@ Legend: **S** supported · **P** partially supported · **U** unsupported ·
    HTTP redirect URIs (and variable ports per RFC 8252 §7.3) is unknown from
    public sources and needs empirical verification. Device flow is the
    fallback if loopback registration is restricted.
+
+   **Closed 2026-08-06.** Both fixed-port and any-port loopback redirects work
+   on Asgardeo and on Identity Server 7.3.0, so device flow was not needed as a
+   fallback. See
+   [asgardeo-redirect-uri-and-scope-narrowing.md](asgardeo-redirect-uri-and-scope-narrowing.md)
+   §3.
 
 ### What these systems require that the planned design does not yet cover
 

@@ -406,43 +406,66 @@ func presentedClientID(r *http.Request) string {
 
 func (i *Issuer) refreshGrant(w http.ResponseWriter, r *http.Request) {
 	presented := r.PostForm.Get("refresh_token")
+
+	// Finding the presented token and retiring it happen in one critical
+	// section. Split across two, a pair of concurrent refreshes presenting the
+	// same token both pass the lookup and both rotate, so the issuer honors a
+	// token it had already replaced. That matters more here than it would in a
+	// product: the rotation assertions in test/acceptance/login_test.go and
+	// source_browser_test.go treat this issuer as the oracle for "the previous
+	// refresh token is dead", and an oracle that admits the replay would let a
+	// real double-rotation defect through.
+	//
+	// The scope decision is inside the lock because a refusal must leave the
+	// presented token alive — a deployment that rejects a request does not
+	// retire the credential that made it — and that cannot be decided before
+	// the lookup it depends on. It is map reads and a slice scan, so nothing
+	// blocks on it.
+	requested := splitScopes(r.PostForm.Get("scope"))
+
 	i.mutex.Lock()
 	original, found := i.refreshTokens[presented]
-	i.mutex.Unlock()
-	if !found {
-		oauthError(w, http.StatusBadRequest, "invalid_grant")
-		return
-	}
-	requested := splitScopes(r.PostForm.Get("scope"))
 	issued := original
-	if len(requested) > 0 {
+	rejected := false
+	if found && len(requested) > 0 {
 		switch i.opts.RefreshScopeMode {
 		case "honor":
 			for _, scope := range requested {
 				if !slices.Contains(original, scope) {
-					oauthError(w, http.StatusBadRequest, "invalid_scope")
-					return
+					rejected = true
 				}
 			}
-			issued = requested
+			if !rejected {
+				issued = requested
+			}
 		case "ignore":
 			issued = original
 		case "reject":
-			oauthError(w, http.StatusBadRequest, "invalid_scope")
-			return
+			rejected = true
 		}
+	}
+	var rotated string
+	if found && !rejected && i.opts.RotateRefreshTokens {
+		rotated = randomToken("rt")
+		delete(i.refreshTokens, presented)
+		i.refreshTokens[rotated] = original
+	}
+	i.mutex.Unlock()
+
+	if !found {
+		oauthError(w, http.StatusBadRequest, "invalid_grant")
+		return
+	}
+	if rejected {
+		oauthError(w, http.StatusBadRequest, "invalid_scope")
+		return
 	}
 	response := map[string]any{
 		"access_token": i.mintAccessToken("user-1", issued),
 		"token_type":   "Bearer",
 		"expires_in":   300,
 	}
-	if i.opts.RotateRefreshTokens {
-		rotated := randomToken("rt")
-		i.mutex.Lock()
-		delete(i.refreshTokens, presented)
-		i.refreshTokens[rotated] = original
-		i.mutex.Unlock()
+	if rotated != "" {
 		response["refresh_token"] = rotated
 	}
 	if !i.opts.OmitRefreshScopeField {

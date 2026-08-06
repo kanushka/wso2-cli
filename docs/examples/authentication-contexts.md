@@ -10,7 +10,10 @@ This document illustrates decisions recorded in the architecture and product
 requirements. It does not extend them. Where this document and those disagree,
 they win and this is wrong.
 
-Field names are proposed until the schema is implemented.
+The field names below are implemented: `internal/contexts` serializes and
+validates them, and `schemaVersion` is how the shell tells one shape from
+another. A document naming an unknown version fails closed rather than being
+guessed at, so changing a field name is a schema change and needs a version.
 
 ## 1. Identity and context
 
@@ -429,12 +432,18 @@ configuration error rather than waiting for approval.
 The legal kinds are recorded in [Architecture](../architecture.md) §4.7. Their
 availability is per deployment, not universal:
 
-| Kind | Where it is valid |
-| --- | --- |
-| `oauth-browser` | supported by every identity backend |
-| `oauth-device` | only where the backend advertises the grant; the broker refuses otherwise |
-| `client-credentials` | supported by every identity backend; the preferred CI method |
-| `pat` | only for products that accept product-issued long-lived tokens |
+| Kind | Where it is valid | Today |
+| --- | --- | --- |
+| `oauth-browser` | supported by every identity backend | implemented |
+| `oauth-device` | only where the backend advertises the grant; the broker refuses otherwise | validates, refuses at use with `auth.kind_not_implemented` |
+| `client-credentials` | supported by every identity backend; the preferred CI method | implemented |
+| `pat` | only for products that accept product-issued long-lived tokens | validates, refuses at use with `auth.kind_not_implemented` |
+
+The last column is the first `wso2 login` slice, not a property of the kind. A
+document naming a deferred kind loads and validates — that is deliberate, so
+configuration written ahead of the shell stays readable — and refuses only when
+an identity using it is actually selected. Examples below that use those kinds
+therefore describe intended shape, not something to run today.
 
 Browser and device are **login modes for one interactive OIDC identity**, not
 two stored kinds. `oauth-device` appears as a kind only where an identity can

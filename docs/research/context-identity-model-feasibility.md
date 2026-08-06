@@ -43,7 +43,7 @@ it by `sso_session = <name>` and add only `sso_account_id` and
 `sso_role_name` (targeting). AWS's own manual-configuration doc gives this
 exact pattern:
 
-```
+```ini
 [profile dev]
 sso_session = my-sso
 sso_account_id = 111122223333
@@ -104,7 +104,7 @@ The kubeconfig schema keeps `clusters`, `users`, and `contexts` as three
 independent named lists; a `Context` is a named reference triple, not an
 inline credential:
 
-```
+```text
 Context.cluster: string (Required) — "Cluster is the name of the cluster for this context"
 Context.user:    string (Required) — "AuthInfo is the name of the authInfo for this context"
 Context.namespace: string           — "Namespace is the default namespace..."
@@ -115,7 +115,7 @@ The official multi-cluster-access tutorial demonstrates the identity/context
 split directly, not merely permits it structurally: it creates one
 `developer` user (one credential) and two contexts that both reference it —
 
-```
+```sh
 kubectl config --kubeconfig=config-demo set-credentials developer \
   --client-certificate=fake-cert-file --client-key=fake-key-file
 
@@ -154,7 +154,7 @@ properties, not a fused identity. The configurations guide's own example
 table shows one account reused across three configurations pointed at three
 different projects:
 
-```
+```text
 NAME         IS_ACTIVE     ACCOUNT            PROJECT
 default      False         user@gmail.com     example-project-1
 project-1    False         user@gmail.com     example-project-2

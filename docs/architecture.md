@@ -213,6 +213,14 @@ that rather than presenting it as equivalent.
 
 #### Interactive login modes
 
+> **What ships today.** This section describes the target architecture. The
+> first `wso2 login` slice implements browser Authorization Code with PKCE and
+> inline client credentials. The Device Authorization Grant and personal access
+> tokens validate as legal configuration and refuse at use with the stable code
+> `auth.kind_not_implemented` — accepted so that a document written for them
+> stays readable, not executed. See
+> [the login first slice](plans/login-first-slice.md).
+
 Browser Authorization Code with PKCE and the Device Authorization Grant are two
 **login modes for the same interactive OIDC identity**, not two stored
 authentication methods. An identity records that it authenticates interactively

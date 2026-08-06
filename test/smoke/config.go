@@ -172,7 +172,10 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		{IssuerVar, config.Issuer},
 		{ClientIDVar, config.ClientID},
 		{AudienceVar, config.Audience},
-		{ScopeVar, read(ScopeVar)},
+		// The parsed list, not the raw string: a value of "," or " , " is not
+		// empty and would pass, leaving a run to reach a live login asking for
+		// no permissions at all.
+		{ScopeVar, strings.Join(config.Scopes, " ")},
 	} {
 		if required.value == "" {
 			missing = append(missing, required.name)
