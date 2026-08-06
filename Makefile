@@ -34,6 +34,38 @@ GOLANGCI_LINT ?= $(shell command -v golangci-lint 2>/dev/null || \
 
 SMOKE_PACKAGE := ./test/smoke/
 
+# A file describing one deployment, sourced by the live targets when it exists.
+#
+# Go has no dotenv convention and this module stays lean, so nothing parses this
+# file: it is an ordinary shell fragment, and `. test/smoke/.env` in your own
+# shell has exactly the same effect as letting these targets read it. That is
+# the point — one file, usable either way, and no dependency to make it work.
+#
+# Keep one per deployment and name the one you want:
+#
+#   make smoke-login SMOKE_ENV=test/smoke/asgardeo.env
+#
+# Values in the file overwrite what the calling shell already exported, so
+# switching deployments does not need a fresh terminal. See test/smoke/env.example.
+SMOKE_ENV ?= test/smoke/.env
+
+# `set -a` exports every variable the file assigns, so it works whether the file
+# writes `NAME=value` or the `export NAME=value` lines the registration output
+# prints. Sourcing happens inside the recipe's own shell and reaches nothing else.
+#
+# The `case` keeps a bare filename from being looked up on PATH, which is what
+# POSIX `.` does with an argument carrying no slash.
+#
+# Nothing here may contain a `#`. Make strips one and everything after it from a
+# variable's value without knowing that it fell inside a shell quote, and the
+# recipe then reaches the shell with the quote still open.
+smoke_env = set -a; \
+	if [ -f '$(SMOKE_ENV)' ]; then \
+		echo 'reading $(SMOKE_ENV)' >&2; \
+		case '$(SMOKE_ENV)' in */*) . '$(SMOKE_ENV)';; *) . './$(SMOKE_ENV)';; esac; \
+	fi; \
+	set +a;
+
 # Live runs are never answered from the test cache. A cached pass would report
 # a deployment as working without having contacted it, which is the one result
 # a smoke target must not be able to produce. The timeout is generous because a
@@ -56,6 +88,8 @@ help:
 	@echo '  make empirical-asgardeo   Run the two one-time experiments and print their verdicts.'
 	@echo ''
 	@echo 'Both live targets skip cleanly when no deployment is configured.'
+	@echo 'They read $(SMOKE_ENV) when it exists; name another with'
+	@echo 'SMOKE_ENV=<path>. Copy test/smoke/env.example to start one.'
 	@echo 'See test/smoke/RUNNING.md.'
 
 .PHONY: test
@@ -91,11 +125,12 @@ smoke-build:
 # top of the session. Skips when no deployment is configured.
 .PHONY: smoke-login
 smoke-login:
-	$(GO) test $(SMOKE_FLAGS) $(SMOKE_PACKAGE) -run TestLoginSmoke
+	@$(smoke_env) $(GO) test $(SMOKE_FLAGS) $(SMOKE_PACKAGE) -run TestLoginSmoke
 
 # Answers the two questions the redirect-and-narrowing research left open, and
 # prints one verdict line each for recording in that document. Skips when no
 # deployment is configured.
 .PHONY: empirical-asgardeo
 empirical-asgardeo:
-	WSO2_EMPIRICAL=1 $(GO) test $(SMOKE_FLAGS) $(SMOKE_PACKAGE) -run TestAsgardeoEmpirical
+	@$(smoke_env) WSO2_EMPIRICAL=1 \
+		$(GO) test $(SMOKE_FLAGS) $(SMOKE_PACKAGE) -run TestAsgardeoEmpirical

@@ -161,8 +161,12 @@ acquisition refuses with `auth.narrowing_unavailable`. Section 4.3 says the same
 where the field is defined, and the consequence is recorded in
 [the research document](../research/asgardeo-redirect-uri-and-scope-narrowing.md):
 the audience check still proves a token was minted for this client, but it
-cannot distinguish one product from another. Whether Identity Server 7.x behaves
-this way is not yet measured.
+cannot distinguish one product from another.
+
+Identity Server 7.3.0 does **not** behave this way — the same-looking Audience
+field there reaches access tokens too, so the resource identifier is the right
+value on that product. Section 3.5 has the measurement. Do not carry an
+Asgardeo `audience` over to an Identity Server deployment, or the reverse.
 
 ### 2.6 Record what you need
 
@@ -217,7 +221,30 @@ session.
 
 ## 3. Register the application in Identity Server 7.x
 
-In the Identity Server console, at `https://localhost:9443/console` by default.
+The quickest deployment to register against is a container, which images have
+published for arm64 as well as amd64 since 7.2.0:
+
+```sh
+docker run -d --name wso2is -p 9443:9443 -p 9763:9763 wso2/wso2is:7.3.0
+```
+
+It answers in about a minute, with `admin` / `admin`. Nothing is persisted
+outside the container, so `docker rm -f wso2is` returns the machine to where it
+started — which is the reason to prefer it to an unpacked distribution for this,
+where a half-registered application from a previous attempt is hard to tell from
+a correct one.
+
+An unpacked distribution works identically. Check `repository/conf/deployment.toml`
+for `offset` before assuming the ports: a deployment with `offset = 1` answers
+on 9444, and section 3.6 is where that matters.
+
+Everything below is in the Identity Server console, at
+`https://localhost:9443/console` by default. All of it can also be done through
+the management REST APIs, which accept the administrator's credentials over
+basic auth — `POST /api/server/v1/api-resources`, `POST /api/server/v1/applications`,
+`POST /api/server/v1/applications/{id}/authorized-apis`, `POST /scim2/Users`.
+That is the better route when you expect to rebuild the deployment more than
+once.
 
 ### 3.1 Create the application
 
@@ -239,10 +266,16 @@ Server's regex form as a single entry:
 regexp=(http://127.0.0.1:10425/callback|http://127.0.0.1:10426/callback|http://127.0.0.1:10427/callback|http://127.0.0.1:10428/callback)
 ```
 
-Identity Server also waives the port when matching loopback redirect URIs from
-6.0.0 onwards, so a single `http://127.0.0.1:10425/callback` entry is documented
-to be sufficient there. Registering all four anyway keeps the same
-configuration valid on Asgardeo, where that behavior is not documented.
+Identity Server waives the port when matching loopback redirect URIs from 6.0.0
+onwards, so a single `http://127.0.0.1:10425/callback` entry is enough there.
+Measured on 7.3.0, the waiver is stronger than the documentation implies: a
+login through `127.0.0.1:16000` completed against the regexp above, which
+enumerates four ports and does not include that one. Loopback flexibility is
+applied ahead of the registered pattern rather than as a fallback when none
+matches.
+
+Register all four anyway. It keeps the same configuration valid on Asgardeo, and
+it keeps the registration honest about which ports the shell actually binds.
 
 ### 3.4 Add the API resource and its scopes
 
@@ -252,21 +285,37 @@ Section 2.4's two warnings apply here too: the resource is created on a
 different screen than the one that authorizes it, and the **Requires
 authorization** setting cannot be changed afterwards.
 
-### 3.5 Issue JWT access tokens
+### 3.5 Issue JWT access tokens, and add the audience
 
 Identity Server issues JWT access tokens by default. If the deployment has been
 changed to opaque, change it back for this application — see section 2.5 for
 why.
 
-**What Identity Server puts in a token's `aud` claim is not yet measured.**
-Section 2.5 records that Asgardeo binds it to the client ID rather than the API
-resource; whether Identity Server does the same is an open question. Register
-the API resource identifier as your `audience` first, and if brokered
-acquisition refuses with `auth.narrowing_unavailable` naming the audience, the
-client ID is the value to try instead. Either outcome is worth recording in
-[the research document](../research/asgardeo-redirect-uri-and-scope-narrowing.md),
-because it decides whether that clause of the broker's policy can mean anything
-product-specific at all.
+**Identity Server does not behave like Asgardeo here, and this is the step that
+makes the difference.** Measured against 7.3.0 on 2026-08-06:
+
+| Application's **Audience** list | An access token's `aud` |
+| --- | --- |
+| empty | `"<client id>"` |
+| `reference-status` | `["<client id>", "reference-status"]` |
+
+So on Identity Server the API resource identifier *is* the right value for
+`products.<namespace>.audience` — but only once it is in that list. Leave the
+list empty and `aud` names the client alone, exactly as on Asgardeo, and every
+brokered acquisition refuses with `auth.narrowing_unavailable` naming the
+audience.
+
+On the application's **Protocol** tab, find **Audience** and add the API
+resource identifier from section 3.4.
+
+The field sits under the application's ID token settings on both products, which
+is what makes this easy to get wrong in the other direction: on Asgardeo that
+list reaches the ID token only, and on Identity Server 7.3.0 it reaches both.
+The same-looking control does different work. Section 2.5 records the Asgardeo
+side, and
+[the research document](../research/asgardeo-redirect-uri-and-scope-narrowing.md)
+records what the difference costs — the broker's audience check can distinguish
+one product from another on Identity Server, and cannot on Asgardeo.
 
 ### 3.6 Record what you need
 
@@ -275,10 +324,53 @@ product-specific at all.
   `https://localhost:9443/oauth2/token`. Confirm it from
   `https://localhost:9443/oauth2/token/.well-known/openid-configuration` and use
   the `issuer` value verbatim.
-- **Whether this machine trusts the deployment's TLS certificate.** The shell
-  uses the process's ordinary HTTP client, so a self-signed certificate that is
-  not in the OS trust store fails discovery. See `auth.discovery_failed` in
-  section 8.
+- **Whether this machine trusts the deployment's TLS certificate.** A default
+  deployment serves a self-signed one, the shell uses the process's ordinary
+  HTTP client, and there is no flag anywhere in the shell for a custom CA. So
+  until the certificate is in the OS trust store, login cannot even reach
+  discovery:
+
+  ```
+  tls: failed to verify certificate: x509: certificate signed by unknown authority
+  ```
+
+  On macOS, note that Go **ignores `SSL_CERT_FILE`** — `crypto/x509` honors it
+  on every Unix except Darwin — so the keychain is the only way in. Take the
+  certificate from the port rather than out of a keystore. A container has no
+  keystore on your filesystem to read, and the port is in any case the only
+  place that answers what the deployment actually serves:
+
+  ```sh
+  openssl s_client -connect localhost:9443 -servername localhost </dev/null 2>/dev/null \
+    | openssl x509 -outform pem > wso2carbon-localhost.pem
+
+  security add-trusted-cert -r trustRoot -p ssl \
+    -k ~/Library/Keychains/login.keychain-db wso2carbon-localhost.pem
+  ```
+
+  Use the port the deployment answers on, which is not 9443 if it carries an
+  offset. Against 7.3.0 this produces the same bytes as
+  `keytool -exportcert -alias wso2carbon -keystore repository/resources/security/wso2carbon.p12 -storepass wso2carbon`
+  from an unpacked distribution's root — that is the command to reach for if you
+  need the certificate before the deployment is running.
+
+  **Understand what that second command grants before running it.** The default
+  certificate is `CA:TRUE`, and its private key ships inside every Identity
+  Server download and every copy of the public container image, behind the
+  published password `wso2carbon` — the zip and the image serve a byte-identical
+  certificate. Trusting it as a root means trusting a signing key that anyone
+  can obtain, for any hostname, not just this deployment. `-p ssl` confines it
+  to TLS and the login keychain confines it to your user. Remove it when the
+  runs are done:
+
+  ```sh
+  security delete-certificate -c localhost ~/Library/Keychains/login.keychain-db
+  ```
+
+  The alternative, if that trade is not one you want to make even briefly, is to
+  replace the deployment's keypair with one whose private key only you hold.
+
+  See also `auth.discovery_failed` in section 8.
 
 You also need a user to sign in as, and possibly a role granting the scopes.
 Section 2.7 describes both; the reasoning is identical on Identity Server, only
@@ -660,15 +752,17 @@ The message tells you which of five things happened:
 | "in a form the shell cannot check" | The access token is opaque. | Set the application to issue JWT access tokens (section 2.5). |
 | "did not state which permissions it issued" | The deployment returned no scope, and the token claims none. | Check the API resource is authorized on the application with the scopes selected. |
 | "asked for the permissions X and the deployment issued Y" | The deployment ignored the narrower request and issued something else. | The deployment does not narrow on this grant. See below. |
-| "is not bound to the ... audience" | The token's `aud` does not carry your audience. | The `audience` in your context document is not the API resource identifier, or the resource is not authorized on the application. |
+| "is not bound to the ... audience" | The token's `aud` does not carry your audience. | The `audience` in your context document names something the deployment never puts in `aud`. Which value that is differs by product: the **client ID** on Asgardeo (section 2.5), the **API resource identifier** on Identity Server, and there only once it is in the application's audience list (section 3.5). Failing that, the resource is not authorized on the application. |
 | "refused to narrow this session" | The token endpoint answered `invalid_scope`. | A scope in your context document is not one the application is authorized for. |
 
 The middle case — a deployment that will not narrow — is a property of the
-deployment, not something to work around in the shell. Whether Asgardeo narrows
-on the refresh grant is
-[recorded in the research document](../research/asgardeo-redirect-uri-and-scope-narrowing.md)
-once measured against a live tenant. Where it does not narrow, login and session
-persistence still work; brokered acquisition refuses, and that refusal is
+deployment, not something to work around in the shell. Both supported products
+do narrow: measured on 2026-08-06 against a live Asgardeo tenant and against
+Identity Server 7.3.0, a session carrying two permissions was refreshed down to
+one and answered with exactly that one. Both verdicts are in
+[the research document](../research/asgardeo-redirect-uri-and-scope-narrowing.md).
+So this row should be rare, and where it does appear, login and session
+persistence still work while brokered acquisition refuses — and that refusal is
 correct.
 
 ### `auth.organization_switch_unsupported`
@@ -791,6 +885,14 @@ go test -tags smoke ./test/smoke -run TestLoginSmoke -v
 
 ### 9.2 Describe the deployment
 
+Put it in a file rather than in your shell. You will end up with more than one
+deployment, and the variable that differs between them is not the one you would
+guess:
+
+```sh
+cp test/smoke/env.example test/smoke/.env
+```
+
 ```sh
 export WSO2_SMOKE_ISSUER='https://api.asgardeo.io/t/<org>/oauth2/token'
 export WSO2_SMOKE_CLIENT_ID='<client id>'
@@ -798,11 +900,22 @@ export WSO2_SMOKE_AUDIENCE='<client id>'     # on Asgardeo — see section 2.5
 export WSO2_SMOKE_SCOPE='reference:status:read reference:status:write'
 ```
 
+`make smoke-login` and `make empirical-asgardeo` source `test/smoke/.env` when
+it exists, and print which file they read. Keep one per deployment and name it
+with `SMOKE_ENV=test/smoke/is.env`. Nothing parses these files — Go has no
+dotenv convention and the module carries no dependency that would add one — so
+`. test/smoke/is.env` in your own shell does exactly what `make` does. Values in
+the file overwrite what the shell already exported, which is what keeps a
+leftover export from the last deployment from quietly outranking the file you
+just edited. `*.env` is ignored by git.
+
 `WSO2_SMOKE_CLIENT_ID` and `WSO2_SMOKE_AUDIENCE` are different fields that
 Asgardeo happens to force to the same value: the first says who is asking, the
-second says what the issued token must be bound to. On a deployment that binds
-tokens to API resources they differ, and the second is the resource identifier
-from section 2.4.
+second says what the issued token must be bound to. **On Identity Server 7.x
+they differ**, and the second is the resource identifier from section 2.4 —
+measured on 7.3.0, section 3.5. Copying one deployment's file to another and
+changing only the issuer is therefore the mistake to expect; it costs a browser
+sign-in and ends in `auth.narrowing_unavailable` naming the audience.
 
 Confirm the issuer against the deployment's own document before spending a
 sign-in on a value that is close but not exact:

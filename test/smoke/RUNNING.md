@@ -16,6 +16,40 @@ These runs need a human. They open a real browser and wait for a real sign-in.
 Register the application first — [the walkthrough](../../docs/guides/login.md)
 covers Asgardeo and Identity Server 7.x — then describe it with these variables.
 
+Describing it once in a file beats re-exporting it into every shell. Copy
+[`env.example`](env.example) and fill it in:
+
+```sh
+cp test/smoke/env.example test/smoke/.env
+make smoke-login
+```
+
+Both live targets source `test/smoke/.env` when it exists and print which file
+they read. Keep one per deployment and name the one you want:
+
+```sh
+make smoke-login SMOKE_ENV=test/smoke/asgardeo.env
+```
+
+Nothing parses these files. Go has no dotenv convention and this module has no
+dependency that would add one — the file is an ordinary shell fragment, so
+sourcing it yourself does exactly what `make` does, which is what to do when
+running `go test` directly:
+
+```sh
+. test/smoke/asgardeo.env
+go test -tags smoke -count=1 -v -timeout 30m ./test/smoke/ -run TestLoginSmoke
+```
+
+Sourcing overwrites what the calling shell already exported, so the file you
+name always wins and switching deployments does not need a fresh terminal. That
+matters most in the case that would otherwise be baffling: a leftover export
+from the last deployment quietly outranking the file you just edited.
+
+`*.env` is ignored by git. Nothing secret belongs in one anyway — a public
+client has no secret — and a client secret in a file this casual is a mistake
+worth avoiding on purpose.
+
 | Variable | Required | Meaning |
 | --- | --- | --- |
 | `WSO2_SMOKE_ISSUER` | yes | The issuer exactly as its discovery document states it. Asgardeo: `https://api.asgardeo.io/t/<org>/oauth2/token`. Identity Server 7.x: `https://localhost:9443/oauth2/token`. |
@@ -45,41 +79,96 @@ believed they had configured would be worse than one that stopped.
 ## The smoke run
 
 ```sh
-export WSO2_SMOKE_ISSUER='https://api.asgardeo.io/t/<org>/oauth2/token'
-export WSO2_SMOKE_CLIENT_ID='<client id>'
-export WSO2_SMOKE_AUDIENCE='<api resource identifier>'
-export WSO2_SMOKE_SCOPE='reference:status:read reference:status:write'
-
+cp test/smoke/env.example test/smoke/.env   # then fill it in
 make smoke-login
 ```
 
-A browser opens; sign in. The run then proves three things in order: `wso2 login`
+A browser opens; sign in. The run then proves four things in order: `wso2 login`
 exits zero, the refresh token is readable back out of the operating system's
-secure store, and the broker derives one access token from that session.
+secure store, the broker derives an access token from that session, and it
+derives a second one carrying strictly less than the session holds:
 
-Run it once per deployment. Against a local Identity Server, the only change is
-the issuer:
+```
+LOGIN SMOKE: granted  — asked for everything the session carries, received access of
+                        1261 characters bound to "reference-status" carrying
+                        [reference:status:read reference:status:write]
+LOGIN SMOKE: narrowed — asked for one permission out of the 2 the session holds,
+                        received access of 1230 characters bound to "reference-status"
+                        carrying [reference:status:read]
+```
+
+The second line is the one that measures anything about narrowing. When the
+request is every permission the session already carries, the shell compares the
+issued scopes against an identical request, so that check holds however the
+deployment behaved — a deployment that disregarded the request entirely would
+still be reported as granted. Only a strict subset can fail, and a strict subset
+is what a module actually asks for.
+
+The two acquisitions run as two separate invocations because the shell allows a
+module one acquisition per command and refuses a second with
+`auth.already_granted`. Against a deployment that rotates refresh tokens, the
+second acquisition also proves the first persisted its replacement.
+
+Run it once per deployment. Two things change between them, and only one of them
+is obvious:
 
 ```sh
 export WSO2_SMOKE_ISSUER='https://localhost:9443/oauth2/token'
 export WSO2_SMOKE_IDENTITY_TYPE=onprem
-make smoke-login
 ```
+
+The other is the audience. On Asgardeo it has to be the **client ID**, because
+that is the only value Asgardeo ever puts in an access token's `aud`. On
+Identity Server it is the **API resource identifier**, which reaches `aud` once
+the identifier is in the application's audience list. Sections 2.5 and 3.5 of
+[the walkthrough](../../docs/guides/login.md) cover both. This is the main
+reason to keep a file per deployment rather than editing one in place.
+
+A local Identity Server also has to be trusted by the operating system before
+any of this can reach it — see section 3.6 of the walkthrough.
 
 ### The one refusal that is not a failure
 
-If the deployment will not prove a narrowed grant, the acquisition step reports:
+If the deployment will not prove a grant is exactly what was asked for, the
+acquisition step reports:
 
 ```
-LOGIN SMOKE: refused auth.narrowing_unavailable — the deployment would not prove
-a narrowed grant. Login and session persistence passed; this refusal is the
-designed outcome, not a failure.
+LOGIN SMOKE: refused auth.narrowing_unavailable — asked for one permission out of
+the 2 the session holds, and the shell would not hand the module a grant it could
+not prove was exactly what it asked for. Login and session persistence passed;
+this refusal is the designed outcome, not a failure.
+  auth_policy: auth.narrowing_unavailable: the "reference" module asked for the
+  permissions reference:status:read and the deployment issued
+  reference:status:read, reference:status:write
 ```
 
 and the run passes. The shell does not hand a module more authority than it
 asked for, so refusing is the correct behavior, not a fallback. The walkthrough's
 troubleshooting section explains what to change in the registration if you want
 a grant instead.
+
+**The indented line is the one to read.** The sentence above it is the same for
+every refusal, because `auth.narrowing_unavailable` covers five distinct causes
+and a summary naming one of them would be wrong four times out of five. The
+indented line is the shell's own message and says which one happened. The
+example above is a deployment that disregarded the request — it answered a
+one-permission request with both. The other four read:
+
+| The indented line says | What happened |
+| --- | --- |
+| refused to narrow this session | the token endpoint answered `invalid_scope`. Not always the deployment's verdict: an authorization policy the signed-in user does not satisfy answers identically. See the `rejected` narrowing verdict below. |
+| in a form the shell cannot check | the access token is opaque, so nothing about it can be proven |
+| did not state which permissions it issued | neither the response nor the token named a scope |
+| not bound to the *audience* | the token is real but carries a different `aud` — on Asgardeo, almost always because the audience is set to the API resource rather than the client ID |
+
+Section 8 of [the walkthrough](../../docs/guides/login.md) tabulates the same
+five against what to change in the registration.
+
+Read which acquisition refused, too. On the **narrowed** one it is a statement
+about the deployment: it would not issue a token carrying strictly less than the
+session. On the **broad** one it is almost always the registration instead —
+most often an audience the deployment never binds — and the run stops there
+rather than repeating one finding twice.
 
 ## The experiments
 

@@ -27,6 +27,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/wso2/wso2-cli/internal/app"
@@ -40,8 +41,16 @@ import (
 
 // TestLoginSmoke drives the whole slice against a deployment that really
 // exists: `wso2 login` through a browser a human answers, the refresh token
-// into the operating system's secure store, and one brokered acquisition on
+// into the operating system's secure store, and two brokered acquisitions on
 // top of the session that login established.
+//
+// The second acquisition is the one that measures anything about narrowing.
+// Asking for every permission the session carries — which is all this test used
+// to do — leaves the broker comparing the issued scopes against an identical
+// request, so the check holds no matter what came back and a deployment that
+// disregarded the request entirely would still be reported as granted. Asking
+// for a strict subset is the request a module actually makes, and it is the
+// only form of it that can fail.
 //
 // It is written to pass against both a hosted Asgardeo tenant and a local
 // Identity Server 7.x from the same code, because the shell makes no
@@ -103,19 +112,76 @@ func TestLoginSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the smoke document selects no context: %v", err)
 	}
-	broker := &auth.Broker{
-		Namespace:    smoke.Namespace,
-		Capabilities: config.Capabilities(),
-		Selection:    selection,
-		InvocationID: "smoke-login",
-		StateRoot:    stateRoot,
+	// One broker per acquisition, because the shell allows a module one
+	// acquisition per command and refuses a second with auth.already_granted.
+	// Two brokers is therefore not a way around that rule but the accurate
+	// model of what happens: two commands, run in turn against one session, the
+	// way a developer uses the shell.
+	brokerFor := func(invocation string) *auth.Broker {
+		return &auth.Broker{
+			Namespace:    smoke.Namespace,
+			Capabilities: config.Capabilities(),
+			Selection:    selection,
+			InvocationID: invocation,
+			StateRoot:    stateRoot,
+		}
 	}
 
-	grant, err := broker.Acquire(auth.Request{Audience: config.Audience, Scopes: config.Scopes})
+	// Two acquisitions, because they fail for different reasons and only one of
+	// them can catch a deployment that disregards a narrowing request.
+	//
+	// The first asks for every permission the session already carries. It
+	// proves the broker can derive access at all, which is what a first run
+	// against a new deployment needs to know. What it cannot prove is
+	// narrowing: internal/auth/narrowing.go compares the issued scopes against
+	// the requested ones, and when the request is the whole session that
+	// comparison is a set against itself. It holds however the deployment
+	// behaved.
+	if !acquire(t, brokerFor("smoke-login-broad"),
+		auth.Request{Audience: config.Audience, Scopes: config.Scopes},
+		"granted", "everything the session carries") {
+		// The broad request already refused, and the narrow one would refuse
+		// the same way for the same reason — a deployment that will not issue
+		// against this audience at all says nothing about narrowing. Running it
+		// would add a second copy of one finding.
+		return
+	}
+
+	// The second asks for one permission out of the several the session holds,
+	// which is the request an actual module makes. Here the verification has
+	// something it can disagree with: a deployment that answered with the full
+	// set is caught, and a granted line means the shell watched a real session
+	// be narrowed rather than assuming it.
+	//
+	// Against a deployment that rotates refresh tokens, this second run also
+	// proves the first one persisted its replacement — it can only reach the
+	// token endpoint at all with what the first run stored.
+	target, err := config.NarrowTarget()
+	if err != nil {
+		t.Logf("LOGIN SMOKE: narrowing not measured — %v", err)
+		return
+	}
+	acquire(t, brokerFor("smoke-login-narrowed"),
+		auth.Request{Audience: config.Audience, Scopes: []string{target}},
+		"narrowed", "one permission out of the "+strconv.Itoa(len(config.Scopes))+" the session holds")
+}
+
+// acquire runs one brokered acquisition and reports it the way a human reading
+// a smoke run needs, returning whether access was granted.
+//
+// asked describes the request in prose, because the interesting part of a
+// verdict line is not the scope list but why that list was chosen.
+func acquire(t *testing.T, broker *auth.Broker, request auth.Request, verdict, asked string) bool {
+	t.Helper()
+
+	grant, err := broker.Acquire(request)
 	switch {
 	case err == nil:
-		t.Logf("LOGIN SMOKE: granted — access of %d characters bound to %q, expiring %s",
-			len(grant.Token), config.Audience, grant.ExpiresAt.Format("15:04:05Z07:00"))
+		t.Logf("LOGIN SMOKE: %s — asked for %s, received access of %d characters bound to %q "+
+			"carrying %v, expiring %s",
+			verdict, asked, len(grant.Token), request.Audience, request.Scopes,
+			grant.ExpiresAt.Format("15:04:05Z07:00"))
+		return true
 	case refusalCode(err) == codeNarrowingUnavailable:
 		// Documented, correct behavior. See this test's own doc comment and
 		// docs/guides/login.md's troubleshooting section.
@@ -127,10 +193,13 @@ func TestLoginSmoke(t *testing.T) {
 		// The interpolated error text below is what actually says which of the
 		// five happened; this sentence only states what is true regardless: the
 		// shell declined to hand the module more authority than it asked for.
-		t.Logf("LOGIN SMOKE: refused %s — the shell would not hand the module a grant it could not "+
-			"prove was exactly what it asked for. Login and session persistence passed; this refusal "+
-			"is the designed outcome, not a failure.\n  %v", codeNarrowingUnavailable, err)
+		t.Logf("LOGIN SMOKE: refused %s — asked for %s, and the shell would not hand the module a "+
+			"grant it could not prove was exactly what it asked for. Login and session persistence "+
+			"passed; this refusal is the designed outcome, not a failure.\n  %v",
+			codeNarrowingUnavailable, asked, err)
+		return false
 	default:
 		t.Fatalf("the broker refused for a reason this slice does not accept: %v", err)
+		return false
 	}
 }
