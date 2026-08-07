@@ -284,15 +284,13 @@ func Empirical(lookup func(string) (string, bool)) bool {
 func RegisteredPorts() []int { return []int{10425, 10426, 10427, 10428} }
 
 // readableProviders are the identity providers a deployment description may
-// name. It is the shell's own list, so a run cannot describe a deployment the
-// context document would then refuse.
-func readableProviders() []string {
-	return []string{
-		contexts.ProviderAsgardeo,
-		contexts.ProviderIdentityServer,
-		contexts.ProviderThunder,
-	}
-}
+// name.
+//
+// It defers to the shell's own list rather than repeating it. A copy here would
+// drift the moment a product is added: this package would refuse a provider the
+// shell accepts, and report a description that was correct as a deployment that
+// could not be run.
+func readableProviders() []string { return contexts.Providers() }
 
 // Document is the schema version 2 context document a live run installs.
 //

@@ -29,11 +29,19 @@ import (
 	"github.com/zalando/go-keyring"
 )
 
-// thunderDoc is browserDoc against a deployment that decides the audience at
-// authorization time.
+// theResource is the protected resource a deployment that decides the audience
+// at authorization time mints access for. It is an absolute URI because RFC 8707
+// requires the indicator to be one, and because the context schema now refuses
+// anything else on an identity that derives this way.
+const theResource = "https://deployment.example.test/reference-status"
+
+// thunderDoc is browserDoc against such a deployment.
 func thunderDoc(issuerURL string) contexts.Document {
 	document := browserDoc(issuerURL)
 	document.Identities[0].Auth.Provider = contexts.ProviderThunder
+	product := document.Identities[0].Products["reference"]
+	product.Audience = theResource
+	document.Identities[0].Products["reference"] = product
 	return document
 }
 
@@ -66,7 +74,7 @@ func TestLoginBindsTheSessionToTheResourceTheProductNames(t *testing.T) {
 	if stored.RefreshToken == "" {
 		t.Fatal("the stored session holds no refresh token")
 	}
-	if !strings.Contains(errOut.String(), "resource="+url.QueryEscape("reference-status")) {
+	if !strings.Contains(errOut.String(), "resource="+url.QueryEscape(theResource)) {
 		t.Fatalf("the authorization URL carried no resource indicator:\n%s", errOut)
 	}
 }

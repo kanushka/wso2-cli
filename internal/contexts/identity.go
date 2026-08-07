@@ -93,6 +93,16 @@ var legalDerivations = map[string]bool{
 	DerivationScopedRefresh: true, DerivationTokenResource: true,
 }
 
+// Providers are the identity providers a document may name, in a stable order.
+//
+// It is exported because the list has readers outside this package — the live
+// runs describe a deployment before building a document from it, and a harness
+// that accepted a name the shell then refused would report a configuration
+// mistake as a failed deployment. One list, one place to add the next product.
+func Providers() []string {
+	return slices.Sorted(maps.Keys(providerDerivation))
+}
+
 // refPattern constrains a credential reference to one readable word, exactly
 // as context names are constrained. A credential value pasted where a
 // reference belongs — a JWT, anything with dots, equals signs, or upper-case
@@ -227,10 +237,29 @@ func (i Identity) validateDerivation() error {
 				"and gives it %d products", i.Name, len(i.Products)))
 	}
 	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
-		if i.Products[namespace].Audience == "" {
+		audience := i.Products[namespace].Audience
+		if audience == "" {
 			return malformed(fmt.Sprintf(
 				"declares the %q product on the identity %q without the audience its deployment "+
 					"binds access to", namespace, i.Name))
+		}
+		// The audience travels as an RFC 8707 resource indicator, which section
+		// 2 of that specification requires to be an absolute URI carrying no
+		// fragment. A bare identifier is the shape the other two products use
+		// and is accepted by neither the specification nor a deployment reading
+		// it, so it is refused here rather than at the end of a browser sign-in
+		// that ends in invalid_target.
+		//
+		// The rule is the specification's and stops there. Requiring a
+		// particular scheme, or a host, would refuse identifiers RFC 8707
+		// permits — a URN names a resource server perfectly well — and this
+		// shell never dereferences the value, so it has no reason to hold an
+		// opinion the specification does not.
+		parsed, err := url.Parse(audience)
+		if err != nil || parsed.Scheme == "" || parsed.Fragment != "" {
+			return malformed(fmt.Sprintf(
+				"declares the %q product on the identity %q with an audience that is not an "+
+					"absolute URI, which is what its deployment binds access by", namespace, i.Name))
 		}
 	}
 	return nil
