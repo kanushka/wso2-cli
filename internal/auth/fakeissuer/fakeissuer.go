@@ -86,6 +86,11 @@ type Options struct {
 	// worth modeling is not the refusal but what follows from it: a session
 	// established this way reaches exactly one protected resource.
 	RequireResource bool
+	// RegisteredResource is the only protected resource this deployment knows,
+	// when it is set. A request naming any other is refused with invalid_target,
+	// modeling a resource server that was never registered — the same OAuth
+	// error as a request that named none, arriving for the opposite reason.
+	RegisteredResource string
 	// RotateRefreshTokens issues a new refresh token on every refresh,
 	// invalidating the one presented.
 	RotateRefreshTokens bool
@@ -130,8 +135,8 @@ type Issuer struct {
 
 	mutex         sync.Mutex
 	codes         map[string]codeGrant
-	refreshTokens map[string][]string    // refresh token -> granted scopes
-	accessTokens  map[string]tokenRecord // access token -> introspectable facts
+	refreshTokens map[string]refreshRecord // refresh token -> what it may renew
+	accessTokens  map[string]tokenRecord   // access token -> introspectable facts
 }
 
 type codeGrant struct {
@@ -141,6 +146,18 @@ type codeGrant struct {
 	nonce       string
 	clientID    string
 	resource    string
+}
+
+// refreshRecord is what a refresh token may renew: the permissions it was
+// granted, and the protected resource the authorization bound it to.
+//
+// The resource travels with the token because that is what the deployments
+// requiring one do — the binding is established once, at authorization, and
+// every renewal inherits it. A fixture that dropped it would let the shell's
+// refresh look correct while a real deployment returned access bound elsewhere.
+type refreshRecord struct {
+	scopes   []string
+	resource string
 }
 
 type tokenRecord struct {
@@ -167,7 +184,7 @@ func New(t *testing.T, opts Options) *Issuer {
 		key:           key,
 		keyID:         randomToken("key"),
 		codes:         map[string]codeGrant{},
-		refreshTokens: map[string][]string{},
+		refreshTokens: map[string]refreshRecord{},
 		accessTokens:  map[string]tokenRecord{},
 	}
 	if opts.NegativeSerialCertificate {
@@ -197,7 +214,25 @@ func (i *Issuer) SeedSession(scopes []string) string {
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
 	seeded := randomToken("rt")
-	i.refreshTokens[seeded] = append([]string(nil), scopes...)
+	i.refreshTokens[seeded] = refreshRecord{scopes: append([]string(nil), scopes...)}
+	return seeded
+}
+
+// SeedSessionFor stores a session established against one protected resource,
+// as a login carrying a resource indicator leaves behind.
+//
+// It is separate from SeedSession because the binding is the point: a test that
+// seeds without one and then asserts the audience would be asserting the
+// registration's audience, and would pass whether or not the renewal carried
+// anything forward.
+func (i *Issuer) SeedSessionFor(scopes []string, resource string) string {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	seeded := randomToken("rt")
+	i.refreshTokens[seeded] = refreshRecord{
+		scopes:   append([]string(nil), scopes...),
+		resource: resource,
+	}
 	return seeded
 }
 
@@ -411,7 +446,7 @@ func (i *Issuer) exchangeCode(w http.ResponseWriter, r *http.Request) {
 	if !i.opts.OmitRefreshToken {
 		refreshToken := randomToken("rt")
 		i.mutex.Lock()
-		i.refreshTokens[refreshToken] = grant.scopes
+		i.refreshTokens[refreshToken] = refreshRecord{scopes: grant.scopes, resource: grant.resource}
 		i.mutex.Unlock()
 		response["refresh_token"] = refreshToken
 	}
@@ -447,7 +482,8 @@ func (i *Issuer) refreshGrant(w http.ResponseWriter, r *http.Request) {
 	requested := splitScopes(r.PostForm.Get("scope"))
 
 	i.mutex.Lock()
-	original, found := i.refreshTokens[presented]
+	record, found := i.refreshTokens[presented]
+	original := record.scopes
 	issued := original
 	rejected := false
 	if found && len(requested) > 0 {
@@ -471,7 +507,10 @@ func (i *Issuer) refreshGrant(w http.ResponseWriter, r *http.Request) {
 	if found && !rejected && i.opts.RotateRefreshTokens {
 		rotated = randomToken("rt")
 		delete(i.refreshTokens, presented)
-		i.refreshTokens[rotated] = original
+		// The replacement inherits the resource as well as the permissions. A
+		// rotation that dropped the binding would leave the session renewable
+		// but bound to nothing, which no deployment does.
+		i.refreshTokens[rotated] = record
 	}
 	i.mutex.Unlock()
 
@@ -483,8 +522,10 @@ func (i *Issuer) refreshGrant(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_scope")
 		return
 	}
+	// The renewal carries the binding the authorization established, which is
+	// what makes a resource indicator unnecessary on this grant.
 	response := map[string]any{
-		"access_token": i.mintAccessToken("user-1", issued),
+		"access_token": i.mintAccessTokenFor("user-1", issued, record.resource),
 		"token_type":   "Bearer",
 		"expires_in":   300,
 	}
@@ -509,6 +550,10 @@ func (i *Issuer) clientCredentialsGrant(w http.ResponseWriter, r *http.Request) 
 	// from, so a deployment that decides the audience per request has nothing to
 	// go on and refuses outright.
 	if i.opts.RequireResource && resource == "" {
+		oauthError(w, http.StatusBadRequest, "invalid_target")
+		return
+	}
+	if i.opts.RegisteredResource != "" && resource != i.opts.RegisteredResource {
 		oauthError(w, http.StatusBadRequest, "invalid_target")
 		return
 	}
@@ -593,10 +638,6 @@ func (i *Issuer) handleIntrospect(w http.ResponseWriter, r *http.Request) {
 
 // mintAccessToken signs a real RS256 access token and records it for
 // introspection.
-func (i *Issuer) mintAccessToken(subject string, scopes []string) string {
-	return i.mintAccessTokenFor(subject, scopes, "")
-}
-
 // mintAccessTokenFor mints access bound to one named resource, falling back to
 // the registration's audience when the request named none. A deployment that
 // takes a resource indicator binds the token to it and to nothing else, which

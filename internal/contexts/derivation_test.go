@@ -124,6 +124,23 @@ func TestAThunderIdentityWhoseProductNamesNoAudienceIsRefused(t *testing.T) {
 	assertProblemCode(t, err, "contexts.document_malformed")
 }
 
+// An identity that binds access to a resource and names no product has no
+// resource to bind to. Login would then send no indicator and be refused by the
+// deployment, which is the failure this validation exists to move earlier.
+func TestAResourceBoundIdentityWithoutAProductIsRefused(t *testing.T) {
+	_, err := contexts.Decode([]byte(withoutProducts(withProvider(contexts.ProviderThunder))))
+	assertProblemCode(t, err, "contexts.document_malformed")
+}
+
+// An identity that derives the way every deployment did before may still
+// declare no product; the refusal above is about the derivation, not about
+// identities in general.
+func TestAnIdentityWithoutAProductStaysLegalOtherwise(t *testing.T) {
+	if _, err := contexts.Decode([]byte(withoutProducts(validV2()))); err != nil {
+		t.Fatalf("an identity with no products should validate: %v", err)
+	}
+}
+
 // A resource indicator is an absolute URI by RFC 8707 section 2, so a document
 // that derives by resource and names a bare identifier describes a request the
 // deployment will refuse. Catching it here is the difference between a document
@@ -220,6 +237,15 @@ func withDerivation(provider, derivation string) string {
 	return strings.Replace(withProvider(provider),
 		`"kind": "oauth-browser",`,
 		`"kind": "oauth-browser", "narrowing": "`+derivation+`",`, 1)
+}
+
+func withoutProducts(document string) string {
+	opening := strings.Index(document, `"products": {`)
+	// The identity's own closing brace is the first one at this indentation;
+	// the product's is nested deeper, so anchoring on the newline is what keeps
+	// this from cutting the document in the wrong place.
+	closing := strings.Index(document[opening:], "\n      }") + opening + len("\n      }")
+	return document[:opening] + `"products": {}` + document[closing:]
 }
 
 func withSecondProduct(document string) string {

@@ -231,10 +231,14 @@ func (i Identity) validateDerivation() error {
 	if i.Auth.Derivation() != DerivationTokenResource {
 		return nil
 	}
-	if len(i.Products) > 1 {
+	// Exactly one, not at most one. A deployment that binds by resource takes
+	// the resource from the identity's product, so an identity with none has
+	// nothing to name: login would send no indicator and be refused, which is
+	// the failure this whole validation exists to move earlier.
+	if len(i.Products) != 1 {
 		return malformed(fmt.Sprintf(
 			"declares the identity %q against a deployment that binds one login to one product, "+
-				"and gives it %d products", i.Name, len(i.Products)))
+				"and gives it %d", i.Name, len(i.Products)))
 	}
 	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
 		audience := i.Products[namespace].Audience

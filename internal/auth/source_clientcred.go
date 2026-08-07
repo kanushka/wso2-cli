@@ -89,7 +89,7 @@ func (s clientCredentialsSource) mint(request Request, now time.Time) (Grant, er
 	issued, err := requestToken(ctx, s.client, endpoint, form,
 		clientAuth{id: s.identity.Auth.ClientID, secret: s.secret})
 	if err != nil {
-		return Grant{}, s.refusedGrant(err)
+		return Grant{}, s.refusedGrant(err, form.Get("resource"))
 	}
 	facts, err := issued.verify(request, s.namespace)
 	if err != nil {
@@ -104,10 +104,20 @@ func (s clientCredentialsSource) mint(request Request, now time.Time) (Grant, er
 // Three answers are worth telling apart, because they send the user to three
 // different places: a registration the deployment owns, a secret the job owns,
 // and an issuer this shell cannot speak for.
-func (s clientCredentialsSource) refusedGrant(err error) error {
+// sent is the resource indicator this request carried, empty when it carried
+// none. It is what tells the two halves of invalid_target apart.
+func (s clientCredentialsSource) refusedGrant(err error, sent string) error {
 	var refusal issuerRefusal
 	switch {
-	case errors.As(err, &refusal) && refusal.requiresResourceIndicator():
+	case errors.As(err, &refusal) && refusal.rejectedTarget() && sent != "":
+		// The deployment was told which resource and does not know it. The
+		// resource is a name the user chose and is not a secret, so the refusal
+		// says which one was rejected rather than leaving them to guess.
+		return denial("auth.narrowing_unavailable",
+			fmt.Sprintf("the deployment does not recognize %q as a protected resource for the %q module",
+				sent, s.namespace),
+			unknownResourceRecovery)
+	case errors.As(err, &refusal) && refusal.rejectedTarget():
 		return denial("auth.narrowing_unavailable",
 			fmt.Sprintf("the deployment will not issue access for the %q module without being told "+
 				"which protected resource it is for", s.namespace),

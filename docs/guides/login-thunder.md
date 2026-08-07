@@ -89,6 +89,13 @@ docker run -d --name thunderid -p 8490:8090 \
     && ./setup.sh --admin-username admin --admin-password "Admin@123" && ./start.sh'
 ```
 
+**Everything below this point writes `8090`.** If you took the offset recipe,
+substitute the host port you chose — in the discovery URL, the console URL, the
+certificate you trust, the resource server's identifier, and the issuer and
+audience you write into the context document. The port is part of the issuer's
+identity here, not a detail of how you reach it, so a value that is close but
+not exact fails at discovery.
+
 Confirm what it advertises rather than assuming it:
 
 ```sh
@@ -112,7 +119,7 @@ self-signed certificate. The shell uses the process's ordinary HTTP client and
 has no flag anywhere for a custom certificate authority, so until that
 certificate is trusted, login cannot reach discovery at all:
 
-```
+```text
 tls: failed to verify certificate: x509: certificate signed by unknown authority
 ```
 
@@ -207,7 +214,7 @@ does not need the fallback.
 3. On the **General** tab, under **Authorized redirect URIs**, add all four
    loopback callbacks with **Add URI**:
 
-   ```
+   ```text
    http://127.0.0.1:10425/callback
    http://127.0.0.1:10426/callback
    http://127.0.0.1:10427/callback
