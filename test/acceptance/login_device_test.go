@@ -348,6 +348,158 @@ func TestADeviceLoginHonoursTheAdvertisedIntervalAndBacksOffWhenTold(t *testing.
 	}
 }
 
+func TestAHostileAdvertisedIntervalRefusesRatherThanCrashes(t *testing.T) {
+	// RFC 8628 lets the deployment set the polling interval, and nothing stops
+	// one answering with a value that is not a wait at all. Carried into the
+	// polling arithmetic, a negative interval — or one large enough to overflow
+	// the conversion to nanoseconds — panics: a stack trace instead of a
+	// refusal, and an exit code outside the class list a script branches on.
+	//
+	// The two cases end differently, and both endings are correct.
+	//
+	// A negative interval is not a request to wait at all, so the shell falls
+	// back to the specification's own default and the login completes. An
+	// interval past the overflow threshold is clamped to the ceiling instead of
+	// being reinterpreted, because a deployment asking for an enormous wait has
+	// asked for something — and what it asked for is longer than its own code
+	// lives, so no poll is due before the code expires. That is a refusal, and
+	// the right one: polling sooner than a deployment consented to is the abuse
+	// RFC 8628 section 3.5 exists to prevent.
+	//
+	// What both share is the property under test. Neither ends in a panic.
+	for name, testcase := range map[string]struct {
+		advertised int
+		expiresIn  int
+		want       exit.Code
+	}{
+		"a negative interval falls back to the default": {
+			advertised: -1, want: exit.OK,
+		},
+		"an overflowing interval is clamped, not reinterpreted": {
+			advertised: 10000000000, expiresIn: 2, want: exitAuthPolicy,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			deployment := deviceDeployment(t, fakeissuer.Options{
+				RefreshScopeMode: "honor",
+				DeviceInterval:   testcase.advertised,
+				DeviceExpiresIn:  testcase.expiresIn,
+				DeviceOutcome:    "approve",
+			})
+
+			if code := deployment.shell.Run([]string{"login"}); code != testcase.want {
+				t.Fatalf("wso2 login exited %d, want %d\nstderr:\n%s",
+					code, testcase.want, deployment.errOut)
+			}
+			// The tell for the defect this guards: a panic reaches the stream
+			// as a goroutine dump and exits outside the class list, so it can
+			// be neither rendered nor branched on.
+			if strings.Contains(deployment.errOut.String(), "panic") {
+				t.Errorf("the shell panicked on what the deployment advertised:\n%s",
+					deployment.errOut)
+			}
+			if testcase.want == exit.OK && deployment.storedSession(t).RefreshToken == "" {
+				t.Error("no session was stored")
+			}
+		})
+	}
+}
+
+func TestADeviceLoginRefusesAnIdentityTokenThatDoesNotVerify(t *testing.T) {
+	// Absent and invalid are different answers. A deployment that returns no
+	// identity token is tolerated, because RFC 8628 does not require one and
+	// the session does not depend on it. A deployment that returns one the
+	// shell cannot verify is refused, because something is wrong that the user
+	// can go and fix — here the commonest cause, a client identifier naming a
+	// different application than the one that signed them in.
+	deployment := deviceDeployment(t, fakeissuer.Options{
+		RefreshScopeMode:      "honor",
+		DeviceInterval:        1,
+		DeviceIDTokenAudience: "another-application",
+	})
+
+	if code := deployment.shell.Run([]string{"login"}); code != exitAuthPolicy {
+		t.Fatalf("wso2 login exited %d, want the authentication class %d\nstderr:\n%s",
+			code, exitAuthPolicy, deployment.errOut)
+	}
+	refusal := deployment.errOut.String()
+	if !strings.Contains(refusal, "issued for a different application") {
+		t.Errorf("the refusal does not name the cause the user can fix:\n%s", refusal)
+	}
+	// A refused login leaves nothing behind: a session stored here would be one
+	// the shell could not say whose it was.
+	if _, err := (session.Store{StateRoot: deployment.stateRoot}).
+		Load(loginCredentialRef); err == nil {
+		t.Error("a login whose identity did not verify stored a session anyway")
+	}
+}
+
+func TestADeviceLoginWithoutARefreshTokenIsRefusedRatherThanStored(t *testing.T) {
+	// A session is a refresh token. A device login that produced none cannot be
+	// stored as one, and storing the access token alone would leave a session
+	// that expires in minutes and cannot renew itself.
+	deployment := deviceDeployment(t, fakeissuer.Options{
+		RefreshScopeMode:       "honor",
+		DeviceInterval:         1,
+		OmitDeviceRefreshToken: true,
+	})
+
+	if code := deployment.shell.Run([]string{"login"}); code != exitAuthPolicy {
+		t.Fatalf("wso2 login exited %d, want the authentication class %d\nstderr:\n%s",
+			code, exitAuthPolicy, deployment.errOut)
+	}
+	if !strings.Contains(deployment.errOut.String(), "offline_access") {
+		t.Errorf("the refusal does not name the scope that fixes it:\n%s", deployment.errOut)
+	}
+	if _, err := (session.Store{StateRoot: deployment.stateRoot}).
+		Load(loginCredentialRef); err == nil {
+		t.Error("a login that produced no refresh token stored a session anyway")
+	}
+}
+
+func TestADeviceLoginNamesTheSubjectItVerified(t *testing.T) {
+	// The other half of the identity-token decision. Absence is tolerated and
+	// asserted elsewhere; here the deployment does return a verifiable token,
+	// and the report has to name who it proved you are — otherwise "reported
+	// when verified" would be satisfied by never reporting at all.
+	deployment := deviceDeployment(t, pollableDevice("approve", 0))
+
+	if code := deployment.shell.Run([]string{"login"}); code != exit.OK {
+		t.Fatalf("wso2 login exited %d\nstderr:\n%s", code, deployment.errOut)
+	}
+	report := deployment.out.String()
+	if !strings.Contains(report, "Subject") || !strings.Contains(report, "user-1") {
+		t.Errorf("the report does not name the subject the login verified:\n%s", report)
+	}
+}
+
+func TestADeviceLoginWorksWhereNoCompleteVerificationURIIsAdvertised(t *testing.T) {
+	// RFC 8628 makes verification_uri_complete optional, so a login must not
+	// depend on one. The two values a user actually needs are still printed,
+	// and nothing offers a link that was never advertised.
+	deployment := deviceDeployment(t, fakeissuer.Options{
+		RefreshScopeMode:                  "honor",
+		DeviceInterval:                    1,
+		OmitDeviceVerificationURIComplete: true,
+	})
+
+	if code := deployment.shell.Run([]string{"login"}); code != exit.OK {
+		t.Fatalf("wso2 login exited %d\nstderr:\n%s", code, deployment.errOut)
+	}
+	instructions := deployment.errOut.String()
+	if code := userCodePattern.FindString(instructions); code == "" ||
+		!standsAlone(instructions, code) {
+		t.Errorf("the user code is not usable without a complete URI:\n%s", instructions)
+	}
+	if !standsAlone(instructions, deployment.issuer.URL+"/device") {
+		t.Errorf("the verification URI is not on a line of its own:\n%s", instructions)
+	}
+	if strings.Contains(instructions, "Or open this link") {
+		t.Errorf("a complete verification URI was offered that the deployment never advertised:\n%s",
+			instructions)
+	}
+}
+
 func TestADeviceLoginWithoutAnIdentityTokenStillEstablishesASession(t *testing.T) {
 	// Deliberately unlike the browser login, which refuses without a verified
 	// identity token. RFC 8628 defines no nonce and whether WSO2 deployments

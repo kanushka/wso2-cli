@@ -105,6 +105,7 @@ func (d DeviceLogin) Run(ctx context.Context) (Result, error) {
 			"Confirm the client identifier in the selected context, and that its OAuth application is "+
 				"registered for the device authorization grant, then retry wso2 login.")
 	}
+	authorization.Interval = usableInterval(authorization.Interval)
 	if err := d.present(authorization); err != nil {
 		return Result{}, err
 	}
@@ -113,7 +114,43 @@ func (d DeviceLogin) Run(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, approvalFailed(err)
 	}
-	return d.identify(ctx, provider, token), nil
+	return d.identify(ctx, provider, token)
+}
+
+const (
+	// defaultPollIntervalSeconds is the interval RFC 8628 section 3.2 requires
+	// a client to assume when the deployment advertises none.
+	defaultPollIntervalSeconds = 5
+	// maxPollIntervalSeconds is the longest advertised interval this shell will
+	// carry into its polling arithmetic. It is far beyond any deadline a login
+	// runs under, so clamping here cannot make the shell poll sooner than a
+	// deployment asked: an interval this long means the code expires before a
+	// single poll either way.
+	maxPollIntervalSeconds = 3600
+)
+
+// usableInterval replaces a polling interval this shell cannot act on.
+//
+// RFC 8628 lets the deployment choose the interval, and x/oauth2 substitutes
+// the specification's default only when the member is exactly zero. Every other
+// unusable value is carried into time.NewTicker, which panics on a non-positive
+// duration — so a deployment answering with a negative interval, or one large
+// enough to overflow the conversion to nanoseconds, would take the shell down
+// with a stack trace.
+//
+// That matters beyond tidiness. A panic escapes the problem type entirely: it
+// prints a Go stack trace rather than a refusal, and it exits with a code
+// outside the class list a script branches on. This shell renders typed
+// problems; what a deployment says must not be able to stop it doing that.
+func usableInterval(advertised int64) int64 {
+	switch {
+	case advertised <= 0:
+		return defaultPollIntervalSeconds
+	case advertised > maxPollIntervalSeconds:
+		return maxPollIntervalSeconds
+	default:
+		return advertised
+	}
 }
 
 // present writes the two values the user has to carry to another device.
@@ -149,34 +186,38 @@ func (d DeviceLogin) present(authorization *oauth2.DeviceAuthResponse) error {
 
 // identify reads who the login proved you are.
 //
-// Unlike the browser login, a device login is not refused for want of an
-// identity token. The browser login can afford to refuse because the
-// authorization code flow is defined to carry one and there is a nonce to check
-// it against; RFC 8628 defines no nonce, and whether WSO2 deployments return an
-// identity token from this grant is not measured. The session is the refresh
-// token, so a login that produced one has produced everything the shell needs,
-// and refusing over a claim nothing depends on would let an unmeasured
-// behaviour decide whether this flow works at all.
+// Absent and invalid are two different answers here, and the difference is the
+// whole of this function.
 //
-// What binds the answer to this process is the device code: it was minted for
-// this request and is spent by it. So the token is verified when it is there —
-// the issuer's signature, and the audience naming this client — and the subject
-// is simply absent when it is not.
+// A *missing* identity token does not fail a device login, unlike a browser
+// one. The browser login can afford to refuse because the authorization code
+// flow is defined to carry one and there is a nonce to check it against; RFC
+// 8628 defines no nonce, and whether WSO2 deployments return an identity token
+// from this grant is not measured. The session is the refresh token, so a login
+// that produced one has produced everything the shell needs, and refusing over
+// a claim nothing depends on would let an unmeasured behaviour decide whether
+// this flow works at all. What binds the answer to this process instead is the
+// device code: it was minted for this request and is spent by it.
+//
+// A token that is *present and does not verify* is refused, exactly as the
+// browser login refuses it. Nothing was wrong with the deployment's silence;
+// something is wrong with its answer — a client identifier naming another
+// application, an issuer that did not sign what it sent, a clock that disagrees.
+// Every one of those is a fault the user can go and fix, and every one of them
+// is invisible if the shell quietly reports no subject and carries on. Tolerating
+// silence is a decision about an unmeasured protocol; tolerating a bad signature
+// would be a decision to stop looking.
 func (d DeviceLogin) identify(
 	ctx context.Context, provider *oidc.Provider, token *oauth2.Token,
-) Result {
+) (Result, error) {
 	result := Result{Token: token}
 	raw, _ := token.Extra("id_token").(string)
 	if raw == "" {
-		return result
+		return result, nil
 	}
 	verified, err := provider.Verifier(&oidc.Config{ClientID: d.ClientID}).Verify(ctx, raw)
 	if err != nil {
-		// An identity token that does not verify is reported as no identity at
-		// all rather than as a failed login, for the same reason the absent one
-		// is: nothing the session does depends on it. Claiming a subject the
-		// issuer's keys did not vouch for is the one thing that would be worse.
-		return result
+		return Result{}, identityNotVerified(err)
 	}
 	var claims struct {
 		Email string `json:"email"`
@@ -184,7 +225,7 @@ func (d DeviceLogin) identify(
 	_ = verified.Claims(&claims)
 	result.Subject = verified.Subject
 	result.Email = claims.Email
-	return result
+	return result, nil
 }
 
 // approvalFailed reports a device authorization that ended without a token, and

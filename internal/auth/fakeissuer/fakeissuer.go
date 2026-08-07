@@ -119,7 +119,11 @@ type Options struct {
 	DeviceSlowDownPolls int
 	// DeviceInterval is the polling interval the device authorization response
 	// advertises, in seconds. Zero leaves the member out entirely, which is how
-	// a test reaches the client's own default.
+	// a test reaches the client's own default. Any other value is sent
+	// verbatim, negative and absurd ones included: RFC 8628 constrains what a
+	// deployment should say and nothing constrains what one can say, and a
+	// client that carried such a value into its own arithmetic would fail in a
+	// way no refusal describes.
 	DeviceInterval int
 	// DeviceExpiresIn is the lifetime the device authorization response
 	// advertises, in seconds. The default is 600, which is the order of
@@ -139,6 +143,16 @@ type Options struct {
 	// Whether Asgardeo and Identity Server return one from this grant is not
 	// measured, so both answers are modeled rather than assumed. See issue #42.
 	OmitDeviceIDToken bool
+	// OmitDeviceRefreshToken answers the device grant without a refresh token,
+	// modeling an application that was never granted offline access. A session
+	// is a refresh token, so this is the answer that produces a login with
+	// nothing to store.
+	OmitDeviceRefreshToken bool
+	// DeviceIDTokenAudience overrides the audience minted into the device
+	// grant's identity token. A value naming another application models the
+	// commonest real cause of a token that will not verify: a context document
+	// whose client identifier is not the one the deployment signed in.
+	DeviceIDTokenAudience string
 }
 
 // Issuer is one running fake issuer. Its URL doubles as the issuer identifier.
@@ -637,8 +651,9 @@ func (i *Issuer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 	// A zero interval is left out rather than sent as zero. RFC 8628 gives the
 	// member a default precisely so a deployment may omit it, and a client that
 	// reads a missing member as "poll as fast as you like" is a client this
-	// fixture exists to catch.
-	if i.opts.DeviceInterval > 0 {
+	// fixture exists to catch. Every other value, negative ones included, is
+	// sent exactly as the test asked for it.
+	if i.opts.DeviceInterval != 0 {
 		response["interval"] = i.opts.DeviceInterval
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -708,19 +723,25 @@ func (i *Issuer) deviceGrant(w http.ResponseWriter, r *http.Request) {
 // none and a client that demanded one would be demanding something the flow
 // cannot supply.
 func (i *Issuer) issueDeviceTokens(w http.ResponseWriter, scopes []string, clientID string) {
-	refreshToken := randomToken("rt")
-	i.mutex.Lock()
-	i.refreshTokens[refreshToken] = scopes
-	i.mutex.Unlock()
 	response := map[string]any{
-		"access_token":  i.mintAccessToken("user-1", scopes),
-		"token_type":    "Bearer",
-		"expires_in":    300,
-		"refresh_token": refreshToken,
-		"scope":         strings.Join(scopes, " "),
+		"access_token": i.mintAccessToken("user-1", scopes),
+		"token_type":   "Bearer",
+		"expires_in":   300,
+		"scope":        strings.Join(scopes, " "),
+	}
+	if !i.opts.OmitDeviceRefreshToken {
+		refreshToken := randomToken("rt")
+		i.mutex.Lock()
+		i.refreshTokens[refreshToken] = scopes
+		i.mutex.Unlock()
+		response["refresh_token"] = refreshToken
 	}
 	if !i.opts.OmitDeviceIDToken {
-		response["id_token"] = i.mintIDToken(clientID, "")
+		audience := clientID
+		if i.opts.DeviceIDTokenAudience != "" {
+			audience = i.opts.DeviceIDTokenAudience
+		}
+		response["id_token"] = i.mintIDToken(audience, "")
 	}
 	writeJSON(w, http.StatusOK, response)
 }
