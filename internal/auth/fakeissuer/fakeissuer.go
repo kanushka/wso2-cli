@@ -159,6 +159,10 @@ type Issuer struct {
 	accessTokens  map[string]tokenRecord // access token -> introspectable facts
 	deviceGrants  map[string]*deviceGrant
 	devicePolls   []time.Time
+	// lastDeviceCode is the most recently minted device code, recorded because
+	// map iteration order could not name "most recent" if a test ever started
+	// two authorizations.
+	lastDeviceCode string
 }
 
 type codeGrant struct {
@@ -179,6 +183,10 @@ type deviceGrant struct {
 	// concurrent tests cannot consume each other's waiting states.
 	pending  int
 	slowDown int
+	// redeemed marks a grant whose approval has already produced tokens. The
+	// grant is kept rather than deleted so a later poll is answered the way a
+	// deployment answers a spent code, and so LastDeviceCode can still name it.
+	redeemed bool
 }
 
 type tokenRecord struct {
@@ -610,6 +618,7 @@ func (i *Issuer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 		pending:  i.opts.DevicePendingPolls,
 		slowDown: i.opts.DeviceSlowDownPolls,
 	}
+	i.lastDeviceCode = deviceCode
 	i.mutex.Unlock()
 
 	expiresIn := i.opts.DeviceExpiresIn
@@ -645,6 +654,14 @@ func (i *Issuer) deviceGrant(w http.ResponseWriter, r *http.Request) {
 	i.mutex.Lock()
 	i.devicePolls = append(i.devicePolls, time.Now())
 	grant, found := i.deviceGrants[r.PostForm.Get("device_code")]
+	// A grant already redeemed is treated as one that was never here. A device
+	// code is single-use, exactly as an authorization code is, and this fixture
+	// is the oracle the device tests read "the session came from one approval"
+	// off — one that answered a replay would let a real double-redemption
+	// defect through.
+	if found && grant.redeemed {
+		found = false
+	}
 	var answer string
 	if found {
 		switch {
@@ -660,12 +677,15 @@ func (i *Issuer) deviceGrant(w http.ResponseWriter, r *http.Request) {
 			answer = "expired_token"
 		}
 	}
-	// The grant is read and its counters drawn down in one critical section, so
-	// two concurrent polls cannot both consume the last pending answer and both
-	// be approved.
+	// The grant is read, its counters drawn down, and its redemption recorded in
+	// one critical section, so two concurrent polls can neither both consume the
+	// last pending answer nor both be approved.
 	scopes, clientID := []string(nil), ""
 	if found {
 		scopes, clientID = grant.scopes, grant.clientID
+		if answer == "" {
+			grant.redeemed = true
+		}
 	}
 	i.mutex.Unlock()
 
@@ -721,11 +741,7 @@ func (i *Issuer) DevicePolls() []time.Time {
 func (i *Issuer) LastDeviceCode() string {
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
-	// One login mints one code, which is every case that has a "most recent".
-	for code := range i.deviceGrants {
-		return code
-	}
-	return ""
+	return i.lastDeviceCode
 }
 
 // userCodeAlphabet is RFC 8628 section 6.1's recommended character set: upper

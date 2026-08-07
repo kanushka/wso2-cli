@@ -468,7 +468,7 @@ For an Identity Server deployment, also set `"type": "onprem"` and use the
 | `auth.issuer` | The issuer, verbatim from its discovery document. |
 | `auth.clientId` | The registered public client. |
 | `auth.tenant` | The identity's home organization. |
-| `auth.credentialRef` | The name the session is stored under in the OS secure store. **Required** for `oauth-browser`; **not allowed** for `client-credentials`. Same character rules as an identity name. |
+| `auth.credentialRef` | The name the session is stored under in the OS secure store. **Required** for `oauth-browser` and `oauth-device`; **not allowed** for `client-credentials`. Same character rules as an identity name. |
 | `products.<namespace>` | What this identity may reach for one module. The namespace is the module's own name, and follows the same character rules as an identity name. |
 | `products.<namespace>.endpoint` | The product's base URL. **Required** on every product entry, and must be an absolute `http` or `https` URL with a host. |
 | `products.<namespace>.audience` | What the issued token's `aud` claim must carry. A module asking for any other audience is refused. Conceptually this is the API resource identifier — but on Asgardeo it must be **the client ID**, because that is the only thing Asgardeo puts in `aud`. See section 2.5. |
@@ -895,18 +895,6 @@ On a browser login: the flow ended without producing tokens — you closed the
 browser, the consent was denied, or the deployment redirected back with an
 error.
 
-On a device login (section 5.1), the message says which of four endings it was:
-
-| The message says | What it means | What to do |
-| --- | --- | --- |
-| "the login was declined at the identity provider" | You, or someone at the approval screen, refused the request. | Run `wso2 login` again and approve it. Check the code on screen matches the one in your terminal. |
-| "the approval window closed before this login was approved" | The device code expired before anyone approved it. | Run `wso2 login` again and approve it promptly. |
-| "this login was not approved in time" | The same, reached by the shell's own deadline rather than the deployment's answer. | As above. |
-| "would not start a device authorization" | The deployment refused the request before any code was issued. | Confirm `clientId`, and that the application is registered for the device grant. |
-
-All four leave you in the same place — no session — which is why they share one
-code. Only the sentence differs, because only the sentence can.
-
 The browser reached "Login complete" and the code exchange succeeded, but the
 identity token that came back was not one the shell would accept. The message
 says which kind of failure it was:
@@ -942,6 +930,18 @@ curl -s "$(curl -s <issuer>/.well-known/openid-configuration | python3 -c 'impor
 
 A serial printed as, for example, `serial=-3A4F8369` is that defect. It no
 longer stops a login.
+
+On a device login (section 5.1), the message says which of four endings it was:
+
+| The message says | What it means | What to do |
+| --- | --- | --- |
+| "the login was declined at the identity provider" | You, or someone at the approval screen, refused the request. | Run `wso2 login` again and approve it. Check the code on screen matches the one in your terminal. |
+| "the approval window closed before this login was approved" | The device code expired before anyone approved it. | Run `wso2 login` again and approve it promptly. |
+| "this login was not approved in time" | The same, reached by the shell's own deadline rather than the deployment's answer. | As above. |
+| "would not start a device authorization" | The deployment refused the request before any code was issued. | Confirm `clientId`, and that the application is registered for the device grant. |
+
+All four leave you in the same place — no session — which is why they share one
+code. Only the sentence differs, because only the sentence can.
 
 ### `auth.login_not_required`
 

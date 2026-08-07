@@ -334,12 +334,17 @@ func TestADeviceLoginHonoursTheAdvertisedIntervalAndBacksOffWhenTold(t *testing.
 	if first := polls[0].Sub(started); first < time.Second {
 		t.Errorf("the first poll arrived after %v, sooner than the advertised 1s interval", first)
 	}
-	// The back-off is the point: after slow_down the gap must exceed what was
-	// advertised, and by RFC 8628 section 3.5 it grows by five seconds.
+	// The back-off is the point, and the number to require is the advertised
+	// interval *plus* the increment, not the increment alone. RFC 8628 section
+	// 3.5 says the interval "MUST be increased by 5 seconds", so a client that
+	// merely replaced 1s with 5s would have ignored what the deployment
+	// advertised — and an assertion of five seconds would have let it.
+	const advertised, increment = time.Second, 5 * time.Second
 	gap := polls[1].Sub(polls[0])
-	if gap < 5*time.Second {
-		t.Errorf("the poll after slow_down came %v later; the interval did not grow by the "+
-			"five seconds RFC 8628 requires", gap)
+	if gap < advertised+increment {
+		t.Errorf("the poll after slow_down came %v later, want at least %v; the advertised "+
+			"interval was not increased by the five seconds RFC 8628 requires",
+			gap, advertised+increment)
 	}
 }
 
