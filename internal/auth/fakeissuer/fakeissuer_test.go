@@ -461,3 +461,61 @@ func TestIntrospectionReportsForeignTokensInactive(t *testing.T) {
 		t.Fatal("foreign token reported active")
 	}
 }
+
+// deviceAuthorize starts one device authorization and returns its response.
+func deviceAuthorize(t *testing.T, issuer *fakeissuer.Issuer) map[string]any {
+	t.Helper()
+	response, err := http.PostForm(issuer.URL+"/device_authorize",
+		url.Values{"client_id": {"client-123"}, "scope": {"openid"}})
+	if err != nil {
+		t.Fatalf("device authorization request: %v", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	var body map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("device authorization decode: %v", err)
+	}
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("device authorization answered status=%d body=%v", response.StatusCode, body)
+	}
+	return body
+}
+
+// pollDevice redeems a device code once.
+func pollDevice(t *testing.T, issuer *fakeissuer.Issuer, deviceCode string) (map[string]any, int) {
+	t.Helper()
+	return token(t, issuer, url.Values{
+		"grant_type":  {"urn:ietf:params:oauth:grant-type:device_code"},
+		"device_code": {deviceCode},
+		"client_id":   {"client-123"},
+	})
+}
+
+func TestADeviceCodeIsSpentByTheApprovalItCarries(t *testing.T) {
+	// The property the device tests read off this fixture is that a session
+	// came from one approval. An issuer that answered a replayed device code
+	// would satisfy a shell that redeemed the same approval twice, so the
+	// second redemption is refused here exactly as a deployment refuses it.
+	issuer := fakeissuer.New(t, fakeissuer.Options{Audience: "reference-status"})
+	authorization := deviceAuthorize(t, issuer)
+	deviceCode := text(authorization, "device_code")
+
+	granted, status := pollDevice(t, issuer, deviceCode)
+	if status != http.StatusOK || text(granted, "access_token") == "" {
+		t.Fatalf("the first redemption did not issue tokens: status=%d body=%v", status, granted)
+	}
+
+	replayed, status := pollDevice(t, issuer, deviceCode)
+	if status != http.StatusBadRequest || text(replayed, "error") != "invalid_grant" {
+		t.Fatalf("a spent device code was redeemed a second time: status=%d body=%v",
+			status, replayed)
+	}
+}
+
+func TestAnUnknownDeviceCodeIsInvalidGrant(t *testing.T) {
+	issuer := fakeissuer.New(t, fakeissuer.Options{})
+	body, status := pollDevice(t, issuer, "never-issued")
+	if status != http.StatusBadRequest || text(body, "error") != "invalid_grant" {
+		t.Fatalf("unknown device code answered status=%d body=%v", status, body)
+	}
+}

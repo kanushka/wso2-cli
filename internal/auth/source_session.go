@@ -29,7 +29,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/contexts"
 )
 
-// browserSource derives one module's access from the stored login session.
+// sessionSource derives one module's access from the stored login session.
 //
 // The strategy is a scoped refresh: the session was granted the union of the
 // identity's product permissions at login, and each module's request is a
@@ -38,7 +38,14 @@ import (
 // exactly the permissions asked for and is bound to the audience asked for, and
 // refuses when it cannot. A deployment that ignores the narrowing would
 // otherwise hand every module the whole session's authority.
-type browserSource struct {
+//
+// It is named for what it derives from and not for how the session was
+// established, because that is the whole of the difference between the
+// interactive kinds: a browser login and a device login both end at a refresh
+// token in the secure store, and from there every step below is the same one.
+// A second source per login mode would duplicate the rotation lock and the
+// narrowing proof for no behaviour.
+type sessionSource struct {
 	// namespace is the module asking, named in refusals.
 	namespace string
 	// identity is the logged-in identity: issuer, client, and the secure-store
@@ -56,7 +63,7 @@ type browserSource struct {
 // token, because a rotating issuer invalidates what it was presented: two
 // invocations refreshing the same session concurrently would leave one of them
 // holding a token the issuer has already replaced.
-func (s browserSource) mint(request Request, now time.Time) (Grant, error) {
+func (s sessionSource) mint(request Request, now time.Time) (Grant, error) {
 	var granted Grant
 	err := s.sessions.WithLock(s.identity.Auth.CredentialRef, func() error {
 		issued, err := s.derive(request, now)
@@ -73,7 +80,7 @@ func (s browserSource) mint(request Request, now time.Time) (Grant, error) {
 }
 
 // derive runs one scoped refresh under the lock mint holds.
-func (s browserSource) derive(request Request, now time.Time) (Grant, error) {
+func (s sessionSource) derive(request Request, now time.Time) (Grant, error) {
 	stored, err := s.sessions.Load(s.identity.Auth.CredentialRef)
 	if err != nil {
 		return Grant{}, err
@@ -123,7 +130,7 @@ func (s browserSource) derive(request Request, now time.Time) (Grant, error) {
 }
 
 // refresh exchanges the stored refresh token for access narrowed to scopes.
-func (s browserSource) refresh(
+func (s sessionSource) refresh(
 	ctx context.Context, endpoint, refreshToken string, scopes []string,
 ) (tokenResponse, error) {
 	issued, err := requestToken(ctx, s.client, endpoint, url.Values{
@@ -143,7 +150,7 @@ func (s browserSource) refresh(
 // A refusal to narrow is the one answer treated differently: it means the
 // session is fine and the deployment will not scope it down, which is a
 // registration problem, not a login problem.
-func (s browserSource) refusedGrant(err error) error {
+func (s sessionSource) refusedGrant(err error) error {
 	var refusal issuerRefusal
 	switch {
 	case errors.As(err, &refusal) && refusal.refusedToNarrow():

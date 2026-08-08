@@ -163,11 +163,13 @@ contract is frozen.
 ### 7.2 Authentication and credentials
 
 > **What ships today.** These are requirements on the product, not a description
-> of the current build. The first `wso2 login` slice implements browser
-> Authorization Code with PKCE and inline client credentials. Device
-> authorization and personal access tokens are accepted as legal configuration
-> and refuse at use with the stable code `auth.kind_not_implemented`; there is
-> no `--device-code` flag yet. See [the login first slice](plans/login-first-slice.md).
+> of the current build. The shell implements browser Authorization Code with
+> PKCE, the Device Authorization Grant, and inline client credentials. Personal
+> access tokens are accepted as legal configuration and refuse at use with the
+> stable code `auth.kind_not_implemented`. Device authorization is selected by
+> an identity's `oauth-device` kind; there is no `--device-code` flag yet, so
+> the requirement below that it be a login-time mode for a browser identity is
+> not yet met. See [the login first slice](plans/login-first-slice.md).
 
 - **P0:** The root shell owns authentication sessions and credential storage.
 - **P0:** An **identity** is one login session together with every product for

@@ -320,9 +320,12 @@ func TestTheIdentityKindDecidesWhichPolicyTheBrokerApplies(t *testing.T) {
 			kind: "",
 			code: "auth.context_not_selected",
 		},
-		"a device login is legal but unimplemented": {
-			kind: contexts.KindOAuthDevice,
-			code: "auth.kind_not_implemented",
+		// A device identity reaches the same session source a browser one does,
+		// so it is refused for the same product reasons and never for its kind.
+		"a device identity that configures no product": {
+			kind:   contexts.KindOAuthDevice,
+			mutate: func(b *auth.Broker) { b.Selection.Identity.Products = nil },
+			code:   "auth.product_not_configured",
 		},
 		"a personal access token is legal but unimplemented": {
 			kind: contexts.KindPAT,
