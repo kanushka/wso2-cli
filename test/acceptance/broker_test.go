@@ -87,6 +87,11 @@ func (k credentialKind) String() string {
 	return "the token is minted from the development credential"
 }
 
+// bothCredentialKinds are the two ways a deployment obtains access. Tests whose
+// subject is the audience boundary run under both, because a boundary that
+// holds only for the fixture credential is not a boundary.
+var bothCredentialKinds = []credentialKind{developmentCredential, issuerMinted}
+
 // installation is what varies between one deployed reference installation and
 // another: how the shell obtains access, what the service enforces, and how the
 // issuer behaves when there is one.
@@ -288,47 +293,64 @@ func TestBrokeredReferenceStatusReportsTheServicesOwnAnswer(t *testing.T) {
 	// The whole boundary in one run: the shell resolves and launches the
 	// module, the module asks for access, the shell brokers a token from a
 	// credential the module never sees, the service accepts only that token,
-	// and the shell renders what came back.
-	shell := buildShell(t)
-	deployed := deploy(t, statusservice.Options{})
+	// and the shell renders what came back. Both kinds prove it, because
+	// nothing about this boundary is specific to how the token was minted.
+	for _, kind := range bothCredentialKinds {
+		t.Run(kind.String(), func(t *testing.T) {
+			shell := buildShell(t)
+			deployed := deployAs(t, installation{kind: kind})
 
-	stdout, stderr := runShell(t, shell, deployed.stateRoot, "reference", "status")
+			stdout, stderr := deployed.run(t, shell, "reference", "status")
 
-	if deployed.calls.Load() != 1 {
-		t.Fatalf("the status service was called %d times, want once", deployed.calls.Load())
+			if deployed.calls.Load() != 1 {
+				t.Fatalf("the status service was called %d times, want once", deployed.calls.Load())
+			}
+			for _, want := range []string{referenceOrganization, "operational"} {
+				if !strings.Contains(stdout, want) {
+					t.Errorf("the table does not report %q:\n%s", want, stdout)
+				}
+			}
+			if stderr != "" {
+				t.Errorf("a successful command wrote diagnostics:\n%s", stderr)
+			}
+			assertNoCredentialDisclosure(t, stdout, stderr)
+		})
 	}
-	for _, want := range []string{referenceOrganization, "operational"} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("the table does not report %q:\n%s", want, stdout)
-		}
-	}
-	if stderr != "" {
-		t.Errorf("a successful command wrote diagnostics:\n%s", stderr)
-	}
-	assertNoCredentialDisclosure(t, stdout, stderr)
 }
 
 func TestBrokeredReferenceStatusRendersTheServicesAnswerAsJSON(t *testing.T) {
-	shell := buildShell(t)
-	deployed := deploy(t, statusservice.Options{})
+	// The same brokered answer, read back as the machine-readable rendering
+	// instead of the table. Both kinds, for the same reason as above: the
+	// rendering is downstream of the same brokered token.
+	for _, kind := range bothCredentialKinds {
+		t.Run(kind.String(), func(t *testing.T) {
+			shell := buildShell(t)
+			deployed := deployAs(t, installation{kind: kind})
 
-	stdout, stderr := runShell(t, shell, deployed.stateRoot, "reference", "status", "--output", "json")
+			stdout, stderr := deployed.run(t, shell, "reference", "status", "--output", "json")
 
-	decoded := decodeStatusJSON(t, stdout)
-	if decoded["organization"] != referenceOrganization {
-		t.Errorf("the JSON result reports organization %q, want %q",
-			decoded["organization"], referenceOrganization)
+			decoded := decodeStatusJSON(t, stdout)
+			if decoded["organization"] != referenceOrganization {
+				t.Errorf("the JSON result reports organization %q, want %q",
+					decoded["organization"], referenceOrganization)
+			}
+			if decoded["status"] != "operational" {
+				t.Errorf("the JSON result reports status %q, want %q", decoded["status"], "operational")
+			}
+			assertNoCredentialDisclosure(t, stdout, stderr)
+		})
 	}
-	if decoded["status"] != "operational" {
-		t.Errorf("the JSON result reports status %q, want %q", decoded["status"], "operational")
-	}
-	assertNoCredentialDisclosure(t, stdout, stderr)
 }
 
 func TestAMissingCredentialIsDeniedWithSafeRecoveryGuidance(t *testing.T) {
 	// The context names a credential source that is not set. The shell refuses
 	// the module's request rather than launching an unauthenticated call, and
 	// tells the user what to set.
+	//
+	// The development kind only. The issuer-minted equivalents are
+	// TestAnInlineIdentityWithNoSecretTellsTheUserWhichVariableToSet in
+	// login_test.go and the organization-binding tests below, which refuse for
+	// reasons this kind has no counterpart for.
 	shell := buildShell(t)
 	deployed := deploy(t, statusservice.Options{})
 	installReferenceContext(t, deployed.stateRoot, deployed.service.URL, "WSO2_REFERENCE_ABSENT_CREDENTIAL")
@@ -356,6 +378,10 @@ func TestAMissingCredentialIsDeniedWithSafeRecoveryGuidance(t *testing.T) {
 func TestAnUndeclaredAudienceIsDenied(t *testing.T) {
 	// The module receipt is the ceiling on what a module may ask for. An
 	// installation that declares no audience cannot acquire one at runtime.
+	//
+	// One kind only: the receipt is checked before any source is consulted, so
+	// a second pass would prove the same refusal twice and say nothing about
+	// where the token would have come from.
 	shell := buildShell(t)
 	stateRoot := isolatedStateRoot(t)
 	if _, err := fixture.Install(state.ModuleStore(stateRoot), fixture.Module{
@@ -389,6 +415,10 @@ func TestAnExcessiveScopeIsDenied(t *testing.T) {
 	// The installation declares the audience but not the permission the module
 	// asks for, so the broker refuses rather than granting the narrower access
 	// the receipt would allow.
+	//
+	// One kind only: the receipt is checked before any source is consulted, so
+	// a second pass would prove the same refusal twice and say nothing about
+	// where the token would have come from.
 	shell := buildShell(t)
 	stateRoot := isolatedStateRoot(t)
 	if _, err := fixture.Install(state.ModuleStore(stateRoot), fixture.Module{
@@ -421,53 +451,74 @@ func TestAnExcessiveScopeIsDenied(t *testing.T) {
 
 func TestExpiredAccessIsRefusedByTheService(t *testing.T) {
 	// The service reads a clock well past the token's near-term expiry, so the
-	// access the shell granted for this command is no longer accepted.
-	shell := buildShell(t)
-	expired := deploy(t, statusservice.Options{
-		Now: func() time.Time { return time.Now().Add(time.Hour) },
-	})
+	// access the shell granted for this command is no longer accepted. Under
+	// the issuer-minted kind this is a real JWT expiry check against exp, not a
+	// fixture's own lifetime rule.
+	for _, kind := range bothCredentialKinds {
+		t.Run(kind.String(), func(t *testing.T) {
+			shell := buildShell(t)
+			expired := deployAs(t, installation{
+				kind: kind,
+				service: statusservice.Options{
+					Now: func() time.Time { return time.Now().Add(time.Hour) },
+				},
+			})
 
-	stdout, stderr, err := tryShell(shell, expired.stateRoot, "reference", "status")
+			stdout, stderr, err := expired.try(shell, "reference", "status")
 
-	if exitCode(t, err) != exitProductService {
-		t.Fatalf("exit status = %v, want the product-service class %d\nstderr:\n%s",
-			err, exitProductService, stderr)
+			if exitCode(t, err) != exitProductService {
+				t.Fatalf("exit status = %v, want the product-service class %d\nstderr:\n%s",
+					err, exitProductService, stderr)
+			}
+			if !strings.Contains(stderr, "reference.status_access_rejected") {
+				t.Errorf("stderr does not report the refused access:\n%s", stderr)
+			}
+			if stdout != "" {
+				t.Errorf("a refused command still wrote to standard output:\n%s", stdout)
+			}
+			assertNoCredentialDisclosure(t, stdout, stderr)
+		})
 	}
-	if !strings.Contains(stderr, "reference.status_access_rejected") {
-		t.Errorf("stderr does not report the refused access:\n%s", stderr)
-	}
-	if stdout != "" {
-		t.Errorf("a refused command still wrote to standard output:\n%s", stdout)
-	}
-	assertNoCredentialDisclosure(t, stdout, stderr)
 }
 
 func TestAFailingServiceAndADeniedRequestEndInDifferentExitClasses(t *testing.T) {
-	shell := buildShell(t)
-	faulty := deploy(t, statusservice.Options{Fault: true})
+	// A faulty service and a denied request must not be confused with each
+	// other under either credential kind: the shell already granted the
+	// access, so what fails here is the product service, not the broker.
+	for _, kind := range bothCredentialKinds {
+		t.Run(kind.String(), func(t *testing.T) {
+			shell := buildShell(t)
+			faulty := deployAs(t, installation{kind: kind, service: statusservice.Options{Fault: true}})
 
-	stdout, stderr, err := tryShell(shell, faulty.stateRoot, "reference", "status")
+			stdout, stderr, err := faulty.try(shell, "reference", "status")
 
-	if exitCode(t, err) != exitProductService {
-		t.Fatalf("exit status = %v, want the product-service class %d\nstderr:\n%s",
-			err, exitProductService, stderr)
+			if exitCode(t, err) != exitProductService {
+				t.Fatalf("exit status = %v, want the product-service class %d\nstderr:\n%s",
+					err, exitProductService, stderr)
+			}
+			if !strings.Contains(stderr, "reference.status_unavailable") {
+				t.Errorf("stderr does not report the service failure:\n%s", stderr)
+			}
+			if strings.Contains(stderr, "auth.") {
+				t.Errorf("a service failure was reported as an access failure:\n%s", stderr)
+			}
+			if stdout != "" {
+				t.Errorf("a failed command still wrote to standard output:\n%s", stdout)
+			}
+			assertNoCredentialDisclosure(t, stdout, stderr)
+		})
 	}
-	if !strings.Contains(stderr, "reference.status_unavailable") {
-		t.Errorf("stderr does not report the service failure:\n%s", stderr)
-	}
-	if strings.Contains(stderr, "auth.") {
-		t.Errorf("a service failure was reported as an access failure:\n%s", stderr)
-	}
-	if stdout != "" {
-		t.Errorf("a failed command still wrote to standard output:\n%s", stdout)
-	}
-	assertNoCredentialDisclosure(t, stdout, stderr)
 }
 
 func TestAServiceThatRejectsTheAccessClaimsIsReported(t *testing.T) {
 	// The service serves another organization, so the token the shell minted
 	// for this context is refused. The command fails as a service answer, not
 	// as shell policy: the shell's own decision was to grant.
+	//
+	// The development kind only. The issuer-minted equivalents are
+	// TestAnInlineIdentityWithNoSecretTellsTheUserWhichVariableToSet in
+	// login_test.go and the organization-binding tests below, which refuse for
+	// reasons this kind has no counterpart for.
 	shell := buildShell(t)
 	foreign := deploy(t, statusservice.Options{Organization: "another-organization"})
 
@@ -486,31 +537,36 @@ func TestAServiceThatRejectsTheAccessClaimsIsReported(t *testing.T) {
 func TestTheModuleEnvironmentCarriesNoAmbientCredential(t *testing.T) {
 	// The shell reads the credential source from its own environment. The
 	// module is launched with nothing at all, so there is no ambient value for
-	// it to find.
-	shell := buildShell(t)
-	stateRoot := isolatedStateRoot(t)
-	installNoisyModule(t, stateRoot)
-	writeControlFile(t, stateRoot, "report-environment", "")
-	service := startStatusService(t, statusservice.Options{})
-	installReferenceContext(t, stateRoot, service.server.URL, credentialVariable)
+	// it to find. Both kinds, because the ambient leak this test rules out
+	// could as easily be the OAuth client secret as the development
+	// credential — the sweep below already rejects any WSO2_-prefixed name, so
+	// it catches WSO2_REFERENCE_CLIENT_SECRET without change.
+	for _, kind := range bothCredentialKinds {
+		t.Run(kind.String(), func(t *testing.T) {
+			shell := buildShell(t)
+			deployed := deployAs(t, installation{kind: kind})
+			installNoisyModule(t, deployed.stateRoot)
+			writeControlFile(t, deployed.stateRoot, "report-environment", "")
 
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "status")
+			stdout, stderr := deployed.run(t, shell, "reference", "status")
 
-	const prefix = "module-environment: "
-	if !strings.Contains(stderr, prefix) {
-		t.Fatalf("the module did not report the environment it was launched with:\n%s", stderr)
+			const prefix = "module-environment: "
+			if !strings.Contains(stderr, prefix) {
+				t.Fatalf("the module did not report the environment it was launched with:\n%s", stderr)
+			}
+			for _, line := range strings.Split(stderr, "\n") {
+				reported, found := strings.CutPrefix(strings.TrimSpace(line), prefix)
+				if !found || strings.HasPrefix(reported, "count=") {
+					continue
+				}
+				name, _, _ := strings.Cut(reported, "=")
+				if strings.HasPrefix(name, "WSO2_") || name == state.RootEnvVar {
+					t.Errorf("the module was launched with the shell's %q", name)
+				}
+			}
+			assertNoCredentialDisclosure(t, stdout, stderr)
+		})
 	}
-	for _, line := range strings.Split(stderr, "\n") {
-		reported, found := strings.CutPrefix(strings.TrimSpace(line), prefix)
-		if !found || strings.HasPrefix(reported, "count=") {
-			continue
-		}
-		name, _, _ := strings.Cut(reported, "=")
-		if strings.HasPrefix(name, "WSO2_") || name == state.RootEnvVar {
-			t.Errorf("the module was launched with the shell's %q", name)
-		}
-	}
-	assertNoCredentialDisclosure(t, stdout, stderr)
 }
 
 func TestTheModulesIssuerMintedAccessIsAcceptedByAVerifyingService(t *testing.T) {
