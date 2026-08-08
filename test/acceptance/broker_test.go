@@ -597,13 +597,97 @@ func TestTheModulesIssuerMintedAccessIsAcceptedByAVerifyingService(t *testing.T)
 	}
 }
 
-// assertNoCredentialDisclosure proves a run said nothing about the credential
-// the shell holds.
+func TestAccessFromAnotherOrganizationsIssuerIsRefused(t *testing.T) {
+	// A deployment that mints no organization claim — Asgardeo's default —
+	// binds a token to one organization through its issuer and nothing else.
+	// So the service is pointed at an issuer that is not the one the shell
+	// authenticates against, and the perfectly valid, correctly scoped,
+	// correctly audienced token the shell obtains is refused anyway.
+	//
+	// This is the case a rule that only checked a claim when the token carried
+	// one would accept, which is why it is here.
+	//
+	// The two fakeissuer.New calls below each generate their own signing key,
+	// so what actually refuses this token is signature verification against
+	// the wrong issuer's published keys, not the iss claim comparison — this
+	// proves the end-to-end refusal but not which guard inside it did the
+	// refusing. That guard, in isolation, is "the token names another issuer"
+	// in TestAnIssuerMintedTokenIsRefusedWhenItsClaimsAreNotServed in
+	// internal/statusservice/jwks_test.go, which signs with the service's own
+	// trusted key and varies only iss.
+	shell := buildShell(t)
+	foreign := fakeissuer.New(t, fakeissuer.Options{Audience: referenceAudience})
+	deployed := deployAs(t, installation{kind: issuerMinted, serviceIssuer: foreign.URL})
+
+	stdout, stderr, err := deployed.try(shell, "reference", "status")
+
+	if exitCode(t, err) != exitProductService {
+		t.Fatalf("exit status = %v, want the product-service class %d\nstderr:\n%s",
+			err, exitProductService, stderr)
+	}
+	if !strings.Contains(stderr, "reference.status_access_rejected") {
+		t.Errorf("stderr does not report the refused access:\n%s", stderr)
+	}
+	if stdout != "" {
+		t.Errorf("a refused command still wrote to standard output:\n%s", stdout)
+	}
+	assertNoCredentialDisclosure(t, stdout, stderr)
+}
+
+func TestAccessNamingAnotherOrganizationIsRefused(t *testing.T) {
+	// The sub-organization case: one issuer serving many organizations states
+	// which one a token is for, and this service serves a different one.
+	shell := buildShell(t)
+	deployed := deployAs(t, installation{
+		kind:   issuerMinted,
+		issuer: fakeissuer.Options{OrganizationClaim: "another-organization"},
+	})
+
+	stdout, stderr, err := deployed.try(shell, "reference", "status")
+
+	if exitCode(t, err) != exitProductService {
+		t.Fatalf("exit status = %v, want the product-service class %d\nstderr:\n%s",
+			err, exitProductService, stderr)
+	}
+	if !strings.Contains(stderr, "reference.status_access_rejected") {
+		t.Errorf("stderr does not report the refused access:\n%s", stderr)
+	}
+	assertNoCredentialDisclosure(t, stdout, stderr)
+}
+
+func TestAccessNamingThisOrganizationIsAccepted(t *testing.T) {
+	// The third shape a deployment can take: an issuer that does mint the
+	// claim, for the organization this service serves. It is the only one of
+	// the three where the claim itself admits the token, and it has to keep
+	// working alongside the two refusals above.
+	shell := buildShell(t)
+	deployed := deployAs(t, installation{
+		kind:   issuerMinted,
+		issuer: fakeissuer.Options{OrganizationClaim: referenceOrganization},
+	})
+
+	stdout, stderr := deployed.run(t, shell, "reference", "status")
+
+	if !strings.Contains(stdout, "operational") {
+		t.Errorf("the table does not report the service's answer:\n%s", stdout)
+	}
+	if deployed.calls.Load() != 1 {
+		t.Errorf("the status service was called %d times, want once", deployed.calls.Load())
+	}
+	assertNoCredentialDisclosure(t, stdout, stderr)
+}
+
+// assertNoCredentialDisclosure proves a run said nothing about either canary
+// credential the shell might hold: the development credential and the OAuth
+// client secret.
 func assertNoCredentialDisclosure(t *testing.T, streams ...string) {
 	t.Helper()
 	for _, stream := range streams {
 		if strings.Contains(stream, canaryCredential) {
 			t.Fatalf("the source credential was disclosed:\n%s", stream)
+		}
+		if strings.Contains(stream, oauthClientSecret) {
+			t.Fatalf("the OAuth client secret was disclosed:\n%s", stream)
 		}
 	}
 }
