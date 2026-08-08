@@ -72,7 +72,23 @@ type Options struct {
 	// SourceCredential is the development credential the shell's issuer signs
 	// with. Holding it is what lets this fixture verify a token without an
 	// identity provider, and it is why the fixture is not a production design.
+	// It is one of the two ways a service establishes trust; an issuer is the
+	// other.
 	SourceCredential string
+	// Issuer is the OpenID issuer whose signature this service accepts. A
+	// service is configured with either this or a source credential, never
+	// both: they are two ways to answer the same question, and a service that
+	// would take either answer accepts a token that satisfies the weaker one.
+	//
+	// It is also the organization binding for a deployment that mints no
+	// organization claim. Configuring an issuer here is the statement that
+	// this issuer speaks for the organization this service serves, so a token
+	// from anywhere else is refused whatever it claims.
+	Issuer string
+	// HTTPClient reaches the issuer for its configuration and keys. It
+	// defaults to http.DefaultClient; a live run against a deployment serving
+	// its own certificate replaces it.
+	HTTPClient *http.Client
 	// Now reads the current time. It defaults to time.Now, and a test sets it
 	// to prove expiry.
 	Now func() time.Time
@@ -97,16 +113,25 @@ func New(options Options) (*Service, error) {
 		return nil, errors.New("statusservice: a required scope is required")
 	case options.Organization == "":
 		return nil, errors.New("statusservice: an organization is required")
-	case options.SourceCredential == "":
-		return nil, errors.New("statusservice: a source credential is required to verify tokens")
+	case options.SourceCredential == "" && options.Issuer == "":
+		return nil, errors.New("statusservice: a source credential or an issuer is required to verify tokens")
+	case options.SourceCredential != "" && options.Issuer != "":
+		return nil, errors.New("statusservice: a service verifies tokens one way; give it a source credential or an issuer, not both")
 	}
 	if options.Now == nil {
 		options.Now = time.Now
 	}
-	return &Service{
-		options:  options,
-		verifier: devtokenVerifier{sourceCredential: options.SourceCredential},
-	}, nil
+	if options.Issuer == "" {
+		return &Service{
+			options:  options,
+			verifier: devtokenVerifier{sourceCredential: options.SourceCredential},
+		}, nil
+	}
+	tokens, err := newJWKSVerifier(options.Issuer, options.HTTPClient, options.Now)
+	if err != nil {
+		return nil, err
+	}
+	return &Service{options: options, verifier: tokens}, nil
 }
 
 // ServeHTTP answers one status request.
