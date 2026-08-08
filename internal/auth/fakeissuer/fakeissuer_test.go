@@ -461,3 +461,57 @@ func TestIntrospectionReportsForeignTokensInactive(t *testing.T) {
 		t.Fatal("foreign token reported active")
 	}
 }
+
+func TestAnAccessTokenCarriesAnOrganizationClaimOnlyWhenAsked(t *testing.T) {
+	// Asgardeo mints no organization claim outside a sub-organization setup,
+	// so the default has to be a token that carries none. A deployment that
+	// does mint one is the other case a resource server must handle, and the
+	// option is how a test reaches it.
+	for name, configured := range map[string]string{
+		"the deployment states an organization": "reference-org",
+		"the deployment states none":            "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			issuer := fakeissuer.New(t, fakeissuer.Options{
+				Audience: "reference-status", OrganizationClaim: configured,
+			})
+			seeded := issuer.SeedSession([]string{"reference:status:read"})
+
+			body, status := refresh(t, issuer, seeded, "")
+			if status != http.StatusOK {
+				t.Fatalf("the refresh grant answered %d, want %d", status, http.StatusOK)
+			}
+
+			if got := claimFromToken(t, text(body, "access_token"), "org_id"); got != configured {
+				t.Errorf("org_id = %q, want %q", got, configured)
+			}
+		})
+	}
+}
+
+// claimFromToken reads one string claim out of a JWT payload without verifying
+// it. This is a test reading a fixture's own output, not a security decision.
+func claimFromToken(t *testing.T, token, claim string) string {
+	t.Helper()
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		t.Fatalf("the token is not a three-part JWT")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("decoding the token payload: %v", err)
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		t.Fatalf("the token payload is not JSON: %v", err)
+	}
+	value, present := claims[claim]
+	if !present {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		t.Fatalf("the %q claim is %T, want a string", claim, value)
+	}
+	return text
+}

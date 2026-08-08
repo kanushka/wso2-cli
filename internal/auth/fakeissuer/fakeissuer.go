@@ -75,6 +75,12 @@ type Options struct {
 	ClientSecret string
 	// Audience is the aud claim minted into access tokens.
 	Audience string
+	// OrganizationClaim is the org_id an access token names. When it is empty
+	// a token carries no organization claim at all, which is what Asgardeo
+	// issues outside a sub-organization setup — and therefore what a resource
+	// server has to accept, binding the token to an organization through the
+	// issuer it trusts rather than through a claim.
+	OrganizationClaim string
 	// RotateRefreshTokens issues a new refresh token on every refresh,
 	// invalidating the one presented.
 	RotateRefreshTokens bool
@@ -564,14 +570,18 @@ func (i *Issuer) handleIntrospect(w http.ResponseWriter, r *http.Request) {
 // introspection.
 func (i *Issuer) mintAccessToken(subject string, scopes []string) string {
 	now := time.Now()
-	token := i.sign(map[string]any{
+	claims := map[string]any{
 		"iss":   i.URL,
 		"sub":   subject,
 		"aud":   i.opts.Audience,
 		"scope": strings.Join(scopes, " "),
 		"exp":   now.Add(5 * time.Minute).Unix(),
 		"iat":   now.Unix(),
-	})
+	}
+	if i.opts.OrganizationClaim != "" {
+		claims["org_id"] = i.opts.OrganizationClaim
+	}
+	token := i.sign(claims)
 	i.mutex.Lock()
 	i.accessTokens[token] = tokenRecord{
 		scopes:   append([]string(nil), scopes...),
