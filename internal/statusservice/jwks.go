@@ -66,9 +66,20 @@ func newJWKSVerifier(issuer string, client *http.Client, now func() time.Time) (
 		// the only check both deployments can satisfy — and this library's own
 		// check is equality against a single configured value.
 		SkipClientIDCheck: true,
-		// One algorithm, stated rather than negotiated. An issuer that offers
-		// another is refused instead of being left to choose how its own
-		// tokens are checked, which is what makes "alg: none" unreachable.
+		// One algorithm, stated rather than negotiated.
+		//
+		// This is not what refuses "none" or an HMAC forgery. go-oidc filters
+		// an issuer's advertised algorithms through its own allowlist of
+		// asymmetric ones before any caller configuration is consulted, so a
+		// symmetric algorithm never reaches this verifier however loudly the
+		// issuer advertises it.
+		//
+		// What this line does is the remaining narrowing, from the ten
+		// algorithms that allowlist permits to the one this service accepts.
+		// Without it the set is whatever the issuer advertises, so an issuer
+		// offering ES256 would have its ES256 tokens accepted here — the
+		// issuer, rather than this service, choosing how its own tokens are
+		// checked.
 		SupportedSigningAlgs: []string{oidc.RS256},
 		// The service's clock, so a test that moves it moves expiry with it.
 		Now: now,
