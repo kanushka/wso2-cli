@@ -660,6 +660,16 @@ func TestAccessNamingThisOrganizationIsAccepted(t *testing.T) {
 	// claim, for the organization this service serves. It is the only one of
 	// the three where the claim itself admits the token, and it has to keep
 	// working alongside the two refusals above.
+	//
+	// Read alone, this test cannot tell "the claim was checked and matched"
+	// from "the claim was ignored": authorize's guard is false both for an
+	// absent org_id and for one equal to this service's organization, so its
+	// observables are the same as the no-claim happy path in
+	// TestTheModulesIssuerMintedAccessIsAcceptedByAVerifyingService. What
+	// makes this test evidence is standing next to
+	// TestAccessNamingAnotherOrganizationIsRefused: same deployment shape, one
+	// claim value apart, opposite outcomes. It is that pairing, not this test
+	// by itself, that shows the claim is load-bearing.
 	shell := buildShell(t)
 	deployed := deployAs(t, installation{
 		kind:   issuerMinted,
