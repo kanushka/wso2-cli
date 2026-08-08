@@ -14,17 +14,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Package oauthflow runs one browser Authorization Code + PKCE login.
+// Package oauthflow runs one interactive login, in either of the two modes an
+// OIDC identity can be established by.
+//
+// Login is the browser Authorization Code + PKCE mode, the default for a person
+// sitting at the machine. DeviceLogin is the RFC 8628 Device Authorization
+// Grant mode, for a machine whose user has no browser it can reach — a remote
+// shell, a container — where the approval happens on another device entirely.
+// Both produce the same Result, so a session established either way is
+// indistinguishable everywhere downstream.
 //
 // The standard libraries own the protocol: go-oidc discovers the issuer and
-// verifies the identity token, and x/oauth2 builds the authorization URL and
-// exchanges the code. This package owns only what they cannot — binding a
-// callback port the OAuth application is actually registered for, printing the
-// authorization URL before anything else can fail, and proving the callback
-// that arrives belongs to the login this process started.
+// verifies the identity token, and x/oauth2 builds the authorization URL,
+// exchanges the code, and runs the device polling loop. This package owns only
+// what they cannot — binding a callback port the OAuth application is actually
+// registered for, printing what the user must act on before anything else can
+// fail, proving the callback that arrives belongs to the login this process
+// started, and turning every failure into a typed problem that never repeats
+// the deployment's own words.
 //
-// No value the flow produces is ever written to the flow's output stream: the
-// terminal sees a URL and progress, never token material.
+// No value the flows produce is ever written to their output stream: the
+// terminal sees a URL, a user code, and progress — never token material, and
+// never the device code.
 package oauthflow
 
 import (

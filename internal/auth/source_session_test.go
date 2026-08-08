@@ -114,7 +114,7 @@ func (d browserDeployment) storedSession(t *testing.T) session.Session {
 	return stored
 }
 
-func TestBrowserSourceNarrowsTheSessionToWhatTheModuleAsked(t *testing.T) {
+func TestSessionSourceNarrowsTheSessionToWhatTheModuleAsked(t *testing.T) {
 	// The session holds two permissions and the module declares one. What
 	// reaches the module must be the one it asked for: the issuer minted it,
 	// it is bound to the product's audience, and it carries nothing more.
@@ -140,7 +140,7 @@ func TestBrowserSourceNarrowsTheSessionToWhatTheModuleAsked(t *testing.T) {
 	}
 }
 
-func TestBrowserSourceStatesTheEffectiveScopesWhenTheIssuerDoesNot(t *testing.T) {
+func TestSessionSourceStatesTheEffectiveScopesWhenTheIssuerDoesNot(t *testing.T) {
 	// An issuer that answers a refresh without naming the effective scopes is
 	// still provably narrowed: the access token itself carries the claim.
 	deployment := seedBrowserSession(t, fakeissuer.Options{
@@ -158,7 +158,7 @@ func TestBrowserSourceStatesTheEffectiveScopesWhenTheIssuerDoesNot(t *testing.T)
 	}
 }
 
-func TestBrowserSourcePersistsTheRotatedRefreshTokenBeforeGranting(t *testing.T) {
+func TestSessionSourcePersistsTheRotatedRefreshTokenBeforeGranting(t *testing.T) {
 	// A rotating issuer invalidates the token it was presented. If the shell
 	// granted access before storing the replacement, one crash would strand
 	// the session; the next invocation proves the replacement was stored.
@@ -188,7 +188,7 @@ func TestBrowserSourcePersistsTheRotatedRefreshTokenBeforeGranting(t *testing.T)
 	}
 }
 
-func TestBrowserSourceRefusesOnceTheRotatedTokenSupersedesTheStoredOne(t *testing.T) {
+func TestSessionSourceRefusesOnceTheRotatedTokenSupersedesTheStoredOne(t *testing.T) {
 	// The token the issuer replaced is dead. A session still holding it is a
 	// session to log in again for, not one to keep retrying.
 	deployment := seedBrowserSession(t, fakeissuer.Options{
@@ -211,7 +211,7 @@ func TestBrowserSourceRefusesOnceTheRotatedTokenSupersedesTheStoredOne(t *testin
 	}
 }
 
-func TestBrowserSourceRefusesRatherThanAcceptABroaderGrant(t *testing.T) {
+func TestSessionSourceRefusesRatherThanAcceptABroaderGrant(t *testing.T) {
 	// Narrowing that is ignored, refused, or answered against the wrong
 	// audience all end the same way: no grant. A module that cannot be given
 	// exactly what it asked for is given nothing.
@@ -237,7 +237,7 @@ func TestBrowserSourceRefusesRatherThanAcceptABroaderGrant(t *testing.T) {
 	}
 }
 
-func TestBrowserSourceRefusesWhatNoSessionCanAnswer(t *testing.T) {
+func TestSessionSourceRefusesWhatNoSessionCanAnswer(t *testing.T) {
 	for name, testcase := range map[string]struct {
 		prepare func(*testing.T, browserDeployment)
 		code    string
@@ -302,7 +302,7 @@ func TestALoginRequiredRefusalNamesTheCommandThatFixesIt(t *testing.T) {
 	}
 }
 
-func TestNoBrowserRefusalCarriesSessionMaterial(t *testing.T) {
+func TestNoRefusalCarriesSessionMaterial(t *testing.T) {
 	// A refusal is rendered. The refresh token behind it is the one thing in
 	// this flow that survives the command, so no refusal may repeat it.
 	for name, testcase := range map[string]fakeissuer.Options{

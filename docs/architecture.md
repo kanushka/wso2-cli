@@ -214,12 +214,17 @@ that rather than presenting it as equivalent.
 #### Interactive login modes
 
 > **What ships today.** This section describes the target architecture. The
-> first `wso2 login` slice implements browser Authorization Code with PKCE and
-> inline client credentials. The Device Authorization Grant and personal access
-> tokens validate as legal configuration and refuse at use with the stable code
+> shell implements browser Authorization Code with PKCE, the Device
+> Authorization Grant, and inline client credentials. Personal access tokens
+> validate as legal configuration and refuse at use with the stable code
 > `auth.kind_not_implemented` — accepted so that a document written for them
 > stays readable, not executed. See
 > [the login first slice](plans/login-first-slice.md).
+>
+> The device grant is reached through the `oauth-device` **kind**, not yet
+> through a login-time flag: `wso2 login --device-code` is not in this release.
+> So the mode-not-kind rule below states the target, and today an identity that
+> can only be established by device says so in its kind.
 
 Browser Authorization Code with PKCE and the Device Authorization Grant are two
 **login modes for the same interactive OIDC identity**, not two stored

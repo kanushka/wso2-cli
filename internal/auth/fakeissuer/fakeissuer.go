@@ -119,6 +119,56 @@ type Options struct {
 	// models the real failure exactly: a deployment whose keys can verify a
 	// token perfectly well, behind a certificate that nothing needs to read.
 	NegativeSerialCertificate bool
+
+	// DeviceOutcome is how a device authorization ends once the pending and
+	// slow-down answers below are exhausted: "approve" issues tokens, "deny"
+	// answers access_denied, "expire" answers expired_token. The default is
+	// "approve".
+	DeviceOutcome string
+	// DevicePendingPolls is how many polls answer authorization_pending before
+	// DeviceOutcome is applied. The default is zero, so the first poll settles
+	// the flow — a test that cares about the waiting states asks for them.
+	DevicePendingPolls int
+	// DeviceSlowDownPolls is how many polls answer slow_down. They are served
+	// before the pending ones, so a test can ask for both and know which
+	// arrives first.
+	DeviceSlowDownPolls int
+	// DeviceInterval is the polling interval the device authorization response
+	// advertises, in seconds. Zero leaves the member out entirely, which is how
+	// a test reaches the client's own default. Any other value is sent
+	// verbatim, negative and absurd ones included: RFC 8628 constrains what a
+	// deployment should say and nothing constrains what one can say, and a
+	// client that carried such a value into its own arithmetic would fail in a
+	// way no refusal describes.
+	DeviceInterval int
+	// DeviceExpiresIn is the lifetime the device authorization response
+	// advertises, in seconds. The default is 600, which is the order of
+	// magnitude real deployments publish.
+	DeviceExpiresIn int
+	// OmitDeviceEndpoint leaves device_authorization_endpoint and the device
+	// grant out of the discovery document, modeling a deployment that does not
+	// serve the grant at all. Thunder is such a deployment today.
+	OmitDeviceEndpoint bool
+	// OmitDeviceVerificationURIComplete leaves verification_uri_complete out of
+	// the device authorization response, modeling the many deployments that
+	// publish only the code and the plain URI. RFC 8628 makes the member
+	// optional, so a client may not depend on it.
+	OmitDeviceVerificationURIComplete bool
+	// OmitDeviceIDToken answers the device grant without an identity token.
+	//
+	// Whether Asgardeo and Identity Server return one from this grant is not
+	// measured, so both answers are modeled rather than assumed. See issue #42.
+	OmitDeviceIDToken bool
+	// OmitDeviceRefreshToken answers the device grant without a refresh token,
+	// modeling an application that was never granted offline access. A session
+	// is a refresh token, so this is the answer that produces a login with
+	// nothing to store.
+	OmitDeviceRefreshToken bool
+	// DeviceIDTokenAudience overrides the audience minted into the device
+	// grant's identity token. A value naming another application models the
+	// commonest real cause of a token that will not verify: a context document
+	// whose client identifier is not the one the deployment signed in.
+	DeviceIDTokenAudience string
 }
 
 // Issuer is one running fake issuer. Its URL doubles as the issuer identifier.
@@ -137,6 +187,12 @@ type Issuer struct {
 	codes         map[string]codeGrant
 	refreshTokens map[string]refreshRecord // refresh token -> what it may renew
 	accessTokens  map[string]tokenRecord   // access token -> introspectable facts
+	deviceGrants  map[string]*deviceGrant
+	devicePolls   []time.Time
+	// lastDeviceCode is the most recently minted device code, recorded because
+	// map iteration order could not name "most recent" if a test ever started
+	// two authorizations.
+	lastDeviceCode string
 }
 
 type codeGrant struct {
@@ -160,6 +216,22 @@ type refreshRecord struct {
 	resource string
 }
 
+// deviceGrant is one device authorization awaiting approval.
+type deviceGrant struct {
+	userCode string
+	scopes   []string
+	clientID string
+	// pending and slowDown count down the answers still owed before the
+	// outcome applies. They live on the grant rather than on the issuer so two
+	// concurrent tests cannot consume each other's waiting states.
+	pending  int
+	slowDown int
+	// redeemed marks a grant whose approval has already produced tokens. The
+	// grant is kept rather than deleted so a later poll is answered the way a
+	// deployment answers a spent code, and so LastDeviceCode can still name it.
+	redeemed bool
+}
+
 type tokenRecord struct {
 	scopes   []string
 	audience string
@@ -175,6 +247,7 @@ func New(t *testing.T, opts Options) *Issuer {
 	t.Helper()
 	opts.RefreshScopeMode = scopeMode(t, "RefreshScopeMode", opts.RefreshScopeMode)
 	opts.ClientScopeMode = scopeMode(t, "ClientScopeMode", opts.ClientScopeMode)
+	opts.DeviceOutcome = deviceOutcome(t, opts.DeviceOutcome)
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("fakeissuer: generate signing key: %v", err)
@@ -186,6 +259,7 @@ func New(t *testing.T, opts Options) *Issuer {
 		codes:         map[string]codeGrant{},
 		refreshTokens: map[string]refreshRecord{},
 		accessTokens:  map[string]tokenRecord{},
+		deviceGrants:  map[string]*deviceGrant{},
 	}
 	if opts.NegativeSerialCertificate {
 		issuer.certificate = negativeSerialCertificate(t, key)
@@ -196,6 +270,7 @@ func New(t *testing.T, opts Options) *Issuer {
 	mux.HandleFunc("GET /authorize", issuer.handleAuthorize)
 	mux.HandleFunc("POST /token", issuer.handleToken)
 	mux.HandleFunc("POST /introspect", issuer.handleIntrospect)
+	mux.HandleFunc("POST /device_authorize", issuer.handleDeviceAuthorize)
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 	issuer.URL = server.URL
@@ -267,10 +342,22 @@ func (i *Issuer) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
 		"subject_types_supported":               []string{"public"},
 		"id_token_signing_alg_values_supported": []string{"RS256"},
 		"code_challenge_methods_supported":      []string{"S256"},
-		"grant_types_supported":                 []string{"authorization_code", "refresh_token", "client_credentials"},
+		"grant_types_supported": []string{
+			"authorization_code", "refresh_token", "client_credentials", deviceGrantType,
+		},
+		"device_authorization_endpoint": i.URL + "/device_authorize",
 	}
 	if i.opts.OmitS256 {
 		delete(document, "code_challenge_methods_supported")
+	}
+	if i.opts.OmitDeviceEndpoint {
+		// Both go, because a deployment without the grant advertises neither.
+		// Dropping only the endpoint would model something that does not exist
+		// and would let a client pass by reading the wrong member.
+		delete(document, "device_authorization_endpoint")
+		document["grant_types_supported"] = []string{
+			"authorization_code", "refresh_token", "client_credentials",
+		}
 	}
 	writeJSON(w, http.StatusOK, document)
 }
@@ -418,6 +505,8 @@ func (i *Issuer) handleToken(w http.ResponseWriter, r *http.Request) {
 		i.refreshGrant(w, r)
 	case "client_credentials":
 		i.clientCredentialsGrant(w, r)
+	case deviceGrantType:
+		i.deviceGrant(w, r)
 	default:
 		oauthError(w, http.StatusBadRequest, "unsupported_grant_type")
 	}
@@ -576,6 +665,222 @@ func (i *Issuer) clientCredentialsGrant(w http.ResponseWriter, r *http.Request) 
 		"expires_in":   300,
 		"scope":        strings.Join(issued, " "),
 	})
+}
+
+// deviceGrantType is RFC 8628's grant type identifier.
+const deviceGrantType = "urn:ietf:params:oauth:grant-type:device_code"
+
+// defaultDeviceExpiresIn is the device code lifetime this issuer advertises
+// when a test states none, in seconds.
+const defaultDeviceExpiresIn = 600
+
+// handleDeviceAuthorize starts one device authorization.
+//
+// It mints both codes and records what the eventual approval will be worth.
+// Nothing here waits: the waiting states a real deployment produces while a
+// human walks to another device are modeled by the counters the token endpoint
+// draws down, so a test states the shape of the wait rather than living
+// through it.
+func (i *Issuer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		oauthError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	if i.opts.OmitDeviceEndpoint {
+		// A deployment that does not advertise the grant does not serve it
+		// either. Answering here anyway would let a client that ignored
+		// discovery pass a test it should fail.
+		oauthError(w, http.StatusNotFound, "invalid_request")
+		return
+	}
+	clientID := presentedClientID(r)
+	if clientID == "" {
+		oauthError(w, http.StatusBadRequest, "invalid_client")
+		return
+	}
+	deviceCode := randomToken("dc")
+	userCode := randomUserCode()
+	i.mutex.Lock()
+	i.deviceGrants[deviceCode] = &deviceGrant{
+		userCode: userCode,
+		scopes:   splitScopes(r.PostForm.Get("scope")),
+		clientID: clientID,
+		pending:  i.opts.DevicePendingPolls,
+		slowDown: i.opts.DeviceSlowDownPolls,
+	}
+	i.lastDeviceCode = deviceCode
+	i.mutex.Unlock()
+
+	expiresIn := i.opts.DeviceExpiresIn
+	if expiresIn == 0 {
+		expiresIn = defaultDeviceExpiresIn
+	}
+	response := map[string]any{
+		"device_code":      deviceCode,
+		"user_code":        userCode,
+		"verification_uri": i.URL + "/device",
+		"expires_in":       expiresIn,
+	}
+	if !i.opts.OmitDeviceVerificationURIComplete {
+		response["verification_uri_complete"] = i.URL + "/device?user_code=" + userCode
+	}
+	// A zero interval is left out rather than sent as zero. RFC 8628 gives the
+	// member a default precisely so a deployment may omit it, and a client that
+	// reads a missing member as "poll as fast as you like" is a client this
+	// fixture exists to catch. Every other value, negative ones included, is
+	// sent exactly as the test asked for it.
+	if i.opts.DeviceInterval != 0 {
+		response["interval"] = i.opts.DeviceInterval
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+// deviceGrant answers one poll of the token endpoint.
+//
+// Every poll is timestamped before anything else, including the ones that end
+// the flow. That record is what lets a test assert the client honored the
+// interval it was given and backed off when told to — a property observable
+// only from the deployment's side, which is where this fixture stands.
+func (i *Issuer) deviceGrant(w http.ResponseWriter, r *http.Request) {
+	i.mutex.Lock()
+	i.devicePolls = append(i.devicePolls, time.Now())
+	grant, found := i.deviceGrants[r.PostForm.Get("device_code")]
+	// A grant already redeemed is treated as one that was never here. A device
+	// code is single-use, exactly as an authorization code is, and this fixture
+	// is the oracle the device tests read "the session came from one approval"
+	// off — one that answered a replay would let a real double-redemption
+	// defect through.
+	if found && grant.redeemed {
+		found = false
+	}
+	var answer string
+	if found {
+		switch {
+		case grant.slowDown > 0:
+			grant.slowDown--
+			answer = "slow_down"
+		case grant.pending > 0:
+			grant.pending--
+			answer = "authorization_pending"
+		case i.opts.DeviceOutcome == "deny":
+			answer = "access_denied"
+		case i.opts.DeviceOutcome == "expire":
+			answer = "expired_token"
+		}
+	}
+	// The grant is read, its counters drawn down, and its redemption recorded in
+	// one critical section, so two concurrent polls can neither both consume the
+	// last pending answer nor both be approved.
+	scopes, clientID := []string(nil), ""
+	if found {
+		scopes, clientID = grant.scopes, grant.clientID
+		if answer == "" {
+			grant.redeemed = true
+		}
+	}
+	i.mutex.Unlock()
+
+	switch {
+	case !found:
+		// An unknown device code is a spent or forged one. RFC 8628 sends the
+		// client to RFC 6749's invalid_grant for both.
+		oauthError(w, http.StatusBadRequest, "invalid_grant")
+	case answer != "":
+		oauthError(w, http.StatusBadRequest, answer)
+	default:
+		i.issueDeviceTokens(w, scopes, clientID)
+	}
+}
+
+// issueDeviceTokens answers an approved device authorization.
+//
+// The token set matches what the authorization code grant produces, minus the
+// nonce: RFC 8628 defines no nonce parameter, so an identity token here carries
+// none and a client that demanded one would be demanding something the flow
+// cannot supply.
+func (i *Issuer) issueDeviceTokens(w http.ResponseWriter, scopes []string, clientID string) {
+	// No resource: RFC 8628 defines no resource indicator on the device
+	// authorization request, and the shell sends none, so a session established
+	// this way is bound by the registration's audience like every session was
+	// before resource indicators existed.
+	response := map[string]any{
+		"access_token": i.mintAccessTokenFor("user-1", scopes, ""),
+		"token_type":   "Bearer",
+		"expires_in":   300,
+		"scope":        strings.Join(scopes, " "),
+	}
+	if !i.opts.OmitDeviceRefreshToken {
+		refreshToken := randomToken("rt")
+		i.mutex.Lock()
+		i.refreshTokens[refreshToken] = refreshRecord{scopes: scopes}
+		i.mutex.Unlock()
+		response["refresh_token"] = refreshToken
+	}
+	if !i.opts.OmitDeviceIDToken {
+		audience := clientID
+		if i.opts.DeviceIDTokenAudience != "" {
+			audience = i.opts.DeviceIDTokenAudience
+		}
+		response["id_token"] = i.mintIDToken(audience, "")
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+// DevicePolls returns when each poll of the device grant arrived, in order.
+// A test reads the gaps between them; the absolute times mean nothing.
+func (i *Issuer) DevicePolls() []time.Time {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	return append([]time.Time(nil), i.devicePolls...)
+}
+
+// LastDeviceCode is the device code this issuer most recently minted.
+//
+// It exists for the non-disclosure sweep: the device code is the one value in
+// this flow that is exchangeable for a session, and a test cannot prove the
+// shell kept it off the terminal without knowing what to look for.
+func (i *Issuer) LastDeviceCode() string {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	return i.lastDeviceCode
+}
+
+// userCodeAlphabet is RFC 8628 section 6.1's recommended character set: upper
+// case, and free of the pairs a person mishears or mistypes — no 0/O, no 1/I.
+const userCodeAlphabet = "BCDFGHJKLMNPQRSTVWXZ"
+
+// randomUserCode mints a code in the WDJB-MJHT shape the RFC uses as its
+// example. The separator is part of the value, so a client that strips or
+// reformats it fails against this fixture exactly as it would against a
+// deployment that expects its own code back.
+func randomUserCode() string {
+	raw := make([]byte, 8)
+	if _, err := rand.Read(raw); err != nil {
+		panic(fmt.Sprintf("fakeissuer: random user code: %v", err))
+	}
+	letters := make([]byte, 0, 9)
+	for at, value := range raw {
+		if at == 4 {
+			letters = append(letters, '-')
+		}
+		letters = append(letters, userCodeAlphabet[int(value)%len(userCodeAlphabet)])
+	}
+	return string(letters)
+}
+
+// deviceOutcome validates a configured outcome, so a typo in a test's options
+// fails the test rather than silently approving the login it meant to refuse.
+func deviceOutcome(t *testing.T, configured string) string {
+	t.Helper()
+	switch configured {
+	case "":
+		return "approve"
+	case "approve", "deny", "expire":
+		return configured
+	default:
+		t.Fatalf("fakeissuer: DeviceOutcome = %q, want approve, deny, or expire", configured)
+		return ""
+	}
 }
 
 // presentedClientCredentials reads the client identifier and secret a

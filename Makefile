@@ -85,11 +85,12 @@ help:
 	@echo ''
 	@echo 'Against a real deployment (Asgardeo, Identity Server 7.x, or ThunderID):'
 	@echo '  make smoke-login          Log in and broker one acquisition. Opens a browser.'
+	@echo '  make smoke-login-device   The same, approved on another device. Opens no browser.'
 	@echo '  make smoke-ci             Broker one acquisition the way CI does. No browser.'
 	@echo '  make empirical-asgardeo   Run the two one-time experiments and print their verdicts.'
 	@echo '  make empirical-thunder    The same questions against a Thunder deployment.'
 	@echo ''
-	@echo 'Both live targets skip cleanly when no deployment is configured.'
+	@echo 'Every live target skips cleanly when no deployment is configured.'
 	@echo 'They read $(SMOKE_ENV) when it exists; name another with'
 	@echo 'SMOKE_ENV=<path>. Copy test/smoke/env.example to start one.'
 	@echo 'See test/smoke/RUNNING.md.'
@@ -128,6 +129,14 @@ smoke-build:
 .PHONY: smoke-login
 smoke-login:
 	@$(smoke_env) $(GO) test $(SMOKE_FLAGS) $(SMOKE_PACKAGE) -run TestLoginSmoke
+
+# The same deployment, logged in to without a browser. It reads exactly the
+# variables smoke-login reads: nothing in the registration is specific to the
+# device grant beyond enabling it on the application, and this target exists
+# partly to keep that claim honest. Skips when no deployment is configured.
+.PHONY: smoke-login-device
+smoke-login-device:
+	@$(smoke_env) $(GO) test $(SMOKE_FLAGS) $(SMOKE_PACKAGE) -run TestDeviceLoginSmoke
 
 # Answers the two questions the redirect-and-narrowing research left open, and
 # prints one verdict line each for recording in that document. Skips when no

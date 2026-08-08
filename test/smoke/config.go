@@ -160,6 +160,12 @@ type Config struct {
 	UnregisteredPort int
 	// Deadline bounds a run that is waiting on a human.
 	Deadline time.Duration
+	// Kind is the authentication kind the installed document declares. It is
+	// empty for the browser login every existing run performs, and set to the
+	// device kind by the run that proves the device grant against the same
+	// deployment. No other variable changes between the two, because no other
+	// registration value differs.
+	Kind string
 }
 
 // Load reads one deployment's description through lookup.
@@ -298,6 +304,10 @@ func readableProviders() []string { return contexts.Providers() }
 // shape the shell reads, and it is exercised by this package's own tests so
 // that a run cannot fail on a document defect in front of a waiting human.
 func (c Config) Document() contexts.Document {
+	kind := c.Kind
+	if kind == "" {
+		kind = contexts.KindOAuthBrowser
+	}
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: ContextName,
@@ -305,7 +315,7 @@ func (c Config) Document() contexts.Document {
 			Name: IdentityName,
 			Type: c.IdentityType,
 			Auth: contexts.IdentityAuth{
-				Kind:          contexts.KindOAuthBrowser,
+				Kind:          kind,
 				Issuer:        c.Issuer,
 				ClientID:      c.ClientID,
 				Tenant:        c.Tenant,
