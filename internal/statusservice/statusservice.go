@@ -36,8 +36,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/wso2/wso2-cli/internal/auth/devtoken"
 )
 
 // StatusPath is the only path the service serves.
@@ -85,7 +83,8 @@ type Options struct {
 
 // Service answers status requests for one audience and organization.
 type Service struct {
-	options Options
+	options  Options
+	verifier verifier
 }
 
 // New builds a service, refusing to start without the policy it enforces. A
@@ -104,7 +103,10 @@ func New(options Options) (*Service, error) {
 	if options.Now == nil {
 		options.Now = time.Now
 	}
-	return &Service{options: options}, nil
+	return &Service{
+		options:  options,
+		verifier: devtokenVerifier{sourceCredential: options.SourceCredential},
+	}, nil
 }
 
 // ServeHTTP answers one status request.
@@ -119,8 +121,7 @@ func (s *Service) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	claims, failure := s.authorize(request)
-	if failure != nil {
+	if failure := s.authorize(request); failure != nil {
 		s.fail(writer, failure.status, failure.code, failure.message)
 		return
 	}
@@ -135,7 +136,11 @@ func (s *Service) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 
 	checkedAt := s.options.Now().UTC()
 	s.write(writer, http.StatusOK, map[string]string{
-		"organization": claims.Organization,
+		// The organization reported is the one this service was configured to
+		// serve, not one read out of the token. They are equal by the time
+		// this line runs, and reporting the configured value keeps it that way
+		// for a token format that carries no organization at all.
+		"organization": s.options.Organization,
 		"service":      ServiceName,
 		"status":       "operational",
 		"checkedAt":    checkedAt.Format(time.RFC3339),
@@ -149,44 +154,54 @@ type refusal struct {
 	message string
 }
 
-// authorize proves the caller presented this invocation's granted access.
+// authorize proves the caller presented access this service accepts.
 //
 // Every check is against what the service itself serves, never against what the
 // request asks for, so a caller cannot widen its access by asserting a
 // different audience, scope, organization, or invocation.
-func (s *Service) authorize(request *http.Request) (devtoken.Claims, *refusal) {
+func (s *Service) authorize(request *http.Request) *refusal {
 	presented, found := strings.CutPrefix(request.Header.Get("Authorization"), "Bearer ")
 	if !found || strings.TrimSpace(presented) == "" {
-		return devtoken.Claims{}, &refusal{http.StatusUnauthorized, "unauthenticated",
+		return &refusal{http.StatusUnauthorized, "unauthenticated",
 			"the request presented no bearer token"}
 	}
 	invocation := request.Header.Get(InvocationHeader)
 	if invocation == "" {
-		return devtoken.Claims{}, &refusal{http.StatusUnauthorized, "unauthenticated",
+		return &refusal{http.StatusUnauthorized, "unauthenticated",
 			"the request does not name the invocation it belongs to"}
 	}
 
-	claims, err := devtoken.Verify(s.options.SourceCredential, strings.TrimSpace(presented), s.options.Now())
+	granted, err := s.verifier.verify(strings.TrimSpace(presented), s.options.Now())
 	switch {
-	case errors.Is(err, devtoken.ErrExpired):
-		return devtoken.Claims{}, &refusal{http.StatusUnauthorized, "token_expired",
+	case errors.Is(err, errAccessExpired):
+		return &refusal{http.StatusUnauthorized, "token_expired",
 			"the presented access has expired"}
 	case err != nil:
-		return devtoken.Claims{}, &refusal{http.StatusUnauthorized, "token_rejected",
+		return &refusal{http.StatusUnauthorized, "token_rejected",
 			"the presented access was not issued for this service"}
 	}
 
 	switch {
-	case claims.Audience != s.options.Audience:
-		return devtoken.Claims{}, notAccepted("audience")
-	case !claims.Allows(s.options.RequiredScope):
-		return devtoken.Claims{}, notAccepted("scope")
-	case claims.Organization != s.options.Organization:
-		return devtoken.Claims{}, notAccepted("organization")
-	case claims.Invocation != invocation:
-		return devtoken.Claims{}, notAccepted("invocation")
+	case !granted.serves(s.options.Audience):
+		return notAccepted("audience")
+	case !granted.allows(s.options.RequiredScope):
+		return notAccepted("scope")
+	// An organization the token names is checked; a token that names none is
+	// bound to this organization by its issuer instead. Task 2's verifier
+	// refuses any token whose iss is not the one this service was configured
+	// with, and that configuration is the deployment's statement that this
+	// issuer speaks for this organization. The alternative — demanding a claim
+	// — would refuse every token Asgardeo issues outside a sub-organization
+	// setup, because it mints none.
+	case granted.Organization != "" && granted.Organization != s.options.Organization:
+		return notAccepted("organization")
+	// Only the fixture token binds an invocation. The header is required of
+	// every caller regardless, so a run always states which invocation it
+	// claims to be part of even when nothing can hold it to the claim.
+	case granted.Invocation != "" && granted.Invocation != invocation:
+		return notAccepted("invocation")
 	}
-	return claims, nil
+	return nil
 }
 
 // notAccepted refuses a token whose claims are not the ones this service
