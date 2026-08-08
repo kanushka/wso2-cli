@@ -18,10 +18,18 @@
 // service.
 //
 // It stands in for a product service so the brokered-access boundary has
-// something real to be proved against: it accepts a request only when the
-// presented fixture token is the one this invocation was granted, for this
-// audience, scope, and organization, and is still within its life. Anything
-// else is refused without the service doing any work.
+// something real to be proved against. It establishes trust one of two
+// ways: against a source credential it shares with the shell, which is
+// also how it reads an invocation binding out of the presented token; or
+// by verifying an access token's signature against the keys an OpenID
+// issuer publishes, which is what a production service does instead. Only
+// the first way binds an invocation, because no OAuth issuer mints such a
+// claim — the header naming one is still required of every caller, but
+// nothing holds an issuer-minted token to it. Whichever way trust is
+// established, a request is accepted only when the token presented is one
+// this service was configured to serve, for its audience, scope, and
+// organization, and is still within its life. Anything else is refused
+// without the service doing any work.
 //
 // It is test infrastructure. It is an internal package with no shell command
 // behind it, it is never linked into the shell binary, and it establishes no
