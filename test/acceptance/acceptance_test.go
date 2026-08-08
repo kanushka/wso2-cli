@@ -320,8 +320,11 @@ func runShellWith(shell string, environment []string, args ...string) (string, s
 //
 // It carries the development credential the isolated context names. Supplying
 // it here is the point of the canary: it is present for every run, only the
-// shell may read it, and no run may disclose it.
-func shellEnvironment(stateRoot string) []string {
+// shell may read it, and no run may disclose it. Additional variables are for
+// deployments whose identity names a different credential source; they are
+// appended rather than replacing the canary, so every run still proves the
+// credential it does not use stays undisclosed.
+func shellEnvironment(stateRoot string, additional ...string) []string {
 	environment := []string{
 		state.RootEnvVar + "=" + stateRoot,
 		credentialVariable + "=" + canaryCredential,
@@ -331,7 +334,7 @@ func shellEnvironment(stateRoot string) []string {
 			environment = append(environment, name+"="+value)
 		}
 	}
-	return environment
+	return append(environment, additional...)
 }
 
 type moduleIdentity struct {

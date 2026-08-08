@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wso2/wso2-cli/internal/auth/fakeissuer"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	contextfixture "github.com/wso2/wso2-cli/internal/contexts/fixture"
 	"github.com/wso2/wso2-cli/internal/modules/fixture"
@@ -53,6 +54,52 @@ const (
 	exitProductService = 75
 )
 
+// The client-credentials identity the issuer-minted arm authenticates as. It
+// mirrors login_test.go's inline deployment, which proves the same identity
+// kind against an in-process shell; here it runs the built binary instead.
+const (
+	oauthIdentityName   = "reference-machine"
+	oauthClientID       = "wso2cli-reference"
+	oauthSecretVariable = "WSO2_REFERENCE_CLIENT_SECRET"
+	// oauthClientSecret is a second canary. The issuer holds the client to it,
+	// so a run that succeeds could only have read it from the variable, and no
+	// surface the shell writes may contain it.
+	oauthClientSecret = "canary-reference-client-secret-4b71"
+)
+
+// credentialKind is how a deployment's shell obtains the access it hands the
+// module.
+type credentialKind int
+
+const (
+	// developmentCredential is the architecture proof's fixture: a shared
+	// secret the shell signs a token with and the service verifies with.
+	developmentCredential credentialKind = iota
+	// issuerMinted is a client-credentials identity whose access tokens a real
+	// OpenID issuer signs and the service verifies against published keys.
+	issuerMinted
+)
+
+func (k credentialKind) String() string {
+	if k == issuerMinted {
+		return "the token is minted by an issuer"
+	}
+	return "the token is minted from the development credential"
+}
+
+// installation is what varies between one deployed reference installation and
+// another: how the shell obtains access, what the service enforces, and how the
+// issuer behaves when there is one.
+type installation struct {
+	kind    credentialKind
+	service statusservice.Options
+	issuer  fakeissuer.Options
+	// serviceIssuer overrides the issuer the service trusts, so a test can
+	// point the shell at one deployment and its audience at another. Only the
+	// organization-binding test sets it.
+	serviceIssuer string
+}
+
 // deployment is one isolated reference installation: the module, the context,
 // and the local status service it targets.
 type deployment struct {
@@ -60,17 +107,126 @@ type deployment struct {
 	service   *httptest.Server
 	// calls counts the requests that reached the status service.
 	calls *atomic.Int64
+	// environment is what the shell is run with. It carries whichever
+	// credential source this deployment's identity names.
+	environment []string
+	// fake is the issuer behind an issuer-minted deployment, and nil for a
+	// development one.
+	fake *fakeissuer.Issuer
 }
 
-// deploy installs the reference module, starts the local status service, and
-// writes the context that points one at the other.
+// deploy installs the development-credential arm, which is what most tests
+// want.
 func deploy(t *testing.T, options statusservice.Options) deployment {
+	t.Helper()
+	return deployAs(t, installation{service: options})
+}
+
+// deployAs installs the reference module, starts the local status service, and
+// writes the context that points one at the other, for either credential kind.
+func deployAs(t *testing.T, install installation) deployment {
 	t.Helper()
 	stateRoot := isolatedStateRoot(t)
 	installReferenceModule(t, stateRoot, buildReferenceModule(t))
-	service := startStatusService(t, options)
-	installReferenceContext(t, stateRoot, service.server.URL, credentialVariable)
-	return deployment{stateRoot: stateRoot, service: service.server, calls: service.calls}
+
+	if install.kind == developmentCredential {
+		service := startStatusService(t, install.service)
+		installReferenceContext(t, stateRoot, service.server.URL, credentialVariable)
+		return deployment{
+			stateRoot:   stateRoot,
+			service:     service.server,
+			calls:       service.calls,
+			environment: shellEnvironment(stateRoot),
+		}
+	}
+
+	if install.issuer.Audience == "" {
+		install.issuer.Audience = referenceAudience
+	}
+	// The issuer holds the client to a secret, so a granted run proves the
+	// shell read the variable rather than that the fixture is permissive.
+	install.issuer.ClientSecret = oauthClientSecret
+	issuer := fakeissuer.New(t, install.issuer)
+
+	// The service trusts the deployment's own issuer unless a test points it
+	// somewhere else, and it verifies signatures instead of holding a shared
+	// secret — so it must be told to stop expecting one.
+	install.service.Issuer = issuer.URL
+	if install.serviceIssuer != "" {
+		install.service.Issuer = install.serviceIssuer
+	}
+	// HTTPClient bounds the discovery New performs at construction, so a
+	// deployment that cannot answer fails the test rather than hanging it.
+	install.service.HTTPClient = &http.Client{Timeout: 10 * time.Second}
+	service := startStatusService(t, install.service)
+	installOAuthContext(t, stateRoot, issuer.URL, service.server.URL)
+
+	return deployment{
+		stateRoot:   stateRoot,
+		service:     service.server,
+		calls:       service.calls,
+		environment: shellEnvironment(stateRoot, oauthSecretVariable+"="+oauthClientSecret),
+		fake:        issuer,
+	}
+}
+
+// installOAuthContext writes a schema version 2 document whose identity
+// authenticates non-interactively against the given issuer.
+//
+// Client credentials rather than a browser login, because this package runs the
+// shell as a built subprocess: a browser identity keeps its session in the OS
+// secure store, and go-keyring's mock reaches only the process that installs
+// it. What this arm gives up is the login step, which login_test.go proves; what
+// it keeps is the shell's own process boundary, which login_test.go cannot.
+func installOAuthContext(t *testing.T, stateRoot, issuerURL, endpoint string) {
+	t.Helper()
+	if err := contextfixture.WriteV2(stateRoot, contexts.Document{
+		SchemaVersion:  contexts.SchemaVersion,
+		DefaultContext: referenceContextName,
+		Identities: []contexts.Identity{{
+			Name: oauthIdentityName,
+			Type: "cloud",
+			Auth: contexts.IdentityAuth{
+				Kind:                 contexts.KindClientCredentials,
+				Issuer:               issuerURL,
+				ClientID:             oauthClientID,
+				Tenant:               referenceOrganization,
+				ClientSecretVariable: oauthSecretVariable,
+			},
+			Products: map[string]contexts.Product{
+				"reference": {
+					Endpoint: endpoint,
+					Audience: referenceAudience,
+					Scopes:   []string{referenceReadScope},
+				},
+			},
+		}},
+		Contexts: []contexts.Context{{
+			Name:         referenceContextName,
+			Identity:     oauthIdentityName,
+			Organization: referenceOrganization,
+		}},
+	}); err != nil {
+		t.Fatalf("installing the v2 context document: %v", err)
+	}
+}
+
+// run executes one shell command in this deployment's environment and requires
+// it to succeed.
+func (d deployment) run(t *testing.T, shell string, args ...string) (string, string) {
+	t.Helper()
+	stdout, stderr, err := runShellWith(shell, d.environment, args...)
+	if err != nil {
+		t.Fatalf("wso2 %s failed: %v\nstdout:\n%s\nstderr:\n%s",
+			strings.Join(args, " "), err, stdout, stderr)
+	}
+	return stdout, stderr
+}
+
+// try executes one shell command in this deployment's environment and returns
+// the exit error for the caller to classify.
+func (d deployment) try(shell string, args ...string) (string, string, error) {
+	return runShellWith(shell, d.environment, args...)
 }
 
 // recordedService is a running status service and its call counter.
@@ -91,7 +247,7 @@ func startStatusService(t *testing.T, options statusservice.Options) recordedSer
 	if options.Organization == "" {
 		options.Organization = referenceOrganization
 	}
-	if options.SourceCredential == "" {
+	if options.SourceCredential == "" && options.Issuer == "" {
 		options.SourceCredential = canaryCredential
 	}
 	service, err := statusservice.New(options)
@@ -355,6 +511,34 @@ func TestTheModuleEnvironmentCarriesNoAmbientCredential(t *testing.T) {
 		}
 	}
 	assertNoCredentialDisclosure(t, stdout, stderr)
+}
+
+func TestTheModulesIssuerMintedAccessIsAcceptedByAVerifyingService(t *testing.T) {
+	// The claim this whole slice exists to make. The shell obtains an access
+	// token from a real issuer, the module presents it, and the service accepts
+	// it only after verifying the issuer's signature against the keys that
+	// issuer publishes — so nothing here turns on a secret the test planted on
+	// both sides.
+	shell := buildShell(t)
+	deployed := deployAs(t, installation{kind: issuerMinted})
+
+	stdout, stderr := deployed.run(t, shell, "reference", "status")
+
+	if deployed.calls.Load() != 1 {
+		t.Fatalf("the status service was called %d times, want once", deployed.calls.Load())
+	}
+	for _, want := range []string{referenceOrganization, "operational"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("the table does not report %q:\n%s", want, stdout)
+		}
+	}
+	if stderr != "" {
+		t.Errorf("a successful command wrote diagnostics:\n%s", stderr)
+	}
+	assertNoCredentialDisclosure(t, stdout, stderr)
+	if strings.Contains(stdout+stderr, oauthClientSecret) {
+		t.Error("the client secret was disclosed")
+	}
 }
 
 // assertNoCredentialDisclosure proves a run said nothing about the credential
