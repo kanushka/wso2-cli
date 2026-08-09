@@ -219,9 +219,9 @@ func TestNoAnswerCarriesTheSourceCredential(t *testing.T) {
 
 func TestTheServiceRefusesToStartWithoutItsOwnPolicy(t *testing.T) {
 	for name, mutate := range map[string]func(*statusservice.Options){
-		"no audience":          func(o *statusservice.Options) { o.Audience = "" },
-		"no required scope":    func(o *statusservice.Options) { o.RequiredScope = "" },
-		"no organization":      func(o *statusservice.Options) { o.Organization = "" },
+		"no audience":       func(o *statusservice.Options) { o.Audience = "" },
+		"no required scope": func(o *statusservice.Options) { o.RequiredScope = "" },
+		"no organization":   func(o *statusservice.Options) { o.Organization = "" },
 		// Clearing the source credential leaves no issuer either, so this is
 		// the case where the service is given no way at all to verify a token.
 		"neither a source credential nor an issuer": func(o *statusservice.Options) { o.SourceCredential = "" },

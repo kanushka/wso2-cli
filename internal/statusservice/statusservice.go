@@ -131,7 +131,7 @@ func New(options Options) (*Service, error) {
 	}
 	if options.Issuer == "" {
 		return &Service{
-			options:  options,
+			options: options,
 			verifier: devtokenVerifier{
 				sourceCredential: options.SourceCredential,
 				now:              options.Now,
