@@ -304,6 +304,27 @@ git commit -m "refactor(statusservice): put one policy over a verifier seam"
 
 ### Task 2: Verify an issuer-minted token
 
+> **Correction, recorded after the task shipped.** The body below is left as
+> written, because this plan is a record of what was intended. Three things in
+> it are wrong, and the shipped code is the authority on all three.
+>
+> - It says `SupportedSigningAlgs: []string{oidc.RS256}` "is what makes `alg:
+>   none` unreachable". It is not. go-oidc filters `none` and the HMAC
+>   algorithms out of an issuer's advertised set before any caller's config is
+>   read (`oidc.go:179-190` and `337-341`), so a symmetric algorithm never
+>   reaches the verifier however the issuer advertises it. What the setting
+>   actually does is narrow that ten-algorithm asymmetric allowlist to the one
+>   this service accepts.
+> - Its `serveJWKS` advertises RS256 alone and publishes one RSA key. The
+>   shipped fixture advertises RS256 and ES256 and publishes a key for each.
+> - Its `mintJWT` takes a single RSA key, so it could sign in one algorithm
+>   only. The shipped helper takes the algorithm and picks the matching key.
+>
+> The last two are what let the shipped ES256 subtest prove what the plan's
+> design could not: that a token signed with an algorithm this service does not
+> accept is refused even when the issuer advertises it and publishes the key
+> that checks it.
+
 **Files:**
 - Create: `internal/statusservice/jwks.go`
 - Modify: `internal/statusservice/statusservice.go` (the `Options` struct and `New`)

@@ -115,9 +115,6 @@ type deployment struct {
 	// environment is what the shell is run with. It carries whichever
 	// credential source this deployment's identity names.
 	environment []string
-	// fake is the issuer behind an issuer-minted deployment, and nil for a
-	// development one.
-	fake *fakeissuer.Issuer
 }
 
 // deploy installs the development-credential arm, which is what most tests
@@ -171,7 +168,6 @@ func deployAs(t *testing.T, install installation) deployment {
 		service:     service.server,
 		calls:       service.calls,
 		environment: shellEnvironment(stateRoot, oauthSecretVariable+"="+oauthClientSecret),
-		fake:        issuer,
 	}
 }
 
@@ -515,10 +511,11 @@ func TestAServiceThatRejectsTheAccessClaimsIsReported(t *testing.T) {
 	// for this context is refused. The command fails as a service answer, not
 	// as shell policy: the shell's own decision was to grant.
 	//
-	// The development kind only. The issuer-minted equivalents are
-	// TestAnInlineIdentityWithNoSecretTellsTheUserWhichVariableToSet in
-	// login_test.go and the organization-binding tests below, which refuse for
-	// reasons this kind has no counterpart for.
+	// The development kind only, because this refusal has no issuer-minted
+	// counterpart to parameterize over. A service configured for another
+	// organization would accept an issuer-minted token, which carries no
+	// org_id: on that arm the issuer is what binds the organization, and the
+	// organization-binding tests below are where that binding is proved.
 	shell := buildShell(t)
 	foreign := deploy(t, statusservice.Options{Organization: "another-organization"})
 
