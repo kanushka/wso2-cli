@@ -114,7 +114,14 @@ func TestLoginRefusals(t *testing.T) {
 		{"client credentials", identityDoc(contexts.KindClientCredentials), nil, nil, "auth.login_not_required"},
 		{"non-interactive with an inline identity", identityDoc(contexts.KindClientCredentials),
 			[]string{"--non-interactive"}, nil, "auth.login_not_required"},
-		{"device kind", identityDoc(contexts.KindOAuthDevice), nil, nil, "auth.kind_not_implemented"},
+		// A device login is interactive too, so it is refused in CI for the
+		// same reason a browser login is: nothing may wait on a human there.
+		// Both doors are checked, because a job that sets the variable rather
+		// than passing the flag is the commoner of the two.
+		{"non-interactive flag with a device identity", identityDoc(contexts.KindOAuthDevice),
+			[]string{"--non-interactive"}, nil, "auth.non_interactive"},
+		{"non-interactive environment with a device identity", identityDoc(contexts.KindOAuthDevice),
+			nil, map[string]string{"WSO2_NON_INTERACTIVE": "1"}, "auth.non_interactive"},
 		{"personal access token kind", identityDoc(contexts.KindPAT), nil, nil, "auth.kind_not_implemented"},
 	}
 	for _, testCase := range cases {

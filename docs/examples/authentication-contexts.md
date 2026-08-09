@@ -435,20 +435,28 @@ availability is per deployment, not universal:
 | Kind | Where it is valid | Today |
 | --- | --- | --- |
 | `oauth-browser` | supported by every identity backend | implemented |
-| `oauth-device` | only where the backend advertises the grant; the broker refuses otherwise | validates, refuses at use with `auth.kind_not_implemented` |
+| `oauth-device` | only where the backend advertises the grant; the broker refuses otherwise | implemented |
 | `client-credentials` | supported by every identity backend; the preferred CI method | implemented |
 | `pat` | only for products that accept product-issued long-lived tokens | validates, refuses at use with `auth.kind_not_implemented` |
 
-The last column is the first `wso2 login` slice, not a property of the kind. A
+The last column is what the shell implements, not a property of the kind. A
 document naming a deferred kind loads and validates — that is deliberate, so
 configuration written ahead of the shell stays readable — and refuses only when
-an identity using it is actually selected. Examples below that use those kinds
+an identity using it is actually selected. Examples below that use `pat`
 therefore describe intended shape, not something to run today.
 
 Browser and device are **login modes for one interactive OIDC identity**, not
 two stored kinds. `oauth-device` appears as a kind only where an identity can
 *only* be established that way; otherwise the mode is chosen at login with
 `--device-code`.
+
+That flag is not in this release. Until it arrives, an identity that could be
+established either way declares `oauth-browser` and is established that way, and
+`oauth-device` is the kind for an identity where the browser mode is not
+available at all — a deployment that cannot register the loopback callback URLs,
+or one whose users are only ever on machines with no reachable browser. A
+developer who merely *happens* to be on a headless machine today is served by a
+second identity, not by this kind; that is the gap `--device-code` closes.
 
 ### The adapter tier
 

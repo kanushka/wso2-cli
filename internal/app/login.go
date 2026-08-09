@@ -42,6 +42,13 @@ const NonInteractiveEnvVar = "WSO2_NON_INTERACTIVE"
 // because without it an abandoned login waits forever holding a callback port.
 var loginDeadline = 5 * time.Minute
 
+// deviceLoginDeadline is the same bound for a device login, and is longer for a
+// plain reason: the user has to reach a second device before they can even
+// begin. It is a ceiling and rarely the thing that fires — the deployment
+// publishes its own device code lifetime, which the flow honours and which is
+// usually shorter.
+var deviceLoginDeadline = 15 * time.Minute
+
 // loginFlags are the flags wso2 login owns. It owns all of them: unlike a
 // product command, there is no module to pass an unrecognized argument on to.
 type loginFlags struct {
@@ -80,14 +87,14 @@ func (s Shell) login(args []string) error {
 			fmt.Sprintf("the %q context acquires access inline and has no login step",
 				selected.Context.Name)).
 			WithRecovery("Run the product command directly; the shell authenticates during it.")
-	case contexts.KindOAuthDevice, contexts.KindPAT:
+	case contexts.KindPAT:
 		return problem.New(problem.CategoryAuthPolicy, "auth.kind_not_implemented",
 			fmt.Sprintf("the %q context uses an authentication kind this release does not implement",
 				selected.Context.Name)).
-			WithRecovery("Use a browser or client-credentials identity. Device and personal access " +
-				"token login are planned.")
-	case contexts.KindOAuthBrowser:
-		// The one kind this release logs in interactively.
+			WithRecovery("Use a browser, device-code, or client-credentials identity. Personal " +
+				"access token login is planned.")
+	case contexts.KindOAuthBrowser, contexts.KindOAuthDevice:
+		// The two kinds this release logs in interactively.
 	default:
 		return problem.New(problem.CategoryAuthPolicy, "auth.method_unsupported",
 			fmt.Sprintf("the %q context uses an authentication method this shell does not implement",
@@ -95,8 +102,15 @@ func (s Shell) login(args []string) error {
 			WithRecovery("Select a context with a supported authentication kind.")
 	}
 	if flags.nonInteractive || os.Getenv(NonInteractiveEnvVar) != "" {
+		// Named for the mode actually refused. Both are interactive and both
+		// are wrong in CI, but telling a device login it is a browser login
+		// sends the reader looking for a browser that was never involved.
+		mode := "browser login"
+		if selected.Identity.Auth.Kind == contexts.KindOAuthDevice {
+			mode = "device login"
+		}
 		return problem.New(problem.CategoryAuthPolicy, "auth.non_interactive",
-			"browser login cannot run in non-interactive mode").
+			mode+" cannot run in non-interactive mode").
 			WithRecovery("Use a client-credentials identity for automation; it acquires access " +
 				"inline without a login step.")
 	}
@@ -105,19 +119,7 @@ func (s Shell) login(args []string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), loginDeadline)
-	defer cancel()
-	result, err := oauthflow.Login{
-		Issuer:      selected.Identity.Auth.Issuer,
-		ClientID:    selected.Identity.Auth.ClientID,
-		Scopes:      productScopeUnion(selected.Identity),
-		OpenBrowser: s.OpenBrowser,
-		// The authorization URL is an instruction to act on, not this
-		// command's result, so it goes to the diagnostic stream: a user who
-		// redirects standard output still sees the URL the login cannot
-		// finish without, and the result stream carries only the report.
-		Out: s.Streams.Err,
-	}.Run(ctx)
+	result, err := s.establishSession(selected)
 	if err != nil {
 		return err
 	}
@@ -147,6 +149,41 @@ func (s Shell) login(args []string) error {
 	return s.reportLogin(selected, result)
 }
 
+// establishSession runs the login mode the selected identity's kind names.
+//
+// The two modes differ in how a person proves who they are and in nothing else:
+// each returns the same result, and each is given the diagnostic stream to
+// print on. What they print is an instruction to act on, not this command's
+// result, so a user who redirects standard output still sees the URL or the
+// code the login cannot finish without, and the result stream carries only the
+// report.
+func (s Shell) establishSession(selected contexts.Selection) (oauthflow.Result, error) {
+	if selected.Identity.Auth.Kind == contexts.KindOAuthDevice {
+		// A longer deadline than the browser login's, because a longer errand:
+		// the person has to reach another device, open a browser on it, and
+		// type a code, where a browser login's user is already looking at the
+		// page. The deployment's own code lifetime bounds this further, and
+		// almost always to something shorter.
+		ctx, cancel := context.WithTimeout(context.Background(), deviceLoginDeadline)
+		defer cancel()
+		return oauthflow.DeviceLogin{
+			Issuer:   selected.Identity.Auth.Issuer,
+			ClientID: selected.Identity.Auth.ClientID,
+			Scopes:   productScopeUnion(selected.Identity),
+			Out:      s.Streams.Err,
+		}.Run(ctx)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), loginDeadline)
+	defer cancel()
+	return oauthflow.Login{
+		Issuer:      selected.Identity.Auth.Issuer,
+		ClientID:    selected.Identity.Auth.ClientID,
+		Scopes:      productScopeUnion(selected.Identity),
+		OpenBrowser: s.OpenBrowser,
+		Out:         s.Streams.Err,
+	}.Run(ctx)
+}
+
 // reportLogin states who the login proved you are and what that identity
 // reaches.
 //
@@ -158,7 +195,15 @@ func (s Shell) reportLogin(selected contexts.Selection, result oauthflow.Result)
 		selected.Context.Name); err != nil {
 		return err
 	}
-	fields := [][2]string{{"Subject", result.Subject}}
+	var fields [][2]string
+	// Both are reported only when the login actually verified them. A browser
+	// login always has a subject, because it refuses without a verified
+	// identity token; a device login may not, because RFC 8628's grant is not
+	// defined to carry one and the session does not depend on it. An empty
+	// label would claim the shell knows something it does not.
+	if result.Subject != "" {
+		fields = append(fields, [2]string{"Subject", result.Subject})
+	}
 	if result.Email != "" {
 		fields = append(fields, [2]string{"Email", result.Email})
 	}
