@@ -58,10 +58,11 @@ func (a access) allows(scope string) bool {
 
 // The refusals a verifier may report.
 //
-// They are the whole vocabulary on purpose. A caller is told that its access
-// expired or that it was not accepted, and never which token format failed,
-// which key did not match, or how a signature was malformed — none of which it
-// is owed, and all of which describe the service's own configuration.
+// They are meant to stay this coarse. A caller is told that its access expired
+// or that it was not accepted, and the intent is that it is never told which
+// token format failed, which key did not match, or how a signature was
+// malformed — none of which it is owed, and all of which describe the service's
+// own configuration.
 var (
 	errAccessExpired  = errors.New("statusservice: the presented access has expired")
 	errAccessRejected = errors.New("statusservice: the presented access was not issued for this service")
@@ -73,8 +74,10 @@ var (
 // It proves origin only. Whether the claims are the ones this service serves is
 // authorize's decision, kept there so that one policy answers for every token
 // format rather than each format carrying its own copy of the rules.
+// Each implementation holds its own clock, because go-oidc keeps the one it
+// verifies with and a seam that also passed a time would let the two disagree.
 type verifier interface {
-	verify(presented string, now time.Time) (access, error)
+	verify(presented string) (access, error)
 }
 
 // devtokenVerifier accepts the architecture proof's fixture token, which the
@@ -83,14 +86,26 @@ type verifier interface {
 // verifier that can read an invocation binding.
 type devtokenVerifier struct {
 	sourceCredential string
+	// now reads the current time, so a test that moves the service's clock
+	// moves expiry with it.
+	now func() time.Time
 }
 
-func (v devtokenVerifier) verify(presented string, now time.Time) (access, error) {
-	claims, err := devtoken.Verify(v.sourceCredential, presented, now)
+func (v devtokenVerifier) verify(presented string) (access, error) {
+	claims, err := devtoken.Verify(v.sourceCredential, presented, v.now())
 	switch {
 	case errors.Is(err, devtoken.ErrExpired):
 		return access{}, errAccessExpired
 	case err != nil:
+		return access{}, errAccessRejected
+	}
+	// This format carries both claims on every token, so an absent one is not
+	// "the token does not say" — it is a token this verifier will not vouch
+	// for. Refusing it here rather than leaving it to authorize is what keeps
+	// the fixture path strict without depending on the minter's own guards:
+	// authorize must let an absent organization through for the issuer-minted
+	// format, which legitimately mints none.
+	if claims.Organization == "" || claims.Invocation == "" {
 		return access{}, errAccessRejected
 	}
 	return access{

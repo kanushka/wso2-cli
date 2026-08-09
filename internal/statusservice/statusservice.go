@@ -132,7 +132,10 @@ func New(options Options) (*Service, error) {
 	if options.Issuer == "" {
 		return &Service{
 			options:  options,
-			verifier: devtokenVerifier{sourceCredential: options.SourceCredential},
+			verifier: devtokenVerifier{
+				sourceCredential: options.SourceCredential,
+				now:              options.Now,
+			},
 		}, nil
 	}
 	tokens, err := newJWKSVerifier(options.Issuer, options.HTTPClient, options.Now)
@@ -204,7 +207,7 @@ func (s *Service) authorize(request *http.Request) *refusal {
 			"the request does not name the invocation it belongs to"}
 	}
 
-	granted, err := s.verifier.verify(strings.TrimSpace(presented), s.options.Now())
+	granted, err := s.verifier.verify(strings.TrimSpace(presented))
 	switch {
 	case errors.Is(err, errAccessExpired):
 		return &refusal{http.StatusUnauthorized, "token_expired",
@@ -220,12 +223,15 @@ func (s *Service) authorize(request *http.Request) *refusal {
 	case !granted.allows(s.options.RequiredScope):
 		return notAccepted("scope")
 	// An organization the token names is checked; a token that names none is
-	// bound to this organization by its issuer instead. Task 2's verifier
-	// refuses any token whose iss is not the one this service was configured
-	// with, and that configuration is the deployment's statement that this
-	// issuer speaks for this organization. The alternative — demanding a claim
-	// — would refuse every token Asgardeo issues outside a sub-organization
-	// setup, because it mints none.
+	// bound to this organization by its issuer instead. The JWKS verifier in
+	// jwks.go refuses any token whose iss is not the one this service was
+	// configured with, and that configuration is the deployment's statement
+	// that this issuer speaks for this organization. The alternative —
+	// demanding a claim — would refuse every token Asgardeo issues outside a
+	// sub-organization setup, because it mints none. The allowance is the
+	// issuer-minted format's alone: the fixture verifier refuses a token of its
+	// own format that names no organization, so this line is never what lets
+	// one through.
 	case granted.Organization != "" && granted.Organization != s.options.Organization:
 		return notAccepted("organization")
 	// Only the fixture token binds an invocation. The header is required of

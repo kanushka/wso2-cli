@@ -88,10 +88,9 @@ func newJWKSVerifier(issuer string, client *http.Client, now func() time.Time) (
 
 // verify proves the issuer minted this token and reads what it asserts.
 //
-// The clock is the one this verifier was built with rather than the argument,
-// because the library holds it; the parameter is the seam's, and honoring it
-// twice would let the two disagree.
-func (v jwksVerifier) verify(presented string, _ time.Time) (access, error) {
+// Expiry is not checked here: the clock this verifier was built with was handed
+// to the library, which applies it as part of verification.
+func (v jwksVerifier) verify(presented string) (access, error) {
 	token, err := v.tokens.Verify(context.Background(), presented)
 	var expired *oidc.TokenExpiredError
 	switch {

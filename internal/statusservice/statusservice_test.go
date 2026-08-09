@@ -106,6 +106,27 @@ func TestATokenForAnotherOrganizationIsRejected(t *testing.T) {
 	assertRejected(t, response, http.StatusForbidden)
 }
 
+func TestAFixtureTokenThatNamesNoOrganizationIsRejected(t *testing.T) {
+	// A wrong organization is refused by the service's own policy, which the
+	// test above covers. An absent one is not: that policy lets a token naming
+	// no organization through, because an issuer-minted token legitimately
+	// names none and is bound to its organization by its issuer instead. The
+	// fixture format has no such binding, so its verifier is what has to refuse
+	// this — and it has to refuse it on its own, rather than by trusting that
+	// the minter would never produce one.
+	//
+	// The verifier refuses a token naming no invocation for the same reason.
+	// That case has no test because devtoken.Mint refuses to produce such a
+	// token, and reproducing its signature here would copy the token format
+	// into this file.
+	anonymous := claims()
+	anonymous.Organization = ""
+
+	response := call(t, options(), request(t, mint(t, anonymous)))
+
+	assertRejected(t, response, http.StatusUnauthorized)
+}
+
 func TestATokenMintedForAnotherInvocationIsRejected(t *testing.T) {
 	// The token is bound to the invocation that acquired it, so a caller
 	// acting as one invocation cannot present access granted to another.
@@ -201,7 +222,9 @@ func TestTheServiceRefusesToStartWithoutItsOwnPolicy(t *testing.T) {
 		"no audience":          func(o *statusservice.Options) { o.Audience = "" },
 		"no required scope":    func(o *statusservice.Options) { o.RequiredScope = "" },
 		"no organization":      func(o *statusservice.Options) { o.Organization = "" },
-		"no source credential": func(o *statusservice.Options) { o.SourceCredential = "" },
+		// Clearing the source credential leaves no issuer either, so this is
+		// the case where the service is given no way at all to verify a token.
+		"neither a source credential nor an issuer": func(o *statusservice.Options) { o.SourceCredential = "" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			incomplete := options()
