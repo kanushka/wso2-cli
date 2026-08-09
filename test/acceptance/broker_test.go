@@ -410,11 +410,9 @@ func TestAnUndeclaredAudienceIsDenied(t *testing.T) {
 func TestAnExcessiveScopeIsDenied(t *testing.T) {
 	// The installation declares the audience but not the permission the module
 	// asks for, so the broker refuses rather than granting the narrower access
-	// the receipt would allow.
-	//
-	// One kind only: the receipt is checked before any source is consulted, so
-	// a second pass would prove the same refusal twice and say nothing about
-	// where the token would have come from.
+	// the receipt would allow. One kind only, for the same reason as the
+	// undeclared audience above: the receipt is checked before any source is
+	// consulted.
 	shell := buildShell(t)
 	stateRoot := isolatedStateRoot(t)
 	if _, err := fixture.Install(state.ModuleStore(stateRoot), fixture.Module{
