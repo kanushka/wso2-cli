@@ -305,8 +305,9 @@ the client ID on Asgardeo and the API resource identifier on Identity Server,
 and carrying one product's value to the other costs a browser sign-in and ends
 in `auth.narrowing_unavailable`.
 
-The audience side of that question is now settled for this service's own
-check: it tests membership rather than equality, since membership is the
+**Recorded 2026-08-09.** The audience side of that question is now settled for
+this service's own check: it tests membership rather than equality, since
+membership is the
 only check both token shapes can satisfy. `internal/statusservice`
 implements this — `jwks.go` skips the client library's own equality check,
 and `authorize` in `statusservice.go` asks whether the service's configured

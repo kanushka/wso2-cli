@@ -27,6 +27,12 @@ import (
 	oidc "github.com/coreos/go-oidc/v3/oidc"
 )
 
+// issuerTimeout bounds one issuer request when the caller supplies no client of
+// its own. It is the default rather than a policy: a deployment that needs
+// longer, or that must present its own certificates, passes an Options.
+// HTTPClient and this value never applies.
+const issuerTimeout = 10 * time.Second
+
 // jwksVerifier accepts an access token an OpenID issuer signed, checked against
 // the keys that issuer publishes.
 //
@@ -47,14 +53,27 @@ type jwksVerifier struct {
 // its issuer's configuration refuses to start. That is New's existing rule: a
 // service that cannot say what it accepts would accept anything.
 func newJWKSVerifier(issuer string, client *http.Client, now func() time.Time) (jwksVerifier, error) {
-	ctx := context.Background()
-	if client != nil {
-		ctx = oidc.ClientContext(ctx, client)
+	// Every issuer request is bounded by the client rather than by a context,
+	// because the context cannot bound the ones that matter most. go-oidc
+	// stores the key set's context as context.WithoutCancel and its own
+	// comment calls it "a config bag-of-values", so a deadline threaded
+	// through VerifierContext is discarded before the first key fetch. A
+	// client timeout applies to discovery and to every later key fetch alike,
+	// whichever context the library consults.
+	if client == nil {
+		client = &http.Client{Timeout: issuerTimeout}
 	}
+	ctx := oidc.ClientContext(context.Background(), client)
+	// Discovery is additionally given a deadline, because it is the one issuer
+	// request this service makes before it will answer anything: a deployment
+	// that accepts the connection and then stalls would otherwise hold up
+	// New rather than failing it.
+	discovery, cancel := context.WithTimeout(ctx, issuerTimeout)
+	defer cancel()
 	// NewProvider reads the document and refuses one whose own issuer member
 	// disagrees with the URL it came from, so a redirected host cannot
 	// substitute its own keys.
-	provider, err := oidc.NewProvider(ctx, issuer)
+	provider, err := oidc.NewProvider(discovery, issuer)
 	if err != nil {
 		return jwksVerifier{}, fmt.Errorf(
 			"statusservice: cannot read the issuer's OpenID configuration: %w", err)

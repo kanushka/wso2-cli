@@ -647,6 +647,9 @@ func TestAccessNamingAnotherOrganizationIsRefused(t *testing.T) {
 	if !strings.Contains(stderr, "reference.status_access_rejected") {
 		t.Errorf("stderr does not report the refused access:\n%s", stderr)
 	}
+	if stdout != "" {
+		t.Errorf("a refused command still wrote to standard output:\n%s", stdout)
+	}
 	assertNoCredentialDisclosure(t, stdout, stderr)
 }
 
