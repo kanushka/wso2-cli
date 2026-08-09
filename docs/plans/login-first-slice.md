@@ -1,7 +1,7 @@
 # `wso2 login` First Slice
 
-**Status:** Delivered. Tasks 1-12 merged into `feature/login` through PRs
-#24-#29, #33, #34 and #35, with the definition of done met.
+**Status:** Delivered. Tasks 1-12 merged into `feature/login` through
+PRs #24-#29, #33, #34 and #35, with the definition of done met.
 
 **Date:** 2026-08-07
 
