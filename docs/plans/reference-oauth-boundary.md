@@ -1,10 +1,25 @@
 # Reference Module OAuth Boundary Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
-> (recommended) or superpowers:executing-plans to implement this plan
-> task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+**Status:** Implemented. Tasks 1-7 are delivered on
+`test/reference-oauth-boundary` and opened as PR #48, with the definition of
+done met. Two corrections outran the plan and are recorded against the tasks
+that carried them: the signing-algorithm guard does not do what Task 2's
+commentary claimed, and Task 1's zero-value organization rule weakened the
+fixture path until the final review caught it.
 
-**Status:** Not started.
+**Date:** 2026-08-08
+
+**Outcome:** The reference audience verifies issuer-minted access
+
+**Related:** [Issue #47](https://github.com/wso2/wso2-cli/issues/47) is the
+spec — read it before starting any task — with
+[architecture](../architecture.md),
+[ADR 0004](../adr/0004-shell-brokered-authentication.md) and
+[ADR 0005](../adr/0005-audience-side-verification.md), which this work
+established.
+
+Each task below ends in a green test and a commit. Steps use checkbox
+(`- [ ]`) syntax so progress is visible in the file itself.
 
 **Goal:** Give the reference status service a second way to establish that a
 token is genuine — verifying an OpenID issuer's RS256 signature against the keys
@@ -23,12 +38,7 @@ needs no keyring and therefore runs the shell as a real subprocess.
 dependency, used by `internal/auth/discovery.go`), `github.com/go-jose/go-jose/v4`
 v4.1.4 (test JWT signing only).
 
-**Spec:** the body of [issue #47](https://github.com/wso2/wso2-cli/issues/47) —
-read it before starting any task.
-
-**Branch:** `test/reference-oauth-boundary`, worktree
-`.claude/worktrees/test+reference-oauth-boundary`, cut from local `main` at
-ea083c2.
+**Branch:** `test/reference-oauth-boundary`, cut from `main` at ea083c2.
 
 ## Global Constraints
 
