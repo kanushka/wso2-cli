@@ -387,9 +387,20 @@ Two differences from section 2.2, and the schema enforces both:
 
 The secret itself never goes in this file, and the file is safe to commit.
 
-`audience` follows the same per-product rule as section 2.2, applied to *this*
-application: on Asgardeo it must be the M2M application's own client ID, not the
-API resource identifier the example shows.
+**The example above is an Asgardeo identity, and two of its members are
+product-specific.** Substitute both before using it against another deployment:
+
+- `audience` follows the same per-product rule as section 2.2, applied to *this*
+  application. On Asgardeo it must be the M2M application's own client ID, not
+  the API resource identifier the example shows.
+- `auth.provider` carries into a CI identity exactly as it does a browser one.
+  A Thunder deployment needs `"provider": "thunder"` here, because that is what
+  makes the shell name the protected resource on the client-credentials request
+  — and Thunder refuses a grant that names none. The document parses either
+  way, so leaving it out fails at the first command rather than at the first
+  read. [The Thunder walkthrough](login-thunder.md#7-a-confidential-client-for-ci-if-you-need-one)
+  shows the whole identity, including the two further rules a resource-bound
+  identity must satisfy.
 
 ### 5.2 Wire the job
 
