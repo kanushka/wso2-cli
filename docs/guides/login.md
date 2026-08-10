@@ -733,7 +733,9 @@ just edited. `*.env` is ignored by git.
 `WSO2_SMOKE_CLIENT_ID` and `WSO2_SMOKE_AUDIENCE` are different fields that
 Asgardeo happens to force to the same value: the first says who is asking, the
 second says what the issued token must be bound to. **On Identity Server and
-Thunder they differ**, and the second is the resource identifier — see
+Thunder they differ**: it is the API resource identifier on Identity Server and
+an absolute resource-server URI on Thunder, which refuses a bare identifier —
+see
 [the Identity Server walkthrough](login-identity-server.md#1-what-is-different-about-identity-server)
 and [the Thunder walkthrough](login-thunder.md#1-what-is-different-about-thunder).
 Copying one deployment's file to another and changing only the issuer is
