@@ -38,10 +38,10 @@ and not a property of the locking mechanism.
   repair fixes a heuristic whose job disappears entirely under a kernel lock.
 - `github.com/gofrs/flock` covers both platforms behind one API and would have
   avoided a build-tagged seam, but it would add a genuinely new module to a
-  graph that deliberately carries four direct dependencies. `golang.org/x/sys`
-  was already present as an indirect dependency at the version required, so
-  promoting it to direct adds nothing to the graph and costs roughly thirty
-  lines per platform.
+  graph that deliberately carried four direct dependencies at the time of this
+  decision. `golang.org/x/sys` was already present as an indirect dependency at
+  the version required, so promoting it to direct adds nothing to the graph and
+  costs roughly thirty lines per platform.
 - A blocking acquire would be simpler than a non-blocking attempt on a retry
   loop, but it discards the bounded wait: the shell reports a busy session as a
   typed, recoverable refusal rather than hanging on a peer that may never
@@ -49,11 +49,25 @@ and not a property of the locking mechanism.
 
 ## Consequences
 
-The waiting deadline moved from 5 to 30 seconds. Under the previous
+The waiting deadline moved from 5 to 45 seconds. Under the previous
 implementation a waiter never truly blocked on a healthy holder, so 5 seconds
-was never tested against a real critical section; that section now spans a
-token refresh round trip to the issuer, and a slow deployment would otherwise
-turn an ordinary wait into a refusal.
+was never tested against a real critical section. That section now spans a
+token refresh round trip to the issuer, which the `auth` package bounds at 30
+seconds, so the waiter's patience has to stay strictly greater than that bound:
+at equal values a holder that is merely slow outlives the waiter, and an
+ordinary wait becomes a spurious refusal. The two constants live in packages
+that cannot import each other, so the coupling is carried by a comment on each
+— raising one means raising the other.
+
+During an upgrade, an old binary and a new one do not interlock. The old one
+takes the lock by creating the file and releases it by removing the file, which
+the new one is holding a kernel lock on; once that file is gone, the next new
+invocation creates a fresh inode at the same path and locks it successfully
+alongside the first. The window is any machine where two CLI versions coexist —
+a pinned install, a CI image mid-rollout — and it closes once the old binary is
+gone. Nothing in the design can prevent it, because the old binary's behavior is
+already fixed; it is recorded here so the double-entry is recognised as the
+rollout artifact it is rather than a defect in this lock.
 
 Advisory locks are unreliable on NFS-mounted filesystems. The state root is a
 local user directory and a networked home directory is out of scope.

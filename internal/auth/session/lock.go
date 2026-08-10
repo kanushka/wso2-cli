@@ -28,7 +28,15 @@ const (
 	// lockDeadline is how long a writer waits before giving up. The critical
 	// section spans a token refresh round trip to the issuer, so the wait has
 	// to outlast a slow deployment rather than a local file operation.
-	lockDeadline = 30 * time.Second
+	//
+	// It must stay strictly greater than auth.grantDeadline, which bounds that
+	// round trip: at equal values a holder that is merely slow outlives the
+	// waiter's patience, and an ordinary wait becomes a spurious refusal. The
+	// constant is not derived from auth.grantDeadline because auth imports this
+	// package, so the coupling is stated here instead — raising one means
+	// raising the other. The margin covers the keyring read and write that
+	// bracket the round trip inside the same critical section.
+	lockDeadline = 45 * time.Second
 )
 
 // WithLock runs fn while holding the per-reference advisory file lock.

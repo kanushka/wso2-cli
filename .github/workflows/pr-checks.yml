@@ -103,6 +103,22 @@ jobs:
 
           go vet ./...
 
+      - name: Cross-build the shell for every supported platform
+        # The gate below runs on Linux only, so a file behind a build tag for
+        # another platform is never compiled by it. The session lock is the
+        # first such seam, and a Windows-only file that stops compiling would
+        # otherwise reach a release unnoticed.
+        if: needs.changes.outputs.shell == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for target in windows/amd64 darwin/amd64 darwin/arm64; do
+            echo "Building for ${target}"
+            GOOS="${target%%/*}" GOARCH="${target##*/}" go build ./...
+            GOOS="${target%%/*}" GOARCH="${target##*/}" go vet ./...
+          done
+
       - name: Lint shell
         if: needs.changes.outputs.shell == 'true'
         uses: golangci/golangci-lint-action@v9

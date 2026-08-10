@@ -162,10 +162,18 @@ func TestWithLockReleasesOnError(t *testing.T) {
 	}
 }
 
+// writersPerRound is the burst size one round throws at a single reference.
+const writersPerRound = 32
+
 // TestWithLockNeverOverlapsWithAbandonedLockFile pins the property the lock
 // exists for: no two writers on one credential reference run fn at the same
 // time, including when a lock file left behind by a crashed process is already
 // sitting at the path.
+//
+// Each round also asserts that every writer eventually ran. Exclusion on its
+// own is a weak oracle — a lock that admits one writer and refuses the other
+// thirty-one satisfies it — and that is exactly what a contended acquisition
+// that stops retrying looks like.
 func TestWithLockNeverOverlapsWithAbandonedLockFile(t *testing.T) {
 	keyring.MockInit()
 	// Each round is an independent burst of writers arriving together on a
@@ -201,10 +209,10 @@ func runAbandonedLockRound(t *testing.T) {
 	}
 
 	var mu sync.Mutex
-	inside, maxInside := 0, 0
+	inside, maxInside, entered := 0, 0, 0
 	var group sync.WaitGroup
 	start := make(chan struct{})
-	for range 32 {
+	for range writersPerRound {
 		group.Add(1)
 		go func() {
 			defer group.Done()
@@ -212,6 +220,7 @@ func runAbandonedLockRound(t *testing.T) {
 			_ = store.WithLock("acme-cloud-login", func() error {
 				mu.Lock()
 				inside++
+				entered++
 				if inside > maxInside {
 					maxInside = inside
 				}
@@ -230,10 +239,17 @@ func runAbandonedLockRound(t *testing.T) {
 	group.Wait()
 
 	mu.Lock()
-	peak := maxInside
+	peak, ran := maxInside, entered
 	mu.Unlock()
 	if peak != 1 {
 		t.Fatalf("lock admitted %d concurrent writers on one reference", peak)
+	}
+	// Exclusion alone is satisfied by a lock that admits one writer and refuses
+	// the rest, which is what a contended acquisition that never retries does.
+	// Every writer must also get its turn before the deadline.
+	if ran != writersPerRound {
+		t.Fatalf("only %d of %d writers ran: the lock refused contention instead of waiting for it",
+			ran, writersPerRound)
 	}
 }
 
