@@ -1,7 +1,10 @@
 # Running the live smoke and the empirical experiments
 
 **Status:** Working draft
-**Related:** [Login walkthrough](../../docs/guides/login.md),
+**Related:** [Login guide](../../docs/guides/login.md) and its per-product
+walkthroughs — [Asgardeo](../../docs/guides/login-asgardeo.md),
+[Identity Server](../../docs/guides/login-identity-server.md),
+[ThunderID](../../docs/guides/login-thunder.md),
 [Asgardeo redirect URIs and scope narrowing](../../docs/research/asgardeo-redirect-uri-and-scope-narrowing.md)
 
 Everything in this directory except `config.go` is behind the `smoke` build tag.
@@ -13,8 +16,11 @@ These runs need a human. They open a real browser and wait for a real sign-in.
 
 ## What to export
 
-Register the application first — [the walkthrough](../../docs/guides/login.md)
-covers Asgardeo and Identity Server 7.x — then describe it with these variables.
+Register the application first — there is a walkthrough per product:
+[Asgardeo](../../docs/guides/login-asgardeo.md),
+[Identity Server 7.x](../../docs/guides/login-identity-server.md),
+[ThunderID](../../docs/guides/login-thunder.md) — then describe it with these
+variables.
 
 Describing it once in a file beats re-exporting it into every shell. Copy
 [`env.example`](env.example) and fill it in:
@@ -145,12 +151,16 @@ export WSO2_SMOKE_IDENTITY_TYPE=onprem
 The other is the audience. On Asgardeo it has to be the **client ID**, because
 that is the only value Asgardeo ever puts in an access token's `aud`. On
 Identity Server it is the **API resource identifier**, which reaches `aud` once
-the identifier is in the application's audience list. Sections 2.5 and 3.5 of
-[the walkthrough](../../docs/guides/login.md) cover both. This is the main
-reason to keep a file per deployment rather than editing one in place.
+the identifier is in the application's audience list. Section 1 of
+[each](../../docs/guides/login-asgardeo.md)
+[product's](../../docs/guides/login-identity-server.md)
+[walkthrough](../../docs/guides/login-thunder.md) states its own answer and the
+measurement behind it. This is the main reason to keep a file per deployment
+rather than editing one in place.
 
-A local Identity Server also has to be trusted by the operating system before
-any of this can reach it — see section 3.6 of the walkthrough.
+A local Identity Server or Thunder deployment also has to be trusted by the
+operating system before any of this can reach it — see section 3 of its
+walkthrough.
 
 ### The one refusal that is not a failure
 
@@ -186,7 +196,7 @@ one-permission request with both. The other four read:
 | did not state which permissions it issued | neither the response nor the token named a scope |
 | not bound to the *audience* | the token is real but carries a different `aud` — on Asgardeo, almost always because the audience is set to the API resource rather than the client ID |
 
-Section 8 of [the walkthrough](../../docs/guides/login.md) tabulates the same
+Section 6 of [the login guide](../../docs/guides/login.md) tabulates the same
 five against what to change in the registration.
 
 Read which acquisition refused, too. On the **narrowed** one it is a statement
@@ -282,16 +292,16 @@ only verdicts whose deployment line names the deployment you mean to record.
 - `inconclusive (unrecognized narrowing refusal)` — the deployment refused and
   the refusal did not name permissions, so which of the narrowing causes it was
   cannot be read off it. Record nothing from this one. The run's own output
-  carries the underlying message; section 8 of
-  [the walkthrough](../../docs/guides/login.md) maps it to what to change.
+  carries the underlying message; section 6 of
+  [the login guide](../../docs/guides/login.md) maps it to what to change.
 - `inconclusive (audience not bound)` — a token came back that is not bound to
   the configured audience. On Asgardeo this is not a registration defect to
   fix: Asgardeo binds a JWT access token's `aud` claim to the **client ID**,
   never to the API resource identifier whose scopes the token carries, and this
   is not configurable — the application's Protocol tab exposes an Audience
   field only under **ID Token**, and the Access Token section has no audience
-  control at all. See section 2.5 of
-  [the walkthrough](../../docs/guides/login.md), and
+  control at all. See section 1 of
+  [the Asgardeo walkthrough](../../docs/guides/login-asgardeo.md), and
   [the research document](../../docs/research/asgardeo-redirect-uri-and-scope-narrowing.md)
   this file already links above. The remedy is to set `WSO2_SMOKE_AUDIENCE`
   here, and `products.<namespace>.audience` in a real context document, to the

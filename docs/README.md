@@ -44,10 +44,15 @@ described commands or schemas are currently available.
 
 ## Guides
 
-- [Logging in](guides/login.md) takes a first-time user from registering the
-  OAuth application in Asgardeo or Identity Server 7.x, through authoring the
-  context document and the first `wso2 login`, to a CI job that authenticates
-  without one. It is written to be read on its own.
+- [Logging in](guides/login.md) takes a first-time user from a registered
+  OAuth application, through authoring the context document and the first
+  `wso2 login`, to a CI job that authenticates without one. Everything in it is
+  the same whichever product backs the deployment.
+- Registering the application is product-specific, and each product has its own
+  walkthrough: [Asgardeo](guides/login-asgardeo.md),
+  [Identity Server 7.x](guides/login-identity-server.md), and
+  [ThunderID](guides/login-thunder.md). They are alternatives; a reader needs
+  exactly one, and each hands off to the login guide at its section 2.
 
 ## Research
 

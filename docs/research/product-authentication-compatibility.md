@@ -55,7 +55,10 @@ wso2-cli needs per-context client configuration or registration.
 (`wso2/identity-apps`), and `wso2/product-is` for Identity Server.** The
 wso2-cli login slice ships *against* this gap rather than waiting for it to
 close: every tenant and every deployment registers its own public client by
-hand, and [the login walkthrough](../guides/login.md) §§2–3 is that manual
+hand, and the per-product login walkthroughs —
+[Asgardeo](../guides/login-asgardeo.md),
+[Identity Server](../guides/login-identity-server.md),
+[ThunderID](../guides/login-thunder.md) — are that manual
 registration written out in full — a standard-based application, public client,
 PKCE mandatory with `S256`, the four loopback callbacks
 `http://127.0.0.1:{10425,10426,10427,10428}/callback`, the refresh-token grant,

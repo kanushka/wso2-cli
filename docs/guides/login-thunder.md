@@ -1,17 +1,12 @@
 # Logging in with the WSO2 CLI: ThunderID
 
-This is the registration walkthrough for **ThunderID**, the third deployment
-`wso2 login` supports. Asgardeo and WSO2 Identity Server are covered by
-[the main login guide](login.md), sections 2 and 3, and everything after
-registration — writing the context document, logging in, CI, troubleshooting —
-is the same document for all three products. Read this one for the registration,
-then return to [section 4 of the login guide](login.md#4-write-the-context-document).
-
-It is a separate file for two reasons. Thunder is pre-1.0 and will change faster
-than the other two, and churn is cheapest in a file nothing cross-references.
-And the login guide is already long enough that a third walkthrough inside it
-would push it past thirteen hundred lines. Splitting all three product
-walkthroughs symmetrically is [tracked separately](https://github.com/wso2/wso2-cli/issues/45).
+This is the registration walkthrough for **ThunderID**, one of the three
+deployments `wso2 login` supports. Asgardeo and WSO2 Identity Server have
+[their](login-asgardeo.md) [own](login-identity-server.md) walkthroughs, and
+everything after registration — writing the context document, logging in, CI,
+troubleshooting — is the same document for all three products. Read this one for
+the registration, then return to
+[section 2 of the login guide](login.md#2-write-the-context-document).
 
 **Written against ThunderID `v1.0.0-beta`.** Console layouts move in an alpha
 and beta product; if a control named here is not where this says, the version
@@ -268,6 +263,44 @@ The client-credentials grant has no earlier authorization to inherit a resource
 binding from, so the shell sends the resource indicator on that request too. A
 Thunder deployment refuses the grant outright without it.
 
+**That is why a Thunder CI identity carries `provider` exactly as a browser one
+does.** `provider` is what selects the resource-bound derivation, and the shell
+sends no indicator without it — so the
+[CI context in the login guide](login.md#51-write-the-ci-context), which is
+written for Asgardeo, cannot be used here as it stands. This is the Thunder
+form:
+
+```json
+{
+  "name": "thunder-ci",
+  "type": "onprem",
+  "auth": {
+    "kind": "client-credentials",
+    "provider": "thunder",
+    "issuer": "https://localhost:8090",
+    "clientId": "REPLACE_WITH_YOUR_CI_CLIENT_ID",
+    "clientSecretVariable": "WSO2_THUNDER_CI_SECRET"
+  },
+  "products": {
+    "reference": {
+      "endpoint": "https://localhost:8090",
+      "audience": "https://localhost:8090/reference-status",
+      "scopes": ["read", "write"]
+    }
+  }
+}
+```
+
+The same two rules that bind a Thunder browser identity bind this one, and the
+shell refuses the document rather than the grant if either is broken: **exactly
+one product**, and an **audience that is an absolute URI**. Carrying the login
+guide's `"audience": "reference-status"` over is refused at parse as not a URI,
+which is the cheap failure; omitting `provider` is the expensive one, because
+the document parses and the deployment refuses every grant.
+
+[Section 5.2 of the login guide](login.md#52-wire-the-job) has the job wiring,
+which is the same for all three products.
+
 ---
 
 ## 8. Record what you need
@@ -284,7 +317,7 @@ Thunder deployment refuses the grant outright without it.
 
 ## 9. Write the context document
 
-Everything from here is [the main login guide](login.md), from section 4. Two
+Everything from here is [the main login guide](login.md), from section 2. Two
 members are Thunder-specific:
 
 ```json

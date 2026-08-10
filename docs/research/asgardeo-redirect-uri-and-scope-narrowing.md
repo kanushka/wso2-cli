@@ -280,7 +280,7 @@ for one namespace from one brokered for another.
 ### 3.1 The same questions against Identity Server 7.3.0
 
 Measured 2026-08-06 against `https://localhost:9443/oauth2/token` — the
-`wso2/wso2is:7.3.0` container, registered as the walkthrough's section 3
+`wso2/wso2is:7.3.0` container, registered as the Identity Server walkthrough
 describes. This is a second deployment, not a second reading of the first: the
 cells above stay Asgardeo's.
 
