@@ -255,6 +255,31 @@ func TestInstallScriptHonoursTheStateRootVariable(t *testing.T) {
 func (i *installHarness) run(args ...string) (string, string, error) {
 	i.t.Helper()
 
+	script := filepath.Join(repoRoot(i.t), installScriptRelPath)
+	arguments := []string{
+		"-NoLogo", "-NoProfile", "-NonInteractive",
+		"-ExecutionPolicy", "Bypass",
+		"-File", script,
+	}
+	command := exec.Command(powerShell(), append(arguments, args...)...)
+	command.Env = i.scriptEnvironment()
+
+	var stdout, stderr strings.Builder
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	err := command.Run()
+	return stdout.String(), stderr.String(), err
+}
+
+// scriptEnvironment is what either script is given: everything it could reach
+// outside the test redirected, and nothing inherited that could let it out.
+//
+// It is built from scratch rather than from the process environment, so an
+// ambient WSO2_ variable cannot reach a run. The Windows API needs SystemRoot and
+// a temp directory to function at all, and PowerShell itself is found on PATH.
+func (i *installHarness) scriptEnvironment() []string {
+	i.t.Helper()
+
 	// Captured before the first run rather than in the constructor, so a test that
 	// reads these values first still records what was there originally.
 	if i.platform.savedUserEnvironment == nil {
@@ -264,17 +289,6 @@ func (i *installHarness) run(args ...string) (string, string, error) {
 		}
 	}
 
-	script := filepath.Join(repoRoot(i.t), installScriptRelPath)
-	arguments := []string{
-		"-NoLogo", "-NoProfile", "-NonInteractive",
-		"-ExecutionPolicy", "Bypass",
-		"-File", script,
-	}
-	command := exec.Command(powerShell(), append(arguments, args...)...)
-
-	// Built from scratch rather than inherited, so an ambient WSO2_ variable
-	// cannot reach the run. The Windows API needs SystemRoot and a temp directory
-	// to function at all, and PowerShell itself is found on PATH.
 	environment := []string{
 		"USERPROFILE=" + i.home,
 		"HOME=" + i.home,
@@ -302,13 +316,7 @@ func (i *installHarness) run(args ...string) (string, string, error) {
 			}
 		}
 	}
-	command.Env = append(environment, i.environment...)
-
-	var stdout, stderr strings.Builder
-	command.Stdout = &stdout
-	command.Stderr = &stderr
-	err := command.Run()
-	return stdout.String(), stderr.String(), err
+	return append(environment, i.environment...)
 }
 
 // powerShell reports the interpreter to drive the script with, preferring

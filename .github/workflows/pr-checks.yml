@@ -168,10 +168,10 @@ jobs:
             go.mod
             sdk/go.mod
 
-      # Only the installer runs. The rest of the acceptance suite is a Linux gate
-      # by design, and running it here would be proving something else.
+      # Only the installer and its removal run. The rest of the acceptance suite is
+      # a Linux gate by design, and running it here would be proving something else.
       - name: Drive the Windows installer
-        run: go test ./test/acceptance/ -run TestInstallScript -count=1 -v
+        run: go test ./test/acceptance/ -run 'TestInstallScript|TestUninstall' -count=1 -v
 
   acceptance:
     name: Architecture Proof
