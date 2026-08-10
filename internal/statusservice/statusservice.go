@@ -18,10 +18,18 @@
 // service.
 //
 // It stands in for a product service so the brokered-access boundary has
-// something real to be proved against: it accepts a request only when the
-// presented fixture token is the one this invocation was granted, for this
-// audience, scope, and organization, and is still within its life. Anything
-// else is refused without the service doing any work.
+// something real to be proved against. It establishes trust one of two
+// ways: against a source credential it shares with the shell, which is
+// also how it reads an invocation binding out of the presented token; or
+// by verifying an access token's signature against the keys an OpenID
+// issuer publishes, which is what a production service does instead. Only
+// the first way binds an invocation, because no OAuth issuer mints such a
+// claim — the header naming one is still required of every caller, but
+// nothing holds an issuer-minted token to it. Whichever way trust is
+// established, a request is accepted only when the token presented is one
+// this service was configured to serve, for its audience, scope, and
+// organization, and is still within its life. Anything else is refused
+// without the service doing any work.
 //
 // It is test infrastructure. It is an internal package with no shell command
 // behind it, it is never linked into the shell binary, and it establishes no
@@ -36,8 +44,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/wso2/wso2-cli/internal/auth/devtoken"
 )
 
 // StatusPath is the only path the service serves.
@@ -74,7 +80,23 @@ type Options struct {
 	// SourceCredential is the development credential the shell's issuer signs
 	// with. Holding it is what lets this fixture verify a token without an
 	// identity provider, and it is why the fixture is not a production design.
+	// It is one of the two ways a service establishes trust; an issuer is the
+	// other.
 	SourceCredential string
+	// Issuer is the OpenID issuer whose signature this service accepts. A
+	// service is configured with either this or a source credential, never
+	// both: they are two ways to answer the same question, and a service that
+	// would take either answer accepts a token that satisfies the weaker one.
+	//
+	// It is also the organization binding for a deployment that mints no
+	// organization claim. Configuring an issuer here is the statement that
+	// this issuer speaks for the organization this service serves, so a token
+	// from anywhere else is refused whatever it claims.
+	Issuer string
+	// HTTPClient reaches the issuer for its configuration and keys. It
+	// defaults to http.DefaultClient; a live run against a deployment serving
+	// its own certificate replaces it.
+	HTTPClient *http.Client
 	// Now reads the current time. It defaults to time.Now, and a test sets it
 	// to prove expiry.
 	Now func() time.Time
@@ -85,7 +107,8 @@ type Options struct {
 
 // Service answers status requests for one audience and organization.
 type Service struct {
-	options Options
+	options  Options
+	verifier verifier
 }
 
 // New builds a service, refusing to start without the policy it enforces. A
@@ -98,13 +121,28 @@ func New(options Options) (*Service, error) {
 		return nil, errors.New("statusservice: a required scope is required")
 	case options.Organization == "":
 		return nil, errors.New("statusservice: an organization is required")
-	case options.SourceCredential == "":
-		return nil, errors.New("statusservice: a source credential is required to verify tokens")
+	case options.SourceCredential == "" && options.Issuer == "":
+		return nil, errors.New("statusservice: a source credential or an issuer is required to verify tokens")
+	case options.SourceCredential != "" && options.Issuer != "":
+		return nil, errors.New("statusservice: a service verifies tokens one way; give it a source credential or an issuer, not both")
 	}
 	if options.Now == nil {
 		options.Now = time.Now
 	}
-	return &Service{options: options}, nil
+	if options.Issuer == "" {
+		return &Service{
+			options: options,
+			verifier: devtokenVerifier{
+				sourceCredential: options.SourceCredential,
+				now:              options.Now,
+			},
+		}, nil
+	}
+	tokens, err := newJWKSVerifier(options.Issuer, options.HTTPClient, options.Now)
+	if err != nil {
+		return nil, err
+	}
+	return &Service{options: options, verifier: tokens}, nil
 }
 
 // ServeHTTP answers one status request.
@@ -119,8 +157,7 @@ func (s *Service) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	claims, failure := s.authorize(request)
-	if failure != nil {
+	if failure := s.authorize(request); failure != nil {
 		s.fail(writer, failure.status, failure.code, failure.message)
 		return
 	}
@@ -135,7 +172,11 @@ func (s *Service) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 
 	checkedAt := s.options.Now().UTC()
 	s.write(writer, http.StatusOK, map[string]string{
-		"organization": claims.Organization,
+		// The organization reported is the one this service was configured to
+		// serve, not one read out of the token. They are equal by the time
+		// this line runs, and reporting the configured value keeps it that way
+		// for a token format that carries no organization at all.
+		"organization": s.options.Organization,
 		"service":      ServiceName,
 		"status":       "operational",
 		"checkedAt":    checkedAt.Format(time.RFC3339),
@@ -149,44 +190,57 @@ type refusal struct {
 	message string
 }
 
-// authorize proves the caller presented this invocation's granted access.
+// authorize proves the caller presented access this service accepts.
 //
 // Every check is against what the service itself serves, never against what the
 // request asks for, so a caller cannot widen its access by asserting a
 // different audience, scope, organization, or invocation.
-func (s *Service) authorize(request *http.Request) (devtoken.Claims, *refusal) {
+func (s *Service) authorize(request *http.Request) *refusal {
 	presented, found := strings.CutPrefix(request.Header.Get("Authorization"), "Bearer ")
 	if !found || strings.TrimSpace(presented) == "" {
-		return devtoken.Claims{}, &refusal{http.StatusUnauthorized, "unauthenticated",
+		return &refusal{http.StatusUnauthorized, "unauthenticated",
 			"the request presented no bearer token"}
 	}
 	invocation := request.Header.Get(InvocationHeader)
 	if invocation == "" {
-		return devtoken.Claims{}, &refusal{http.StatusUnauthorized, "unauthenticated",
+		return &refusal{http.StatusUnauthorized, "unauthenticated",
 			"the request does not name the invocation it belongs to"}
 	}
 
-	claims, err := devtoken.Verify(s.options.SourceCredential, strings.TrimSpace(presented), s.options.Now())
+	granted, err := s.verifier.verify(strings.TrimSpace(presented))
 	switch {
-	case errors.Is(err, devtoken.ErrExpired):
-		return devtoken.Claims{}, &refusal{http.StatusUnauthorized, "token_expired",
+	case errors.Is(err, errAccessExpired):
+		return &refusal{http.StatusUnauthorized, "token_expired",
 			"the presented access has expired"}
 	case err != nil:
-		return devtoken.Claims{}, &refusal{http.StatusUnauthorized, "token_rejected",
+		return &refusal{http.StatusUnauthorized, "token_rejected",
 			"the presented access was not issued for this service"}
 	}
 
 	switch {
-	case claims.Audience != s.options.Audience:
-		return devtoken.Claims{}, notAccepted("audience")
-	case !claims.Allows(s.options.RequiredScope):
-		return devtoken.Claims{}, notAccepted("scope")
-	case claims.Organization != s.options.Organization:
-		return devtoken.Claims{}, notAccepted("organization")
-	case claims.Invocation != invocation:
-		return devtoken.Claims{}, notAccepted("invocation")
+	case !granted.serves(s.options.Audience):
+		return notAccepted("audience")
+	case !granted.allows(s.options.RequiredScope):
+		return notAccepted("scope")
+	// An organization the token names is checked; a token that names none is
+	// bound to this organization by its issuer instead. The JWKS verifier in
+	// jwks.go refuses any token whose iss is not the one this service was
+	// configured with, and that configuration is the deployment's statement
+	// that this issuer speaks for this organization. The alternative —
+	// demanding a claim — would refuse every token Asgardeo issues outside a
+	// sub-organization setup, because it mints none. The allowance is the
+	// issuer-minted format's alone: the fixture verifier refuses a token of its
+	// own format that names no organization, so this line is never what lets
+	// one through.
+	case granted.Organization != "" && granted.Organization != s.options.Organization:
+		return notAccepted("organization")
+	// Only the fixture token binds an invocation. The header is required of
+	// every caller regardless, so a run always states which invocation it
+	// claims to be part of even when nothing can hold it to the claim.
+	case granted.Invocation != "" && granted.Invocation != invocation:
+		return notAccepted("invocation")
 	}
-	return claims, nil
+	return nil
 }
 
 // notAccepted refuses a token whose claims are not the ones this service

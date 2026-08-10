@@ -305,6 +305,19 @@ the client ID on Asgardeo and the API resource identifier on Identity Server,
 and carrying one product's value to the other costs a browser sign-in and ends
 in `auth.narrowing_unavailable`.
 
+**Recorded 2026-08-09.** The audience side of that question is now settled for
+this service's own check: it tests membership rather than equality, since
+membership is the
+only check both token shapes can satisfy. `internal/statusservice`
+implements this — `jwks.go` skips the client library's own equality check,
+and `authorize` in `statusservice.go` asks whether the service's configured
+audience is among the token's stated audiences rather than whether it is
+the only one — and the tests in `internal/statusservice/jwks_test.go`
+exercise it against an audience carried as a single string and one carried
+as a list. This settles what one service's own audience check does, not
+what the broker's policy should say when it brokers toward a product that
+can satisfy a clause and one that cannot.
+
 ### 3.2 The same questions against ThunderID 1.0.0-beta
 
 Measured 2026-08-06 against `https://localhost:8490` — the

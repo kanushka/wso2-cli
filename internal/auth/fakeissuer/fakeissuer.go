@@ -77,6 +77,12 @@ type Options struct {
 	// resource indicator overrides it, exactly as a deployment that binds tokens
 	// to a named resource server does.
 	Audience string
+	// OrganizationClaim is the org_id an access token names. When it is empty
+	// a token carries no organization claim at all, which is what Asgardeo
+	// issues outside a sub-organization setup — and therefore what a resource
+	// server has to accept, binding the token to an organization through the
+	// issuer it trusts rather than through a claim.
+	OrganizationClaim string
 	// RequireResource refuses any authorization request that carries no RFC 8707
 	// resource indicator, and mints the audience from the one it was given.
 	//
@@ -953,14 +959,18 @@ func (i *Issuer) mintAccessTokenFor(subject string, scopes []string, resource st
 		audience = resource
 	}
 	now := time.Now()
-	token := i.sign(map[string]any{
+	claims := map[string]any{
 		"iss":   i.URL,
 		"sub":   subject,
 		"aud":   audience,
 		"scope": strings.Join(scopes, " "),
 		"exp":   now.Add(5 * time.Minute).Unix(),
 		"iat":   now.Unix(),
-	})
+	}
+	if i.opts.OrganizationClaim != "" {
+		claims["org_id"] = i.opts.OrganizationClaim
+	}
+	token := i.sign(claims)
 	i.mutex.Lock()
 	i.accessTokens[token] = tokenRecord{
 		scopes:   append([]string(nil), scopes...),
