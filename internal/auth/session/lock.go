@@ -17,8 +17,6 @@
 package session
 
 import (
-	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -27,11 +25,10 @@ import (
 const (
 	// lockRetryInterval is how often a waiting writer re-attempts the lock.
 	lockRetryInterval = 25 * time.Millisecond
-	// lockDeadline is how long a writer waits before giving up.
-	lockDeadline = 5 * time.Second
-	// lockStaleAfter is the age past which a held lock is presumed abandoned
-	// by a crashed process and taken over.
-	lockStaleAfter = 30 * time.Second
+	// lockDeadline is how long a writer waits before giving up. The critical
+	// section spans a token refresh round trip to the issuer, so the wait has
+	// to outlast a slow deployment rather than a local file operation.
+	lockDeadline = 30 * time.Second
 )
 
 // WithLock runs fn while holding the per-reference advisory file lock.
@@ -49,32 +46,32 @@ func (s Store) WithLock(ref string, fn func() error) error {
 	return fn()
 }
 
-// acquireLock takes the advisory lock at path, retrying until the deadline.
+// acquireLock takes the kernel advisory lock on the file at path, retrying the
+// non-blocking attempt until the deadline.
 //
-// The lock is the existence of the file: O_EXCL creation is atomic on every
-// filesystem the shell targets. A lock file older than lockStaleAfter is
-// treated as abandoned — removed once, then creation is retried like any
-// other attempt.
+// The lock is held by the kernel against the open file descriptor, not by the
+// existence of the file, so the file is created once and never unlinked:
+// release closes the descriptor and leaves the file in place. Removing it
+// would reintroduce the race it replaced — a waiter holding a descriptor to
+// the old inode and a newcomer creating a fresh one at the same path would
+// both lock successfully. See ADR 0005.
 func acquireLock(path string) (release func(), err error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, lockFailed()
+	}
 	deadline := time.Now().Add(lockDeadline)
-	tookOverStale := false
 	for {
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if err == nil {
+		locked, lockErr := tryLock(file)
+		if lockErr != nil {
 			_ = file.Close()
-			return func() { _ = os.Remove(path) }, nil
-		}
-		if !errors.Is(err, fs.ErrExist) {
 			return nil, lockFailed()
 		}
-		if !tookOverStale {
-			if info, statErr := os.Stat(path); statErr == nil && time.Since(info.ModTime()) > lockStaleAfter {
-				tookOverStale = true
-				_ = os.Remove(path)
-				continue
-			}
+		if locked {
+			return func() { _ = file.Close() }, nil
 		}
 		if time.Now().After(deadline) {
+			_ = file.Close()
 			return nil, lockBusy()
 		}
 		time.Sleep(lockRetryInterval)

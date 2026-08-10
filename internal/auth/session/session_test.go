@@ -18,8 +18,11 @@ package session_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -159,29 +162,148 @@ func TestWithLockReleasesOnError(t *testing.T) {
 	}
 }
 
-func TestWithLockTakesOverStaleLock(t *testing.T) {
+// TestWithLockNeverOverlapsWithAbandonedLockFile pins the property the lock
+// exists for: no two writers on one credential reference run fn at the same
+// time, including when a lock file left behind by a crashed process is already
+// sitting at the path.
+func TestWithLockNeverOverlapsWithAbandonedLockFile(t *testing.T) {
 	keyring.MockInit()
+	// Each round is an independent burst of writers arriving together on a
+	// reference whose lock file was left behind by a crashed process. Rounds
+	// run in parallel, on their own state roots, because admitting a second
+	// writer is a race rather than a certainty: one overlap in any round is a
+	// failure of the property.
+	for round := range 60 {
+		t.Run(fmt.Sprintf("round-%02d", round), func(t *testing.T) {
+			t.Parallel()
+			runAbandonedLockRound(t)
+		})
+	}
+}
+
+func runAbandonedLockRound(t *testing.T) {
+	t.Helper()
 	root := t.TempDir()
 	store := session.Store{StateRoot: root}
-	// Leave a lock file behind, as a crashed process would, with an old mtime.
-	stale := filepath.Join(root, "cli", "locks", "acme-cloud-login.lock")
-	if err := os.MkdirAll(filepath.Dir(stale), 0o700); err != nil {
+
+	// Age the abandoned file well past any staleness threshold, so every
+	// writer in the burst sees the same abandoned lock.
+	abandoned := filepath.Join(root, "cli", "locks", "acme-cloud-login.lock")
+	if err := os.MkdirAll(filepath.Dir(abandoned), 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(stale, nil, 0o600); err != nil {
-		t.Fatalf("seed stale lock: %v", err)
+	if err := os.WriteFile(abandoned, nil, 0o600); err != nil {
+		t.Fatalf("seed abandoned lock: %v", err)
 	}
-	old := time.Now().Add(-time.Minute)
-	if err := os.Chtimes(stale, old, old); err != nil {
-		t.Fatalf("age stale lock: %v", err)
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(abandoned, old, old); err != nil {
+		t.Fatalf("age abandoned lock: %v", err)
 	}
+
+	var mu sync.Mutex
+	inside, maxInside := 0, 0
+	var group sync.WaitGroup
+	start := make(chan struct{})
+	for range 32 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			<-start
+			_ = store.WithLock("acme-cloud-login", func() error {
+				mu.Lock()
+				inside++
+				if inside > maxInside {
+					maxInside = inside
+				}
+				mu.Unlock()
+
+				time.Sleep(2 * time.Millisecond)
+
+				mu.Lock()
+				inside--
+				mu.Unlock()
+				return nil
+			})
+		}()
+	}
+	close(start)
+	group.Wait()
+
+	mu.Lock()
+	peak := maxInside
+	mu.Unlock()
+	if peak != 1 {
+		t.Fatalf("lock admitted %d concurrent writers on one reference", peak)
+	}
+}
+
+// TestWithLockSurvivesKilledHolder covers the crash case end to end: a process
+// killed while holding the lock must leave nothing that blocks the next
+// acquisition.
+func TestWithLockSurvivesKilledHolder(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the helper relies on POSIX process signalling")
+	}
+	keyring.MockInit()
+	root := t.TempDir()
+
+	held := filepath.Join(root, "held")
+	helper := exec.Command(os.Args[0], "-test.run=TestHelperHoldsSessionLock", "-test.timeout=60s")
+	helper.Env = append(os.Environ(), lockHelperEnv+"="+root)
+	if err := helper.Start(); err != nil {
+		t.Fatalf("start helper: %v", err)
+	}
+	defer func() {
+		_ = helper.Process.Kill()
+		_, _ = helper.Process.Wait()
+	}()
+
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if _, err := os.Stat(held); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("helper never took the lock")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if err := helper.Process.Kill(); err != nil {
+		t.Fatalf("kill helper: %v", err)
+	}
+	_, _ = helper.Process.Wait()
+
+	store := session.Store{StateRoot: root}
 	ran := false
 	if err := store.WithLock("acme-cloud-login", func() error { ran = true; return nil }); err != nil {
-		t.Fatalf("stale lock was not taken over: %v", err)
+		t.Fatalf("lock not recovered after holder was killed: %v", err)
 	}
 	if !ran {
-		t.Fatal("writer never ran after takeover")
+		t.Fatal("writer never ran after holder was killed")
 	}
+}
+
+// lockHelperEnv carries the state root into the helper subprocess and is what
+// makes TestHelperHoldsSessionLock do anything at all.
+const lockHelperEnv = "WSO2_CLI_TEST_LOCK_HELPER_ROOT"
+
+// TestHelperHoldsSessionLock is not a test: it is the subprocess body for
+// TestWithLockSurvivesKilledHolder. It takes the lock, signals that it holds
+// it, and blocks until it is killed.
+func TestHelperHoldsSessionLock(t *testing.T) {
+	root := os.Getenv(lockHelperEnv)
+	if root == "" {
+		t.Skip("helper process only")
+	}
+	keyring.MockInit()
+	store := session.Store{StateRoot: root}
+	_ = store.WithLock("acme-cloud-login", func() error {
+		if err := os.WriteFile(filepath.Join(root, "held"), nil, 0o600); err != nil {
+			return err
+		}
+		select {}
+	})
 }
 
 func assertProblemCode(t *testing.T, err error, code string) {
