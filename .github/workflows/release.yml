@@ -1,0 +1,125 @@
+name: Release
+
+# A version tag is the whole trigger. Nothing publishes from a branch, so an
+# artifact on the release page always corresponds to a tag someone pushed.
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Read-only by default. Only the job that publishes the release is granted write
+# access to repository contents, and nothing here is granted anything else.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # A tag may not ship artifacts that fail the proof. This is the same gate a
+  # pull request runs and the same script a contributor runs locally, so the
+  # release is held to the standard the repository already enforces rather than
+  # to a second, weaker one.
+  acceptance:
+    name: Architecture Proof
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: |
+            go.mod
+            sdk/go.mod
+
+      - name: Run the architecture-proof acceptance gate
+        run: ./scripts/acceptance.sh
+
+  release:
+    name: Publish artifacts
+    needs: acceptance
+    runs-on: ubuntu-latest
+    permissions:
+      # Creating the release and uploading its assets. GoReleaser needs nothing
+      # further: this release publishes no container image, no Homebrew tap, and
+      # no package repository.
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          # GoReleaser reads the tag history to determine the version and to
+          # build the changelog, and a shallow clone leaves it with neither.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: |
+            go.mod
+            sdk/go.mod
+
+      - name: Build and publish the release
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: v2.17.1
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Proves the published artifacts are what a user will find: the archive
+      # named for this tag extracts to a binary that reports this tag's version,
+      # and its checksum matches the file the install scripts verify against. A
+      # release whose binary still reports the development placeholder, or whose
+      # checksum file does not describe its archives, fails here.
+      - name: Verify the published artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          archive="wso2-cli-${tag}-linux-amd64.tar.gz"
+
+          # Every archive is checked, not only the one that gets extracted: this
+          # is the file the install scripts trust, so it has to describe all of
+          # them. --ignore-missing keeps the check to what this run produced.
+          echo "Verifying every archive against checksums.txt"
+          (cd dist && grep -F " ${archive}" checksums.txt && sha256sum --check --ignore-missing checksums.txt)
+
+          # The state root is redirected so that reading the module inventory
+          # cannot touch the runner's real home directory.
+          workdir="$(mktemp -d)"
+          export WSO2_HOME="$(mktemp -d)"
+          tar -xzf "dist/${archive}" -C "${workdir}"
+
+          reported="$("${workdir}/wso2" version)"
+          echo "${reported}"
+
+          if ! grep -qF "${tag}" <<<"${reported}"; then
+            echo "::error::the released binary reports no version matching ${tag}"
+            exit 1
+          fi
+          if grep -qF '0.0.0-dev' <<<"${reported}"; then
+            echo "::error::the released binary reports the development placeholder"
+            exit 1
+          fi
+
+          # The protocol version is injected by .goreleaser.yaml and defaulted in
+          # internal/version. A release that disagrees with the shell's own
+          # default would ship a binary claiming support it was not built with,
+          # so the two are compared rather than assumed to have been kept in step.
+          released_protocol="$(awk '$1 == "Protocol" { print $2 }' <<<"${reported}")"
+          source_protocol="$(go run ./cmd/wso2 version | awk '$1 == "Protocol" { print $2 }')"
+          if [[ "${released_protocol}" != "${source_protocol}" ]]; then
+            echo "::error::released protocol ${released_protocol} does not match the source default ${source_protocol}"
+            exit 1
+          fi
+          echo "Protocol ${released_protocol} matches the source default"

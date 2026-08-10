@@ -146,7 +146,11 @@ type Options struct {
 	// deployment should say and nothing constrains what one can say, and a
 	// client that carried such a value into its own arithmetic would fail in a
 	// way no refusal describes.
-	DeviceInterval int
+	//
+	// It is an int64 because the shell parses the member into one, so a test may
+	// advertise a value beyond a 32-bit int on any platform. An int here would
+	// instead stop the 32-bit builds compiling at the test that asks for one.
+	DeviceInterval int64
 	// DeviceExpiresIn is the lifetime the device authorization response
 	// advertises, in seconds. The default is 600, which is the order of
 	// magnitude real deployments publish.

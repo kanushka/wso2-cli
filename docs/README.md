@@ -37,6 +37,10 @@ requirements or architecture.
 ## Reference and examples
 
 - [Proposed shell commands](reference/commands.md)
+- [Release artifacts](reference/release-artifacts.md) is the naming, checksum,
+  and version contract between a published release and the programs that
+  download from it. Unlike the documents beside it, it describes what a release
+  actually publishes rather than a proposed interface.
 - [Authentication context examples](examples/authentication-contexts.md)
 
 These documents illustrate proposed interfaces. They are not evidence that the

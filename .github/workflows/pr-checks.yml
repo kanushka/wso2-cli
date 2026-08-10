@@ -108,12 +108,17 @@ jobs:
         # another platform is never compiled by it. The session lock is the
         # first such seam, and a Windows-only file that stops compiling would
         # otherwise reach a release unnoticed.
+        #
+        # This list is every target .goreleaser.yaml releases, and the two must
+        # stay equal: a target that is released without being compiled here can
+        # break in a tag rather than in the pull request that broke it.
         if: needs.changes.outputs.shell == 'true'
         shell: bash
         run: |
           set -euo pipefail
 
-          for target in windows/amd64 darwin/amd64 darwin/arm64; do
+          for target in linux/amd64 linux/arm64 linux/arm linux/386 \
+            darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
             echo "Building for ${target}"
             GOOS="${target%%/*}" GOARCH="${target##*/}" go build ./...
             GOOS="${target%%/*}" GOARCH="${target##*/}" go vet ./...
