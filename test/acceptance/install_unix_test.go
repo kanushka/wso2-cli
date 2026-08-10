@@ -178,9 +178,11 @@ func TestInstallScriptResolvesAPrereleaseOnlyWhenAsked(t *testing.T) {
 			t.Fatalf("install.sh failed: %v\nstderr:\n%s", err, stderr)
 		}
 
-		reported, _ := exec.Command(filepath.Join(install.stateRoot, "bin", "wso2"), "version").CombinedOutput()
-		if strings.Contains(string(reported), fixturePreleaseTag) {
-			t.Errorf("the default install resolved the prerelease %s", fixturePreleaseTag)
+		// Asserted positively. Checking only that the prerelease tag is absent
+		// would pass just as well if nothing had been installed at all.
+		if reported := install.reportedVersion(t); reported != fixtureStableTag {
+			t.Errorf("the default install resolved %s, want the newest stable %s",
+				reported, fixtureStableTag)
 		}
 	})
 
@@ -192,11 +194,99 @@ func TestInstallScriptResolvesAPrereleaseOnlyWhenAsked(t *testing.T) {
 			t.Fatalf("install.sh failed: %v\nstderr:\n%s", err, stderr)
 		}
 
-		reported, _ := exec.Command(filepath.Join(install.stateRoot, "bin", "wso2"), "version").CombinedOutput()
-		if !strings.Contains(string(reported), fixturePreleaseTag) {
-			t.Errorf("the prerelease opt-in installed %q, want %s", reported, fixturePreleaseTag)
+		if reported := install.reportedVersion(t); reported != fixturePreleaseTag {
+			t.Errorf("the prerelease opt-in installed %s, want %s", reported, fixturePreleaseTag)
 		}
 	})
+}
+
+func TestInstallScriptReadsTheChecksumLineForTheArchiveItDownloaded(t *testing.T) {
+	install := newInstallHarness(t)
+	// A checksum file that lists a longer name ending in this archive's name
+	// first — the shape a future signature or bundle artifact would add. A
+	// filename matched as a substring takes the first such line, so it would
+	// compare the archive against another artifact's digest and refuse a release
+	// that is perfectly good.
+	install.precedingSiblingChecksum = true
+
+	stdout, stderr, err := install.run()
+	if err != nil {
+		t.Fatalf("install.sh refused a valid archive because another line was listed first: %v\nstdout:\n%s\nstderr:\n%s",
+			err, stdout, stderr)
+	}
+	if _, statErr := os.Stat(filepath.Join(install.stateRoot, "bin", "wso2")); statErr != nil {
+		t.Errorf("no binary was installed: %v", statErr)
+	}
+}
+
+func TestInstallScriptRefusesAnArchiveWithNoPublishedChecksum(t *testing.T) {
+	install := newInstallHarness(t)
+	// The checksum file exists but says nothing about this archive, so there is
+	// nothing to verify against. Installing anyway would defeat the check.
+	install.omitChecksumLine = true
+
+	stdout, stderr, err := install.run()
+	if err == nil {
+		t.Fatalf("install.sh succeeded with no checksum published for the archive\nstdout:\n%s", stdout)
+	}
+	if !strings.Contains(stdout+stderr, "checksums.txt") {
+		t.Errorf("refusal does not say the checksum file lacked the archive:\nstdout:\n%s\nstderr:\n%s",
+			stdout, stderr)
+	}
+	if _, statErr := os.Stat(filepath.Join(install.stateRoot, "bin", "wso2")); !os.IsNotExist(statErr) {
+		t.Error("a binary was installed without a published checksum to verify it")
+	}
+}
+
+func TestInstallScriptExportsTheStateRootItInstalledInto(t *testing.T) {
+	install := newInstallHarness(t)
+	elsewhere := filepath.Join(t.TempDir(), "custom-root")
+	install.stateRoot = elsewhere
+	install.environment = append(install.environment, "WSO2_HOME="+elsewhere)
+
+	if _, stderr, err := install.run(); err != nil {
+		t.Fatalf("install.sh failed: %v\nstderr:\n%s", err, stderr)
+	}
+
+	// Without the export, a shell installed under a non-default root would read
+	// its state from the default one: the binary and its state would disagree.
+	profile := install.readProfile(t)
+	if want := "export WSO2_HOME=\"" + elsewhere + "\""; !strings.Contains(profile, want) {
+		t.Errorf("profile does not export the state root it installed into (%s):\n%s", want, profile)
+	}
+}
+
+func TestInstallScriptReplacesABlockPointingSomewhereElse(t *testing.T) {
+	install := newInstallHarness(t)
+	if _, stderr, err := install.run(); err != nil {
+		t.Fatalf("first install failed: %v\nstderr:\n%s", err, stderr)
+	}
+
+	// The same user installs again into a different root. Recognising only its own
+	// marker and stopping there would leave the first install's directory on PATH,
+	// so the shell found by name would still be the old one.
+	elsewhere := filepath.Join(t.TempDir(), "second-root")
+	first := filepath.Join(install.stateRoot, "bin")
+	install.stateRoot = elsewhere
+	install.environment = append(install.environment, "WSO2_HOME="+elsewhere)
+	if _, stderr, err := install.run(); err != nil {
+		t.Fatalf("second install failed: %v\nstderr:\n%s", err, stderr)
+	}
+
+	profile := install.readProfile(t)
+	if blocks := strings.Count(profile, installBlockMarker); blocks != 1 {
+		t.Errorf("profile carries %d install blocks, want exactly 1:\n%s", blocks, profile)
+	}
+	if strings.Contains(profile, first) {
+		t.Errorf("profile still puts the previous install's %s on PATH:\n%s", first, profile)
+	}
+	if want := filepath.Join(elsewhere, "bin"); !strings.Contains(profile, want) {
+		t.Errorf("profile does not put the new %s on PATH:\n%s", want, profile)
+	}
+	// The lines that were in the profile before any install must survive a rewrite.
+	if !strings.Contains(profile, "# existing profile") {
+		t.Errorf("rewriting the block dropped the user's own profile lines:\n%s", profile)
+	}
 }
 
 func TestInstallScriptRefusesAnUnsupportedArchitecture(t *testing.T) {
@@ -284,8 +374,15 @@ type installHarness struct {
 	environment    []string
 	server         *httptest.Server
 	corruptArchive bool
-	unameMachine   string
-	writeProfile   bool
+	// precedingSiblingChecksum lists a longer artifact name ending in this
+	// archive's name before the archive's own line, so a loose filename match
+	// takes the wrong digest.
+	precedingSiblingChecksum bool
+	// omitChecksumLine publishes a checksum file that says nothing about this
+	// archive.
+	omitChecksumLine bool
+	unameMachine     string
+	writeProfile     bool
 }
 
 func newInstallHarness(t *testing.T) *installHarness {
@@ -366,7 +463,16 @@ func (i *installHarness) serve(w http.ResponseWriter, r *http.Request) {
 			}
 		case "checksums.txt":
 			sum := sha256.Sum256(i.archiveBytes(tag))
-			if _, err := fmt.Fprintf(w, "%x  %s\n", sum, archive); err != nil {
+			line := fmt.Sprintf("%x  %s\n", sum, archive)
+			switch {
+			case i.omitChecksumLine:
+				line = fmt.Sprintf("%064d  some-other-artifact.tar.gz\n", 0)
+			case i.precedingSiblingChecksum:
+				// A hash that is deliberately not the archive's, on a line whose name
+				// ends with the archive's name, listed first.
+				line = fmt.Sprintf("%064d  %s.sig\n%s", 0, archive, line)
+			}
+			if _, err := fmt.Fprint(w, line); err != nil {
 				i.t.Errorf("writing the checksum file returned %v", err)
 			}
 		default:
@@ -490,14 +596,40 @@ func (i *installHarness) shimmedUname() string {
 	return directory
 }
 
+// readProfile reports the profile's contents. A missing file is only an
+// acceptable answer when the test never wrote one: otherwise every assertion
+// that the profile does not contain something would hold trivially, including in
+// a run that deleted it.
 func (i *installHarness) readProfile(t *testing.T) string {
 	t.Helper()
 	contents, err := os.ReadFile(i.profilePath)
 	if os.IsNotExist(err) {
+		if i.writeProfile {
+			t.Fatalf("the profile at %s is gone; the run removed a file it was given", i.profilePath)
+		}
 		return ""
 	}
 	if err != nil {
 		t.Fatalf("reading the profile returned %v", err)
 	}
 	return string(contents)
+}
+
+// reportedVersion runs the installed binary and reports the release tag it names.
+// The stand-in binary in the fixture archive echoes the tag it was packaged for,
+// so this is how a test tells which release actually landed.
+func (i *installHarness) reportedVersion(t *testing.T) string {
+	t.Helper()
+	binary := filepath.Join(i.stateRoot, "bin", "wso2")
+	output, err := exec.Command(binary, "version").CombinedOutput()
+	if err != nil {
+		t.Fatalf("the installed binary at %s did not run: %v\noutput:\n%s", binary, err, output)
+	}
+	for _, tag := range []string{fixturePreleaseTag, fixtureStableTag, fixtureOlderTag} {
+		if strings.Contains(string(output), tag) {
+			return tag
+		}
+	}
+	t.Fatalf("the installed binary reported no known fixture tag:\n%s", output)
+	return ""
 }
