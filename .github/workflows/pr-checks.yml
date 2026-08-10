@@ -114,6 +114,11 @@ jobs:
         # break in a tag rather than in the pull request that broke it.
         if: needs.changes.outputs.shell == 'true'
         shell: bash
+        # ARMv6 is the variant the release builds, and Go defaults to ARMv7. The
+        # check compiles what ships rather than a variant nobody receives; the
+        # setting is inert for every other target in the list.
+        env:
+          GOARM: '6'
         run: |
           set -euo pipefail
 

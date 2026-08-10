@@ -1,6 +1,8 @@
 # Release Artifacts
 
 **Status:** Accepted
+**Related:** [Distribution research](../research/root-cli-installation-distribution.md),
+[architecture](../architecture.md)
 **Last reviewed:** 2026-08-10
 
 This document is the naming contract between a published release and the
@@ -28,27 +30,31 @@ channels package.
 wso2-cli-<tag>-<os>-<arch>.<extension>
 ```
 
-| Component     | Values                                                     |
-| ------------- | ---------------------------------------------------------- |
-| `<tag>`       | The Git tag verbatim, including its leading `v`             |
-| `<os>`        | `linux`, `darwin`, `windows`                                |
-| `<arch>`      | `amd64`, `arm64`, `arm`, `386`                              |
-| `<extension>` | `tar.gz` for Linux, `zip` for macOS and Windows             |
+| Component     | Values                                          |
+| ------------- | ----------------------------------------------- |
+| `<tag>`       | The Git tag verbatim, including its leading `v`  |
+| `<os>`        | `linux`, `darwin`, `windows`                     |
+| `<arch>`      | `amd64`, `arm64`, `arm`, `386`                   |
+| `<extension>` | `tar.gz` for Linux, `zip` for macOS and Windows  |
 
 The tag appears verbatim so that a script which resolved a tag can build the
 name without transforming it. The operating system and architecture values are
-what `uname -s` and a normalised `uname -m` report, so a shell script maps its
+what `uname -s` and a normalized `uname -m` report, so a shell script maps its
 own detection onto these names directly.
+
+The `arm` archive is built for ARMv6, which the more common ARMv7 hardware also
+runs. There is one `arm` archive rather than one per variant, so a script that
+detected `arm` has a single name to build.
 
 ## Supported targets
 
 A release carries exactly these eight archives:
 
-| Operating system | Architectures              |
-| ---------------- | -------------------------- |
-| Linux            | `amd64`, `arm64`, `arm`, `386` |
-| macOS            | `amd64`, `arm64`            |
-| Windows          | `amd64`, `arm64`            |
+| Operating system | Architectures                  |
+| ---------------- | ------------------------------ |
+| Linux            | `amd64`, `arm64`, `arm`, `386`  |
+| macOS            | `amd64`, `arm64`               |
+| Windows          | `amd64`, `arm64`               |
 
 The pull-request cross-build check compiles this same list. The two are kept
 equal deliberately: a target that could be released without being compiled on
@@ -62,7 +68,7 @@ Each archive contains, at its root and in no subdirectory:
 - `LICENSE`
 - `NOTICE`
 
-An installer extracts the archive and moves one known path. The licence and
+An installer extracts the archive and moves one known path. The license and
 notice travel with the binary because Apache-2.0 requires it.
 
 ## Checksums
@@ -88,8 +94,10 @@ shell version — the tag with its leading `v` removed, because the version
 package prefixes one for display — and the protocol version through the
 build-time variables in `internal/version`.
 
-The release workflow proves this rather than assuming it: it extracts the
-published Linux archive, runs `wso2 version`, and fails the release if the
+The release workflow proves this rather than assuming it. It downloads the
+published assets back from the release page, checks that the published checksum
+file is the one that was built and that it lists every archive beside it, then
+extracts the Linux archive and runs `wso2 version`. The release fails if the
 binary reports the development placeholder, reports a version unrelated to the
 tag, or reports a protocol version that disagrees with the shell's own source
 default.
@@ -123,9 +131,10 @@ publishes nothing. It is how a change to the release configuration is checked
 before a tag exists.
 
 A snapshot differs from a real release in two ways worth knowing before reading
-its output: the archive names carry the most recent tag in the checkout, which is
-`v0.0.0` when there is none, while the binary inside reports the next patch
-version suffixed with `-snapshot`. Everything else — the target list, the archive
-formats, the archive contents, and the checksum file — is what a tag produces.
+its output: the archive names carry the most recent tag in the checkout, which
+is `v0.0.0` when there is none, while the binary inside reports the next patch
+version suffixed with `-snapshot`. Everything else — the target list, the
+archive formats, the archive contents, and the checksum file — is what a tag
+produces.
 
 `make release-check` validates the configuration without building.

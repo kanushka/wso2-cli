@@ -70,35 +70,64 @@ jobs:
       - name: Build and publish the release
         uses: goreleaser/goreleaser-action@v6
         with:
+          # Pinned in step with the Makefile's own pin, so a contributor running
+          # `make release-snapshot` builds with the version that publishes.
           version: v2.17.1
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Proves the published artifacts are what a user will find: the archive
-      # named for this tag extracts to a binary that reports this tag's version,
-      # and its checksum matches the file the install scripts verify against. A
-      # release whose binary still reports the development placeholder, or whose
-      # checksum file does not describe its archives, fails here.
+      # Proves what a user will actually find, by fetching it back from the
+      # release page rather than inspecting the build output: the checksum file
+      # describes every archive published, the archive named for this tag
+      # extracts to a binary reporting this tag's version, and the protocol
+      # version it claims is the one the shell's own source defaults to.
+      #
+      # A release that ships a binary still reporting the development
+      # placeholder, or a checksum file that does not cover every archive
+      # beside it, fails here rather than reaching a user.
       - name: Verify the published artifacts
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
           tag="${GITHUB_REF_NAME}"
           archive="wso2-cli-${tag}-linux-amd64.tar.gz"
 
-          # Every archive is checked, not only the one that gets extracted: this
-          # is the file the install scripts trust, so it has to describe all of
-          # them. --ignore-missing keeps the check to what this run produced.
-          echo "Verifying every archive against checksums.txt"
-          (cd dist && grep -F " ${archive}" checksums.txt && sha256sum --check --ignore-missing checksums.txt)
+          published="$(mktemp -d)"
+          gh release download "${tag}" --dir "${published}" --repo "${GITHUB_REPOSITORY}"
+
+          cd "${published}"
+
+          # What the install scripts will trust has to be what was built. A
+          # checksum file rewritten or truncated between build and publish is
+          # exactly what this comparison catches.
+          if ! diff -u "${GITHUB_WORKSPACE}/dist/checksums.txt" checksums.txt; then
+            echo "::error::the published checksums.txt is not the one that was built"
+            exit 1
+          fi
+
+          # --ignore-missing exits non-zero when it verifies nothing, so this
+          # cannot pass on an empty file. What it cannot see is an archive that
+          # is present but unlisted, so the counts are compared too: a target
+          # dropped from the checksum file would otherwise ship unverifiable.
+          sha256sum --check --ignore-missing checksums.txt
+          archives="$(find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) | wc -l)"
+          listed="$(wc -l < checksums.txt)"
+          if [[ "${archives}" -ne "${listed}" ]]; then
+            echo "::error::${archives} archives published but ${listed} listed in checksums.txt"
+            exit 1
+          fi
+          echo "${listed} archives published and all verified"
 
           # The state root is redirected so that reading the module inventory
           # cannot touch the runner's real home directory.
           workdir="$(mktemp -d)"
-          export WSO2_HOME="$(mktemp -d)"
-          tar -xzf "dist/${archive}" -C "${workdir}"
+          state="$(mktemp -d)"
+          export WSO2_HOME="${state}"
+          tar -xzf "${archive}" -C "${workdir}"
 
           reported="$("${workdir}/wso2" version)"
           echo "${reported}"
@@ -116,8 +145,16 @@ jobs:
           # internal/version. A release that disagrees with the shell's own
           # default would ship a binary claiming support it was not built with,
           # so the two are compared rather than assumed to have been kept in step.
+          #
+          # Both are required to be non-empty: if the version output ever stops
+          # carrying a Protocol field under this label, an unguarded comparison
+          # would find two empty strings equal and report agreement it never saw.
           released_protocol="$(awk '$1 == "Protocol" { print $2 }' <<<"${reported}")"
-          source_protocol="$(go run ./cmd/wso2 version | awk '$1 == "Protocol" { print $2 }')"
+          source_protocol="$(cd "${GITHUB_WORKSPACE}" && go run ./cmd/wso2 version | awk '$1 == "Protocol" { print $2 }')"
+          if [[ -z "${released_protocol}" || -z "${source_protocol}" ]]; then
+            echo "::error::no protocol version was reported, so nothing was compared"
+            exit 1
+          fi
           if [[ "${released_protocol}" != "${source_protocol}" ]]; then
             echo "::error::released protocol ${released_protocol} does not match the source default ${source_protocol}"
             exit 1

@@ -36,7 +36,8 @@ SMOKE_PACKAGE := ./test/smoke/
 
 # GoReleaser builds the release artifacts. It is pinned and run through `go run`
 # rather than installed, so a contributor reproducing a release uses the same
-# version CI does without adding a tool to their machine.
+# version CI does without adding a tool to their machine. The same version is
+# pinned in .github/workflows/release.yml; move both together.
 GORELEASER ?= $(GO) run github.com/goreleaser/goreleaser/v2@v2.17.1
 
 # A file describing one deployment, sourced by the live targets when it exists.
