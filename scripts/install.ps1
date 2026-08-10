@@ -211,8 +211,15 @@ function Add-ToUserPath {
         Write-Output "Added $Directory to your user PATH."
     }
 
-    if (($env:Path -split ';' | Where-Object { $_.Trim().TrimEnd('\') -ieq $Directory.TrimEnd('\') }).Count -eq 0) {
-        $env:Path = "$($env:Path.TrimEnd(';'));$Directory"
+    # The current session's PATH, so the command works without reopening the
+    # terminal. The array subexpression is required rather than decorative: a
+    # pipeline that matches one entry or none returns a scalar or $null, and
+    # reading .Count off either is an error under Set-StrictMode.
+    $sessionPath = if ($env:Path) { $env:Path } else { '' }
+    $alreadyThere = @($sessionPath -split ';' |
+        Where-Object { $_.Trim().TrimEnd('\') -ieq $Directory.TrimEnd('\') })
+    if ($alreadyThere.Count -eq 0) {
+        $env:Path = if ($sessionPath.TrimEnd(';')) { "$($sessionPath.TrimEnd(';'));$Directory" } else { $Directory }
     }
 }
 

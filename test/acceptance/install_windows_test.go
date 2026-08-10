@@ -288,12 +288,19 @@ func (i *installHarness) run(args ...string) (string, string, error) {
 		}
 	}
 	if i.platform.processorArchitecture != "" {
-		environment = append(environment, "PROCESSOR_ARCHITECTURE="+i.platform.processorArchitecture,
-			// The script reads this first, so leaving a real value here would mask
-			// the architecture under test.
-			"PROCESSOR_ARCHITEW6432=")
-	} else if value, present := os.LookupEnv("PROCESSOR_ARCHITECTURE"); present {
-		environment = append(environment, "PROCESSOR_ARCHITECTURE="+value)
+		// Both are set to the same value. The script reads PROCESSOR_ARCHITEW6432
+		// first, so leaving whatever the runner has there would mask the
+		// architecture under test — and a runner that has it set is exactly the
+		// case an empty override would not cover.
+		environment = append(environment,
+			"PROCESSOR_ARCHITECTURE="+i.platform.processorArchitecture,
+			"PROCESSOR_ARCHITEW6432="+i.platform.processorArchitecture)
+	} else {
+		for _, name := range []string{"PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432"} {
+			if value, present := os.LookupEnv(name); present {
+				environment = append(environment, name+"="+value)
+			}
+		}
 	}
 	command.Env = append(environment, i.environment...)
 
