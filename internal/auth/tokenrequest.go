@@ -80,6 +80,18 @@ func (r issuerRefusal) refusedToNarrow() bool {
 	return r.status == http.StatusBadRequest && r.code == "invalid_scope"
 }
 
+// rejectedTarget reports RFC 8707's answer for a request whose protected
+// resource the deployment would not issue for.
+//
+// It says only that, and deliberately not why. One error covers two opposite
+// causes — a request that named no resource on a deployment that requires one,
+// and a request that named one the deployment does not know — and which of them
+// happened is a fact about the request, not about the answer. The caller made
+// the request and is the only one that can tell.
+func (r issuerRefusal) rejectedTarget() bool {
+	return r.status == http.StatusBadRequest && r.code == "invalid_target"
+}
+
 // rejectedClient reports the deployment declining the credentials the request
 // identified its client with.
 func (r issuerRefusal) rejectedClient() bool {

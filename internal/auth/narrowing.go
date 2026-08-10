@@ -21,6 +21,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/wso2/wso2-cli/internal/contexts"
 )
 
 // tokenResponse is what a token endpoint answers a refresh grant with.
@@ -45,6 +47,28 @@ func (r tokenResponse) expiry(facts bearerFacts, now time.Time) time.Time {
 const narrowingRecovery = "Check the deployment's API resource registration and the permissions " +
 	"granted to the registered OAuth application, then retry. The shell does not hand a module " +
 	"broader access than it asked for."
+
+// indicatorRecovery is the way back from a deployment that will not issue
+// access without being told which protected resource it is for.
+//
+// It is a different instruction from every other narrowing refusal, because
+// nothing about the deployment is wrong: the context document did not say what
+// kind of deployment this is, so the shell asked in a shape this one does not
+// accept.
+const indicatorRecovery = "This deployment binds access to one named resource and will not issue " +
+	"any without being told which. Name the deployment's identity provider on this identity in " +
+	"the context document, or set its derivation to " + contexts.DerivationTokenResource +
+	" explicitly, then retry."
+
+// unknownResourceRecovery is the way back from a deployment that was told which
+// protected resource, and does not know the one it was told.
+//
+// It is the opposite failure to indicatorRecovery arriving as the same OAuth
+// error. The identity already says how this deployment derives access; what is
+// wrong is the name it derives against, which is a registration on the
+// deployment or a value in the document, and never the derivation itself.
+const unknownResourceRecovery = "Register that resource server on the deployment, or correct the " +
+	"audience on this identity's product entry to one it knows, then retry."
 
 // verify proves an issued token is exactly what the module asked for.
 //

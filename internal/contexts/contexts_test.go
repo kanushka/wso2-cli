@@ -214,7 +214,12 @@ func TestAContextRecordsNoCredentialValue(t *testing.T) {
 	// types rather than from every writer of them.
 	allowedContext := []string{"name", "identity", "organization", "project"}
 	allowedIdentity := []string{"name", "type", "auth", "products"}
-	allowedAuth := []string{"kind", "issuer", "clientId", "tenant", "credentialRef", "clientSecretVariable"}
+	// provider and narrowing say which deployment this is and how access is
+	// derived from it. Both are names of behaviour, not locations of secrets.
+	allowedAuth := []string{
+		"kind", "issuer", "clientId", "tenant", "credentialRef", "clientSecretVariable",
+		"provider", "narrowing",
+	}
 	allowedProduct := []string{"endpoint", "audience", "scopes"}
 
 	if got := jsonMembers(t, contexts.Context{}); !slices.Equal(got, allowedContext) {
