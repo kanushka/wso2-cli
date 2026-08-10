@@ -30,33 +30,23 @@
 package acceptance_test
 
 import (
-	"archive/tar"
-	"archive/zip"
-	"compress/gzip"
-	"crypto/sha256"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
 
-// The fixture release. The tags differ from each other and from anything the
-// script defaults to, so an assertion cannot pass by coincidence, and the
-// prerelease tag is newer than the stable one so that resolving "latest"
-// wrongly would pick it.
-const (
-	fixtureStableTag     = "v1.2.3"
-	fixturePreleaseTag   = "v1.3.0-rc.1"
-	fixtureOlderTag      = "v1.1.0"
-	installBlockMarker   = "# >>> wso2 cli >>>"
-	installScriptRelPath = "scripts/install.sh"
-)
+// The fixture release these run against is in install_fixture_test.go, shared
+// with the Windows runs so that both scripts are proven against one contract.
+const installScriptRelPath = "scripts/install.sh"
+
+// platformFields is what only the Unix runs need.
+type platformFields struct {
+	// unameMachine is what `uname -m` answers, for reaching the
+	// unsupported-hardware path without unsupported hardware.
+	unameMachine string
+}
 
 func TestInstallScriptInstallsTheShellAndWiresThePath(t *testing.T) {
 	install := newInstallHarness(t)
@@ -294,7 +284,7 @@ func TestInstallScriptRefusesAnUnsupportedArchitecture(t *testing.T) {
 	// The real detection path is exercised by answering `uname -m` with hardware
 	// no release is built for, rather than by giving the script a test-only
 	// override it would then carry for users.
-	install.unameMachine = "sparc64"
+	install.platform.unameMachine = "sparc64"
 
 	stdout, stderr, err := install.run()
 	if err == nil {
@@ -363,196 +353,6 @@ func TestInstallScriptHonoursTheStateRootVariable(t *testing.T) {
 	}
 }
 
-// installHarness is one isolated install: a fixture release served over HTTP, a
-// temporary home directory with a profile in it, and a state root nothing else
-// writes to.
-type installHarness struct {
-	t              *testing.T
-	home           string
-	stateRoot      string
-	profilePath    string
-	environment    []string
-	server         *httptest.Server
-	corruptArchive bool
-	// precedingSiblingChecksum lists a longer artifact name ending in this
-	// archive's name before the archive's own line, so a loose filename match
-	// takes the wrong digest.
-	precedingSiblingChecksum bool
-	// omitChecksumLine publishes a checksum file that says nothing about this
-	// archive.
-	omitChecksumLine bool
-	unameMachine     string
-	writeProfile     bool
-}
-
-func newInstallHarness(t *testing.T) *installHarness {
-	t.Helper()
-	home := t.TempDir()
-	install := &installHarness{
-		t:            t,
-		home:         home,
-		stateRoot:    filepath.Join(home, ".wso2"),
-		profilePath:  filepath.Join(home, ".bashrc"),
-		writeProfile: true,
-		unameMachine: "",
-	}
-	install.server = httptest.NewServer(http.HandlerFunc(install.serve))
-	t.Cleanup(install.server.Close)
-	return install
-}
-
-// serve answers the two shapes the script depends on: the redirect that names
-// the newest stable tag, the release listing that names the newest prerelease,
-// and the download paths for archives and the checksum file.
-func (i *installHarness) serve(w http.ResponseWriter, r *http.Request) {
-	switch {
-	case r.URL.Path == "/releases/latest":
-		http.Redirect(w, r, "/releases/tag/"+fixtureStableTag, http.StatusFound)
-
-	case strings.HasPrefix(r.URL.Path, "/releases/tag/"):
-		// The redirect target has to answer, as the real release page does: the
-		// script follows the redirect and reads the tag off the URL it lands on,
-		// and a failing status there would be a failed download to it.
-		if _, err := fmt.Fprintf(w, "release %s\n",
-			strings.TrimPrefix(r.URL.Path, "/releases/tag/")); err != nil {
-			i.t.Errorf("writing the tag page returned %v", err)
-		}
-
-	case r.URL.Path == "/releases":
-		// Newest first, as the GitHub API returns them, with the fields in the
-		// order and nesting the real listing uses: a struct rather than a map, so
-		// tag_name precedes prerelease and each release carries a nested object
-		// between them. Both are what the script's parse has to cope with.
-		type author struct {
-			Login string `json:"login"`
-			ID    int    `json:"id"`
-		}
-		type release struct {
-			TagName    string `json:"tag_name"`
-			Author     author `json:"author"`
-			Prerelease bool   `json:"prerelease"`
-		}
-		releases := []release{
-			{TagName: fixturePreleaseTag, Author: author{Login: "release-bot", ID: 1}, Prerelease: true},
-			{TagName: fixtureStableTag, Author: author{Login: "release-bot", ID: 1}, Prerelease: false},
-			{TagName: fixtureOlderTag, Author: author{Login: "release-bot", ID: 1}, Prerelease: false},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(releases); err != nil {
-			i.t.Errorf("encoding the release listing returned %v", err)
-		}
-
-	case strings.HasPrefix(r.URL.Path, "/releases/download/"):
-		rest := strings.TrimPrefix(r.URL.Path, "/releases/download/")
-		tag, name, found := strings.Cut(rest, "/")
-		if !found {
-			http.NotFound(w, r)
-			return
-		}
-		archive := i.archiveName(tag)
-		switch name {
-		case archive:
-			body := i.archiveBytes(tag)
-			if i.corruptArchive {
-				// The bytes change and the published checksum does not, which is
-				// what a substituted download looks like from the client's side.
-				body = append(body, "tampered"...)
-			}
-			if _, err := w.Write(body); err != nil {
-				i.t.Errorf("writing the archive returned %v", err)
-			}
-		case "checksums.txt":
-			sum := sha256.Sum256(i.archiveBytes(tag))
-			line := fmt.Sprintf("%x  %s\n", sum, archive)
-			switch {
-			case i.omitChecksumLine:
-				line = fmt.Sprintf("%064d  some-other-artifact.tar.gz\n", 0)
-			case i.precedingSiblingChecksum:
-				// A hash that is deliberately not the archive's, on a line whose name
-				// ends with the archive's name, listed first.
-				line = fmt.Sprintf("%064d  %s.sig\n%s", 0, archive, line)
-			}
-			if _, err := fmt.Fprint(w, line); err != nil {
-				i.t.Errorf("writing the checksum file returned %v", err)
-			}
-		default:
-			http.NotFound(w, r)
-		}
-
-	default:
-		http.NotFound(w, r)
-	}
-}
-
-func (i *installHarness) archiveName(tag string) string {
-	extension := "tar.gz"
-	if runtime.GOOS == "darwin" {
-		extension = "zip"
-	}
-	return fmt.Sprintf("wso2-cli-%s-%s-%s.%s", tag, runtime.GOOS, runtime.GOARCH, extension)
-}
-
-// archiveBytes builds the archive this platform's release would carry, holding a
-// stand-in binary that reports the tag it was packaged for. It is deterministic,
-// so the checksum served alongside it describes exactly these bytes.
-func (i *installHarness) archiveBytes(tag string) []byte {
-	i.t.Helper()
-	stand := "#!/bin/sh\necho \"WSO2 CLI   " + tag + "\"\n"
-	files := []struct {
-		name string
-		body string
-		mode int64
-	}{
-		{"wso2", stand, 0o755},
-		{"LICENSE", "Apache License 2.0\n", 0o644},
-		{"NOTICE", "WSO2 CLI\n", 0o644},
-	}
-
-	var buffer strings.Builder
-	if runtime.GOOS == "darwin" {
-		writer := zip.NewWriter(&buffer)
-		for _, file := range files {
-			header := &zip.FileHeader{Name: file.name, Method: zip.Deflate}
-			header.SetMode(os.FileMode(file.mode))
-			entry, err := writer.CreateHeader(header)
-			if err != nil {
-				i.t.Fatalf("creating %s in the zip returned %v", file.name, err)
-			}
-			if _, err := entry.Write([]byte(file.body)); err != nil {
-				i.t.Fatalf("writing %s into the zip returned %v", file.name, err)
-			}
-		}
-		if err := writer.Close(); err != nil {
-			i.t.Fatalf("closing the zip returned %v", err)
-		}
-		return []byte(buffer.String())
-	}
-
-	gzipWriter := gzip.NewWriter(&buffer)
-	tarWriter := tar.NewWriter(gzipWriter)
-	for _, file := range files {
-		if err := tarWriter.WriteHeader(&tar.Header{
-			Name: file.name,
-			Mode: file.mode,
-			Size: int64(len(file.body)),
-		}); err != nil {
-			i.t.Fatalf("writing the %s header returned %v", file.name, err)
-		}
-		if _, err := tarWriter.Write([]byte(file.body)); err != nil {
-			i.t.Fatalf("writing %s into the tarball returned %v", file.name, err)
-		}
-	}
-	if err := tarWriter.Close(); err != nil {
-		i.t.Fatalf("closing the tarball returned %v", err)
-	}
-	if err := gzipWriter.Close(); err != nil {
-		i.t.Fatalf("closing the gzip stream returned %v", err)
-	}
-	return []byte(buffer.String())
-}
-
-// run invokes the real script the way a user does, with everything it could
-// reach outside the test redirected: home, state root, and release origin.
 func (i *installHarness) run(args ...string) (string, string, error) {
 	i.t.Helper()
 	if i.writeProfile {
@@ -565,7 +365,7 @@ func (i *installHarness) run(args ...string) (string, string, error) {
 	command := exec.Command("bash", append([]string{script}, args...)...)
 
 	path := os.Getenv("PATH")
-	if i.unameMachine != "" {
+	if i.platform.unameMachine != "" {
 		path = i.shimmedUname() + string(os.PathListSeparator) + path
 	}
 	command.Env = append([]string{
@@ -588,7 +388,7 @@ func (i *installHarness) run(args ...string) (string, string, error) {
 func (i *installHarness) shimmedUname() string {
 	i.t.Helper()
 	directory := i.t.TempDir()
-	shim := "#!/bin/sh\nif [ \"$1\" = \"-m\" ]; then echo " + i.unameMachine +
+	shim := "#!/bin/sh\nif [ \"$1\" = \"-m\" ]; then echo " + i.platform.unameMachine +
 		"; else exec /usr/bin/uname \"$@\"; fi\n"
 	if err := os.WriteFile(filepath.Join(directory, "uname"), []byte(shim), 0o755); err != nil {
 		i.t.Fatalf("writing the uname shim returned %v", err)
@@ -613,23 +413,4 @@ func (i *installHarness) readProfile(t *testing.T) string {
 		t.Fatalf("reading the profile returned %v", err)
 	}
 	return string(contents)
-}
-
-// reportedVersion runs the installed binary and reports the release tag it names.
-// The stand-in binary in the fixture archive echoes the tag it was packaged for,
-// so this is how a test tells which release actually landed.
-func (i *installHarness) reportedVersion(t *testing.T) string {
-	t.Helper()
-	binary := filepath.Join(i.stateRoot, "bin", "wso2")
-	output, err := exec.Command(binary, "version").CombinedOutput()
-	if err != nil {
-		t.Fatalf("the installed binary at %s did not run: %v\noutput:\n%s", binary, err, output)
-	}
-	for _, tag := range []string{fixturePreleaseTag, fixtureStableTag, fixtureOlderTag} {
-		if strings.Contains(string(output), tag) {
-			return tag
-		}
-	}
-	t.Fatalf("the installed binary reported no known fixture tag:\n%s", output)
-	return ""
 }
