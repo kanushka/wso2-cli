@@ -188,7 +188,7 @@ func acquire(t *testing.T, broker *auth.Broker, request auth.Request, verdict, a
 		//
 		// auth.narrowing_unavailable covers five distinct causes — see
 		// internal/auth/narrowing.go's verify() and the table under
-		// auth.narrowing_unavailable in docs/guides/login.md section 8 — so this
+		// auth.narrowing_unavailable in docs/guides/login.md section 6 — so this
 		// summary must not name one of them (a "narrowed grant" specifically).
 		// The interpolated error text below is what actually says which of the
 		// five happened; this sentence only states what is true regardless: the
