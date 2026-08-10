@@ -61,7 +61,32 @@ worth avoiding on purpose.
 | `WSO2_SMOKE_IDENTITY_TYPE` | no | `cloud` (default) or `onprem`. |
 | `WSO2_SMOKE_UNREGISTERED_PORT` | no | The loopback port the any-port experiment binds. Defaults to `16000`. Must be outside 10425-10428. |
 | `WSO2_SMOKE_DEADLINE` | no | How long an **experiment** waits at the browser. Defaults to `3m`. It does not reach `make smoke-login`, which signs in through `wso2 login` and carries the shell's own five-minute deadline. |
-| `WSO2_EMPIRICAL` | experiments only | Set to `1` to opt into the experiments. `make empirical-asgardeo` sets it for you. |
+| `WSO2_SMOKE_PROVIDER` | no | The identity provider behind the issuer: `asgardeo`, `identity-server`, or `thunder`. Left unset, the run describes a deployment that binds audiences from the application's registration, which is the first two. **Required for ThunderID**, which binds them per request and refuses a login that names no resource. A name this shell does not read fails rather than skipping. |
+| `WSO2_SMOKE_CI_CLIENT_ID` | CI run only | The confidential client `make smoke-ci` presents. Its **secret** is not named here; see below. |
+| `WSO2_EMPIRICAL` | experiments only | Set to `1` to opt into the experiments. `make empirical-asgardeo` and `make empirical-thunder` set it for you. |
+
+### The client secret, and why it is not in the table above
+
+`make smoke-ci` authenticates as a confidential client, so it needs that
+client's secret. Export it in the shell you run from:
+
+```sh
+export WSO2_SMOKE_CLIENT_SECRET='<the confidential client's secret>'
+make smoke-ci
+```
+
+The variable's name is fixed in `config.go`, beside the secure-store reference
+that is already fixed there, and it is deliberately absent from
+`test/smoke/env.example`. A deployment description is a file people copy, keep,
+and send to each other; naming the secret's variable in one is an invitation to
+paste the value beside the name, and `*.env` being git-ignored is a weaker
+protection than the value never being written down at all.
+
+This is also the production contract, exercised as shipped: a context names an
+environment variable, the broker reads it into process memory for one grant, and
+it never reaches shell state, the secure store, or the module's environment.
+
+Without it, `make smoke-ci` skips and says so.
 
 With none of them set, both targets skip and say which variables they wanted.
 That is the expected result on a machine with no deployment:

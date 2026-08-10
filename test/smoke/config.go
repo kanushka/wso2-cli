@@ -66,8 +66,13 @@ const (
 	// slice calls it, so it exists only to keep the document honest.
 	EndpointVar = "WSO2_SMOKE_ENDPOINT"
 	// IdentityTypeVar is "cloud" for Asgardeo or "onprem" for an Identity
-	// Server deployment. It is optional and defaults to cloud.
+	// Server or Thunder deployment. It is optional and defaults to cloud.
 	IdentityTypeVar = "WSO2_SMOKE_IDENTITY_TYPE"
+	// ProviderVar names the identity provider behind the issuer, which decides
+	// how the shell derives a module's access from the login. It is optional:
+	// left unset, the run describes a deployment that binds audiences from the
+	// application's registration, which is Asgardeo and Identity Server.
+	ProviderVar = "WSO2_SMOKE_PROVIDER"
 	// UnregisteredPortVar is the loopback port the any-port experiment binds:
 	// one deliberately outside the registered 10425-10428 range.
 	UnregisteredPortVar = "WSO2_SMOKE_UNREGISTERED_PORT"
@@ -97,6 +102,23 @@ const (
 	// a smoke run cannot overwrite a real session, and a cleanup that deletes
 	// it cannot delete one.
 	CredentialRef = "wso2-cli-smoke"
+	// SecretVariable names the environment variable the non-interactive run
+	// reads its client secret from.
+	//
+	// It is fixed here rather than described alongside the deployment, and that
+	// is the point. A deployment description is a file people copy, share, and
+	// keep; naming the secret's variable in one invites the value to be pasted
+	// beside the name. The run reads the variable from the process environment,
+	// exactly as the shell reads the variable a context names, so the secret
+	// lives in the shell that exported it and nowhere else.
+	SecretVariable = "WSO2_SMOKE_CLIENT_SECRET"
+	// CIClientIDVar names the confidential client the non-interactive run
+	// presents. It is a name, not a credential.
+	CIClientIDVar = "WSO2_SMOKE_CI_CLIENT_ID"
+	// CIIdentityName is the non-interactive identity's name.
+	CIIdentityName = "smoke-ci-identity"
+	// CIContextName is the non-interactive context's name.
+	CIContextName = "smoke-ci"
 )
 
 // Defaults for the knobs a run rarely sets.
@@ -128,6 +150,12 @@ type Config struct {
 	Endpoint string
 	// IdentityType is "cloud" or "onprem".
 	IdentityType string
+	// Provider names the identity provider behind the issuer, or is empty when
+	// the deployment binds audiences from the application's registration.
+	Provider string
+	// CIClientID is the confidential client the non-interactive run presents,
+	// or empty when no such run is configured.
+	CIClientID string
 	// UnregisteredPort is the loopback port the any-port experiment binds.
 	UnregisteredPort int
 	// Deadline bounds a run that is waiting on a human.
@@ -212,6 +240,19 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		config.IdentityType = declared
 	}
 
+	// The provider is checked here rather than left to the document, so a
+	// deployment described with a name this shell does not read is reported
+	// before a run reaches a browser.
+	if declared := read(ProviderVar); declared != "" {
+		if !slices.Contains(readableProviders(), declared) {
+			return Config{}, fmt.Errorf(
+				"%s: %q is not an identity provider this shell reads; use one of %s",
+				ProviderVar, declared, strings.Join(readableProviders(), ", "))
+		}
+		config.Provider = declared
+	}
+	config.CIClientID = read(CIClientIDVar)
+
 	config.UnregisteredPort = defaultUnregisteredPort
 	if declared := read(UnregisteredPortVar); declared != "" {
 		port, err := strconv.Atoi(declared)
@@ -248,6 +289,15 @@ func Empirical(lookup func(string) (string, bool)) bool {
 // ones oauthflow binds by default.
 func RegisteredPorts() []int { return []int{10425, 10426, 10427, 10428} }
 
+// readableProviders are the identity providers a deployment description may
+// name.
+//
+// It defers to the shell's own list rather than repeating it. A copy here would
+// drift the moment a product is added: this package would refuse a provider the
+// shell accepts, and report a description that was correct as a deployment that
+// could not be run.
+func readableProviders() []string { return contexts.Providers() }
+
 // Document is the schema version 2 context document a live run installs.
 //
 // It is built rather than hand-written so that a run cannot drift from the
@@ -270,6 +320,11 @@ func (c Config) Document() contexts.Document {
 				ClientID:      c.ClientID,
 				Tenant:        c.Tenant,
 				CredentialRef: CredentialRef,
+				// Naming the provider is what makes the run derive the way the
+				// deployment requires. Left empty it is simply absent from the
+				// document, which is the open-world case and what every run
+				// against Asgardeo or Identity Server describes.
+				Provider: c.Provider,
 			},
 			Products: map[string]contexts.Product{
 				Namespace: {
@@ -285,6 +340,50 @@ func (c Config) Document() contexts.Document {
 			// The context stays in the identity's home tenant. Naming any other
 			// organization would provoke auth.organization_switch_unsupported,
 			// which is a refusal about the document rather than the deployment.
+			Organization: c.Tenant,
+		}},
+	}
+}
+
+// CIDocument is the schema version 2 document the non-interactive run installs.
+//
+// It is a second document rather than a second identity inside the first,
+// because the two runs must not be able to reach each other's material. The
+// interactive identity holds a secure-store reference and no secret; this one
+// holds a secret's variable and no reference, which is what the schema requires
+// of a kind that never logs in. Building it here, rather than in the tagged
+// half of the package, is what lets this package's own tests prove the shell
+// will read it before a live run depends on it.
+func (c Config) CIDocument() contexts.Document {
+	return contexts.Document{
+		SchemaVersion:  contexts.SchemaVersion,
+		DefaultContext: CIContextName,
+		Identities: []contexts.Identity{{
+			Name: CIIdentityName,
+			Type: c.IdentityType,
+			Auth: contexts.IdentityAuth{
+				Kind:     contexts.KindClientCredentials,
+				Issuer:   c.Issuer,
+				ClientID: c.CIClientID,
+				Tenant:   c.Tenant,
+				// The deployment is the same deployment, so it derives the same
+				// way. A confidential client on a deployment that binds by
+				// resource needs the indicator too, and has no earlier
+				// authorization to inherit one from.
+				Provider:             c.Provider,
+				ClientSecretVariable: SecretVariable,
+			},
+			Products: map[string]contexts.Product{
+				Namespace: {
+					Endpoint: c.Endpoint,
+					Audience: c.Audience,
+					Scopes:   slices.Clone(c.Scopes),
+				},
+			},
+		}},
+		Contexts: []contexts.Context{{
+			Name:         CIContextName,
+			Identity:     CIIdentityName,
 			Organization: c.Tenant,
 		}},
 	}

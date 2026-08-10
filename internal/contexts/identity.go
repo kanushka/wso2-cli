@@ -47,6 +47,62 @@ var legalKinds = map[string]bool{
 	KindClientCredentials: true, KindPAT: true,
 }
 
+// The identity providers a document may name.
+//
+// Naming one is how a document says what it points at, which is what the person
+// writing it knows. What that product requires of a token request is what this
+// shell knows, and the list exists so the two do not have to be written twice.
+// Omitting the member entirely is the open-world case: any conforming OpenID
+// provider stays describable, and derives the way every deployment did before
+// this member existed.
+const (
+	// ProviderAsgardeo is WSO2's identity cloud.
+	ProviderAsgardeo = "asgardeo"
+	// ProviderIdentityServer is a self-hosted WSO2 Identity Server.
+	ProviderIdentityServer = "identity-server"
+	// ProviderThunder is a ThunderID deployment.
+	ProviderThunder = "thunder"
+)
+
+// The derivations a document may declare.
+const (
+	// DerivationScopedRefresh narrows the login session by asking the refresh
+	// grant for the module's own permissions. It is what every deployment this
+	// shell served before resource indicators existed, and the default.
+	DerivationScopedRefresh = "scoped-refresh"
+	// DerivationTokenResource binds each request to one protected resource with
+	// an RFC 8707 resource indicator, and narrows permissions alongside it.
+	DerivationTokenResource = "token-resource"
+)
+
+// providerDerivation is the derivation each named product requires.
+//
+// Asgardeo and Identity Server take no audience at authorization time, so one
+// session serves every product and the scoped refresh answers for both. Thunder
+// requires a resource indicator on the authorization request and accepts only
+// one, so its sessions are bound to a single protected resource from the moment
+// they are established.
+var providerDerivation = map[string]string{
+	ProviderAsgardeo:       DerivationScopedRefresh,
+	ProviderIdentityServer: DerivationScopedRefresh,
+	ProviderThunder:        DerivationTokenResource,
+}
+
+// legalDerivations are the derivations this shell implements.
+var legalDerivations = map[string]bool{
+	DerivationScopedRefresh: true, DerivationTokenResource: true,
+}
+
+// Providers are the identity providers a document may name, in a stable order.
+//
+// It is exported because the list has readers outside this package — the live
+// runs describe a deployment before building a document from it, and a harness
+// that accepted a name the shell then refused would report a configuration
+// mistake as a failed deployment. One list, one place to add the next product.
+func Providers() []string {
+	return slices.Sorted(maps.Keys(providerDerivation))
+}
+
 // refPattern constrains a credential reference to one readable word, exactly
 // as context names are constrained. A credential value pasted where a
 // reference belongs — a JWT, anything with dots, equals signs, or upper-case
@@ -88,8 +144,37 @@ type IdentityAuth struct {
 	// ClientSecretVariable names the environment variable holding the client
 	// secret for the client-credentials kind. It is a name, never a value.
 	ClientSecretVariable string `json:"clientSecretVariable,omitempty"`
+	// Provider names the identity provider behind the issuer. It is optional,
+	// and it implies a derivation rather than being one.
+	Provider string `json:"provider,omitempty"`
+	// Narrowing names the derivation explicitly, for a deployment that does not
+	// match what its provider ordinarily requires. It is optional and wins over
+	// what Provider implies.
+	Narrowing string `json:"narrowing,omitempty"`
 	// CredentialVariable exists only on synthetic v1 identities. Never encoded.
 	CredentialVariable string `json:"-"`
+}
+
+// Derivation is how access for one module is derived under this identity.
+//
+// It is decided in one place because everything downstream — the login that
+// establishes a session, and the grant that narrows it — has to agree, and a
+// disagreement between them is a token bound to the wrong thing rather than a
+// failure anyone can read.
+//
+// The order is a default and an override, not two assertions that could
+// contradict each other: a provider states what its product ordinarily
+// requires, and an explicit derivation states what this deployment actually
+// does. Saying both is legal, because a deployment that has not registered a
+// resource server is a real state and the document has to be able to say so.
+func (a IdentityAuth) Derivation() string {
+	if a.Narrowing != "" {
+		return a.Narrowing
+	}
+	if derivation, named := providerDerivation[a.Provider]; named {
+		return derivation
+	}
+	return DerivationScopedRefresh
 }
 
 // Product is one product service reachable under an identity.
@@ -116,6 +201,9 @@ func (i Identity) validate() error {
 	if err := i.Auth.validate(i.Name); err != nil {
 		return err
 	}
+	if err := i.validateDerivation(); err != nil {
+		return err
+	}
 	// The namespaces are walked in sorted order so a document with more than
 	// one unreadable product is refused for the same reason on every run.
 	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
@@ -129,7 +217,69 @@ func (i Identity) validate() error {
 	return nil
 }
 
+// validateDerivation refuses a document whose derivation cannot be carried out
+// as written.
+//
+// A resource-bound derivation names the protected resource it binds to, and
+// takes that name from the product the module asks for. Two consequences
+// follow, and both are refused here rather than at the end of a browser
+// sign-in: a product that names no audience leaves nothing to bind to, and an
+// identity serving several products cannot be served by one session at all,
+// because the deployments that require a resource indicator accept only one per
+// authorization.
+func (i Identity) validateDerivation() error {
+	if i.Auth.Derivation() != DerivationTokenResource {
+		return nil
+	}
+	// Exactly one, not at most one. A deployment that binds by resource takes
+	// the resource from the identity's product, so an identity with none has
+	// nothing to name: login would send no indicator and be refused, which is
+	// the failure this whole validation exists to move earlier.
+	if len(i.Products) != 1 {
+		return malformed(fmt.Sprintf(
+			"declares the identity %q against a deployment that binds one login to one product, "+
+				"and gives it %d", i.Name, len(i.Products)))
+	}
+	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
+		audience := i.Products[namespace].Audience
+		if audience == "" {
+			return malformed(fmt.Sprintf(
+				"declares the %q product on the identity %q without the audience its deployment "+
+					"binds access to", namespace, i.Name))
+		}
+		// The audience travels as an RFC 8707 resource indicator, which section
+		// 2 of that specification requires to be an absolute URI carrying no
+		// fragment. A bare identifier is the shape the other two products use
+		// and is accepted by neither the specification nor a deployment reading
+		// it, so it is refused here rather than at the end of a browser sign-in
+		// that ends in invalid_target.
+		//
+		// The rule is the specification's and stops there. Requiring a
+		// particular scheme, or a host, would refuse identifiers RFC 8707
+		// permits — a URN names a resource server perfectly well — and this
+		// shell never dereferences the value, so it has no reason to hold an
+		// opinion the specification does not.
+		parsed, err := url.Parse(audience)
+		if err != nil || parsed.Scheme == "" || parsed.Fragment != "" {
+			return malformed(fmt.Sprintf(
+				"declares the %q product on the identity %q with an audience that is not an "+
+					"absolute URI, which is what its deployment binds access by", namespace, i.Name))
+		}
+	}
+	return nil
+}
+
 func (a IdentityAuth) validate(identity string) error {
+	if a.Provider != "" {
+		if _, known := providerDerivation[a.Provider]; !known {
+			return malformed(fmt.Sprintf(
+				"declares an identity provider for %q that this shell does not read", identity))
+		}
+	}
+	if a.Narrowing != "" && !legalDerivations[a.Narrowing] {
+		return malformed(fmt.Sprintf(
+			"declares a derivation for the identity %q that this shell does not implement", identity))
+	}
 	if !legalKinds[a.Kind] {
 		return malformed(fmt.Sprintf("declares an authentication kind for the identity %q that this shell does not read", identity))
 	}
