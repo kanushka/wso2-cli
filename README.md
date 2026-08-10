@@ -9,6 +9,33 @@ examples, and supporting research.
 > behavior before the corresponding implementation is available, and
 > interfaces may change until they are identified as stable.
 
+## Installation
+
+macOS, Linux, and WSL:
+
+```sh
+curl -fsSL https://wso2.github.io/wso2-cli/install.sh | bash
+```
+
+Windows:
+
+```powershell
+iwr https://wso2.github.io/wso2-cli/install.ps1 -useb | iex
+```
+
+Both scripts download a published release, verify it against the SHA-256 checksum
+file published beside it, and install the binary under your WSO2 state root.
+Neither needs administrator rights, and both are plain text at the URLs above if
+you would rather read one before running it.
+
+Released binaries are checksum-verified but not code signed or notarized.
+Supported platforms are Linux on `amd64`, `arm64`, `arm`, and `386`, and macOS and
+Windows on `amd64` and `arm64`.
+
+The [installation guide](docs/guides/installing.md) covers installing from the
+release page without running a remote script, pinning a version, release
+candidates, where files go, and how to uninstall.
+
 ## Documentation
 
 The [documentation index](docs/README.md) provides the complete reading order.

@@ -48,6 +48,9 @@ described commands or schemas are currently available.
 
 ## Guides
 
+- [Installing](guides/installing.md) takes a first-time user from a bare machine
+  to a working `wso2`, by one command or by hand from the release page, and
+  covers pinning a version, release candidates, where files go, and uninstalling.
 - [Logging in](guides/login.md) takes a first-time user from a registered
   OAuth application, through authoring the context document and the first
   `wso2 login`, to a CI job that authenticates without one. Everything in it is
