@@ -57,8 +57,13 @@ TEMP_DIR=''
 STAGED_BINARY=''
 
 cleanup() {
-	rm -rf "${TEMP_DIR:-}"
-	rm -f "${STAGED_BINARY:-}"
+	# Guarded rather than relying on rm to shrug at an empty operand: a run that
+	# fails before the download directory exists would otherwise put rm's own
+	# complaint on stderr in front of the error that actually stopped it. The `--`
+	# keeps a path that begins with a dash from being read as an option.
+	[ -n "${TEMP_DIR:-}" ] && rm -rf -- "$TEMP_DIR"
+	[ -n "${STAGED_BINARY:-}" ] && rm -f -- "$STAGED_BINARY"
+	return 0
 }
 
 # A signal has to end the run. Cleaning up and then carrying on would install
@@ -314,11 +319,18 @@ main() {
 	# The profile block quotes these paths, so a root containing a quote, a dollar
 	# or a backslash would write a line that means something other than the path it
 	# came from. Refusing beats writing a profile that misbehaves later.
+	#
+	# A newline is the same problem with a sharper edge: a path may legally contain
+	# one, and writing it into a profile would append whatever followed it as its
+	# own line, which is arbitrary shell code in the user's profile.
 	case "$state_root" in
 	*'"'* | *'$'* | *'\'* | *'`'*)
 		fail "the state root ${state_root} contains a character this installer cannot safely write into a shell profile."
 		;;
 	esac
+	if [ "$state_root" != "$(printf '%s' "$state_root" | tr -d '\n\r')" ]; then
+		fail 'the state root contains a line break, which cannot be written into a shell profile safely.'
+	fi
 	archive="wso2-cli-${version}-${os}-${arch}.${extension}"
 	url="${RELEASE_BASE_URL}/download/${version}/${archive}"
 
@@ -367,12 +379,19 @@ main() {
 		# keeps it from aborting the run under `set -e`, which would abandon an
 		# already-installed binary over a profile this script chose not to guess at.
 		profile="$(detect_profile || true)"
-		if [ -n "$profile" ]; then
-			wire_path "$state_root" "$bin_dir" "$profile"
-			printf '\nOpen a new terminal, or run: source %s\n' "$profile"
-		else
+		if [ -z "$profile" ]; then
 			print_manual_path_instructions "$state_root" "$bin_dir" \
 				'No shell profile was detected, so none was edited.'
+		elif [ ! -w "$profile" ]; then
+			# The binary is already installed by this point. Failing here would
+			# abandon a working install over a file this script cannot write, and
+			# report it as a bare permission error rather than as something the user
+			# can act on.
+			print_manual_path_instructions "$state_root" "$bin_dir" \
+				"Your profile ${profile} is not writable, so it was left alone."
+		else
+			wire_path "$state_root" "$bin_dir" "$profile"
+			printf '\nOpen a new terminal, or run: source %s\n' "$profile"
 		fi
 	fi
 

@@ -327,6 +327,53 @@ func TestInstallScriptLeavesTheProfileAloneWhenAsked(t *testing.T) {
 	}
 }
 
+func TestInstallScriptInstallsWhenTheProfileCannotBeWritten(t *testing.T) {
+	install := newInstallHarness(t)
+
+	stdout, stderr, err := install.runWithProfileMode(0o444)
+	if err != nil {
+		t.Fatalf("install.sh failed on a read-only profile: %v\nstdout:\n%s\nstderr:\n%s",
+			err, stdout, stderr)
+	}
+
+	// The binary is installed before the profile is touched. Abandoning the run
+	// at an unwritable file would throw away a working install, and report it as
+	// a bare permission error rather than as something the user can act on.
+	if _, statErr := os.Stat(filepath.Join(install.stateRoot, "bin", "wso2")); statErr != nil {
+		t.Errorf("a read-only profile prevented the install itself: %v", statErr)
+	}
+	if !strings.Contains(stdout, "not writable") {
+		t.Errorf("output does not explain that the profile was left alone:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "export PATH=") {
+		t.Errorf("output does not print the lines to add by hand:\n%s", stdout)
+	}
+	if profile := install.readProfile(t); strings.Contains(profile, installBlockMarker) {
+		t.Errorf("a read-only profile was written to anyway:\n%s", profile)
+	}
+}
+
+func TestInstallScriptRefusesAStateRootThatWouldInjectIntoTheProfile(t *testing.T) {
+	// A newline is legal in a path and catastrophic in a profile: everything after
+	// it becomes its own line, which is arbitrary shell code in the user's
+	// startup file.
+	install := newInstallHarness(t)
+	injected := filepath.Join(t.TempDir(), "root\nexport EVIL=1")
+	install.stateRoot = injected
+	install.environment = append(install.environment, "WSO2_HOME="+injected)
+
+	stdout, stderr, err := install.run()
+	if err == nil {
+		t.Fatalf("install.sh accepted a state root containing a line break\nstdout:\n%s", stdout)
+	}
+	if !strings.Contains(stdout+stderr, "line break") {
+		t.Errorf("refusal does not say why it refused:\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+	if profile := install.readProfile(t); strings.Contains(profile, "EVIL") {
+		t.Errorf("the profile was written with injected content:\n%s", profile)
+	}
+}
+
 func TestInstallScriptSucceedsWhenNoProfileCanBeDetected(t *testing.T) {
 	install := newInstallHarness(t)
 	install.writeProfile = false
@@ -383,6 +430,9 @@ type installHarness struct {
 	omitChecksumLine bool
 	unameMachine     string
 	writeProfile     bool
+	// profileMode is the permission the fixture profile is written with, so a
+	// test can present the script with one it cannot write to.
+	profileMode os.FileMode
 }
 
 func newInstallHarness(t *testing.T) *installHarness {
@@ -395,6 +445,7 @@ func newInstallHarness(t *testing.T) *installHarness {
 		profilePath:  filepath.Join(home, ".bashrc"),
 		writeProfile: true,
 		unameMachine: "",
+		profileMode:  0o644,
 	}
 	install.server = httptest.NewServer(http.HandlerFunc(install.serve))
 	t.Cleanup(install.server.Close)
@@ -559,6 +610,11 @@ func (i *installHarness) run(args ...string) (string, string, error) {
 		if err := os.WriteFile(i.profilePath, []byte("# existing profile\n"), 0o644); err != nil {
 			i.t.Fatalf("writing the fixture profile returned %v", err)
 		}
+		// Written first and then restricted, because the mode under test may not
+		// permit writing the contents.
+		if err := os.Chmod(i.profilePath, i.profileMode); err != nil {
+			i.t.Fatalf("setting the fixture profile mode returned %v", err)
+		}
 	}
 
 	script := filepath.Join(repoRoot(i.t), installScriptRelPath)
@@ -632,4 +688,20 @@ func (i *installHarness) reportedVersion(t *testing.T) string {
 	}
 	t.Fatalf("the installed binary reported no known fixture tag:\n%s", output)
 	return ""
+}
+
+// runWithProfileMode runs the installer against a profile carrying the given
+// permission, so the script can be presented with one it cannot write to.
+func (i *installHarness) runWithProfileMode(mode os.FileMode, args ...string) (string, string, error) {
+	i.t.Helper()
+	previous := i.profileMode
+	i.profileMode = mode
+	defer func() {
+		i.profileMode = previous
+		// Restored so the test's own cleanup can remove the temporary directory.
+		if err := os.Chmod(i.profilePath, 0o644); err != nil && !os.IsNotExist(err) {
+			i.t.Errorf("restoring the fixture profile mode returned %v", err)
+		}
+	}()
+	return i.run(args...)
 }
