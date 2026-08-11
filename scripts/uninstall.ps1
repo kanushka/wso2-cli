@@ -66,6 +66,9 @@ if ((Test-Path -LiteralPath $binDir) -and
     -not (Get-ChildItem -LiteralPath $binDir -Force -ErrorAction SilentlyContinue)) {
     Remove-Item -LiteralPath $binDir -Force
     Write-Output "Removed $binDir"
+    # Counted, so the summary cannot end with "nothing to remove" after saying
+    # what it removed.
+    $removed = $true
 }
 
 # The PATH entry, matched the way the installer wrote it: case-insensitively and

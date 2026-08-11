@@ -72,6 +72,9 @@ rm -f "${bin_dir}"/.wso2.install.* 2>/dev/null || true
 if [ -d "$bin_dir" ] && [ -z "$(ls -A "$bin_dir" 2>/dev/null)" ]; then
 	rmdir "$bin_dir"
 	printf 'Removed %s\n' "$bin_dir"
+	# Counted, so the summary cannot end with "nothing to remove" after saying
+	# what it removed.
+	removed=1
 fi
 
 # Every profile is checked, not only the one this shell would be wired in: the
@@ -80,6 +83,17 @@ fi
 for profile in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.profile"; do
 	[ -f "$profile" ] || continue
 	grep -qF "$BLOCK_BEGIN" "$profile" || continue
+
+	# Both markers must be present. With only the opening one — a partial install,
+	# or a profile someone edited by hand — everything after it would be treated as
+	# inside the block and dropped, which is the user's own configuration.
+	# Refusing to guess and saying so is the only safe answer.
+	if ! grep -qF "$BLOCK_END" "$profile"; then
+		printf 'warning: %s has the wso2 block start but no end marker.\n' "$profile" >&2
+		printf 'Left it alone rather than guessing where it ends. Remove these lines by hand:\n' >&2
+		printf '  %s ... %s\n' "$BLOCK_BEGIN" "$BLOCK_END" >&2
+		continue
+	fi
 
 	staged="${profile}.wso2-uninstall.$$"
 	# Only the lines between the markers go. Everything else is written back
