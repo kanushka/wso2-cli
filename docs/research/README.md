@@ -11,6 +11,7 @@ These files preserve the source material and research that informed the current
 | --- | --- |
 | [Archived original proposal](archive/original-proposal.md) | Historical proposal retained for context; it is not authoritative. |
 | [Public WSO2 CLI inventory](public-wso2-cli-inventory.md) | Inventory based only on publicly accessible WSO2 repositories and documentation. |
+| [choreo-cli-installation-distribution.md](choreo-cli-installation-distribution.md) | Primary-source research into Choreo CLI's install-script mechanics, release artifact conventions, Windows support, and the shared distribution setup it turned out to have with `wdp-cli`. |
 | [kubectl-krew.md](kubectl-krew.md) | Research into kubectl dispatch and Krew package management, including lessons adopted and gaps to improve. |
 | [cloud-cli-comparison.md](cloud-cli-comparison.md) | Primary-source comparison of Azure CLI, AWS CLI, and Google Cloud CLI. |
 | [module-architecture-options.md](module-architecture-options.md) | Evaluation of module-extension models and the recommended subprocess contract. |
