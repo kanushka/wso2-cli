@@ -38,9 +38,14 @@ wso2-cli-<tag>-<os>-<arch>.<extension>
 | `<extension>` | `tar.gz` for Linux, `zip` for macOS and Windows  |
 
 The tag appears verbatim so that a script which resolved a tag can build the
-name without transforming it. The operating system and architecture values are
-what `uname -s` and a normalized `uname -m` report, so a shell script maps its
-own detection onto these names directly.
+name without transforming it.
+
+The operating system and architecture tokens are not what platform detection
+reports, and both have to be normalized before a name is built. `uname -s`
+answers `Linux` and `Darwin`, which lower-case to the tokens above; `uname -m`
+answers a wider set, so `x86_64` maps to `amd64`, `aarch64` to `arm64`,
+`armv6l` and `armv7l` to `arm`, and `i686` to `386`. A machine reporting
+anything else has no artifact here, which is a refusal rather than a guess.
 
 The `arm` archive is built for ARMv6, which the more common ARMv7 hardware also
 runs. There is one `arm` archive rather than one per variant, so a script that
