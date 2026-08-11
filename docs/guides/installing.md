@@ -86,7 +86,9 @@ by doing it by hand.
    sha256sum --check --ignore-missing checksums.txt
    ```
 
-   On macOS, `shasum -a 256 -c checksums.txt` does the same. On Windows,
+   On macOS, `shasum -a 256 --ignore-missing -c checksums.txt` does the same.
+   The flag matters: `checksums.txt` lists every platform's archive, and without
+   it the check fails over the ones you did not download. On Windows,
    `Get-FileHash -Algorithm SHA256 <archive>` prints the digest to compare
    against the line in `checksums.txt`.
 4. Extract it and put the `wso2` binary somewhere on your `PATH`. The installer
@@ -107,10 +109,11 @@ curl -fsSL https://wso2.github.io/wso2-cli/install.sh | bash -s v0.1.0
 ## Install a release candidate
 
 Prereleases are skipped when resolving the newest release, so asking for one is
-explicit:
+explicit. Note where the variable goes: in a pipeline it has to be set on the
+`bash` that runs the script, not on the `curl` that fetches it.
 
 ```sh
-WSO2_CLI_PRERELEASE=true curl -fsSL https://wso2.github.io/wso2-cli/install.sh | bash
+curl -fsSL https://wso2.github.io/wso2-cli/install.sh | WSO2_CLI_PRERELEASE=true bash
 ```
 
 ```powershell
@@ -134,7 +137,7 @@ second entry to your profile or `PATH`. There is no self-update command.
 Set `WSO2_HOME` before installing to put everything somewhere else:
 
 ```sh
-WSO2_HOME=/opt/wso2 curl -fsSL https://wso2.github.io/wso2-cli/install.sh | bash
+curl -fsSL https://wso2.github.io/wso2-cli/install.sh | WSO2_HOME=/opt/wso2 bash
 ```
 
 The installer records the state root it used, so the shell it installs and the
@@ -147,7 +150,7 @@ it detects, and the Windows installer sets your per-user `PATH` and
 `WSO2_HOME`. To install without either, and be told what to set yourself:
 
 ```sh
-WSO2_CLI_NO_PROFILE=1 curl -fsSL https://wso2.github.io/wso2-cli/install.sh | bash
+curl -fsSL https://wso2.github.io/wso2-cli/install.sh | WSO2_CLI_NO_PROFILE=1 bash
 ```
 
 The block is delimited and greppable, so you can always find what was added:
