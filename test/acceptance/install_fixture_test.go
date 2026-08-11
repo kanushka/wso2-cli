@@ -117,6 +117,9 @@ type installHarness struct {
 	// Windows has no profile to edit and leaves both alone.
 	profilePath  string
 	writeProfile bool
+	// profileMode is the permission the fixture profile is written with, so a
+	// test can present the script with one it cannot write to.
+	profileMode os.FileMode
 
 	// What each platform needs and the other has no use for. It is a type per
 	// platform rather than a union of both, because a field only one build reads
@@ -133,6 +136,7 @@ func newInstallHarness(t *testing.T) *installHarness {
 		stateRoot:    filepath.Join(home, ".wso2"),
 		profilePath:  filepath.Join(home, ".bashrc"),
 		writeProfile: true,
+		profileMode:  0o644,
 	}
 	install.server = httptest.NewServer(http.HandlerFunc(install.serve))
 	t.Cleanup(install.server.Close)

@@ -157,6 +157,33 @@ func TestUninstallStillRemovesTheBinaryAfterTheBlockWasRemovedByHand(t *testing.
 	}
 }
 
+func TestUninstallLeavesAProfileAloneWhenTheBlockHasNoEnd(t *testing.T) {
+	install := newInstallHarness(t)
+	// A profile carrying the opening marker and no closing one, with the user's
+	// own configuration after it. Treating "no end" as "to the end of the file"
+	// would delete all of it — which is why this refuses instead.
+	damaged := "# existing profile\n" + installBlockMarker +
+		"\nexport PATH=\"/somewhere/bin:$PATH\"\n\nexport EDITOR=vim\nalias gs='git status'\n"
+	if err := os.WriteFile(install.profilePath, []byte(damaged), 0o644); err != nil {
+		t.Fatalf("writing the damaged profile returned %v", err)
+	}
+
+	stdout, stderr, err := install.runUninstall()
+	if err != nil {
+		t.Fatalf("uninstall.sh failed on a profile with no end marker: %v\nstderr:\n%s", err, stderr)
+	}
+
+	profile := install.readProfile(t)
+	if profile != damaged {
+		t.Errorf("the profile was rewritten:\nwant:\n%s\ngot:\n%s", damaged, profile)
+	}
+	// Saying nothing would leave the user with a block they do not know is there.
+	if !strings.Contains(stdout+stderr, "end marker") {
+		t.Errorf("nothing told the user the block was left in place:\nstdout:\n%s\nstderr:\n%s",
+			stdout, stderr)
+	}
+}
+
 func TestUninstallRemovesABlockFromAProfileTheRunningShellIsNotWiredIn(t *testing.T) {
 	install := newInstallHarness(t)
 	// Installed under zsh, uninstalled by a bash user: the block is in .zshrc and

@@ -111,16 +111,19 @@ jobs:
 
           # --ignore-missing exits non-zero when it verifies nothing, so this
           # cannot pass on an empty file. What it cannot see is an archive that
-          # is present but unlisted, so the counts are compared too: a target
-          # dropped from the checksum file would otherwise ship unverifiable.
+          # is present but unlisted, so the two sets of names are compared as
+          # well: a target dropped from the checksum file would otherwise ship
+          # unverifiable. Names rather than counts, because a duplicated line
+          # keeps the count right while leaving another archive uncovered.
           sha256sum --check --ignore-missing checksums.txt
-          archives="$(find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) | wc -l)"
-          listed="$(wc -l < checksums.txt)"
-          if [[ "${archives}" -ne "${listed}" ]]; then
-            echo "::error::${archives} archives published but ${listed} listed in checksums.txt"
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
+            -printf '%f\n' | sort >published-names.txt
+          awk '{ name = $2; sub(/^\*/, "", name); print name }' checksums.txt | sort >listed-names.txt
+          if ! diff -u published-names.txt listed-names.txt; then
+            echo "::error::the published archives and the checksum file do not describe the same set"
             exit 1
           fi
-          echo "${listed} archives published and all verified"
+          echo "$(wc -l <published-names.txt) archives published and all verified"
 
           # The state root is redirected so that reading the module inventory
           # cannot touch the runner's real home directory.
