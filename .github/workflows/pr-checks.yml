@@ -144,6 +144,35 @@ jobs:
           version: v2.12
           working-directory: sdk
 
+  # The Windows installer cannot be driven from the Linux gate: PowerShell, the
+  # per-user environment variables it writes, and Expand-Archive only exist here.
+  # This is the one place the single-seam goal cannot be met, and leaving the
+  # platform untested is the worse option. The scenarios are the ones the Unix
+  # runs cover, against the same fixture release.
+  install-windows:
+    name: Windows Installer
+    needs: changes
+    if: needs.changes.outputs.shell == 'true'
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: |
+            go.mod
+            sdk/go.mod
+
+      # Only the installer and its removal run. The rest of the acceptance suite is
+      # a Linux gate by design, and running it here would be proving something else.
+      - name: Drive the Windows installer
+        run: go test ./test/acceptance/ -run 'TestInstallScript|TestUninstall' -count=1 -v
+
   acceptance:
     name: Architecture Proof
     needs: changes
