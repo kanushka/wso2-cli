@@ -41,11 +41,28 @@ The tag appears verbatim so that a script which resolved a tag can build the
 name without transforming it.
 
 The operating system and architecture tokens are not what platform detection
-reports, and both have to be normalized before a name is built. `uname -s`
-answers `Linux` and `Darwin`, which lower-case to the tokens above; `uname -m`
-answers a wider set, so `x86_64` maps to `amd64`, `aarch64` to `arm64`,
-`armv6l` and `armv7l` to `arm`, and `i686` to `386`. A machine reporting
-anything else has no artifact here, which is a refusal rather than a guess.
+reports, and both have to be normalized before a name is built.
+
+On macOS and Linux, `uname -s` answers `Linux` and `Darwin`, which lower-case to
+the tokens above, and `uname -m` answers a wider set, so `x86_64` maps to
+`amd64`, `aarch64` to `arm64`, `armv6l` and `armv7l` to `arm`, and `i686` to
+`386`.
+
+Windows does not go through `uname` at all. The operating system token is fixed:
+anything installing from Windows is on `windows`, so nothing has to be detected
+to choose it. The architecture comes from the environment instead, reading
+`PROCESSOR_ARCHITEW6432` before `PROCESSOR_ARCHITECTURE` — a 32-bit process on
+a 64-bit machine reports `x86` in the second and the real architecture only in
+the first — and mapping `AMD64` to `amd64` and `ARM64` to `arm64`.
+
+Normalizing is not enough on its own: the result has to name a target the
+release actually carries, and the table below is not the product of every
+operating system with every architecture. There is no `windows` `386` archive
+and no `darwin` `386` or `arm` archive, so an installer that normalized its way
+to one of those has found a platform with nothing to install rather than a name
+to fetch. That is a refusal, and it belongs before the download rather than as a
+confusing 404 from it. The same holds for a machine reporting an architecture
+absent from the list entirely.
 
 The `arm` archive is built for ARMv6, which the more common ARMv7 hardware also
 runs. There is one `arm` archive rather than one per variant, so a script that
