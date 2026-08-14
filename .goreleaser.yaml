@@ -1,0 +1,110 @@
+# Release configuration for the wso2 shell.
+#
+# One tagged commit produces every artifact a user can install, plus the
+# checksum file the install scripts verify against. The artifact naming
+# convention this file implements is a published contract: the install scripts
+# derive a download URL from a resolved tag alone, with no manifest to fetch.
+# See docs/reference/release-artifacts.md before changing any name template.
+#
+# Reproduce a release locally without publishing anything:
+#
+#	make release-snapshot
+version: 2
+
+project_name: wso2-cli
+
+builds:
+  # The shell is the only binary this repository releases. Modules are acquired
+  # by the shell at runtime and are versioned independently, so they are not
+  # artifacts of a shell release.
+  - id: wso2
+    main: ./cmd/wso2
+    binary: wso2
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      # The shell version carries no leading "v": the version package prefixes
+      # one for display, and its semantic-version parse reads the bare form.
+      - -X github.com/wso2/wso2-cli/internal/version.shellVersion={{ .Version }}
+      # Kept in step with the default in internal/version by the release
+      # workflow, which runs the built binary and fails the release if the two
+      # disagree. Widening the protocol list means changing both.
+      - -X github.com/wso2/wso2-cli/internal/version.protocolVersion=1
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+      - arm
+      - "386"
+    goarm:
+      - "6"
+    # The eight surviving pairs are exactly the targets the pull-request
+    # cross-build check compiles. A target may not be released without also
+    # being compile-checked on every pull request.
+    ignore:
+      - goos: darwin
+        goarch: arm
+      - goos: darwin
+        goarch: "386"
+      - goos: windows
+        goarch: arm
+      - goos: windows
+        goarch: "386"
+
+archives:
+  # wso2-cli-v0.1.0-darwin-arm64.zip, wso2-cli-v0.1.0-linux-amd64.tar.gz, and
+  # so on. The tag appears verbatim so that a script that resolved a tag can
+  # build this name without transforming it.
+  - id: wso2
+    ids:
+      - wso2
+    name_template: "{{ .ProjectName }}-{{ .Tag }}-{{ .Os }}-{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: darwin
+        formats:
+          - zip
+      - goos: windows
+        formats:
+          - zip
+    # The binary sits at the archive root rather than inside a version-named
+    # directory, so an installer extracts and moves one known path.
+    wrap_in_directory: false
+    # Apache-2.0 requires the licence and notice to travel with the binary.
+    files:
+      - LICENSE
+      - NOTICE
+
+checksum:
+  # One file covering every archive, published as a release asset. Both install
+  # scripts fetch it and verify the archive they downloaded before extracting.
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+
+release:
+  # A tag carrying a prerelease identifier publishes as a prerelease, which is
+  # what the installers' prerelease channel resolves and what keeps a release
+  # candidate from becoming every user's default.
+  prerelease: auto
+  draft: false
+  name_template: "{{ .Tag }}"

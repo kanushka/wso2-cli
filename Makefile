@@ -34,6 +34,12 @@ GOLANGCI_LINT ?= $(shell command -v golangci-lint 2>/dev/null || \
 
 SMOKE_PACKAGE := ./test/smoke/
 
+# GoReleaser builds the release artifacts. It is pinned and run through `go run`
+# rather than installed, so a contributor reproducing a release uses the same
+# version CI does without adding a tool to their machine. The same version is
+# pinned in .github/workflows/release.yml; move both together.
+GORELEASER ?= $(GO) run github.com/goreleaser/goreleaser/v2@v2.17.1
+
 # A file describing one deployment, sourced by the live targets when it exists.
 #
 # Go has no dotenv convention and this module stays lean, so nothing parses this
@@ -82,6 +88,8 @@ help:
 	@echo '  make lint                 Lint the shell, including the build-tagged live runs.'
 	@echo '  make acceptance           Run the full architecture-proof acceptance gate.'
 	@echo '  make smoke-build          Compile the live runs without executing them.'
+	@echo '  make release-check        Validate the release configuration.'
+	@echo '  make release-snapshot     Build every release artifact into dist/, publishing nothing.'
 	@echo ''
 	@echo 'Against a real deployment (Asgardeo, Identity Server 7.x, or ThunderID):'
 	@echo '  make smoke-login          Log in and broker one acquisition. Opens a browser.'
@@ -115,6 +123,20 @@ lint:
 .PHONY: acceptance
 acceptance:
 	./scripts/acceptance.sh
+
+# Builds every release artifact into dist/ and publishes nothing. This is how a
+# contributor checks a change to .goreleaser.yaml, and how the artifact names and
+# checksums can be inspected without pushing a tag. A snapshot names its archives
+# for the most recent tag in the checkout and reports a -snapshot version from the
+# binary inside; see docs/reference/release-artifacts.md.
+.PHONY: release-snapshot
+release-snapshot:
+	$(GORELEASER) release --snapshot --clean
+
+# Checks .goreleaser.yaml without building anything.
+.PHONY: release-check
+release-check:
+	$(GORELEASER) check
 
 # Proves the live runs still compile against the shell they drive. The default
 # gate cannot do this for them: the tag that keeps them out of it also keeps

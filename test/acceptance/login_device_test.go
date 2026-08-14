@@ -368,7 +368,7 @@ func TestAHostileAdvertisedIntervalRefusesRatherThanCrashes(t *testing.T) {
 	//
 	// What both share is the property under test. Neither ends in a panic.
 	for name, testcase := range map[string]struct {
-		advertised int
+		advertised int64
 		expiresIn  int
 		want       exit.Code
 	}{

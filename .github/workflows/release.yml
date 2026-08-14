@@ -1,0 +1,165 @@
+name: Release
+
+# A version tag is the whole trigger. Nothing publishes from a branch, so an
+# artifact on the release page always corresponds to a tag someone pushed.
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Read-only by default. Only the job that publishes the release is granted write
+# access to repository contents, and nothing here is granted anything else.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # A tag may not ship artifacts that fail the proof. This is the same gate a
+  # pull request runs and the same script a contributor runs locally, so the
+  # release is held to the standard the repository already enforces rather than
+  # to a second, weaker one.
+  acceptance:
+    name: Architecture Proof
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: |
+            go.mod
+            sdk/go.mod
+
+      - name: Run the architecture-proof acceptance gate
+        run: ./scripts/acceptance.sh
+
+  release:
+    name: Publish artifacts
+    needs: acceptance
+    runs-on: ubuntu-latest
+    permissions:
+      # Creating the release and uploading its assets. GoReleaser needs nothing
+      # further: this release publishes no container image, no Homebrew tap, and
+      # no package repository.
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          # GoReleaser reads the tag history to determine the version and to
+          # build the changelog, and a shallow clone leaves it with neither.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: |
+            go.mod
+            sdk/go.mod
+
+      - name: Build and publish the release
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          # Pinned in step with the Makefile's own pin, so a contributor running
+          # `make release-snapshot` builds with the version that publishes.
+          version: v2.17.1
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Proves what a user will actually find, by fetching it back from the
+      # release page rather than inspecting the build output: the checksum file
+      # describes every archive published, the archive named for this tag
+      # extracts to a binary reporting this tag's version, and the protocol
+      # version it claims is the one the shell's own source defaults to.
+      #
+      # A release that ships a binary still reporting the development
+      # placeholder, or a checksum file that does not cover every archive
+      # beside it, fails here rather than reaching a user.
+      - name: Verify the published artifacts
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          archive="wso2-cli-${tag}-linux-amd64.tar.gz"
+
+          published="$(mktemp -d)"
+          gh release download "${tag}" --dir "${published}" --repo "${GITHUB_REPOSITORY}"
+
+          cd "${published}"
+
+          # What the install scripts will trust has to be what was built. A
+          # checksum file rewritten or truncated between build and publish is
+          # exactly what this comparison catches.
+          if ! diff -u "${GITHUB_WORKSPACE}/dist/checksums.txt" checksums.txt; then
+            echo "::error::the published checksums.txt is not the one that was built"
+            exit 1
+          fi
+
+          # --ignore-missing exits non-zero when it verifies nothing, so this
+          # cannot pass on an empty file. What it cannot see is an archive that
+          # is present but unlisted, so the two sets of names are compared as
+          # well: a target dropped from the checksum file would otherwise ship
+          # unverifiable. Names rather than counts, because a duplicated line
+          # keeps the count right while leaving another archive uncovered.
+          sha256sum --check --ignore-missing checksums.txt
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
+            -printf '%f\n' | sort >published-names.txt
+          awk '{ name = $2; sub(/^\*/, "", name); print name }' checksums.txt | sort >listed-names.txt
+          if ! diff -u published-names.txt listed-names.txt; then
+            echo "::error::the published archives and the checksum file do not describe the same set"
+            exit 1
+          fi
+          echo "$(wc -l <published-names.txt) archives published and all verified"
+
+          # The state root is redirected so that reading the module inventory
+          # cannot touch the runner's real home directory.
+          workdir="$(mktemp -d)"
+          state="$(mktemp -d)"
+          export WSO2_HOME="${state}"
+          tar -xzf "${archive}" -C "${workdir}"
+
+          reported="$("${workdir}/wso2" version)"
+          echo "${reported}"
+
+          if ! grep -qF "${tag}" <<<"${reported}"; then
+            echo "::error::the released binary reports no version matching ${tag}"
+            exit 1
+          fi
+          if grep -qF '0.0.0-dev' <<<"${reported}"; then
+            echo "::error::the released binary reports the development placeholder"
+            exit 1
+          fi
+
+          # The protocol version is injected by .goreleaser.yaml and defaulted in
+          # internal/version. A release that disagrees with the shell's own
+          # default would ship a binary claiming support it was not built with,
+          # so the two are compared rather than assumed to have been kept in step.
+          #
+          # Both are required to be non-empty: if the version output ever stops
+          # carrying a Protocol field under this label, an unguarded comparison
+          # would find two empty strings equal and report agreement it never saw.
+          released_protocol="$(awk '$1 == "Protocol" { print $2 }' <<<"${reported}")"
+          source_protocol="$(cd "${GITHUB_WORKSPACE}" && go run ./cmd/wso2 version | awk '$1 == "Protocol" { print $2 }')"
+          if [[ -z "${released_protocol}" || -z "${source_protocol}" ]]; then
+            echo "::error::no protocol version was reported, so nothing was compared"
+            exit 1
+          fi
+          if [[ "${released_protocol}" != "${source_protocol}" ]]; then
+            echo "::error::released protocol ${released_protocol} does not match the source default ${source_protocol}"
+            exit 1
+          fi
+          echo "Protocol ${released_protocol} matches the source default"
