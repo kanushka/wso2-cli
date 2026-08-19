@@ -56,13 +56,17 @@ stage() {
 # a replace directive breaks: it would silently pin the SDK to this checkout,
 # and the run below would prove the current protocol twice over.
 stage 'Check that no committed go.mod replaces a module'
-replacements=$(git ls-files '*go.mod' | while read -r modfile; do
+# The loop is not a pipeline, so a go.mod this toolchain cannot read aborts the
+# gate instead of reading as a file without replacements.
+replacements=
+for modfile in $(git ls-files '*go.mod'); do
 	# A go.mod without replacements reports "Replace": null, so the match is
 	# on the array rather than on the key.
 	if go mod edit -json "$modfile" | grep -q '"Replace": *\['; then
-		printf '%s\n' "$modfile"
+		replacements="$replacements$modfile
+"
 	fi
-done)
+done
 if [ -n "$replacements" ]; then
 	echo 'The following go.mod files carry a replace directive, which is prohibited:'
 	echo "$replacements"
@@ -117,8 +121,17 @@ probe() {
 		(cd "$work/probe" && go mod edit \
 			-require "github.com/wso2/wso2-cli/sdk@$1")
 	fi
-	(cd "$work/probe" && GOWORK=off GOFLAGS=-mod=mod go mod tidy >/dev/null 2>&1 &&
-		GOWORK=off go run .)
+	# A probe that cannot resolve or build an SDK says so and stops the gate. A
+	# release reported as speaking an unknown generation would be skipped over
+	# silently, and skipping is the one outcome this gate cannot afford.
+	(cd "$work/probe" && GOWORK=off GOFLAGS=-mod=mod go mod tidy && GOWORK=off go run .) ||
+		{
+			# Standard error, because the caller reads this function's standard
+			# output: a diagnostic printed there would be captured and lost.
+			printf 'The SDK named %s could not be built to read the protocol it declares.\n' \
+				"$1" >&2
+			exit 1
+		}
 }
 
 stage 'Read the protocol window this branch declares'
@@ -146,19 +159,23 @@ stage "Resolve the newest published SDK speaking protocol v$previous"
 # while the module graph asks for a version that does not exist.
 cp "$work/probe/go.mod.template" "$work/probe/go.mod"
 (cd "$work/probe" && go mod edit -droprequire github.com/wso2/wso2-cli/sdk)
+# An unreachable proxy is a failure rather than an empty answer. Reading it as
+# "nothing is published" would turn every network blip into a green gate that
+# checked nothing, which is exactly the reading this gate exists to prevent.
 listing=$(cd "$work/probe" && GOWORK=off go list -m -versions \
 	github.com/wso2/wso2-cli/sdk 2>&1) || {
-	printf 'The module proxy could not be asked what the SDK has published:\n%s\n' \
-		"$listing"
-	listing=
+	printf '\nFAILED: the module proxy could not be asked what the SDK has '
+	printf 'published, so\nwhether protocol v%s still runs is unknown:\n%s\n' \
+		"$previous" "$listing"
+	exit 1
 }
 published=$(printf '%s\n' "$listing" | cut -s -d' ' -f2- | tr ' ' '\n' | sed '/^$/d')
 
 resolved=
 for candidate in $(printf '%s\n' "$published" | tail -r 2>/dev/null ||
 	printf '%s\n' "$published" | tac); do
-	generation=$(probe "$candidate" | sed -n 's/^version=//p') || generation=
-	printf 'SDK %s declares protocol v%s\n' "$candidate" "${generation:-unknown}"
+	generation=$(probe "$candidate" | sed -n 's/^version=//p')
+	printf 'SDK %s declares protocol v%s\n' "$candidate" "$generation"
 	if [ "$generation" = "$previous" ]; then
 		resolved=$candidate
 		break
@@ -214,8 +231,10 @@ stage "Run the conformance suite for protocol v$previous"
 WSO2_PREVIOUS_PROTOCOL_MODULE="$module_binary" \
 	WSO2_PREVIOUS_PROTOCOL_SDK="$resolved" \
 	WSO2_PREVIOUS_PROTOCOL_VERSION="$previous" \
-	go test ./test/acceptance/ -run TestAModuleBuiltAgainstThePreviousProtocol \
-	-count=1 -v || {
+	go test ./test/acceptance/ -count=1 -v \
+	-run '^TestAModuleBuiltAgainstThePreviousProtocolSDKRunsUnderThisShell$' \
+	>"$work/conformance.log" 2>&1 || {
+	cat "$work/conformance.log"
 	printf '\nFAILED: protocol v%s is broken. A reference module built against '\
 		"$previous"
 	printf 'SDK %s,\nthe published SDK speaking protocol v%s, does not run under '\
@@ -223,6 +242,17 @@ WSO2_PREVIOUS_PROTOCOL_MODULE="$module_binary" \
 	printf 'the shell built\nfrom this branch.\n'
 	exit 1
 }
+cat "$work/conformance.log"
+
+# A -run pattern that matches nothing reports a passing package, so the run has
+# to prove it ran. Without this the gate goes green the day the test is renamed.
+if ! grep -q -- '--- PASS: TestAModuleBuiltAgainstThePreviousProtocolSDKRunsUnderThisShell' \
+	"$work/conformance.log"; then
+	printf '\nFAILED: the conformance run for protocol v%s did not run. It is ' "$previous"
+	printf 'named\nTestAModuleBuiltAgainstThePreviousProtocolSDKRunsUnderThisShell in\n'
+	printf 'test/acceptance, and this gate is the only thing that launches it.\n'
+	exit 1
+fi
 
 printf '\nPASSED: protocol v%s holds. The reference module built against SDK %s '\
 	"$previous" "$resolved"

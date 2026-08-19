@@ -14,8 +14,9 @@ The repository contains three independently buildable Go modules: the shell at
 the repository root, the public SDK in `sdk/`, and the reference module in
 `examples/reference-module/`. `go.work` composes the unpublished modules for
 local development. Committed `replace` directives are prohibited in every
-`go.mod`; a test enforces this. `go.work` carries one replacement for the
-unpublished SDK version the reference module requires. Replacing a module
+`go.mod`; a test and the previous-protocol gate below both enforce this.
+`go.work` carries one replacement for the unpublished SDK version the
+reference module requires. Replacing a module
 version with contents found elsewhere is what a `go.work` replacement is for
 ([Go modules reference](https://go.dev/ref/mod#go-work-file-replace)); this
 checkout needs one because the reference module requires an SDK version that

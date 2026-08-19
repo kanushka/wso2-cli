@@ -187,10 +187,16 @@ func TestBreakingThePreviousProtocolFailsTheGate(t *testing.T) {
 			output)
 	}
 	// A generic CI failure would leave the reader guessing at which of the two
-	// moving parts broke, so the gate names both.
+	// moving parts broke, so the gate's own conclusion names both. The
+	// assertion is on that conclusion rather than on the whole log, where the
+	// two versions appear in the progress lines whatever the outcome.
+	conclusion := output[strings.LastIndex(output, "FAILED:"):]
+	if !strings.HasPrefix(conclusion, "FAILED:") {
+		t.Fatalf("the gate failed without stating a conclusion:\n%s", output)
+	}
 	for _, want := range []string{"protocol v" + strconv.Itoa(window[1]), "SDK " + sdkVersion} {
-		if !strings.Contains(output, want) {
-			t.Errorf("the failure does not name %q:\n%s", want, output)
+		if !strings.Contains(conclusion, want) {
+			t.Errorf("the gate's conclusion does not name %q:\n%s", want, conclusion)
 		}
 	}
 }
@@ -212,6 +218,31 @@ func breakPreviousProtocol(t *testing.T, clone string) {
 		"for _, candidate := range shell.ProtocolVersions[:1] {", 1)
 	if err := os.WriteFile(path, []byte(broken), 0o644); err != nil {
 		t.Fatalf("writing the broken resolver failed: %v", err)
+	}
+}
+
+// TestAProxyThatCannotBeAskedFailsTheGate pins the difference between "nothing
+// is published" and "nobody could be asked". The first is the honest state of
+// this repository before its first SDK release; the second is a run that proved
+// nothing, and reading it as the first would turn a network blip into a green
+// gate.
+func TestAProxyThatCannotBeAskedFailsTheGate(t *testing.T) {
+	if testing.Short() {
+		t.Skip("the gate builds the SDK to read the protocol it declares")
+	}
+	if len(protocol.Window()) < 2 {
+		t.Skip("this branch declares the first protocol generation, which has no predecessor")
+	}
+
+	command := gateCommand(t, cloneRepository(t))
+	command.Env = append(command.Env, "GOPROXY=off")
+	output, err := command.CombinedOutput()
+
+	if err == nil {
+		t.Fatalf("the gate passed without reaching a module proxy:\n%s", output)
+	}
+	if !strings.Contains(string(output), "FAILED") {
+		t.Errorf("the gate did not report the proxy as a failure:\n%s", output)
 	}
 }
 

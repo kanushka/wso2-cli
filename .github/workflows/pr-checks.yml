@@ -224,5 +224,9 @@ jobs:
       # instead — the workspace dropped and the SDK resolved by version from the
       # proxy — so a change that breaks the older half of the protocol window is
       # caught by whoever made it rather than by a user a release later.
+      #
+      # It is the one job that depends on the module proxy for something other
+      # than dependencies, and it reports an unreachable proxy as a failure:
+      # reading it as "nothing is published" would make a blip look like proof.
       - name: Prove the previous protocol
         run: ./scripts/previous-protocol.sh
