@@ -34,6 +34,21 @@ temporary state directory and clears any ambient `WSO2_` variable first, so it
 never reads or writes real WSO2 state, and it needs no network catalog, no
 credentials, and no product service.
 
+A second gate proves the older half of the protocol window:
+
+```shell
+./scripts/previous-protocol.sh
+```
+
+It resolves the newest published SDK whose protocol generation is the
+predecessor of this branch's, builds the reference module against that SDK
+with the workspace dropped, and launches it under the shell built from this
+checkout. That is the dependency graph a released module has, and it is the
+one graph nothing else here reproduces. Until the first SDK is published the
+gate has no release to resolve, and it says so and checks nothing rather than
+reporting a pass. It needs a reachable module proxy; the acceptance gate does
+not.
+
 While working on one module, run that module alone:
 
 ```shell
