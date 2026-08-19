@@ -403,3 +403,36 @@ func TestAnArchiveCarryingNoModuleLeavesNothingBehind(t *testing.T) {
 	requireProblem(t, stdout, stderr, err, 69, "modules.artifact_malformed")
 	requireCleanStore(t, stateRoot, catalogNamespace)
 }
+
+// Selection honours the channel rather than the highest version: choosing the
+// prerelease channel takes the newest release on it, and choosing nothing takes
+// the newest stable even when a prerelease is newer.
+func TestAChannelSelectionTakesTheNewestOnThatChannel(t *testing.T) {
+	shell := buildShell(t)
+	origin := newCatalogOrigin(t, hostPlatformOptions(),
+		catalogStable, catalogPrerelease, catalogAddedStable)
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "prerelease channel", args: []string{catalogNamespace, "--channel", "prerelease"}, want: "4.6.0-rc.1"},
+		// 4.6.0-rc.1 is newer than 4.7.0 in neither direction that matters: it
+		// is a prerelease, so the stable channel passes over it.
+		{name: "default channel", args: []string{catalogNamespace}, want: "4.7.0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stateRoot := isolatedStateRoot(t)
+
+			stdout, stderr, err := installModuleFrom(shell, stateRoot, origin.server.URL, tc.args...)
+			if err != nil {
+				t.Fatalf("installing returned %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+			}
+
+			if got := installedVersion(t, stateRoot, catalogNamespace); got != tc.want {
+				t.Errorf("the active version is %s, want %s", got, tc.want)
+			}
+		})
+	}
+}

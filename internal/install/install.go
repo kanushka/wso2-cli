@@ -361,7 +361,11 @@ func writeEntry(target string, reader io.Reader, remaining int64, executable boo
 		return 0, storeFailure("writing an extracted file", err)
 	}
 	if written > remaining {
-		return 0, malformedArtifact(fmt.Sprintf("it expands to more than %d bytes", int64(maxExtractedBytes)))
+		// The budget is the whole archive's, so exceeding what is left of it is
+		// reported as the total a module archive may occupy rather than as this
+		// entry's share of it.
+		return 0, malformedArtifact(fmt.Sprintf("it expands past the %d bytes a module archive may occupy",
+			int64(maxExtractedBytes)))
 	}
 	return written, nil
 }
