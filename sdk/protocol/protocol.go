@@ -26,9 +26,10 @@ import (
 )
 
 // Version is the protocol version this SDK release implements. It is the one
-// declaration of the current protocol generation: the shell's supported window
-// and the release gate that refuses a module the released shell cannot launch
-// are both derived from it, so the two cannot come to disagree.
+// declaration of the current protocol generation, so everything that has to
+// agree about what is supported — the shell's window today, and the release
+// gate that will refuse a module the released shell cannot launch — derives
+// from it rather than restating it.
 //
 // The value is a build-time variable so tests can compose a module that
 // advertises a protocol version other than the shell's, without editing
@@ -53,11 +54,13 @@ func Supported() []int {
 // Window reports the protocol versions a shell of this release supports,
 // newest first: the current version and its predecessor.
 //
-// The predecessor is what gives a user a full protocol generation in which to
-// update the shell before a module release can outrun it. A shell speaking only
-// the current version would cut off every user one generation behind on the day
-// the generation changed. The first generation has no predecessor, so the
-// window is one version wide until there is something to be behind.
+// Version declares one generation, so the window is derived from the newest
+// version it names. The predecessor is what gives a user a full protocol
+// generation in which to update the shell before a module release can outrun
+// it: a shell speaking only the current version would cut off every user one
+// generation behind on the day the generation changed. The first generation
+// has no predecessor, so the window is one version wide until there is
+// something to be behind.
 func Window() []int {
 	current := Supported()
 	if len(current) == 0 {

@@ -97,8 +97,9 @@ func ProtocolDisplay() string {
 // The window comes from the SDK source this shell was built from, fixed at the
 // shell's build time. A module never contributes to it, so a module built
 // against a different SDK release still cannot widen what this shell supports;
-// what reading one declaration buys is that the shell and the release gate
-// cannot disagree about what is supported.
+// what reading one declaration buys is that nothing else deciding what is
+// supported, such as the release gate that will hold module publishing to it,
+// can come to disagree with the shell.
 func ProtocolVersions() []int {
 	if protocolVersion == "" {
 		return protocol.Window()

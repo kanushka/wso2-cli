@@ -816,8 +816,9 @@ The shell supports a protocol window of the current version and its
 predecessor, so a user whose shell is one protocol generation behind is not cut
 off from module releases: there is a full generation in which to update the
 shell before a module release can outrun it. The window is declared once, in
-the SDK's protocol package, and both the shell and the release gate that
-refuses a module the released shell cannot launch read that one declaration.
+the SDK's protocol package. The shell reads that declaration, and so will the
+release gate that is to refuse publishing a module the released shell cannot
+launch, so the two cannot come to disagree about what is supported.
 
 The launch gate is the protocol window intersected with the platform, and
 nothing else. **The shell never compares a module's version against its own**,

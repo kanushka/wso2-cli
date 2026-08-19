@@ -34,7 +34,7 @@ import (
 // reference module against one protocol version at a time.
 
 // TestTheDeclaredWindowIsTheCurrentProtocolAndItsPredecessor pins the shape of
-// the single declaration both the shell and the release gate read.
+// the single declaration the shell reads, and proves the shell speaks it.
 func TestTheDeclaredWindowIsTheCurrentProtocolAndItsPredecessor(t *testing.T) {
 	window := protocol.Window()
 
@@ -106,9 +106,9 @@ func TestAModuleOutsideTheProtocolWindowIsRefusedAsACompatibilityProblem(t *test
 }
 
 // TestAModuleVersionFarFromTheShellsRunsNormally proves the launch gate is the
-// protocol window intersected with the platform and nothing else. A product
-// module carries its product's version scheme, so a module version far ahead of
-// or behind the shell's is ordinary and must not be read as incompatibility.
+// protocol window intersected with the platform and nothing else. The rule and
+// its reason are recorded at negotiateProtocol in internal/modules/resolve.go
+// and in docs/architecture.md section 10.
 func TestAModuleVersionFarFromTheShellsRunsNormally(t *testing.T) {
 	shell := buildShellSpeaking(t, "")
 	current := protocol.Window()[0]

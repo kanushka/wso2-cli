@@ -103,8 +103,8 @@ func TestProtocolVersionsReadsTheInjectedList(t *testing.T) {
 }
 
 // TestTheDefaultProtocolVersionsAreTheDeclaredWindow proves an uninjected shell
-// speaks the window declared once in the SDK, so the shell and the release gate
-// read the same set rather than two that can drift.
+// speaks the window declared once in the SDK, rather than a second list that
+// can drift from it.
 func TestTheDefaultProtocolVersionsAreTheDeclaredWindow(t *testing.T) {
 	original := protocolVersion
 	t.Cleanup(func() { protocolVersion = original })

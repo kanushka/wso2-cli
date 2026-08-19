@@ -113,16 +113,19 @@ channels, and until then integrity rests on this checksum file and on HTTPS.
 
 A released binary reports the version it was built as. The release injects the
 shell version — the tag with its leading `v` removed, because the version
-package prefixes one for display — and the protocol version through the
-build-time variables in `internal/version`.
+package prefixes one for display — through the build-time variables in
+`internal/version`. It injects no protocol versions: the shell speaks the
+window declared in `sdk/protocol`, the current protocol version and its
+predecessor, and a release that narrowed it would cut off module releases for
+users a protocol generation behind.
 
 The release workflow proves this rather than assuming it. It downloads the
 published assets back from the release page, checks that the published checksum
 file is the one that was built and that it lists every archive beside it, then
 extracts the Linux archive and runs `wso2 version`. The release fails if the
 binary reports the development placeholder, reports a version unrelated to the
-tag, or reports a protocol version that disagrees with the shell's own source
-default.
+tag, or reports a protocol window that disagrees with the one the shell's own
+source declares.
 
 ## Prereleases
 
