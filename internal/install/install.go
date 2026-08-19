@@ -261,6 +261,7 @@ func (i Installer) receipt(namespace string, selection catalog.Selection,
 			Shell:            selection.Version.Compatibility.Shell,
 			ProtocolVersions: selection.Version.Compatibility.ProtocolVersions,
 		},
+		Capabilities:     selection.Version.Capabilities,
 		Platform:         i.Shell.Platform,
 		ExecutableSHA256: digest,
 	}

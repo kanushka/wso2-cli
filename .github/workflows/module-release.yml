@@ -1,0 +1,188 @@
+name: Module release
+
+# A module tag is the whole trigger: a product team releases by pushing a tag in
+# its own namespace, and nothing publishes from a branch. The SDK's own tags
+# share the prefixed shape and are excluded by every job, because the SDK is not
+# a product module and publishes no module archives.
+on:
+  push:
+    tags:
+      - '*/v*'
+
+# Read-only by default. Only the job that publishes the release is granted write
+# access to repository contents, only the job that deploys the catalog is
+# granted Pages access, and nothing here is granted anything else.
+permissions:
+  contents: read
+
+# One module release at a time per tag, and a queued one is not cancelled: a
+# half-finished publish is worse than a slow one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # The release gate, and it runs before anything is built or uploaded.
+  #
+  # This is not the gate a pull request runs. That one asks whether a change
+  # broke the older half of the protocol window; this one asks whether the
+  # module being released can run on any shell that exists. A module whose
+  # protocol the released shell does not speak is refused here, naming both its
+  # requirement and what the shell speaks, so a product team can tell whether to
+  # wait for a shell release or to change the module.
+  #
+  # The decision is a pure function and is proven in internal/release by tests
+  # over fixture data, so it does not depend on a tag being pushed to be known
+  # correct.
+  gate:
+    name: Release gate
+    if: ${{ !startsWith(github.ref_name, 'sdk/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: |
+            go.mod
+            sdk/go.mod
+
+      - name: Decide whether this module may publish
+        run: go run ./cmd/wso2-module-release -tag "${GITHUB_REF_NAME}" -gate-only
+
+  publish:
+    name: Publish module artifacts
+    needs: gate
+    runs-on: ubuntu-latest
+    permissions:
+      # Creating the release for this tag and uploading its assets. Nothing
+      # else: this release publishes no container image and no package.
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: |
+            go.mod
+            sdk/go.mod
+
+      # Every supported platform, from one command, with the gate run again
+      # rather than trusted from the previous job: the two jobs check out
+      # independently, and a gate whose result travels as a job output would be
+      # a second place the decision lives.
+      - name: Build the module for every supported platform
+        run: go run ./cmd/wso2-module-release -tag "${GITHUB_REF_NAME}" -out dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --verify-tag \
+            dist/*
+
+      # Proves what the catalog will point at by fetching it back from the
+      # release page rather than by inspecting the build output. The catalog
+      # entry a user verifies a download against is built from these assets, so
+      # a checksum file that does not describe what was uploaded would publish a
+      # digest nothing can match.
+      - name: Verify the published artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          published="$(mktemp -d)"
+          gh release download "${GITHUB_REF_NAME}" --dir "${published}" --repo "${GITHUB_REPOSITORY}"
+          cd "${published}"
+
+          if ! diff -u "${GITHUB_WORKSPACE}/dist/checksums.txt" checksums.txt; then
+            echo "::error::the published checksums.txt is not the one that was built"
+            exit 1
+          fi
+
+          # --ignore-missing exits non-zero when it verifies nothing, so this
+          # cannot pass on an empty file. The two sets of names are compared as
+          # well, because an archive that is present but unlisted would ship
+          # unverifiable and would have no catalog entry at all.
+          sha256sum --check --ignore-missing checksums.txt
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
+            -printf '%f\n' | sort >published-names.txt
+          awk '{ name = $2; sub(/^\*/, "", name); print name }' checksums.txt | sort >listed-names.txt
+          if ! diff -u published-names.txt listed-names.txt; then
+            echo "::error::the published archives and the checksum file do not describe the same set"
+            exit 1
+          fi
+          echo "$(wc -l <published-names.txt) archives published and all verified"
+
+  # A successful release regenerates the catalog from the tags that exist and
+  # deploys it to the origin that already serves the install scripts. The whole
+  # site is assembled by the same script the Pages workflow runs, because a
+  # deployment replaces everything served there.
+  catalog:
+    name: Regenerate and deploy the catalog
+    needs: publish
+    runs-on: ubuntu-latest
+    # The same deployment group the Pages workflow uses, so a script change and
+    # a module release never deploy over each other.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    permissions:
+      # What deploying to Pages requires, and nothing else. `contents` stays
+      # read: the catalog is built from tags and released assets, both of which
+      # are read.
+      pages: write
+      id-token: write
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          # Every module tag has to be present, because the catalog is a
+          # function of all of them and not of this one.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: |
+            go.mod
+            sdk/go.mod
+
+      - name: Assemble the site
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/assemble-site.sh site
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

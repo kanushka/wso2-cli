@@ -31,6 +31,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -384,6 +385,18 @@ func TestTheWrittenReceiptRecordsWhatTheCatalogPublished(t *testing.T) {
 	}
 	if receipt.Platform != hostPlatform {
 		t.Errorf("the receipt records platform %s, want %s", receipt.Platform, hostPlatform)
+	}
+	// The broker intersects a runtime request with what the receipt records, so
+	// a receipt written from a catalog entry that carried no capabilities would
+	// deny every brokered request a module makes. What the module declares is
+	// published and reaches the receipt.
+	if len(published.Capabilities.AuthAudiences) == 0 {
+		t.Fatalf("the catalog published no capabilities: %+v", published.Capabilities)
+	}
+	if !slices.Equal(receipt.Capabilities.AuthAudiences, published.Capabilities.AuthAudiences) ||
+		!slices.Equal(receipt.Capabilities.AuthScopes, published.Capabilities.AuthScopes) {
+		t.Errorf("the receipt records capabilities %+v, the catalog published %+v",
+			receipt.Capabilities, published.Capabilities)
 	}
 }
 
