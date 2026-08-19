@@ -12,6 +12,10 @@ product modules, such as `wso2 api`, `wso2 identity`, `wso2 integration`, and
 The distinction between catalog refresh and module binary update remains an
 open decision. The lifecycle command names below are therefore provisional.
 
+`wso2 module install <module>` and `wso2 module install <module>@<version>`
+are built. The [module catalog](module-catalog.md) reference describes what
+they select, what they verify, and how each refusal is reported.
+
 ## Commands
 
 | Command | Description |

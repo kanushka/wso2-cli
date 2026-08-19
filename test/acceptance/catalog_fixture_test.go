@@ -40,6 +40,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -60,6 +61,10 @@ const (
 	// catalogAddedStable extends release history without adding a namespace or
 	// a channel, which is what the index's size must be insensitive to.
 	catalogAddedStable = "reference/v4.7.0"
+	// catalogAncientStable is far below the shell's own version rather than far
+	// above it, so the two directions of a version comparison the shell must
+	// never make are both represented.
+	catalogAncientStable = "reference/v0.1.0"
 )
 
 // catalogPlatforms are the platforms the fixture releases publish for. They are
@@ -70,10 +75,31 @@ var catalogPlatforms = []modules.Platform{
 	{OS: "linux", Arch: "amd64"},
 }
 
+// catalogOptions vary what a fixture origin publishes. The zero value is the
+// fixed set of platforms and one protocol version for every tag, which is what
+// the generator's own tests want; an install test varies them to reproduce a
+// platform that publishes nothing and a release that outruns the shell.
+type catalogOptions struct {
+	// platforms are the platforms every tag publishes for.
+	platforms []modules.Platform
+	// protocols overrides, by tag, the protocol versions that release declares.
+	protocols map[string][]int
+	// carriesNoModule marks tags whose archive is a well-formed tarball that
+	// carries no module executable. Its digest is the digest the catalog
+	// publishes, so it reproduces the failure that happens after the download
+	// has been accepted and staged.
+	carriesNoModule map[string]bool
+}
+
+// hostPlatform is the platform the running test is on. An install test has to
+// publish for it, because what it installs is launched.
+var hostPlatform = modules.Platform{OS: runtime.GOOS, Arch: runtime.GOARCH}
+
 // catalogHarness is one isolated catalog: a generated catalog and an origin
 // serving it beside the archives its entries point at.
 type catalogHarness struct {
 	t       *testing.T
+	options catalogOptions
 	server  *httptest.Server
 	catalog catalog.Catalog
 	// files is what the generator produced, by published path.
@@ -81,12 +107,33 @@ type catalogHarness struct {
 	// archives is the archive bytes published for each tag and platform, keyed
 	// by the path they are served from.
 	archives map[string][]byte
+
+	// requests counts what the origin was asked for, by path. It is how the
+	// request-economy claims are proven: what a shell run costs is observable
+	// here and nowhere inside the shell.
+	requestMutex sync.Mutex
+	requests     map[string]int
 }
 
 // newCatalogHarness generates a catalog over the given tags and serves it.
 func newCatalogHarness(t *testing.T, tags ...string) *catalogHarness {
 	t.Helper()
-	harness := &catalogHarness{t: t, archives: map[string][]byte{}}
+	return newCatalogOrigin(t, catalogOptions{}, tags...)
+}
+
+// newCatalogOrigin generates a catalog over the given tags, with what the
+// releases publish varied, and serves it.
+func newCatalogOrigin(t *testing.T, options catalogOptions, tags ...string) *catalogHarness {
+	t.Helper()
+	if len(options.platforms) == 0 {
+		options.platforms = catalogPlatforms
+	}
+	harness := &catalogHarness{
+		t:        t,
+		options:  options,
+		archives: map[string][]byte{},
+		requests: map[string]int{},
+	}
 	harness.server = httptest.NewServer(http.HandlerFunc(harness.serve))
 	t.Cleanup(harness.server.Close)
 
@@ -126,8 +173,8 @@ func (c *catalogHarness) input(tags []string) catalog.Input {
 
 	published := map[string]catalog.Release{}
 	for _, tag := range tags {
-		artifacts := make([]catalog.Artifact, 0, len(catalogPlatforms))
-		for _, platform := range catalogPlatforms {
+		artifacts := make([]catalog.Artifact, 0, len(c.options.platforms))
+		for _, platform := range c.options.platforms {
 			body := c.archiveBytes(tag, platform)
 			archivePath := c.publish(tag, platform, body)
 			digest := sha256.Sum256(body)
@@ -138,10 +185,14 @@ func (c *catalogHarness) input(tags []string) catalog.Input {
 				SHA256:   fmt.Sprintf("%x", digest),
 			})
 		}
+		protocols, overridden := c.options.protocols[tag]
+		if !overridden {
+			protocols = []int{testProtocolVersionNumber}
+		}
 		published[tag] = catalog.Release{
 			Compatibility: modules.Compatibility{
 				Shell:            ">=0.1.0 <2.0.0",
-				ProtocolVersions: []int{testProtocolVersionNumber},
+				ProtocolVersions: protocols,
 			},
 			Artifacts: artifacts,
 		}
@@ -152,14 +203,29 @@ func (c *catalogHarness) input(tags []string) catalog.Input {
 // publish records an archive at the path its catalog entry will name and
 // reports that path.
 func (c *catalogHarness) publish(tag string, platform modules.Platform, body []byte) string {
+	archivePath := c.archivePath(tag, platform)
+	c.archives[archivePath] = body
+	return archivePath
+}
+
+// archivePath reports where one tag's archive for one platform is served from.
+func (c *catalogHarness) archivePath(tag string, platform modules.Platform) string {
+	c.t.Helper()
 	_, version, err := catalog.ParseTag(tag)
 	if err != nil {
 		c.t.Fatalf("the fixture tag %q is malformed: %v", tag, err)
 	}
-	archivePath := fmt.Sprintf("download/%s/v%s/wso2-module-%s-v%s-%s-%s.tar.gz",
+	return fmt.Sprintf("download/%s/v%s/wso2-module-%s-v%s-%s-%s.tar.gz",
 		catalogNamespace, version, catalogNamespace, version, platform.OS, platform.Arch)
-	c.archives[archivePath] = body
-	return archivePath
+}
+
+// platformExecutableSuffix reports the executable suffix of a published
+// platform, which is not necessarily the running one's.
+func platformExecutableSuffix(platform modules.Platform) string {
+	if platform.OS == "windows" {
+		return ".exe"
+	}
+	return ""
 }
 
 // archiveBytes reports the archive one tag publishes for one platform: the
@@ -171,7 +237,7 @@ func (c *catalogHarness) publish(tag string, platform modules.Platform, body []b
 // time for bytes that cannot differ.
 func (c *catalogHarness) archiveBytes(tag string, platform modules.Platform) []byte {
 	c.t.Helper()
-	key := tag + " " + platform.String()
+	key := fmt.Sprintf("%s %s %t", tag, platform, c.options.carriesNoModule[tag])
 	catalogArchiveMutex.Lock()
 	defer catalogArchiveMutex.Unlock()
 	if cached, found := catalogArchiveCache[key]; found {
@@ -186,7 +252,15 @@ func (c *catalogHarness) archiveBytes(tag string, platform modules.Platform) []b
 // is what makes caching its result sound.
 func (c *catalogHarness) buildArchive(tag string, platform modules.Platform) []byte {
 	c.t.Helper()
-	executable := referenceModuleBytes(c.t)
+	_, version, err := catalog.ParseTag(tag)
+	if err != nil {
+		c.t.Fatalf("the fixture tag %q is malformed: %v", tag, err)
+	}
+	// The module inside the archive is built at the version its tag publishes.
+	// A module reports its own version at the handshake and the shell checks it
+	// against the receipt, so an archive carrying some other version would be
+	// installable and unlaunchable.
+	executable := referenceModuleBytes(c.t, version)
 
 	var buffer bytes.Buffer
 	gzipWriter := gzip.NewWriter(&buffer)
@@ -197,8 +271,11 @@ func (c *catalogHarness) buildArchive(tag string, platform modules.Platform) []b
 		name string
 		body []byte
 	}{
-		{"wso2-module-" + catalogNamespace, executable},
+		{"wso2-module-" + catalogNamespace + platformExecutableSuffix(platform), executable},
 		{"RELEASE", []byte(tag + " " + platform.String() + "\n")},
+	}
+	if c.options.carriesNoModule[tag] {
+		files = files[1:]
 	}
 	for _, file := range files {
 		if err := tarWriter.WriteHeader(&tar.Header{
@@ -224,6 +301,7 @@ func (c *catalogHarness) buildArchive(tag string, platform modules.Platform) []b
 // serve answers the two catalog paths and the archive paths their entries name.
 func (c *catalogHarness) serve(w http.ResponseWriter, r *http.Request) {
 	requested := strings.TrimPrefix(r.URL.Path, "/")
+	c.record(requested)
 	if body, found := c.files[requested]; found {
 		w.Header().Set("Content-Type", "application/json")
 		if _, err := w.Write(body); err != nil {
@@ -238,6 +316,55 @@ func (c *catalogHarness) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.NotFound(w, r)
+}
+
+// record counts one request the origin answered.
+func (c *catalogHarness) record(requested string) {
+	c.requestMutex.Lock()
+	defer c.requestMutex.Unlock()
+	c.requests[requested]++
+}
+
+// requestCount reports how many times one path was asked for.
+func (c *catalogHarness) requestCount(requested string) int {
+	c.requestMutex.Lock()
+	defer c.requestMutex.Unlock()
+	return c.requests[requested]
+}
+
+// totalRequests reports how many requests the origin answered in all.
+func (c *catalogHarness) totalRequests() int {
+	c.requestMutex.Lock()
+	defer c.requestMutex.Unlock()
+	total := 0
+	for _, count := range c.requests {
+		total += count
+	}
+	return total
+}
+
+// forget resets the request log, so a later run is counted on its own.
+func (c *catalogHarness) forget() {
+	c.requestMutex.Lock()
+	defer c.requestMutex.Unlock()
+	c.requests = map[string]int{}
+}
+
+// corruptArchive replaces one published archive with bytes that do not match
+// the digest its catalog entry records, which is a substituted or damaged
+// download as the shell would meet one.
+func (c *catalogHarness) corruptArchive(tag string, platform modules.Platform) {
+	c.t.Helper()
+	path := c.archivePath(tag, platform)
+	original, found := c.archives[path]
+	if !found {
+		c.t.Fatalf("no archive is published at %s", path)
+	}
+	// The length is preserved so the mismatch the shell reports is the digest
+	// and not the size, which would prove a different check.
+	corrupted := append([]byte(nil), original...)
+	corrupted[len(corrupted)/2] ^= 0xff
+	c.archives[path] = corrupted
 }
 
 // fetch reads one path from the origin, which is how every assertion here sees
@@ -299,25 +426,29 @@ func renderCatalog(t *testing.T, generated catalog.Catalog) map[string][]byte {
 	return rendered
 }
 
-// The reference module is built once for the whole package: every fixture
-// archive wants the same bytes, and building it again per release would cost
-// more than the fixture is worth.
+// The reference module is built once per version for the whole package, and
+// each archive is compressed once, because building and compressing a real
+// executable is the expensive part of this fixture and every test that publishes
+// a given version wants the same bytes.
 var (
-	catalogModuleOnce  sync.Once
-	catalogModuleBytes []byte
+	catalogModuleMutex sync.Mutex
+	catalogModuleCache = map[string][]byte{}
 
 	catalogArchiveMutex sync.Mutex
 	catalogArchiveCache = map[string][]byte{}
 )
 
-// referenceModuleBytes is the built reference module, built once for the whole
-// package because every fixture archive wants the same bytes.
-func referenceModuleBytes(t *testing.T) []byte {
+// referenceModuleBytes is the reference module built at one module version.
+func referenceModuleBytes(t *testing.T, version string) []byte {
 	t.Helper()
-	catalogModuleOnce.Do(func() {
-		catalogModuleBytes = readFile(t, buildReferenceModule(t))
-	})
-	return catalogModuleBytes
+	catalogModuleMutex.Lock()
+	defer catalogModuleMutex.Unlock()
+	if cached, found := catalogModuleCache[version]; found {
+		return cached
+	}
+	built := readFile(t, buildReferenceModuleSpeaking(t, testProtocolVersion, version))
+	catalogModuleCache[version] = built
+	return built
 }
 
 func readFile(t *testing.T, path string) []byte {

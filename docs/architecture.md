@@ -616,6 +616,14 @@ or an approved key-management service provides signing operations.
 
 ### 7.1 Online installation
 
+The numbered path below is the original design. What is built is described by
+the [module catalog](reference/module-catalog.md) reference: steps 3 and 5's
+publisher, signature, provenance, and revocation checks are not performed,
+because the catalog carries no such fields, and step 7's health check is not
+performed at installation. What remains is the size and digest check, safe
+extraction, the receipt, and atomic activation, and any failure before
+activation leaves no executable and no receipt behind.
+
 1. Load and verify fresh-enough signed catalog metadata.
 2. Resolve exact namespace, version/channel, host, protocol, OS, and
    architecture.

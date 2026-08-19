@@ -128,6 +128,63 @@ newest whose protocol range intersects what it speaks and which publishes an
 artifact for its platform. The numerically newest release is not assumed
 usable.
 
+## Installing from the catalog
+
+```sh
+wso2 module install reference
+wso2 module install reference@4.5.0
+wso2 module install reference --channel prerelease
+```
+
+The shell reads `index.json` to find the namespace and where its history is
+published, reads that history because a specific version has to be selected,
+downloads the selected artifact, checks it against the digest the entry
+records, extracts it into the managed module store, writes a module receipt,
+and activates it. Those are the only two catalog requests an install makes, and
+no other operation makes any: a command that uses an already-installed module
+reads the local receipt and never asks the catalog anything.
+
+Among the versions the channel or the pin permits, the newest whose protocol
+versions intersect what the shell speaks and which publishes an artifact for
+the shell's platform is selected. A pin overrides the channel, so a pipeline
+can hold an exact version and a prerelease can be installed without putting the
+module on that channel. The numerically newest release is not assumed usable,
+and a module's version is never compared against the shell's.
+
+The archive is a gzipped tarball carrying the module executable at its root,
+named `wso2-module-<namespace>`, with `.exe` on Windows. The name is a
+convention rather than a catalog field, so an archive not following it is
+refused rather than searched.
+
+Every refusal is distinguishable from every other, because each is a different
+thing for a user to do about it:
+
+- `modules.incompatible_protocol`, exit 69: no published version speaks a
+  protocol this shell speaks.
+- `modules.unsupported_platform`, exit 69: the module publishes no artifact
+  for this platform.
+- `modules.artifact_digest_mismatch`, exit 69: the download did not match the
+  digest the entry publishes.
+- `modules.artifact_malformed`, exit 69: the archive is not the shape a module
+  archive has.
+- `catalog.origin_unreachable`, exit 70: the catalog origin could not be read.
+- `catalog.unknown_module`, exit 64: the catalog was read and publishes no
+  such module.
+
+The protocol refusal names the protocol versions on both sides, and the
+platform refusal names the platform, so neither reads as a broken download. An
+unreachable origin and an unknown module are deliberately not the same problem:
+one is an outage and the other is a mistake.
+
+Any failure leaves no executable and no receipt. The download is checked before
+anything is written into the store, extraction happens in a staging directory
+inside the store, and the active-version pointer is written last, so a failed
+install leaves nothing to clean up.
+
+The origin the shell reads is `https://wso2.github.io/wso2-cli`. It can be
+overridden with `WSO2_CLI_CATALOG_ORIGIN`, which exists so the acceptance suite
+can drive the shell against a local origin serving a generated catalog.
+
 ## What the digest proves
 
 `sha256` proves that a downloaded archive is the one this entry describes. It
