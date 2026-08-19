@@ -226,22 +226,41 @@ func TestAnUnknownCommandFailsWithTheUsageExitClass(t *testing.T) {
 
 func buildShell(t *testing.T) string {
 	t.Helper()
+	return buildShellSpeaking(t, testProtocolVersion)
+}
+
+// buildShellSpeaking builds the shell with the protocol versions it speaks
+// overridden. An empty list leaves the protocol window the shell declares in
+// place, which is what the window tests are about.
+func buildShellSpeaking(t *testing.T, protocolVersions string) string {
+	t.Helper()
 	binary := filepath.Join(t.TempDir(), "wso2"+executableSuffix())
-	ldflags := strings.Join([]string{
-		"-X github.com/wso2/wso2-cli/internal/version.shellVersion=" + testShellVersion,
-		"-X github.com/wso2/wso2-cli/internal/version.protocolVersion=" + testProtocolVersion,
-	}, " ")
-	build(t, repoRoot(t), binary, ldflags, "./cmd/wso2")
+	ldflags := []string{"-X github.com/wso2/wso2-cli/internal/version.shellVersion=" + testShellVersion}
+	if protocolVersions != "" {
+		ldflags = append(ldflags,
+			"-X github.com/wso2/wso2-cli/internal/version.protocolVersion="+protocolVersions)
+	}
+	build(t, repoRoot(t), binary, strings.Join(ldflags, " "), "./cmd/wso2")
 	return binary
 }
 
 func buildReferenceModule(t *testing.T) string {
 	t.Helper()
+	return buildReferenceModuleSpeaking(t, testProtocolVersion, testModuleVersion)
+}
+
+// buildReferenceModuleSpeaking builds the reference module against one protocol
+// version and at one module version. Varying the protocol is how a module built
+// against an older SDK release is reproduced without checking one out; varying
+// the module version is how a product version that does not track the shell's
+// is reproduced.
+func buildReferenceModuleSpeaking(t *testing.T, protocolVersion, moduleVersion string) string {
+	t.Helper()
 	binary := filepath.Join(t.TempDir(), "wso2-module-reference"+executableSuffix())
 	ldflags := strings.Join([]string{
-		"-X main.moduleVersion=" + testModuleVersion,
+		"-X main.moduleVersion=" + moduleVersion,
 		"-X github.com/wso2/wso2-cli/sdk/module.SDKVersion=" + testSDKVersion,
-		"-X github.com/wso2/wso2-cli/sdk/protocol.Version=" + testProtocolVersion,
+		"-X github.com/wso2/wso2-cli/sdk/protocol.Version=" + protocolVersion,
 	}, " ")
 	build(t, filepath.Join(repoRoot(t), "examples", "reference-module"), binary, ldflags,
 		"./cmd/wso2-module-reference")

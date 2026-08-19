@@ -25,25 +25,49 @@ import (
 	"strings"
 )
 
-// Version is the protocol version this SDK release implements.
+// Version is the protocol version this SDK release implements. It is the one
+// declaration of the current protocol generation: the shell's supported window
+// and the release gate that refuses a module the released shell cannot launch
+// are both derived from it, so the two cannot come to disagree.
 //
 // The value is a build-time variable so tests can compose a module that
 // advertises a protocol version other than the shell's, without editing
 // source. Override it with:
 //
-//	-ldflags "-X github.com/wso2/wso2-cli/sdk/protocol.Version=2"
-var Version = "1"
+//	-ldflags "-X github.com/wso2/wso2-cli/sdk/protocol.Version=1"
+var Version = "2"
 
-// Supported reports the protocol versions this SDK can speak, newest first.
+// Supported reports the protocol versions a module built against this SDK
+// release speaks, newest first.
 //
-// The architecture proof implements exactly one version. The plural shape
-// exists because the handshake negotiates over a set.
+// A module speaks the version of the SDK it was built against. Widening is the
+// shell's job, not a module's: see Window.
 func Supported() []int {
 	versions := ParseVersions(Version)
 	if len(versions) == 0 {
 		return nil
 	}
 	return versions
+}
+
+// Window reports the protocol versions a shell of this release supports,
+// newest first: the current version and its predecessor.
+//
+// The predecessor is what gives a user a full protocol generation in which to
+// update the shell before a module release can outrun it. A shell speaking only
+// the current version would cut off every user one generation behind on the day
+// the generation changed. The first generation has no predecessor, so the
+// window is one version wide until there is something to be behind.
+func Window() []int {
+	current := Supported()
+	if len(current) == 0 {
+		return nil
+	}
+	newest := current[0]
+	if newest <= 1 {
+		return []int{newest}
+	}
+	return []int{newest, newest - 1}
 }
 
 // ParseVersions reads a comma-separated protocol version list such as "1,2".

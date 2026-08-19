@@ -19,6 +19,8 @@ package module
 import (
 	"reflect"
 	"testing"
+
+	"github.com/wso2/wso2-cli/sdk/protocol"
 )
 
 func TestDescribeReportsSDKOwnedProtocolAndSDKVersions(t *testing.T) {
@@ -35,8 +37,8 @@ func TestDescribeReportsSDKOwnedProtocolAndSDKVersions(t *testing.T) {
 	if descriptor.SDKVersion != SDKVersion {
 		t.Fatalf("descriptor SDK version = %q, want %q", descriptor.SDKVersion, SDKVersion)
 	}
-	if !reflect.DeepEqual(descriptor.ProtocolVersions, []int{1}) {
-		t.Fatalf("descriptor protocol versions = %v, want [1]", descriptor.ProtocolVersions)
+	if !reflect.DeepEqual(descriptor.ProtocolVersions, protocol.Supported()) {
+		t.Fatalf("descriptor protocol versions = %v, want %v", descriptor.ProtocolVersions, protocol.Supported())
 	}
 }
 
