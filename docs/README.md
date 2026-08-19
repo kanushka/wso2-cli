@@ -41,6 +41,10 @@ requirements or architecture.
   and version contract between a published release and the programs that
   download from it. Unlike the documents beside it, it describes what a release
   actually publishes rather than a proposed interface.
+- [Module catalog](reference/module-catalog.md) is the contract between the
+  tags a product module is released under and the two generated files a shell
+  reads to discover, select, and verify a module version. Like the document
+  above it, it describes what is generated rather than a proposed interface.
 - [Authentication context examples](examples/authentication-contexts.md)
 
 These documents illustrate proposed interfaces. They are not evidence that the

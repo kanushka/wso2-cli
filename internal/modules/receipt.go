@@ -45,6 +45,13 @@ const ReceiptFileName = "receipt.json"
 // command word. It also keeps a namespace usable as one path element.
 var namespacePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 
+// ValidNamespace reports whether a string is a well-formed product namespace.
+// The catalog generator applies the same rule the shell applies, so a namespace
+// the shell would refuse cannot be published in the first place.
+func ValidNamespace(namespace string) bool {
+	return namespacePattern.MatchString(namespace)
+}
+
 // Receipt is shell-owned local metadata that identifies one installed module
 // executable and carries every fact needed to resolve it without executing it.
 //

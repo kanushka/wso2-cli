@@ -38,6 +38,24 @@ The shell-owned local installation area from which module versions and receipts
 are resolved.
 _Avoid_: Plugin directory, PATH
 
+**Module catalog**:
+The two files generated from the tags that exist and served over HTTPS, from
+which the shell discovers what module versions were published and where their
+artifacts are. It is a build output, not curated metadata.
+_Avoid_: Registry, index
+
+**Catalog index**:
+The single catalog file naming the latest version on each channel for every
+product namespace, whose size is bounded by namespaces and channels rather than
+by release history.
+_Avoid_: Manifest, listing
+
+**Release channel**:
+The track a module version is published on, derived from its version: a version
+carrying a prerelease identifier is a prerelease and every other version is
+stable.
+_Avoid_: Stream, ring
+
 **Integrity-checked module**:
 A module whose executable matches its local receipt but whose publisher and
 release metadata have not necessarily passed the production trust chain.
