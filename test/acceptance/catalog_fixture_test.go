@@ -161,9 +161,29 @@ func (c *catalogHarness) publish(tag string, platform modules.Platform, body []b
 	return archivePath
 }
 
-// archiveBytes builds the archive one tag publishes for one platform: the
+// archiveBytes reports the archive one tag publishes for one platform: the
 // reference module this repository builds, under its published name.
+//
+// One archive per tag and platform is built for the whole package. Compressing
+// a real executable is the expensive part of this fixture, and a test that
+// regenerates over several tag sets would otherwise pay for it again every
+// time for bytes that cannot differ.
 func (c *catalogHarness) archiveBytes(tag string, platform modules.Platform) []byte {
+	c.t.Helper()
+	key := tag + " " + platform.String()
+	catalogArchiveMutex.Lock()
+	defer catalogArchiveMutex.Unlock()
+	if cached, found := catalogArchiveCache[key]; found {
+		return cached
+	}
+	built := c.buildArchive(tag, platform)
+	catalogArchiveCache[key] = built
+	return built
+}
+
+// buildArchive compresses one archive. It is deterministic in its inputs, which
+// is what makes caching its result sound.
+func (c *catalogHarness) buildArchive(tag string, platform modules.Platform) []byte {
 	c.t.Helper()
 	executable := referenceModuleBytes(c.t)
 
@@ -284,6 +304,9 @@ func renderCatalog(t *testing.T, generated catalog.Catalog) map[string][]byte {
 var (
 	catalogModuleOnce  sync.Once
 	catalogModuleBytes []byte
+
+	catalogArchiveMutex sync.Mutex
+	catalogArchiveCache = map[string][]byte{}
 )
 
 // referenceModuleBytes is the built reference module, built once for the whole

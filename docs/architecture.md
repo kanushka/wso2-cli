@@ -525,12 +525,12 @@ spec:
 
 The manifest above is the original conceptual sketch. What is generated and
 published is described by the [module catalog](reference/module-catalog.md)
-reference, and it carries no `publisher`,
-`signature`, `provenance`, `sbom`, or revocation field: with one repository and
-one CODEOWNERS file, the question those fields existed to answer is not asked,
-and carrying empty values would suggest a trust chain that does not exist. A
-digest proves that an artifact matches its manifest entry and not that the
-manifest is authentic; manifest signing is a tracked follow-up.
+reference, and it carries no `publisher`, `signature`, `provenance`, `sbom`, or
+revocation field: with one repository and one CODEOWNERS file, the question
+those fields existed to answer is not asked, and carrying empty values would
+suggest a trust chain that does not exist. A digest proves that an artifact
+matches its manifest entry and not that the manifest is authentic; manifest
+signing is a tracked follow-up.
 
 ### 6.1 Module publishing and consumption flow
 

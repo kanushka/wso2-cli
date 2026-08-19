@@ -49,7 +49,16 @@ func TestParseTagReadsANamespacedProductVersion(t *testing.T) {
 		}
 	}
 
-	for _, tag := range []string{"v1.0.0", "reference/1.0.0", "reference/vnot-a-version", "REF/v1.0.0", ""} {
+	// Build metadata is refused rather than dropped: the shell's version parse
+	// discards it, so publishing the discarded form would collapse two tags into
+	// one catalog entry.
+	for _, tag := range []string{
+		"v1.0.0", "reference/1.0.0", "reference/vnot-a-version", "REF/v1.0.0", "",
+		"reference/v1.0.0+ci.4",
+		// A product scheme with a fourth component is not a semantic version,
+		// which is the constraint the module receipt already imposes.
+		"reference/v4.2.0.1",
+	} {
 		if _, _, err := catalog.ParseTag(tag); err == nil {
 			t.Errorf("parsing the malformed tag %q succeeded", tag)
 		}
@@ -202,6 +211,19 @@ func TestWriteIsRepeatable(t *testing.T) {
 		if err := catalog.Write(directory, generated); err != nil {
 			t.Fatalf("writing the catalog returned %v", err)
 		}
+	}
+
+	// A namespace file that no tag answers to any more must not go on being
+	// served: a stale file would disagree with what was released.
+	stale := filepath.Join(directory, "modules", "gone.json")
+	if err := os.WriteFile(stale, []byte("{}\n"), 0o644); err != nil {
+		t.Fatalf("writing the stale file returned %v", err)
+	}
+	if err := catalog.Write(directory, generated); err != nil {
+		t.Fatalf("writing the catalog returned %v", err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("the stale namespace file survived regeneration: %v", err)
 	}
 
 	files, err := generated.Files()

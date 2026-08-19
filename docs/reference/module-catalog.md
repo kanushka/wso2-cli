@@ -22,10 +22,19 @@ The generator is `internal/catalog` and the command that runs it is
 
 A product module's tags are prefixed by the namespace it owns, which separates
 them from the shell's plain `v*` tags and from the SDK's `sdk/v*` tags. The
-version is a semantic version and is otherwise the product's own: a module is
-free to carry the version its users already know, and the shell never compares
-a module's version against its own. The launch gate is the protocol range
-intersected with the platform, and nothing else.
+version is otherwise the product's own: a module is free to carry the version
+its users already know, and the shell never compares a module's version against
+its own. The launch gate is the protocol range intersected with the platform,
+and nothing else.
+
+The one constraint is that the version is a semantic version, which is the
+constraint the module receipt already imposes on an installed module: a version
+the shell could not record could not be installed either. A product scheme
+carrying a fourth component, such as `4.2.0.1`, does not satisfy it and has to
+be mapped onto three components and a prerelease or patch level before it can
+be published. Build metadata is refused rather than dropped, because the
+shell's version parse discards it and two tags differing only there would
+otherwise collapse into one entry.
 
 A tag naming a namespace no module in this repository declares fails
 generation. Publishing an entry for it would advertise an artifact that was

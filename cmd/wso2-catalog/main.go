@@ -18,8 +18,8 @@
 //
 // It is a build tool rather than a released artifact: the release
 // configuration builds the shell alone, and nothing a user installs contains
-// this command. It exists so the release job and a contributor run the same
-// generator over the same inputs.
+// this command. It exists so that generating the catalog is one command,
+// running the same generator whether a release job or a contributor runs it.
 //
 //	go run ./cmd/wso2-catalog -input releases.json -out site
 //

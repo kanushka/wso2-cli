@@ -85,23 +85,3 @@ func readDeclaration(path string) (Declaration, bool, error) {
 	}
 	return declaration, true, nil
 }
-
-// Write publishes the catalog into a site directory, creating the modules
-// subdirectory. Existing files are replaced, so a regeneration over an
-// unchanged tag set leaves the directory byte-identical.
-func Write(directory string, catalog Catalog) error {
-	files, err := catalog.Files()
-	if err != nil {
-		return err
-	}
-	for _, file := range files {
-		path := filepath.Join(directory, filepath.FromSlash(file.Path))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return fmt.Errorf("catalog: creating %s failed: %w", filepath.Dir(path), err)
-		}
-		if err := os.WriteFile(path, file.Content, 0o644); err != nil {
-			return fmt.Errorf("catalog: writing %s failed: %w", path, err)
-		}
-	}
-	return nil
-}

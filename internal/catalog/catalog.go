@@ -166,9 +166,11 @@ type Version struct {
 
 // VersionArtifact is one platform's archive. The digest proves the archive
 // matches this entry; it does not prove this entry is authentic.
+//
+// The platform is embedded rather than restated, so the published os and arch
+// keys are the shell's own platform type and cannot drift from it.
 type VersionArtifact struct {
-	OS     string `json:"os"`
-	Arch   string `json:"arch"`
+	modules.Platform
 	URL    string `json:"url"`
 	Size   int64  `json:"size"`
 	SHA256 string `json:"sha256"`
@@ -189,6 +191,12 @@ func ParseTag(tag string) (namespace, version string, err error) {
 	}
 	if !strings.HasPrefix(rest, "v") {
 		return "", "", fmt.Errorf("catalog: tag %q has a version without a leading \"v\"", tag)
+	}
+	if strings.Contains(rest, "+") {
+		// Build metadata never affects a compatibility decision, so the shell's
+		// version parse discards it. Publishing the discarded form would let two
+		// tags collapse into one catalog entry, so such a tag is refused instead.
+		return "", "", fmt.Errorf("catalog: tag %q carries build metadata, which a published version may not", tag)
 	}
 	parsed, parseErr := semver.Parse(rest)
 	if parseErr != nil {
@@ -312,18 +320,14 @@ func versionEntry(tag, version string, release Release) (Version, error) {
 		}
 		platforms[artifact.Platform.String()] = true
 		artifacts = append(artifacts, VersionArtifact{
-			OS:     artifact.Platform.OS,
-			Arch:   artifact.Platform.Arch,
-			URL:    artifact.URL,
-			Size:   artifact.Size,
-			SHA256: strings.ToLower(artifact.SHA256),
+			Platform: artifact.Platform,
+			URL:      artifact.URL,
+			Size:     artifact.Size,
+			SHA256:   strings.ToLower(artifact.SHA256),
 		})
 	}
 	sort.Slice(artifacts, func(left, right int) bool {
-		if artifacts[left].OS != artifacts[right].OS {
-			return artifacts[left].OS < artifacts[right].OS
-		}
-		return artifacts[left].Arch < artifacts[right].Arch
+		return artifacts[left].String() < artifacts[right].String()
 	})
 
 	return Version{
@@ -429,6 +433,5 @@ func render(document any) ([]byte, error) {
 	if err := encoder.Encode(document); err != nil {
 		return nil, fmt.Errorf("catalog: rendering the catalog failed: %w", err)
 	}
-	// Encode already ends the document with a newline.
 	return encoded.Bytes(), nil
 }
