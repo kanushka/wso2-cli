@@ -351,13 +351,21 @@ func TestAFailedUpdateLeavesThePreviousVersionActiveAndUsable(t *testing.T) {
 	// Nothing of the version that failed survives anywhere in the store.
 	store := modules.NewStore(state.ModuleStore(stateRoot))
 	var survivors []string
-	_ = filepath.Walk(store.NamespaceDir(catalogNamespace),
-		func(path string, info os.FileInfo, walkErr error) error {
-			if walkErr == nil && info != nil && strings.Contains(path, "4.5.0") {
+	// The walk error is fatal rather than ignored: a walk that never ran would
+	// leave survivors empty and let the assertion below pass without checking
+	// anything.
+	if err := filepath.Walk(store.NamespaceDir(catalogNamespace),
+		func(path string, _ os.FileInfo, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if strings.Contains(path, "4.5.0") {
 				survivors = append(survivors, path)
 			}
 			return nil
-		})
+		}); err != nil {
+		t.Fatalf("walking the %s module store returned %v", catalogNamespace, err)
+	}
 	if len(survivors) != 0 {
 		t.Errorf("a failed update left the version it was installing behind: %v", survivors)
 	}

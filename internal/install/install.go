@@ -34,8 +34,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -186,7 +188,8 @@ func (i Installer) activate(namespace string, selection catalog.Selection,
 	// The policy this install would replace, so a failure leaves the module
 	// following what it followed before. A failed update must change nothing at
 	// all, the channel and pin included.
-	previousPolicy, previousPolicyExists := readPolicyDocument(i.Store.PolicyPath(namespace))
+	previousPolicy, previousPolicyExists, previousPolicyAbsent := readPolicyDocument(
+		i.Store.PolicyPath(namespace))
 	defer func() {
 		_ = os.RemoveAll(staging)
 		if installed {
@@ -194,8 +197,9 @@ func (i Installer) activate(namespace string, selection catalog.Selection,
 			return
 		}
 		if previousPolicyExists {
-			_ = writeAtomically(i.Store.PolicyPath(namespace), previousPolicy)
-		} else {
+			_ = writeAtomically("restoring the version policy",
+				i.Store.PolicyPath(namespace), previousPolicy)
+		} else if previousPolicyAbsent {
 			_ = os.Remove(i.Store.PolicyPath(namespace))
 		}
 		// A failed install leaves nothing behind: the version it was writing
@@ -259,7 +263,8 @@ func (i Installer) activate(namespace string, selection catalog.Selection,
 	if err != nil {
 		return err
 	}
-	if err := writeAtomically(i.Store.ActivePath(namespace), activeDocument); err != nil {
+	if err := writeAtomically("writing the active-version pointer",
+		i.Store.ActivePath(namespace), activeDocument); err != nil {
 		return err
 	}
 	installed = true
@@ -286,18 +291,23 @@ func (i Installer) recordPolicy(namespace string, selection catalog.Selection,
 	if err != nil {
 		return err
 	}
-	return writeAtomically(i.Store.PolicyPath(namespace), document)
+	return writeAtomically("writing the version policy", i.Store.PolicyPath(namespace), document)
 }
 
 // readPolicyDocument reads a policy document as bytes, for putting back exactly
 // as it stood. It reports absence rather than failing: a module installed
 // before any policy was recorded has none.
-func readPolicyDocument(path string) ([]byte, bool) {
+//
+// absent separates the two ways there is nothing to put back. A policy that is
+// genuinely missing may be removed again on rollback; one that merely could not
+// be read must be left alone, because deleting it would lose the channel and
+// pin that a failed install is required to leave untouched.
+func readPolicyDocument(path string) (content []byte, exists, absent bool) {
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return nil, false
+		return nil, false, errors.Is(err, fs.ErrNotExist)
 	}
-	return content, true
+	return content, true, false
 }
 
 // receipt records what the catalog published, so what the shell later gates a
@@ -440,15 +450,18 @@ func safePath(destination, name string) (string, error) {
 }
 
 // writeAtomically replaces a file in one step, so a reader never sees a half
-// written active-version pointer.
-func writeAtomically(target string, content []byte) error {
-	temporary, err := os.CreateTemp(filepath.Dir(target), ".active-")
+// written document. action names what is being written and reaches the user in
+// the failure, so the store's two documents are told apart when one cannot be
+// written.
+func writeAtomically(action, target string, content []byte) error {
+	temporary, err := os.CreateTemp(filepath.Dir(target), "."+filepath.Base(target)+"-")
 	if err != nil {
-		return storeFailure("writing the active-version pointer", err)
+		return storeFailure(action, err)
 	}
 	// CreateTemp opens at 0600, but every other file in the store is 0644 and
-	// the pointer is no more secret than the receipts beside it. Set the mode
-	// before the rename so the file never appears at the target under 0600.
+	// neither document written here is more secret than the receipts beside
+	// them. Set the mode before the rename so the file never appears at the
+	// target under 0600.
 	err = temporary.Chmod(0o644)
 	if err == nil {
 		_, err = temporary.Write(content)
@@ -461,7 +474,7 @@ func writeAtomically(target string, content []byte) error {
 	}
 	if err != nil {
 		_ = os.Remove(temporary.Name())
-		return storeFailure("writing the active-version pointer", err)
+		return storeFailure(action, err)
 	}
 	return nil
 }
