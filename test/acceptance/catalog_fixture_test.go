@@ -30,6 +30,7 @@ package acceptance_test
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/json"
@@ -187,7 +188,7 @@ func (c *catalogHarness) buildArchive(tag string, platform modules.Platform) []b
 	c.t.Helper()
 	executable := referenceModuleBytes(c.t)
 
-	var buffer strings.Builder
+	var buffer bytes.Buffer
 	gzipWriter := gzip.NewWriter(&buffer)
 	tarWriter := tar.NewWriter(gzipWriter)
 	// The tag and platform are inside the archive as well as in its name, so
@@ -217,7 +218,7 @@ func (c *catalogHarness) buildArchive(tag string, platform modules.Platform) []b
 	if err := gzipWriter.Close(); err != nil {
 		c.t.Fatalf("closing the gzip stream returned %v", err)
 	}
-	return []byte(buffer.String())
+	return buffer.Bytes()
 }
 
 // serve answers the two catalog paths and the archive paths their entries name.
