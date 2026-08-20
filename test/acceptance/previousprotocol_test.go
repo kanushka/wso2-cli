@@ -363,7 +363,7 @@ func publishSDK(t *testing.T, proxy, version string, protocolVersion int) {
 	if err != nil {
 		t.Fatalf("creating the module zip failed: %v", err)
 	}
-	defer archive.Close()
+	defer func() { _ = archive.Close() }()
 	writer := zip.NewWriter(archive)
 	prefix := modulePath + "@" + version + "/"
 	err = filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
@@ -421,7 +421,7 @@ func appendLine(t *testing.T, path, line string) {
 	if err != nil {
 		t.Fatalf("opening %s failed: %v", path, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	if _, err := io.WriteString(file, line+"\n"); err != nil {
 		t.Fatalf("writing %s failed: %v", path, err)
 	}
