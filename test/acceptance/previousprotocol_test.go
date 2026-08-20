@@ -190,10 +190,11 @@ func TestBreakingThePreviousProtocolFailsTheGate(t *testing.T) {
 	// moving parts broke, so the gate's own conclusion names both. The
 	// assertion is on that conclusion rather than on the whole log, where the
 	// two versions appear in the progress lines whatever the outcome.
-	conclusion := output[strings.LastIndex(output, "FAILED:"):]
-	if !strings.HasPrefix(conclusion, "FAILED:") {
+	start := strings.LastIndex(output, "FAILED:")
+	if start < 0 {
 		t.Fatalf("the gate failed without stating a conclusion:\n%s", output)
 	}
+	conclusion := output[start:]
 	for _, want := range []string{"protocol v" + strconv.Itoa(window[1]), "SDK " + sdkVersion} {
 		if !strings.Contains(conclusion, want) {
 			t.Errorf("the gate's conclusion does not name %q:\n%s", want, conclusion)
