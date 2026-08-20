@@ -319,9 +319,9 @@ derived from one session. It does not mean one token reused across products.
 - **P0:** A conformance test kit validates identity, protocol compatibility,
   help, flags, output, errors, authentication use, and secret redaction.
 - **P1:** Existing CLIs can migrate incrementally through a compatibility
-  adapter, but only fully conformant modules are presented as conformant. What
-  such a module is called depends on the glossary decision recorded in
-  `docs/architecture.md` section 15.
+  adapter, but only fully conformant modules are presented as conformant.
+  Conformance is a protocol and behavior property and carries no
+  supply-chain claim.
 
 ### 7.6 Module installation and management
 
@@ -519,8 +519,8 @@ both the preferred SDK path and the migration adapter.
 - Shared authentication, output, errors, and help are required behavior, not
   optional conventions.
 - The security model assumes trusted WSO2 code backed by a managed publishing
-  and verification chain; process separation alone is not treated as a
-  sandbox.
+  chain and integrity-checked artifacts; process separation alone is not
+  treated as a sandbox.
 
 ## 12. Open decisions
 

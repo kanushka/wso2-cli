@@ -51,7 +51,7 @@ flowchart LR
     H --> M["Module manager"]
     M --> R["Official WSO2 module registry"]
     M --> S["Managed versioned module store"]
-    H --> P["Verified product module process"]
+    H --> P["Product module process"]
     P <--> A["Authentication broker"]
     A --> K
     P --> W["WSO2 product API"]
@@ -165,7 +165,8 @@ contract on its inherited standard input and standard output streams.
 
 The broker:
 
-- identifies the already verified module through the launch handshake;
+- identifies the already integrity-checked module through the launch
+  handshake;
 - checks the module's declared audience and scope capabilities;
 - resolves the selected context, its identity, and the relevant product
   session;
@@ -886,7 +887,7 @@ release is the protocol gate in section 6.1 and the checks in section 13.
 
 ### 9.3 Runtime trust boundary
 
-A verified native module still runs with the user's operating-system
+An integrity-checked native module still runs with the user's operating-system
 permissions. The v1 trust decision is therefore: only authorized WSO2 product
 software may run through the managed module path.
 
@@ -970,9 +971,10 @@ them.
 `wso2 version` reads receipts only: it never launches a module and never opens
 a network connection. `wso2 module list` reads the catalog index, and costs one
 request whatever is installed, because a check selects no version and a version
-history is what selecting is for. Neither report claims a verification state
-beyond the integrity facts above; how that state should be named is pending
-the glossary decision noted in section 15.
+history is what selecting is for. Neither report claims anything beyond the
+integrity facts above: the executable matches the digest in its receipt. There
+is no publisher or revocation state behind that to report, which is why
+neither report carries a verification column.
 
 ## 11. Repository and release structure
 
@@ -1099,9 +1101,10 @@ Migration proceeds in increasing levels of conformance:
 
 The compatibility adapter exists to reduce migration risk, not as a permanent
 alternative contract. Conformance is the whole of what a completed migration
-demonstrates; there is no separate supply-chain gate for it to pass. What such
-a module should be called is pending the glossary decision noted in
-section 15, and this section deliberately does not pick a name for it.
+demonstrates; there is no separate supply-chain gate for it to pass. A module
+that has reached level 6 is fully conformant, and that is the whole of the
+claim: it says nothing about publisher authority, because there is no
+publisher authority to claim.
 
 The pilot should include:
 
@@ -1189,7 +1192,7 @@ work with network access disabled.
 - A non-interactive invocation configured with browser or device authorization
   fails immediately and identifies the accepted CI authentication methods.
 - Incompatible modules are not launched; the error reports compatible
-  alternatives from verified local metadata.
+  alternatives from local receipt metadata.
 - `wso2 doctor` reports context, secure-store, catalog, receipt, module
   integrity, compatibility, and protocol status without printing secrets.
 
@@ -1197,6 +1200,19 @@ work with network access disabled.
 
 The architecture, SDK-first hybrid model, official-only trust scope, and
 security principles are selected.
+
+**The verified module term is retired.** It named a module whose publisher,
+release metadata, artifact, compatibility, and revocation status had passed
+the production trust policy. With publisher authority and revocation gone, the
+definition was unreachable rather than merely rare, and the term's whole
+load-bearing content was the supply-chain authority that is no longer there.
+Retiring it was preferred to redefining it around integrity and compatibility:
+keeping the label after removing what it asserted is exactly how a document
+comes to imply a trust chain it does not have, which is the failure
+section 9.2 exists to prevent. Integrity-checked already states what is true,
+and conformant already describes the protocol property, so no third term was
+coined. `CONTEXT.md` keeps one entry, and sections 10 and 12 and the module
+lifecycle requirements now state the outcome instead of waiting on it.
 
 The next design session should settle, in order:
 
@@ -1207,7 +1223,7 @@ The next design session should settle, in order:
 5. namespace and pilot-module selection;
 6. rollout and standalone-CLI compatibility policy.
 
-Two items are tracked follow-ups rather than open design questions:
+One item is a tracked follow-up rather than an open design question:
 
 - **Manifest signing.** Publisher signing was removed with the multi-repository
   model, and nothing replaced it, so the catalog's authenticity rests on HTTPS
@@ -1218,15 +1234,6 @@ Two items are tracked follow-ups rather than open design questions:
   This entry is the record that it was deferred rather than dropped; naming an
   owner and opening the issue is the next step, and until that is done the
   deferral is tracked only here.
-- **The glossary's treatment of a verified module.** `CONTEXT.md` defines a
-  verified module as one whose publisher, release metadata, artifact,
-  compatibility, and revocation status have passed the production trust policy.
-  With publisher authority and revocation gone, no module can satisfy that
-  definition, so the term is currently unreachable. Either it is retired in
-  favour of integrity-checked, or it is redefined around integrity plus
-  protocol and platform compatibility. Sections 10 and 12 and the module
-  lifecycle requirements are written to be true under either reading and are
-  marked where they wait on it.
 
 The approved architecture proof has its own bounded
 [implementation plan](plans/first-cli-vertical-slice.md). Later delivery work
