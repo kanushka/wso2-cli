@@ -39,7 +39,7 @@ refusal is reported.
 | `wso2 config get <key>` | Shows one non-secret shell preference. |
 | `wso2 config set <key> <value>` | Changes one non-secret shell preference. |
 | `wso2 update` | Applies the approved installation-channel policy for root shell updates. |
-| `wso2 module available` | Lists official modules available through verified catalog metadata. |
+| `wso2 module available` | Lists official modules the module catalog publishes. |
 | `wso2 module install <module>` | Installs the latest compatible stable release of a module. |
 | `wso2 module install <module>@<version>` | Installs an exact compatible module version. |
 | `wso2 module list` | Lists installed modules, versions, update availability, and verification state. |
@@ -47,7 +47,7 @@ refusal is reported.
 | `wso2 module update <module>` | Updates one product module. |
 | `wso2 module update --all` | Updates all installed product modules. |
 | `wso2 module verify <module>` | Verifies an installed module and its receipt. |
-| `wso2 module rollback <module>` | Reactivates a retained compatible and non-revoked version. |
+| `wso2 module rollback <module>` | Reactivates a retained compatible version. |
 | `wso2 module remove <module>` | Removes a module according to the retention policy. |
 | `wso2 module install --file <module.wso2module>` | Installs one verified module from an offline file. |
 | `wso2 bundle create` | Creates a platform-specific, self-installing offline bundle from verified releases. |

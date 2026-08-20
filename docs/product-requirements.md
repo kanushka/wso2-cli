@@ -99,8 +99,10 @@ wso2 doctor
 ### 4.5 Secure software supply chain
 
 - Install only WSO2-published modules in the first release.
-- Verify publisher authority, signed release metadata, artifact identity,
-  digest, provenance, compatibility, and module conformance.
+- Check a downloaded artifact against the size and digest the module catalog
+  publishes, and check compatibility and conformance, before activating it.
+- State plainly that artifacts are integrity-checked and not signed, so that
+  nobody over-reads what a digest proves.
 - Prevent silent downgrade and arbitrary `PATH` shadowing.
 - Keep long-lived credentials out of product modules.
 
@@ -317,7 +319,9 @@ derived from one session. It does not mean one token reused across products.
 - **P0:** A conformance test kit validates identity, protocol compatibility,
   help, flags, output, errors, authentication use, and secret redaction.
 - **P1:** Existing CLIs can migrate incrementally through a compatibility
-  adapter, but only fully conformant modules receive the normal verified status.
+  adapter, but only fully conformant modules are presented as conformant. What
+  such a module is called depends on the glossary decision recorded in
+  `docs/architecture.md` section 15.
 
 ### 7.6 Module installation and management
 
@@ -329,8 +333,12 @@ derived from one session. It does not mean one token reused across products.
 - **P0:** Updates preserve the currently working version until the replacement
   is activated.
 - **P0:** The CLI discovers newer compatible module releases through the
-  verified catalog and exposes installed and available versions through module
+  module catalog and exposes installed and available versions through module
   inventory commands.
+- **P0:** An update check costs one catalog request whatever is installed, and
+  its cost does not grow as products accumulate releases.
+- **P0:** Users can choose a release channel per module and pin one module to
+  an exact version without pinning the rest.
 - **P0:** Interactive update notices are non-disruptive, appear only after the
   requested command completes, and never contaminate structured standard
   output.
@@ -339,14 +347,11 @@ derived from one session. It does not mean one token reused across products.
 - **P0:** Module updates are explicit by default. Automatic module updates,
   when supported, are opt-in and follow the same verification and rollback
   policy as explicit updates.
-- **P0:** Users can verify installed modules and roll back to a retained,
-  non-revoked version.
+- **P0:** Users can verify installed modules and roll back to a retained
+  version.
 - **P0:** CI can disable implicit installation and network access.
 - **P0:** CI can pin exact module versions and run without update notices or
   implicit metadata refresh.
-- **P0:** A known-revoked active module is not treated as an ordinary available
-  update; the CLI reports a security error and blocks execution according to
-  the configured revocation policy.
 - **P1:** A fresh air-gapped machine can install the root shell and a selected
   set of modules from one signed, platform-specific, self-installing offline
   bundle without a preinstalled `wso2` command or network access.
@@ -364,6 +369,11 @@ derived from one session. It does not mean one token reused across products.
   revocation-metadata policy as online installation.
 - **P1:** Organizations can use an approved mirror without changing module
   identity or trust guarantees.
+
+The offline-bundle requirements above are deferred rather than cancelled. Their
+signing, provenance, and revocation claims predate the trust position in
+`docs/architecture.md` section 9.2 and have to be reconciled with it before the
+work is picked up.
 
 Proposed command surface:
 
@@ -393,27 +403,33 @@ The product must distinguish:
 
 `wso2 version` must work without network access and report the root version,
 protocol version, platform, and installed-module versions. Module inventory is
-read from verified receipts rather than by running every module executable.
+read from receipts, whose integrity the shell checks, rather than by running
+every module executable.
 
 The CLI may additionally show available versions after an explicit metadata
 refresh or network-enabled check.
 
 ### 7.8 Security
 
-- **P0:** Registry and release metadata are signed and protected against
-  rollback and expiration attacks.
-- **P0:** Product-team publishing authority is restricted to assigned
-  namespaces.
-- **P0:** Every platform artifact has a cryptographic digest, signature, build
-  provenance, and software bill of materials.
-- **P0:** Installations reject unknown publishers, incompatible hosts,
-  incompatible protocols, unsafe archives, modified binaries, and revoked
-  releases.
+- **P0:** Every platform artifact has a cryptographic digest published in the
+  module catalog, and a download that does not match it is refused, leaving
+  nothing installed.
+- **P0:** The CLI tells a user plainly that artifacts are integrity-checked and
+  not signed, so that nobody over-reads what a digest proves.
+- **P0:** Publishing to the catalog origin is protected by branch protection
+  and required review on the workflows that publish, because no signature
+  protects it.
+- **P0:** Installations reject incompatible shells, incompatible protocols,
+  unsupported platforms, unsafe archives, and modified binaries.
+- **P0:** A module release is refused when the released shell speaks no
+  protocol the module declares, so the shell always ships first.
 - **P0:** Every launch validates the active module's trusted receipt and
   executable integrity.
 - **P0:** Updates use immutable version directories and atomic activation.
-- **P1:** The publishing gate includes vulnerability, license, provenance, and
-  conformance checks.
+- **P1:** Signing the catalog is a tracked follow-up, so that the removal of
+  publisher signing is a deferral with an owner rather than an omission.
+- **P1:** The publishing gate includes vulnerability, license, and conformance
+  checks.
 - **P2:** Platform-specific sandboxing may be added as defense in depth.
 
 ## 8. User experience principles
@@ -441,7 +457,7 @@ implementation plans.
 - SDK and module protocol;
 - output, error, and help conventions;
 - managed module store and receipts;
-- signed manifest format;
+- generated catalog format;
 - conformance test kit.
 
 ### Stage 2 — Pilot modules
@@ -452,8 +468,8 @@ both the preferred SDK path and the migration adapter.
 
 ### Stage 3 — Managed distribution
 
-- official catalog and publishing gate;
-- update, verification, rollback, revocation, and pinning;
+- generated catalog and publishing gate;
+- update, verification, rollback, and pinning;
 - platform installers;
 - signed offline bundles.
 
@@ -516,7 +532,7 @@ both the preferred SDK path and the migration adapter.
 - Exact catalog-refresh versus binary-update command terminology.
 - Module retention policy and default number of rollback versions.
 - Minimum supported operating systems and architectures.
-- Registry hosting, signing service, and key-rotation ownership.
+- Catalog origin hosting, and the owner and timing of catalog signing.
 - Compatibility and deprecation period for existing standalone CLI names.
 
 ## 13. Supporting research

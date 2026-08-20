@@ -24,8 +24,8 @@ This is an **SDK-first hybrid architecture**:
 
 The architecture deliberately does not copy kubectl's arbitrary `PATH`
 discovery. It adopts Krew's useful versioned-store and receipt ideas while
-adding publisher verification, compatibility, provenance, rollback protection,
-and a first-class offline model.
+adding a shell-owned store, integrity-checked artifacts, protocol and platform
+compatibility gates, and a first-class offline model.
 
 ## 2. Architectural principles
 
@@ -494,93 +494,129 @@ operation into a generic JSON-RPC method.
 
 ## 6. Release manifest
 
-A signed release contains enough information to resolve and verify a module
-without executing it. A conceptual manifest is:
+A published module version carries enough information to resolve and verify an
+artifact without executing it. That information is not a reviewed document
+submitted by a publisher: it is one entry in the
+[module catalog](reference/module-catalog.md), which the release job generates
+from the module tags that exist.
 
-```yaml
-apiVersion: cli.wso2.com/v1
-kind: ModuleRelease
-metadata:
-  name: api
-  version: 0.9.0
-  publisher: api-platform-team
-spec:
-  namespace: api
-  channel: stable
-  compatibility:
-    host: ">=0.4.0 <2.0.0"
-    protocol: "1"
-  capabilities:
-    authAudiences:
-      - api-platform
-  artifacts:
-    darwin-arm64:
-      url: https://downloads.example.invalid/api/0.9.0/module.tar.gz
-      size: 12345678
-      sha256: "4f3c...9a2e"
-      signature: https://downloads.example.invalid/api/0.9.0/module.sig
-      provenance: https://downloads.example.invalid/api/0.9.0/provenance.intoto.jsonl
-      sbom: https://downloads.example.invalid/api/0.9.0/sbom.spdx.json
+The catalog is two files, served over HTTPS from the origin that already
+serves the install scripts:
+
+- `index.json` names, for every product namespace, the latest version on each
+  channel. Its size is bounded by namespaces and channels rather than by
+  release history, so an update check is one request whose cost does not grow
+  as products accumulate releases.
+- `modules/<namespace>.json` carries the full version history of one
+  namespace. Per version it records the channel, the protocol versions the
+  module speaks, the shell range it declares, and for each platform an
+  artifact URL, size, and SHA-256 digest.
+
+The shell reads `index.json` to check for updates and fetches a namespace file
+only when it has to select a specific version. A check therefore costs one
+document, and an install costs two plus the artifact.
+
+One version entry, as published:
+
+```json
+{
+  "version": "0.9.0",
+  "channel": "stable",
+  "compatibility": {
+    "shell": ">=0.4.0 <2.0.0",
+    "protocolVersions": [2, 1]
+  },
+  "capabilities": {
+    "authAudiences": ["api-platform"]
+  },
+  "artifacts": [
+    {
+      "os": "darwin",
+      "arch": "arm64",
+      "url": "https://.../api/v0.9.0/wso2-module-api-v0.9.0-darwin-arm64.tar.gz",
+      "size": 12345678,
+      "sha256": "4f3c...9a2e"
+    }
+  ]
+}
 ```
 
-The manifest above is the original conceptual sketch. What is generated and
-published is described by the [module catalog](reference/module-catalog.md)
-reference, and it carries no `publisher`, `signature`, `provenance`, `sbom`, or
-revocation field: with one repository and one CODEOWNERS file, the question
-those fields existed to answer is not asked, and carrying empty values would
-suggest a trust chain that does not exist. A digest proves that an artifact
-matches its manifest entry and not that the manifest is authentic; manifest
-signing is a tracked follow-up.
+The channel is derived from the version rather than declared: a version
+carrying a prerelease identifier is a prerelease, and every other version is
+stable. Nothing can therefore publish a prerelease labelled
+stable, because nothing labels it.
+
+There is no `publisher`, `signature`, `provenance`, `sbom`, or revocation
+field, and no per-release document envelope for one to live in. With one
+repository and one CODEOWNERS file, the question those fields existed to
+answer — whether this publisher may claim this namespace — has one answer,
+and carrying empty values would suggest a trust chain that does not exist.
+What a digest does and does not prove is stated in section 9.2.
 
 ### 6.1 Module publishing and consumption flow
 
-The shell, product modules, and catalog have independent repositories and
-release lifecycles:
+One repository holds the shell, the SDK, and every product module, and the
+catalog is a build output of that repository rather than a curated artifact:
 
-- the `wso2` repository builds and releases the root shell and shared module
-  SDK;
-- each product team owns a separate module repository and builds its module
-  with the shared SDK;
-- product CI publishes signed, platform-specific module artifacts to that
-  product's GitHub Releases or approved WSO2 artifact storage;
-- a separate catalog repository contains reviewed release metadata, not module
-  binaries;
-- catalog CI signs and publishes static catalog metadata over HTTPS;
-- the shell consumes the published catalog, downloads an artifact from its
-  product-owned release location, and verifies it before activation.
+- the shell keeps plain `v*` tags, the SDK keeps `sdk/v*` tags, and a product
+  module is tagged `<namespace>/v<version>`, so the three still release on
+  their own schedules from one repository;
+- a module tag push gates the release, builds one archive per supported
+  platform, publishes them to GitHub Releases with a checksum file, then
+  regenerates the catalog and deploys it to the origin;
+- generation reads every module tag rather than the one just pushed and is
+  deterministic, so regenerating over an unchanged tag set produces an
+  unchanged file, there is no curation step to forget, and the catalog cannot
+  disagree with what was released;
+- a tag naming no module the checkout declares, or a release missing an
+  archive for a supported platform, fails the release rather than publishing
+  an entry that points at nothing;
+- the shell reads the published catalog, downloads the artifact from GitHub
+  Releases, and checks its size and digest before anything is activated.
 
-The catalog entry is the authoritative link between an assigned namespace and
-an official product release. It records the module version, shell and protocol
-compatibility, platform-specific artifact URLs and digests, publisher
-authority, signatures, provenance, revocation state, and release channel. The
-shell selects the newest compatible verified release allowed by the user's
-channel and pinning policy; it does not assume that the numerically newest
-release is usable.
+The catalog entry is the link between a product namespace and a published
+release. It records the version, channel, protocol and shell compatibility,
+and per-platform artifact location, size, and digest, and nothing else. Among
+the versions the user's channel and pin permit, the shell selects the newest
+whose protocol versions intersect what the shell speaks and which publishes
+an artifact for the user's platform. It does not assume the numerically
+newest release is usable.
+
+Independent module releases do not come from separate repositories and never
+required them. What one repository buys is that a change spanning the shell,
+the SDK, and a module is one review rather than a cross-repository sequence,
+and that an SDK change which breaks a module is visible in the pull request
+that makes it. What it does not buy is atomic rollout. A green build proves
+the head shell against the head module; the pair that breaks a user is an old
+installed shell against a new module, and no amount of source-level atomicity
+addresses it. That is what the protocol window in section 10 and the release
+gate exist for.
+
+The ordering is enforced rather than hoped for. A module release is refused
+when the protocol versions the module declares do not intersect what the
+released shell speaks, and the refusal names the module's requirement and the
+shell's window rather than failing opaquely. The shell ships first.
 
 ```mermaid
 flowchart LR
-    SDK["WSO2 CLI repository<br/>shell and shared SDK"]
-    PR["Product module repository<br/>for example API"]
-    PCI["Product CI<br/>build, test, conform, sign"]
-    AS["Product GitHub Releases<br/>or WSO2 artifact storage"]
-    CR["Module catalog repository<br/>reviewed metadata only"]
-    CCI["Catalog CI<br/>verify, sign, publish"]
-    HC["Static signed catalog<br/>published over HTTPS"]
+    REPO["wso2-cli repository<br/>shell, SDK, product modules"]
+    TAG["Module tag<br/>namespace/vX.Y.Z"]
+    MR["Module release workflow<br/>gate, build, publish, generate"]
+    GR["GitHub Releases<br/>module archives and checksums"]
+    OR["Catalog origin<br/>index.json and modules/&lt;namespace&gt;.json"]
     CLI["Installed wso2 shell"]
-    LS["Local verified module store"]
+    LS["Managed module store"]
     MP["Product module process"]
     API["WSO2 product API"]
 
-    SDK -->|"SDK dependency"| PR
-    PR --> PCI
-    PCI -->|"publish binaries"| AS
-    PCI -->|"submit release metadata"| CR
-    CR --> CCI
-    CCI --> HC
+    REPO -->|"push a module tag"| TAG
+    TAG --> MR
+    MR -->|"publish platform archives"| GR
+    MR -->|"generate from all module tags"| OR
 
-    CLI -->|"refresh metadata"| HC
-    CLI -->|"download selected artifact"| AS
-    CLI -->|"verify and activate"| LS
+    CLI -->|"read the catalog"| OR
+    CLI -->|"download the selected artifact"| GR
+    CLI -->|"check the digest and activate"| LS
     CLI -->|"launch per command"| MP
     LS --> MP
     MP -->|"product operation"| API
@@ -597,20 +633,21 @@ For a user invocation such as `wso2 api gateway list`:
 2. If the module is missing, an interactive invocation may offer to install the
    official module. Non-interactive execution never installs implicitly unless
    policy explicitly permits it.
-3. Installation or update refreshes the signed catalog, selects a compatible
-   release, downloads its artifact, and follows the verification and activation
+3. Installation or update reads the catalog, selects a compatible release,
+   downloads its artifact, and follows the verification and activation
    procedure in section 7.
 4. Normal commands use the installed local module and do not require a catalog
    request on every invocation.
-5. The shell launches the verified module, negotiates the protocol, supplies
+5. The shell launches the installed module, negotiates the protocol, supplies
    non-secret context, and brokers invocation-scoped authentication as
    described in sections 4.6 and 5.4.
 
-Product and catalog release pipelines are decoupled from shell releases. A
-product team can publish a compatible module without rebuilding the root
-binary, and moving artifact or catalog hosting does not change the module
-protocol. Signing private keys never live in source repositories; protected CI
-or an approved key-management service provides signing operations.
+Module releases are decoupled from shell releases. A product team can publish
+a compatible module without rebuilding the root binary, and moving artifact or
+catalog hosting does not change the module protocol. There are no signing
+keys to keep out of source repositories, because nothing is signed; the trust
+that publishing to the catalog origin concentrates instead, and what is done
+about it, is section 9.2.
 
 ## 7. Installation and activation
 
@@ -649,8 +686,15 @@ versions and disable implicit metadata refresh or installation.
 
 #### 7.2.1 Update discovery and notification
 
-The shell uses the signed catalog to distinguish the installed version from
-newer available releases. Update discovery follows these rules:
+The rules below are the original design. What is built is described by the
+[module catalog](reference/module-catalog.md) reference: an explicit
+`wso2 module list` or `wso2 module update` reads the catalog index when it
+runs, the shell caches no catalog metadata and performs no background refresh,
+and rule 3 filters by channel, pin, protocol, and platform only, because the
+catalog carries no publisher or revocation field. Rules 4 to 6 are not built.
+
+The shell uses the catalog to distinguish the installed version from newer
+available releases. Update discovery follows these rules:
 
 1. Explicit lifecycle commands such as `wso2 module list`,
    `wso2 module update <name>`, and `wso2 module update --all` may refresh
@@ -679,6 +723,9 @@ that dependency and keeps the current compatible verified module active. If an
 update download, verification, health check, or activation fails, the current
 active version remains unchanged.
 
+Revocation is out of scope (section 9.2), so the paragraph below is the
+original design and describes nothing that is built.
+
 Revocation is not an ordinary update notification. When fresh verified metadata
 marks the active release as revoked, the shell records a security diagnostic
 and blocks that module according to policy, with guidance to install a safe
@@ -687,6 +734,12 @@ metadata remains acceptable; it must not silently represent stale metadata as
 current.
 
 ### 7.3 Verification
+
+The list below is the original design. What is checked is the receipt's own
+integrity facts, shell and protocol compatibility, the platform, and the
+executable's digest; there is no signature to check and no revocation state to
+consult, and the health handshake happens at launch rather than at
+verification.
 
 Verification checks:
 
@@ -701,11 +754,19 @@ optimizations must not turn file timestamps alone into the trust decision.
 
 ### 7.4 Rollback
 
+No rollback command is built. The retained-version behavior below is the
+original design. What holds today is that an install or update failing at any
+point before activation leaves the previously active version active.
 Rollback changes the active pointer to a retained installation only after
 rechecking integrity, compatibility, and revocation. A revoked release is not a
 valid rollback target.
 
 ### 7.5 Offline installation
+
+Nothing in this subsection is built, and `wso2 bundle` is deferred rather than
+cancelled. It describes a signed model, which the rest of this document no
+longer does; when it is picked up, its trust claims have to be reconciled with
+section 9.2 first.
 
 Offline mode never means unsigned mode. Every offline path follows the same
 identity, compatibility, verification, activation, receipt, rollback, and
@@ -766,29 +827,62 @@ Sensitive credentials do not appear in this tree.
 ### 9.1 Threats in scope
 
 - compromised download storage;
-- compromised or stale catalog metadata;
-- unauthorized product-team publication;
-- downgrade, freeze, and mix-and-match attacks;
+- a substituted or corrupted artifact;
 - archive traversal and unsafe extraction;
-- local modification or `PATH` shadowing;
+- local modification of an installed executable, and `PATH` shadowing;
 - credential leakage through arguments, environment, output, or logs;
-- a compromised product build pipeline;
-- revoked signing authority or release.
+- a compromised build pipeline.
+
+Three threats the earlier design claimed are not defended today: a forged or
+rewritten catalog, a rollback or freeze of catalog metadata, and an
+unauthorized publication. The first two follow from the catalog being
+unsigned, and the third from there being no publisher identity to be
+unauthorized. Section 9.2 states the position rather than implying one.
 
 ### 9.2 Publishing trust
 
-The design uses a TUF-style metadata hierarchy:
+Artifacts are integrity-checked and not signed. Every published version
+records a size and a SHA-256 digest; the shell checks a download against both
+before it writes anything into the module store, and a mismatch aborts the
+install, leaving no executable, no receipt, and no change to the active
+version. Every launch rechecks the installed executable against its receipt.
+That is the whole of the cryptographic guarantee.
 
-- embedded and rotatable WSO2 trust roots;
-- threshold-controlled root authority;
-- delegated namespace publishing authority;
-- expiring timestamp and snapshot metadata;
-- monotonic metadata versions preventing rollback;
-- emergency key and release revocation.
+What a digest proves is narrow and worth stating exactly. It proves that the
+artifact the shell downloaded is the artifact the catalog entry describes. It
+does not prove that the entry is authentic. Nothing signs the catalog, so the
+integrity of the manifest itself rests on HTTPS to the origin and on control
+of what is published there — not on a signature the shell can check.
 
-Product CI signs the artifact and supplies verifiable build provenance and an
-SBOM. Registry admission verifies ownership, policy, conformance, scans, and
-provenance before publishing signed release metadata.
+Publishing to the catalog origin is therefore a concentrated trust point.
+That origin serves the install scripts, the catalog the shell reads to decide
+what to install, and the digests it checks a download against, so whoever can
+publish there controls the update channel for the shell and for every module,
+and can rewrite both an artifact and the digest that would have caught it.
+The exposure is not new — it already existed for the install scripts — but its
+blast radius grows from a first install to every update of every module.
+
+The mitigation is process rather than cryptography: branch protection on the
+default branch, and required review on the release and deployment workflows,
+so that no single push reaches the origin. That is a repository setting rather
+than a file in this checkout, which is worth saying plainly, because nothing
+in the checkout can prove it is switched on.
+
+Manifest signing is the piece that would make the catalog's authenticity
+checkable rather than assumed. It is a tracked follow-up, recorded in
+section 15, and not a silent omission: publisher signing was removed
+deliberately, and this is the deferral it was traded for.
+
+Out of scope, rather than pending: publisher authority and per-publisher
+keys, artifact and code signing, notarization, build provenance, an SBOM, and
+revocation of a published version or key. The earlier design's TUF-style
+hierarchy — rotatable trust roots, threshold root authority, delegated
+namespace publishing authority, and expiring timestamp and snapshot metadata —
+was never built and is not planned. Its purpose was to decide whether a given
+publisher may claim a product namespace, and with one organization owning
+every module that question has one answer. Registry admission checks for
+ownership, policy, scans, and provenance do not exist; what admits a module
+release is the protocol gate in section 6.1 and the checks in section 13.
 
 ### 9.3 Runtime trust boundary
 
@@ -830,9 +924,11 @@ The shell supports a protocol window of the current version and its
 predecessor, so a user whose shell is one protocol generation behind is not cut
 off from module releases: there is a full generation in which to update the
 shell before a module release can outrun it. The window is declared once, in
-the SDK's protocol package. The shell reads that declaration, and so will the
-release gate that is to refuse publishing a module the released shell cannot
-launch, so the two cannot come to disagree about what is supported.
+the SDK's protocol package. The shell reads that declaration, and so does the
+release gate that refuses to publish a module the released shell cannot
+launch, so the two cannot come to disagree about what is supported. The first
+generation has no predecessor, so the window is one version wide until there
+is something to be behind.
 
 The launch gate is the protocol window intersected with the platform, and
 nothing else. **The shell never compares a module's version against its own**,
@@ -842,85 +938,170 @@ so a module numbered far above or far below the shell says nothing about
 whether the two can speak. Comparing them would refuse modules that run
 perfectly, and in terms a user cannot act on. Reintroducing the comparison
 would look like defensive tightening; it is not, and there is no version pair
-for which it is correct.
+for which it is correct. The invariant is recorded here because it is not
+self-evident from the code that omits the comparison: an absence leaves no
+trace to read, and the next reader to notice it is missing has to be told
+that it is missing on purpose.
 
-Proposed output:
+What the shell does compare is a module's own declared shell range against
+the running shell, which is a membership test on a range the module publishes,
+not a comparison of two version numbers.
+
+Output:
 
 ```text
 $ wso2 version
-WSO2 CLI       v0.1.0
-Protocol       v2, v1
-Commit         abc123
-Platform       darwin/arm64
+WSO2 CLI  v0.1.0
+Protocol  v2, v1
+Platform  darwin/arm64
+
+Installed modules
+NAME  VERSION  PLATFORM
+api   v0.8.1   darwin/arm64
 
 $ wso2 module list
-NAME       INSTALLED  AVAILABLE  COMPATIBLE  VERIFICATION
-api        v0.8.1     v0.9.0     yes         verified
-identity   v1.4.0     v1.4.0     yes         verified
+MODULE  INSTALLED  CHANNEL  UPDATE
+api     v0.8.1     stable   v0.9.0 available
+
+1 module(s) have an update available. Run wso2 module update --all to take
+them.
 ```
 
-Installed versions come from receipts. Available versions come from the local
-verified catalog and may be stale until the user requests a refresh.
+`wso2 version` reads receipts only: it never launches a module and never opens
+a network connection. `wso2 module list` reads the catalog index, and costs one
+request whatever is installed, because a check selects no version and a version
+history is what selecting is for. Neither report claims a verification state
+beyond the integrity facts above; how that state should be named is pending
+the glossary decision noted in section 15.
 
 ## 11. Repository and release structure
 
-The initial implementation uses a small multi-module monorepo with two public
-deliverables: the user-facing CLI and the Go SDK used by product teams.
+The implementation is a multi-module monorepo with three kinds of public
+deliverable: the user-facing CLI, the Go SDK used by product teams, and the
+product modules themselves.
 
 ```text
 .
+├── go.work
 ├── go.mod
-├── cmd/wso2/main.go
+├── cmd/
+│   ├── wso2/main.go
+│   ├── wso2-catalog/
+│   ├── wso2-catalog-input/
+│   └── wso2-module-release/
 ├── internal/
-│   └── {auth,catalog,config,context,modules,rpc,updater,bundle}/
+│   └── {app,auth,boundaries,catalog,contexts,exit,install,modules,
+│        output,release,rpc,semver,state,statusservice,version}/
+├── modules/                    where product modules will live,
+│   └── <namespace>/            one Go module per product namespace
+├── examples/
+│   └── reference-module/
 └── sdk/
     ├── go.mod
+    ├── module/
+    ├── problem/
+    ├── proto/
     ├── protocol/
-    ├── examples/
+    ├── result/
     └── testkit/
 ```
 
-The root Go module builds the `wso2` CLI. `cmd/wso2/main.go` is its entry point,
-while shell implementation belongs in root `internal/` packages for concerns
-such as authentication, the module catalog, configuration, contexts, module
-management, RPC, updates, and offline bundles.
+The root Go module builds the `wso2` CLI. `cmd/wso2/main.go` is its entry
+point, and shell policy belongs in root `internal/` packages: the module
+catalog client and generator, install and update, the managed module store,
+the release gate, RPC, contexts, and authentication. The catalog commands are
+in `cmd/` rather than in a workflow, so the generator and the gate can be run
+and tested locally instead of only on a push.
 
 The top-level `sdk/` directory is a separate public Go module. It contains the
-command and module interfaces, authentication and context contracts, tests,
-examples and test utilities, and the versioned `sdk/protocol` package. Product
-repositories depend only on this public SDK and must never import the shell's
+command and module interfaces, the result and problem types, the wire schemas,
+the conformance test kit, and the versioned `sdk/protocol` package, which
+holds the single declaration of the supported protocol window. A product
+module depends only on this public SDK and must never import the shell's
 `internal/` packages.
 
-There is no separate top-level `api/` directory in the first version. The
-complete versioned subprocess and RPC contract lives in `sdk/protocol`, which
-is imported by both shell-internal RPC code and product modules. If
-multi-language support or schema generation becomes necessary, canonical
-schemas may move to a top-level `api/` directory and generated Go bindings may
-return to the SDK, provided wire compatibility is preserved.
+`modules/<namespace>/` is where product module source is to live, one Go
+module per product namespace, each to be owned by its product team through
+CODEOWNERS. That ownership is a weaker guarantee than a separate repository,
+and it is the substantive thing product teams are being asked to accept in
+exchange for one review, one pipeline, and one queue. Nothing has moved yet:
+the directory does not exist, CODEOWNERS still assigns the whole tree to the
+repository's maintainers, and the only module in the checkout is the reference
+module under `examples/`, which exists to prove the contract rather than to
+ship a product.
 
-The CLI and SDK are independently versioned. CLI releases use normal repository
-tags such as `v1.2.0` and publish platform binaries or installers for users. SDK
-releases use submodule-prefixed tags such as `sdk/v1.1.0` and publish the
-top-level `sdk/` directory as a tagged public Go module from GitHub for product
-teams; users do not install the SDK.
+There is no separate top-level `api/` directory. The complete versioned
+subprocess and RPC contract lives in `sdk/protocol`, imported by both
+shell-internal RPC code and product modules. If multi-language support or
+schema generation becomes necessary, canonical schemas may move to a top-level
+`api/` directory and generated Go bindings may return to the SDK, provided
+wire compatibility is preserved.
 
-Detailed build, test, and release procedures belong in a future contributor
-document rather than this architecture design.
+### Tags
+
+The three deliverables are versioned independently, and the tag namespace is
+what separates them:
+
+- the CLI uses plain repository tags such as `v1.2.0` and publishes platform
+  archives for users;
+- the SDK uses submodule-prefixed tags such as `sdk/v1.1.0` and publishes the
+  `sdk/` directory as a tagged public Go module; users do not install it;
+- a product module uses tags prefixed by its namespace, such as `api/v0.9.0`,
+  and is free to carry its product's own version scheme rather than one
+  imposed by this repository.
+
+A module tag must be plain semantic versioning after the `v`. Build metadata
+is refused rather than dropped, because a version that cannot round-trip
+through a tag, a file path, and a receipt is a version the shell cannot
+resolve later.
+
+### Modules depend on the SDK by version, never by a committed `replace`
+
+Every `go.mod` in the repository is prohibited from carrying a `replace`
+directive, and the previous-protocol check refuses a pull request that adds
+one. That check runs when the shell or the SDK changes, which is the case a
+`replace` would be added in, but it is a gate on Go changes rather than an
+unconditional one. Local composition belongs in `go.work`, which does not
+travel with a release.
+
+This rule is load-bearing rather than stylistic. The protocol window is only
+worth declaring if something proves the older end of it still works, and the
+only honest way to prove that is to reproduce a released module's dependency
+graph: drop the workspace, resolve the published SDK for the previous protocol
+by version from the module proxy, build the module against it, and launch it
+under the shell built from the branch at hand. A committed `replace` would
+silently pin that build back to the SDK in the checkout, so the gate would
+pass while proving nothing. `go.work` carries one placeholder replacement for
+the SDK, which is unpublished; it disappears on the first SDK release.
+
+No SDK version is published yet, so that gate reports that it cannot prove
+anything rather than passing quietly. It begins enforcing the window on the
+first SDK release.
+
+Detailed build, test, and release procedures live in the
+[release artifacts](reference/release-artifacts.md) and
+[module catalog](reference/module-catalog.md) references.
 
 ## 12. Existing CLI migration
 
 Migration proceeds in increasing levels of conformance:
 
-1. Package the existing CLI as a signed managed executable.
+1. Move the existing CLI's source into `modules/<namespace>/`, declare its
+   namespace and compatibility, and publish it through the catalog as a
+   managed executable. There is no signing step: artifacts are
+   integrity-checked, as section 9.2 states.
 2. Add the SDK identity, description, health, and invocation bootstrap.
 3. Replace independent credential handling with the authentication broker.
 4. Replace custom output and errors with typed SDK results and problems.
 5. Adopt common help, flags, exit codes, and secret redaction.
-6. Pass the complete cross-platform conformance suite.
+6. Pass the complete cross-platform conformance suite, including the previous
+   protocol.
 
 The compatibility adapter exists to reduce migration risk, not as a permanent
-alternative contract. A module is presented as fully verified only when both
-its supply chain and runtime conformance pass.
+alternative contract. Conformance is the whole of what a completed migration
+demonstrates; there is no separate supply-chain gate for it to pass. What such
+a module should be called is pending the glossary decision noted in
+section 15, and this section deliberately does not pick a name for it.
 
 The pilot should include:
 
@@ -1020,12 +1201,32 @@ security principles are selected.
 The next design session should settle, in order:
 
 1. exact module lifecycle command semantics;
-2. release manifest and registry ownership;
-3. remaining module message semantics and the SDK public API;
-4. context/auth broker API;
-5. output/problem schema and exit-code table;
-6. namespace and pilot-module selection;
-7. rollout and standalone-CLI compatibility policy.
+2. remaining module message semantics and the SDK public API;
+3. context/auth broker API;
+4. output/problem schema and exit-code table;
+5. namespace and pilot-module selection;
+6. rollout and standalone-CLI compatibility policy.
+
+Two items are tracked follow-ups rather than open design questions:
+
+- **Manifest signing.** Publisher signing was removed with the multi-repository
+  model, and nothing replaced it, so the catalog's authenticity rests on HTTPS
+  and on control of the origin rather than on a signature the shell can check.
+  Section 9.2 states the residual risk, and the
+  [module catalog](reference/module-catalog.md) reference states it where a
+  reader meets the digest. Signing the catalog is the work that removes it.
+  This entry is the record that it was deferred rather than dropped; naming an
+  owner and opening the issue is the next step, and until that is done the
+  deferral is tracked only here.
+- **The glossary's treatment of a verified module.** `CONTEXT.md` defines a
+  verified module as one whose publisher, release metadata, artifact,
+  compatibility, and revocation status have passed the production trust policy.
+  With publisher authority and revocation gone, no module can satisfy that
+  definition, so the term is currently unreachable. Either it is retired in
+  favour of integrity-checked, or it is redefined around integrity plus
+  protocol and platform compatibility. Sections 10 and 12 and the module
+  lifecycle requirements are written to be true under either reading and are
+  marked where they wait on it.
 
 The approved architecture proof has its own bounded
 [implementation plan](plans/first-cli-vertical-slice.md). Later delivery work
