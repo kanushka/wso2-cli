@@ -103,10 +103,12 @@ cloud-us   cloud   acme           us
 
 ```text
 $ wso2 module list
-NAME          INSTALLED   AVAILABLE   COMPATIBLE
-api           v0.9.0      v0.9.0      yes
-agent         v1.2.0      v1.3.0      yes
-integration   v0.4.0      v0.4.0      yes
+MODULE        INSTALLED   CHANNEL   UPDATE
+api           v0.9.0      stable    current
+agent         v1.2.0      stable    v1.3.0 available
+integration   v0.4.0      stable    pinned to v0.4.0
+
+1 module(s) have an update available. Run wso2 module update --all to take them.
 ```
 
 Credentials are never shown by these commands. Tokens are stored separately in

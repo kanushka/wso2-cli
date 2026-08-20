@@ -427,7 +427,7 @@ refresh or network-enabled check.
   executable integrity.
 - **P0:** Updates use immutable version directories and atomic activation.
 - **P1:** Signing the catalog is a tracked follow-up, so that the removal of
-  publisher signing is a deferral with an owner rather than an omission.
+  publisher signing is a recorded deferral rather than an omission.
 - **P1:** The publishing gate includes vulnerability, license, and conformance
   checks.
 - **P2:** Platform-specific sandboxing may be added as defense in depth.

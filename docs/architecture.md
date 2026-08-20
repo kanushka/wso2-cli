@@ -952,17 +952,17 @@ Output:
 
 ```text
 $ wso2 version
-WSO2 CLI  v0.1.0
-Protocol  v2, v1
-Platform  darwin/arm64
+WSO2 CLI   v0.1.0
+Protocol   v2, v1
+Platform   darwin/arm64
 
 Installed modules
-NAME  VERSION  PLATFORM
-api   v0.8.1   darwin/arm64
+NAME   VERSION   PLATFORM
+api    v0.8.1    darwin/arm64
 
 $ wso2 module list
-MODULE  INSTALLED  CHANNEL  UPDATE
-api     v0.8.1     stable   v0.9.0 available
+MODULE   INSTALLED   CHANNEL   UPDATE
+api      v0.8.1      stable    v0.9.0 available
 
 1 module(s) have an update available. Run wso2 module update --all to take
 them.
