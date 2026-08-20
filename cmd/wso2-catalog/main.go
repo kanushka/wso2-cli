@@ -78,7 +78,7 @@ func run() error {
 		return err
 	}
 
-	fmt.Fprintf(os.Stdout, "wrote %s and %d namespace file(s) into %s\n",
+	_, _ = fmt.Fprintf(os.Stdout, "wrote %s and %d namespace file(s) into %s\n",
 		catalog.IndexPath, len(generated.Namespaces), *outputDir)
 	return nil
 }
