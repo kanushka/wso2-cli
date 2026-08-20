@@ -157,7 +157,15 @@ func declarationFor(repositoryRoot, namespace string) (catalog.Declaration, erro
 // convention is one name rather than three.
 func build(repositoryRoot string, declaration catalog.Declaration, version string,
 	platform modules.Platform) ([]byte, error) {
-	output := filepath.Join(os.TempDir(), install.ExecutableName(declaration.Namespace, platform))
+	// A private directory rather than a predictable name under os.TempDir():
+	// two release runs on one machine would otherwise build over each other,
+	// and a pre-existing file or symlink at that path would be followed.
+	workDir, err := os.MkdirTemp("", "wso2-module-release-")
+	if err != nil {
+		return nil, fmt.Errorf("creating a build directory for %s failed: %w", platform, err)
+	}
+	defer func() { _ = os.RemoveAll(workDir) }()
+	output := filepath.Join(workDir, install.ExecutableName(declaration.Namespace, platform))
 	packagePath := release.MainPackage(declaration.Namespace)
 
 	// The module reports its own version at the handshake and the shell checks
@@ -180,9 +188,6 @@ func build(repositoryRoot string, declaration catalog.Declaration, version strin
 	built, err := os.ReadFile(output)
 	if err != nil {
 		return nil, fmt.Errorf("reading the built %s module failed: %w", platform, err)
-	}
-	if err := os.Remove(output); err != nil {
-		return nil, fmt.Errorf("removing the built %s module failed: %w", platform, err)
 	}
 	return built, nil
 }

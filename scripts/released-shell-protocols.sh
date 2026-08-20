@@ -58,8 +58,13 @@ export WSO2_HOME
 reported="$("${work}/wso2" version)"
 
 window="$(printf '%s\n' "${reported}" | awk '$1 == "Protocol" { sub(/^Protocol[[:space:]]+/, ""); print }')"
-if [ -z "${window}" ]; then
+if [ -z "${window}" ] || [ "${window}" = "unavailable" ]; then
 	echo "the released shell ${tag} reported no protocol window" >&2
 	exit 1
 fi
+# `wso2 version` renders the window for a reader, as "v2, v1". The gate parses
+# it with sdk/protocol.ParseVersions, which takes plain integers and silently
+# skips anything else -- so passing the display form through would hand the
+# workflow an empty window rather than fail loudly. Drop the display "v".
+window="$(printf '%s\n' "${window}" | sed 's/v\([0-9]\)/\1/g')"
 printf '%s\n' "${window}"
