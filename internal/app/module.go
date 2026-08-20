@@ -242,7 +242,7 @@ func (s Shell) moduleList(args []string) error {
 func updateColumn(status install.Status) string {
 	switch {
 	case status.Pinned:
-		return "pinned to v" + status.Installed
+		return "pinned to v" + status.PinnedVersion
 	case status.Update:
 		return "v" + status.Available + " available"
 	case status.Available == "":
@@ -292,9 +292,9 @@ func (s Shell) moduleUpdate(args []string) error {
 	if len(failures) == 0 {
 		return nil
 	}
-	// Every refusal is reported, and the first is what the run exits on, so a
-	// run that moved some modules and refused others is neither silent about
-	// the refusals nor reported as a success.
+	// Every module is attempted, every refusal is reported, and the first is
+	// what the run exits on, so a run that moved some modules and refused
+	// others is neither silent about the refusals nor reported as a success.
 	for _, failure := range failures[1:] {
 		output.Diagnostic(s.Streams.Err, asProblem(failure))
 	}

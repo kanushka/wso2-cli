@@ -272,10 +272,11 @@ An update that fails partway leaves the previous version active and usable.
 Nothing is deactivated until a replacement has been downloaded, verified, and
 unpacked, so a failed update can only fail to add: the version that was working
 is still the version that runs, and the module's own channel and pin are left
-as they were. A run that moves several modules reports every refusal and exits
-on the first, so a partial run is neither silent about what failed nor reported
-as a success. `modules.not_installed`, exit 64, is naming a module that is not
-installed, which is a mistake rather than a run over nothing.
+as they were. A run over several modules attempts every one of them, reports
+every refusal, and exits on the first, so a partial run neither stops at the
+first problem nor reports itself as a success. `modules.not_installed`, exit
+64, is naming a module that is not installed, which is a mistake rather than a
+run over nothing.
 
 ## What the digest proves
 

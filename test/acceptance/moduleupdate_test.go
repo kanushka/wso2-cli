@@ -443,3 +443,77 @@ func TestUpdatingAModuleThatIsNotInstalledIsRefused(t *testing.T) {
 
 	requireProblem(t, stdout, stderr, err, 64, "modules.not_installed")
 }
+
+// An update run over several modules is partway when one of them fails: the
+// module that failed keeps the version that worked, and the modules that did
+// not fail still move. A run that stopped at the first refusal would leave the
+// rest of a user's modules behind for a reason that has nothing to do with
+// them.
+//
+// The whole run costs one index request however many modules it moves, which is
+// the same property a check has and the reason the index is read once.
+func TestAPartlyFailedUpdateRunMovesTheModulesThatDidNotFail(t *testing.T) {
+	shell := buildShell(t)
+	origin := newCatalogOrigin(t, hostPlatformOptions(), catalogOlderStable, catalogOtherStable)
+	stateRoot := isolatedStateRoot(t)
+
+	for _, namespace := range []string{catalogNamespace, catalogOtherNamespace} {
+		if _, stderr, err := installModuleFrom(shell, stateRoot, origin.server.URL, namespace); err != nil {
+			t.Fatalf("installing %s returned %v\n%s", namespace, err, stderr)
+		}
+	}
+	requireLaunchable(t, shell, stateRoot, catalogNamespace)
+
+	// The reference module's newer release publishes an archive that is not a
+	// module archive, so its update fails after being downloaded and staged.
+	origin.options.carriesNoModule = map[string]bool{catalogStable: true}
+	origin.generate(catalogOlderStable, catalogStable, catalogOtherStable, catalogOtherNewer)
+	origin.forget()
+
+	stdout, stderr, err := moduleCommandFrom(shell, stateRoot, origin.server.URL, "update", "--all")
+
+	requireProblem(t, stdout, stderr, err, 69, "modules.artifact_malformed")
+	if got := installedVersion(t, stateRoot, catalogNamespace); got != "4.4.0" {
+		t.Errorf("the module whose update failed is at %s, want the previous 4.4.0", got)
+	}
+	requireLaunchable(t, shell, stateRoot, catalogNamespace)
+	if got := installedVersion(t, stateRoot, catalogOtherNamespace); got != "1.1.0" {
+		t.Errorf("the module that did not fail is at %s, want the newer 1.1.0", got)
+	}
+	if got := origin.requestCount(catalog.IndexPath); got != 1 {
+		t.Errorf("an update run fetched the index %d times, want once", got)
+	}
+}
+
+// Every refusal in a run is reported, not just the one the run exits on.
+func TestAnUpdateRunReportsEveryRefusal(t *testing.T) {
+	shell := buildShell(t)
+	origin := newCatalogOrigin(t, hostPlatformOptions(), catalogOlderStable, catalogOtherStable)
+	stateRoot := isolatedStateRoot(t)
+
+	for _, namespace := range []string{catalogNamespace, catalogOtherNamespace} {
+		if _, stderr, err := installModuleFrom(shell, stateRoot, origin.server.URL, namespace); err != nil {
+			t.Fatalf("installing %s returned %v\n%s", namespace, err, stderr)
+		}
+	}
+
+	origin.options.carriesNoModule = map[string]bool{catalogStable: true, catalogOtherNewer: true}
+	origin.generate(catalogOlderStable, catalogStable, catalogOtherStable, catalogOtherNewer)
+
+	stdout, stderr, err := moduleCommandFrom(shell, stateRoot, origin.server.URL, "update", "--all")
+
+	requireProblem(t, stdout, stderr, err, 69, "modules.artifact_malformed")
+	// The refusal the run did not exit on names its own module, so a user is
+	// not left to infer that a second module failed too.
+	if !strings.Contains(stderr, "wso2-module-"+catalogOtherNamespace) {
+		t.Errorf("the second refusal is not reported:\n%s", stderr)
+	}
+	for _, namespace := range []string{catalogNamespace, catalogOtherNamespace} {
+		if got := installedVersion(t, stateRoot, namespace); got == "" {
+			t.Errorf("%s has no active version after a failed run", namespace)
+		}
+	}
+	if !strings.Contains(stdout, catalogNamespace) || !strings.Contains(stdout, catalogOtherNamespace) {
+		t.Errorf("the run does not report both modules:\n%s", stdout)
+	}
+}

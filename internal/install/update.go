@@ -34,6 +34,9 @@ type Status struct {
 	Installed string
 	Channel   string
 	Pinned    bool
+	// PinnedVersion is the version the policy holds the module at, which is
+	// what a report shows. It is empty when nothing is pinned.
+	PinnedVersion string
 	// Available is the newest version the index publishes on the followed
 	// channel. It is empty when the catalog publishes no such version, which is
 	// what a module the catalog has never heard of looks like.
@@ -73,10 +76,11 @@ func (i Installer) statuses(index catalog.Index, installed []modules.Installed) 
 			return nil, err
 		}
 		status := Status{
-			Namespace: entry.Namespace,
-			Installed: entry.Version,
-			Channel:   policy.FollowedChannel(),
-			Pinned:    policy.Pinned(),
+			Namespace:     entry.Namespace,
+			Installed:     entry.Version,
+			Channel:       policy.FollowedChannel(),
+			Pinned:        policy.Pinned(),
+			PinnedVersion: policy.PinnedVersion,
 		}
 		status.Available = latestOnChannel(index, entry.Namespace, status.Channel)
 		newer, err := isNewer(status.Available, status.Installed)
@@ -123,6 +127,9 @@ func isNewer(candidate, installed string) (bool, error) {
 	}
 	local, err := semver.Parse(installed)
 	if err != nil {
+		// Unreachable: a receipt the shell would resolve records a semantic
+		// version, and inventory is what produced this one. Reported rather
+		// than ignored so a future change cannot make it silent.
 		return false, problem.New(problem.CategoryModuleTrust, "modules.receipt_malformed",
 			fmt.Sprintf("the installed version %q is not a readable version", installed)).
 			WithRecovery("Reinstall the module so the shell can record a readable version.")
