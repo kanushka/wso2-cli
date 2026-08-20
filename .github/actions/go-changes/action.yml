@@ -42,7 +42,7 @@ runs:
               shell_changed=true
               sdk_changed=true
               ;;
-            examples/reference-module/*)
+            modules/reference/*)
               # The shell's own boundary and acceptance tests build the
               # reference module, so a reference-module change is validated by
               # the shell checks.

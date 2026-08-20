@@ -318,4 +318,4 @@ by executing a probe program, not from documentation:
   the `--` terminator (l. 1131), `ArgsLenAtDash` (l. 427), `interspersed`
   default (l. 1271). <https://github.com/spf13/pflag>
 - This repository — `internal/app/app.go`, `internal/app/invoke.go`,
-  `examples/reference-module/cmd/wso2-module-reference/main.go`, `go.mod`.
+  `modules/reference/cmd/wso2-module-reference/main.go`, `go.mod`.

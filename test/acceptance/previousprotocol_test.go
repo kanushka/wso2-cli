@@ -258,7 +258,7 @@ func TestThePreviousProtocolGateRefusesACommittedReplaceDirective(t *testing.T) 
 	clone := cloneRepository(t)
 
 	edit := exec.Command("go", "mod", "edit", "-replace",
-		"github.com/wso2/wso2-cli/sdk=./sdk", "examples/reference-module/go.mod")
+		"github.com/wso2/wso2-cli/sdk=./sdk", "modules/reference/go.mod")
 	edit.Dir = clone
 	if combined, err := edit.CombinedOutput(); err != nil {
 		t.Fatalf("adding a replace directive failed: %v\n%s", err, combined)
@@ -269,7 +269,7 @@ func TestThePreviousProtocolGateRefusesACommittedReplaceDirective(t *testing.T) 
 	if err == nil {
 		t.Fatalf("the gate accepted a committed replace directive:\n%s", output)
 	}
-	if !strings.Contains(string(output), "examples/reference-module/go.mod") {
+	if !strings.Contains(string(output), "modules/reference/go.mod") {
 		t.Errorf("the gate did not name the offending go.mod:\n%s", output)
 	}
 }

@@ -71,7 +71,7 @@ func releasedWorld(tags ...string) fakeReleases {
 			Namespace:     namespace,
 			Compatibility: modules.Compatibility{Shell: ">=0.1.0 <2.0.0", ProtocolVersions: []int{2}},
 			Capabilities:  modules.Capabilities{AuthAudiences: []string{"reference-status"}},
-			Directory:     "examples/reference-module",
+			Directory:     "modules/reference",
 		}
 		published := release.Published{Digests: map[string]string{}}
 		for _, platform := range release.Platforms {
@@ -93,7 +93,7 @@ func referenceDeclarations() []catalog.Declaration {
 		SchemaVersion: catalog.SchemaVersion,
 		Namespace:     "reference",
 		Compatibility: modules.Compatibility{Shell: ">=0.1.0 <2.0.0", ProtocolVersions: []int{2}},
-		Directory:     "examples/reference-module",
+		Directory:     "modules/reference",
 	}}
 }
 

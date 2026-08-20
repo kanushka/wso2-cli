@@ -5,7 +5,7 @@ go 1.25.0
 // see docs/plans/first-cli-vertical-slice.md section 4.
 use (
 	.
-	./examples/reference-module
+	./modules/reference
 	./sdk
 )
 

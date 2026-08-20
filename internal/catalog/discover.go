@@ -30,10 +30,10 @@ import (
 const DeclarationFileName = "module.json"
 
 // declarationRoots are the directories a module may live in, relative to the
-// repository root. Product modules live one directory per namespace under
-// modules/; the reference module lives under examples/ because it is not a
-// product and owns a reserved namespace.
-var declarationRoots = []string{"modules", "examples"}
+// repository root. Every module lives one directory per namespace under
+// modules/, the reference module included: it is not a product and owns a
+// reserved namespace, but nothing about discovering it differs.
+var declarationRoots = []string{"modules"}
 
 // Discover reads the module declarations in a checkout, which is what decides
 // whether a tag names a buildable module. A directory name is not the answer:

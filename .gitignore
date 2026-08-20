@@ -24,7 +24,7 @@
 # Locally built executables
 /wso2
 /wso2-module-reference
-/examples/reference-module/wso2-module-reference
+/modules/reference/wso2-module-reference
 
 # Local workspace files
 go.work.sum

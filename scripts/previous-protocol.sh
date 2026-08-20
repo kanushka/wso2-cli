@@ -209,7 +209,7 @@ stage "Build the reference module against SDK $resolved"
 # The copy is of the working tree rather than of HEAD, so a contributor who
 # runs this gate on an uncommitted change is told about that change.
 module_source="$work/module"
-cp -R examples/reference-module "$module_source"
+cp -R modules/reference "$module_source"
 module_binary="$work/wso2-module-reference"
 (
 	cd "$module_source"
