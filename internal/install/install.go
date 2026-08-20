@@ -389,7 +389,13 @@ func writeAtomically(target string, content []byte) error {
 	if err != nil {
 		return storeFailure("writing the active-version pointer", err)
 	}
-	_, err = temporary.Write(content)
+	// CreateTemp opens at 0600, but every other file in the store is 0644 and
+	// the pointer is no more secret than the receipts beside it. Set the mode
+	// before the rename so the file never appears at the target under 0600.
+	err = temporary.Chmod(0o644)
+	if err == nil {
+		_, err = temporary.Write(content)
+	}
 	if closeErr := temporary.Close(); err == nil {
 		err = closeErr
 	}
