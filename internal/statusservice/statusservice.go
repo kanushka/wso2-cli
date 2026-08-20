@@ -54,6 +54,16 @@ import (
 // on its own. The duplication is the boundary being real.
 const StatusPath = "/status"
 
+// WhoamiPath serves the claims this service verified on the presented access.
+//
+// It exists so the access the shell brokers can be seen end to end: the shell
+// mints a token, the module presents it without ever reading it, and the
+// audience reports back what it verified. A module must not introspect the
+// access it carries, so the only party that can answer this honestly is the
+// service the token was minted for. Nothing derived from the source credential
+// is in the answer — the claims are reported, the token never is.
+const WhoamiPath = "/whoami"
+
 // InvocationHeader names the shell invocation a request belongs to.
 //
 // The service compares it with the token's own invocation claim, so a caller
@@ -152,13 +162,20 @@ func (s *Service) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			"the reference status service is read-only")
 		return
 	}
-	if request.URL.Path != StatusPath {
-		s.fail(writer, http.StatusNotFound, "not_found", "the reference status service serves "+StatusPath)
+	if request.URL.Path != StatusPath && request.URL.Path != WhoamiPath {
+		s.fail(writer, http.StatusNotFound, "not_found",
+			"the reference status service serves "+StatusPath+" and "+WhoamiPath)
 		return
 	}
 
-	if failure := s.authorize(request); failure != nil {
+	granted, failure := s.authorize(request)
+	if failure != nil {
 		s.fail(writer, failure.status, failure.code, failure.message)
+		return
+	}
+
+	if request.URL.Path == WhoamiPath {
+		s.writeWhoami(writer, granted, request.Header.Get(InvocationHeader))
 		return
 	}
 
@@ -195,33 +212,33 @@ type refusal struct {
 // Every check is against what the service itself serves, never against what the
 // request asks for, so a caller cannot widen its access by asserting a
 // different audience, scope, organization, or invocation.
-func (s *Service) authorize(request *http.Request) *refusal {
+func (s *Service) authorize(request *http.Request) (access, *refusal) {
 	presented, found := strings.CutPrefix(request.Header.Get("Authorization"), "Bearer ")
 	if !found || strings.TrimSpace(presented) == "" {
-		return &refusal{http.StatusUnauthorized, "unauthenticated",
+		return access{}, &refusal{http.StatusUnauthorized, "unauthenticated",
 			"the request presented no bearer token"}
 	}
 	invocation := request.Header.Get(InvocationHeader)
 	if invocation == "" {
-		return &refusal{http.StatusUnauthorized, "unauthenticated",
+		return access{}, &refusal{http.StatusUnauthorized, "unauthenticated",
 			"the request does not name the invocation it belongs to"}
 	}
 
 	granted, err := s.verifier.verify(strings.TrimSpace(presented))
 	switch {
 	case errors.Is(err, errAccessExpired):
-		return &refusal{http.StatusUnauthorized, "token_expired",
+		return access{}, &refusal{http.StatusUnauthorized, "token_expired",
 			"the presented access has expired"}
 	case err != nil:
-		return &refusal{http.StatusUnauthorized, "token_rejected",
+		return access{}, &refusal{http.StatusUnauthorized, "token_rejected",
 			"the presented access was not issued for this service"}
 	}
 
 	switch {
 	case !granted.serves(s.options.Audience):
-		return notAccepted("audience")
+		return access{}, notAccepted("audience")
 	case !granted.allows(s.options.RequiredScope):
-		return notAccepted("scope")
+		return access{}, notAccepted("scope")
 	// An organization the token names is checked; a token that names none is
 	// bound to this organization by its issuer instead. The JWKS verifier in
 	// jwks.go refuses any token whose iss is not the one this service was
@@ -233,15 +250,42 @@ func (s *Service) authorize(request *http.Request) *refusal {
 	// own format that names no organization, so this line is never what lets
 	// one through.
 	case granted.Organization != "" && granted.Organization != s.options.Organization:
-		return notAccepted("organization")
+		return access{}, notAccepted("organization")
 	// Only the fixture token binds an invocation. The header is required of
 	// every caller regardless, so a run always states which invocation it
 	// claims to be part of even when nothing can hold it to the claim.
 	case granted.Invocation != "" && granted.Invocation != invocation:
-		return notAccepted("invocation")
+		return access{}, notAccepted("invocation")
 	}
-	return nil
+	return granted, nil
 }
+
+// writeWhoami reports the claims this service verified.
+//
+// A claim the token does not carry is reported as absent rather than as empty,
+// because "the issuer minted none" and "it is blank" are different answers and
+// this endpoint exists to tell them apart. The invocation falls back to the
+// header for a token format that binds none, and says which it is.
+func (s *Service) writeWhoami(writer http.ResponseWriter, granted access, invocation string) {
+	organization := granted.Organization
+	if organization == "" {
+		organization = notClaimed
+	}
+	boundInvocation := granted.Invocation
+	if boundInvocation == "" {
+		boundInvocation = notClaimed
+	}
+	s.write(writer, http.StatusOK, map[string]string{
+		"organization": organization,
+		"audiences":    strings.Join(granted.Audiences, " "),
+		"scopes":       strings.Join(granted.Scopes, " "),
+		"invocation":   invocation,
+		"boundTo":      boundInvocation,
+	})
+}
+
+// notClaimed is what this service reports for a claim the token does not carry.
+const notClaimed = "(not claimed)"
 
 // notAccepted refuses a token whose claims are not the ones this service
 // serves. The claim that failed is named because it is not secret and it is

@@ -30,6 +30,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/wso2/wso2-cli/sdk/module"
 	"github.com/wso2/wso2-cli/sdk/result"
@@ -48,6 +49,9 @@ const (
 // StatusSchema identifies the semantic shape of the reference status result.
 // The shell renders it without interpreting it.
 const StatusSchema = "reference.status/v1"
+
+// WhoamiSchema identifies the semantic shape of the reference whoami result.
+const WhoamiSchema = "reference.whoami/v1"
 
 // moduleVersion is this module's own release version. A build injects it with:
 //
@@ -75,7 +79,7 @@ func main() {
 	// Standard output now carries protocol frames only. Anything this process
 	// wants to say goes to standard error, where the shell captures it as
 	// bounded diagnostics.
-	err := module.Serve(context.Background(), options, statusCommand())
+	err := module.Serve(context.Background(), options, statusCommand(), whoamiCommand())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "wso2-module-reference: %v\n", err)
 		os.Exit(1)
@@ -95,6 +99,11 @@ func moduleOptions() module.Options {
 // statusCommand binds "wso2 reference status" to its handler.
 func statusCommand() module.Command {
 	return module.Command{Path: []string{"status"}, Run: status}
+}
+
+// whoamiCommand binds "wso2 reference whoami" to its handler.
+func whoamiCommand() module.Command {
+	return module.Command{Path: []string{"whoami"}, Run: whoami}
 }
 
 // status answers "wso2 reference status".
@@ -126,6 +135,39 @@ func status(ctx context.Context, request module.Request) (result.Result, error) 
 		With("service", "Service", status.Service).
 		With("status", "Status", status.Status).
 		With("checkedAt", "Checked at", status.CheckedAt), nil
+}
+
+// whoami answers "wso2 reference whoami".
+//
+// It reports what the access this invocation was granted actually conveys. The
+// second command exists to make the brokered hand-off visible: status proves
+// the access works, and whoami proves what it is — which audience it names,
+// which scopes it carries, and which invocation it is bound to.
+//
+// The claims are read back from the audience, never from the token. This
+// handler holds the same opaque string status does and has no more ability to
+// read it. The token itself is never part of the result: a claim is not secret,
+// the material that carries it is.
+func whoami(ctx context.Context, request module.Request) (result.Result, error) {
+	access, err := request.Access.Acquire(ctx, module.AccessRequest{
+		Audience: StatusAudience,
+		Scopes:   []string{StatusScope},
+	})
+	if err != nil {
+		return result.Result{}, err
+	}
+
+	granted, err := readWhoami(ctx, request.Context.Endpoint, request.InvocationID, access.Token)
+	if err != nil {
+		return result.Result{}, err
+	}
+	return result.New(WhoamiSchema).
+		With("organization", "Organization", granted.Organization).
+		With("audiences", "Audiences", granted.Audiences).
+		With("scopes", "Scopes", granted.Scopes).
+		With("invocation", "Invocation", granted.Invocation).
+		With("boundTo", "Bound to", granted.BoundTo).
+		With("expiresAt", "Expires at", access.ExpiresAt.Format(time.RFC3339)), nil
 }
 
 // reportIdentity writes the module's runtime identity for tests.
