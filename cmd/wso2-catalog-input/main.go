@@ -76,7 +76,7 @@ func run() error {
 	if err := os.WriteFile(*outputPath, append(document, '\n'), 0o644); err != nil {
 		return fmt.Errorf("writing %s failed: %w", *outputPath, err)
 	}
-	fmt.Fprintf(os.Stdout, "assembled %d module tag(s) into %s\n", len(input.Tags), *outputPath)
+	_, _ = fmt.Fprintf(os.Stdout, "assembled %d module tag(s) into %s\n", len(input.Tags), *outputPath)
 	return nil
 }
 

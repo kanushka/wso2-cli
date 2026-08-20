@@ -92,7 +92,7 @@ func run() error {
 	if err := release.Gate(namespace, version, declaration.Compatibility, window); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stdout, "%s speaks module-contract protocol %s and the released shell speaks %s\n",
+	_, _ = fmt.Fprintf(os.Stdout, "%s speaks module-contract protocol %s and the released shell speaks %s\n",
 		*tag, release.FormatProtocols(declaration.Compatibility.ProtocolVersions),
 		release.FormatProtocols(window))
 	if *gateOnly {
@@ -122,13 +122,13 @@ func run() error {
 			return fmt.Errorf("writing %s failed: %w", name, err)
 		}
 		digests[name] = fmt.Sprintf("%x", sha256.Sum256(archive))
-		fmt.Fprintf(os.Stdout, "built %s\n", name)
+		_, _ = fmt.Fprintf(os.Stdout, "built %s\n", name)
 	}
 
 	if err := writeChecksums(*outputDir, digests); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stdout, "%d archives and %s written into %s\n",
+	_, _ = fmt.Fprintf(os.Stdout, "%d archives and %s written into %s\n",
 		len(digests), release.ChecksumsFileName, *outputDir)
 	return nil
 }
