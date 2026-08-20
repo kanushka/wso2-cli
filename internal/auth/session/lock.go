@@ -62,7 +62,7 @@ func (s Store) WithLock(ref string, fn func() error) error {
 // release closes the descriptor and leaves the file in place. Removing it
 // would reintroduce the race it replaced — a waiter holding a descriptor to
 // the old inode and a newcomer creating a fresh one at the same path would
-// both lock successfully. See ADR 0005.
+// both lock successfully. See ADR 0007.
 func acquireLock(path string) (release func(), err error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
