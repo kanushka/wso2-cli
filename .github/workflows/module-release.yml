@@ -2,8 +2,9 @@ name: Module release
 
 # A module tag is the whole trigger: a product team releases by pushing a tag in
 # its own namespace, and nothing publishes from a branch. The SDK's own tags
-# share the prefixed shape and are excluded by every job, because the SDK is not
-# a product module and publishes no module archives.
+# share the prefixed shape, so the gate excludes them and every later job is
+# excluded with it: the SDK is not a product module and publishes no module
+# archives.
 on:
   push:
     tags:
@@ -52,8 +53,27 @@ jobs:
             go.mod
             sdk/go.mod
 
+      # What the released shell speaks is asked of the released shell rather than
+      # read from this checkout, because a protocol bump that has landed here
+      # and has not shipped yet describes no shell a user can have. Nothing is
+      # printed when no shell has been released at all, and the gate then falls
+      # back to what the checkout declares.
+      - name: Ask the released shell what it speaks
+        id: shell
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          window="$(./scripts/released-shell-protocols.sh)"
+          echo "protocols=${window}" >>"${GITHUB_OUTPUT}"
+
       - name: Decide whether this module may publish
-        run: go run ./cmd/wso2-module-release -tag "${GITHUB_REF_NAME}" -gate-only
+        run: |
+          set -euo pipefail
+          go run ./cmd/wso2-module-release -tag "${GITHUB_REF_NAME}" -gate-only \
+            ${WINDOW:+-shell-protocols "${WINDOW}"}
+        env:
+          WINDOW: ${{ steps.shell.outputs.protocols }}
 
   publish:
     name: Publish module artifacts
@@ -77,12 +97,26 @@ jobs:
             go.mod
             sdk/go.mod
 
+      - name: Ask the released shell what it speaks
+        id: shell
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          window="$(./scripts/released-shell-protocols.sh)"
+          echo "protocols=${window}" >>"${GITHUB_OUTPUT}"
+
       # Every supported platform, from one command, with the gate run again
       # rather than trusted from the previous job: the two jobs check out
       # independently, and a gate whose result travels as a job output would be
       # a second place the decision lives.
       - name: Build the module for every supported platform
-        run: go run ./cmd/wso2-module-release -tag "${GITHUB_REF_NAME}" -out dist
+        run: |
+          set -euo pipefail
+          go run ./cmd/wso2-module-release -tag "${GITHUB_REF_NAME}" -out dist \
+            ${WINDOW:+-shell-protocols "${WINDOW}"}
+        env:
+          WINDOW: ${{ steps.shell.outputs.protocols }}
 
       - name: Publish the release
         env:
@@ -174,6 +208,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/assemble-site.sh site
+
+      # A catalog assembled from a truncated tag set would deploy over the full
+      # one and silently unpublish releases, so the tag that triggered this run
+      # has to be in what is about to be served.
+      - name: Check the released version reached the catalog
+        run: |
+          set -euo pipefail
+          namespace="${GITHUB_REF_NAME%%/*}"
+          version="${GITHUB_REF_NAME##*/v}"
+          published="site/modules/${namespace}.json"
+          if ! grep -qF "\"version\": \"${version}\"" "${published}"; then
+            echo "::error::${published} does not carry the version this run released"
+            exit 1
+          fi
+          echo "${namespace} ${version} is in the catalog about to be deployed"
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

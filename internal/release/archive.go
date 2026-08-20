@@ -22,8 +22,8 @@ import (
 	"compress/gzip"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
-	"strings"
 
 	"github.com/wso2/wso2-cli/internal/install"
 	"github.com/wso2/wso2-cli/internal/modules"
@@ -65,18 +65,6 @@ func ArchiveName(namespace, version string, platform modules.Platform) string {
 		namespace, version, platform.OS, platform.Arch, ArchiveExtension)
 }
 
-// ExecutableName is the name the module executable carries inside its archive.
-//
-// The archive layout is a convention rather than a catalog field: the shell
-// extracts a module archive expecting exactly this name and refuses an archive
-// that does not carry it rather than searching for something executable. That
-// makes it an unwritten contract between this half, which packs the archive,
-// and the shell's half, which unpacks it. The two halves read it from one
-// function so it cannot be written down twice and drift.
-func ExecutableName(namespace string, platform modules.Platform) string {
-	return install.ExecutableName(namespace, platform)
-}
-
 // MainPackage is the package a module's executable is built from, relative to
 // the module directory. It is the executable's own name under cmd/, so the
 // package path, the archive entry, and the name the shell looks for are one
@@ -98,8 +86,14 @@ type ArchiveFile struct {
 // root, under the name the shell expects, beside the licence and notice that
 // Apache-2.0 requires to travel with a binary.
 func Archive(namespace string, platform modules.Platform, executable []byte, extra []ArchiveFile) ([]byte, error) {
+	// The archive layout is a convention rather than a catalog field: the shell
+	// extracts a module archive expecting exactly this name and refuses an
+	// archive that does not carry it rather than searching for something
+	// executable. That makes it a contract between this half, which packs the
+	// archive, and the shell's half, which unpacks it, so the name comes from
+	// the unpacking half rather than being written down a second time here.
 	files := append([]ArchiveFile{{
-		Name:       ExecutableName(namespace, platform),
+		Name:       install.ExecutableName(namespace, platform),
 		Body:       executable,
 		Executable: true,
 	}}, extra...)
@@ -155,6 +149,5 @@ func ReadArchiveFiles(repositoryRoot string, names ...string) ([]ArchiveFile, er
 // baseName reduces a checkout-relative name to the name it carries in an
 // archive, which is flat.
 func baseName(name string) string {
-	parts := strings.Split(name, "/")
-	return parts[len(parts)-1]
+	return path.Base(name)
 }

@@ -39,8 +39,10 @@ import (
 	"strings"
 
 	"github.com/wso2/wso2-cli/internal/catalog"
+	"github.com/wso2/wso2-cli/internal/install"
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/release"
+	"github.com/wso2/wso2-cli/sdk/protocol"
 )
 
 func main() {
@@ -55,6 +57,8 @@ func run() error {
 	repositoryRoot := flag.String("repo", ".", "Repository checkout to build the module from.")
 	outputDir := flag.String("out", "dist", "Directory to write the archives and the checksum file into.")
 	gateOnly := flag.Bool("gate-only", false, "Decide whether the release may publish, and build nothing.")
+	shellProtocols := flag.String("shell-protocols", "",
+		"The protocol versions the released shell speaks, such as \"2, 1\". Defaults to what this checkout declares.")
 	flag.Parse()
 
 	if *tag == "" {
@@ -70,15 +74,27 @@ func run() error {
 		return err
 	}
 
+	// What the released shell speaks is asked of the released shell, because a
+	// protocol bump that has landed here but has not shipped yet describes no
+	// shell a user can have. What this checkout declares is the fallback, for
+	// the case where no shell has been released at all.
+	window := release.ShellWindow()
+	if *shellProtocols != "" {
+		window = protocol.ParseVersions(*shellProtocols)
+		if len(window) == 0 {
+			return fmt.Errorf("-shell-protocols %q names no protocol version", *shellProtocols)
+		}
+	}
+
 	// The gate. Its decision is a pure function of what the module declares and
 	// what the released shell supports, and it is proven in
 	// internal/release/gate_test.go rather than by pushing a tag.
-	if err := release.Gate(namespace, version, declaration.Compatibility, release.ShellWindow()); err != nil {
+	if err := release.Gate(namespace, version, declaration.Compatibility, window); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stdout, "%s speaks module-contract protocol %s and the released shell speaks %s\n",
 		*tag, release.FormatProtocols(declaration.Compatibility.ProtocolVersions),
-		release.FormatProtocols(release.ShellWindow()))
+		release.FormatProtocols(window))
 	if *gateOnly {
 		return nil
 	}
@@ -141,7 +157,7 @@ func declarationFor(repositoryRoot, namespace string) (catalog.Declaration, erro
 // convention is one name rather than three.
 func build(repositoryRoot string, declaration catalog.Declaration, version string,
 	platform modules.Platform) ([]byte, error) {
-	output := filepath.Join(os.TempDir(), release.ExecutableName(declaration.Namespace, platform))
+	output := filepath.Join(os.TempDir(), install.ExecutableName(declaration.Namespace, platform))
 	packagePath := release.MainPackage(declaration.Namespace)
 
 	// The module reports its own version at the handshake and the shell checks

@@ -21,6 +21,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"io"
+	"os"
+	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/wso2/wso2-cli/internal/install"
@@ -84,4 +87,38 @@ func archiveNames(t *testing.T, platform modules.Platform, packed []byte) map[st
 		names[header.Name] = true
 	}
 	return names
+}
+
+// The targets a module publishes for are the targets the repository proves it
+// can build. Declaring them a second time in Go is only safe if the two lists
+// are held equal, so this reads the cross-build check's own list rather than
+// trusting a comment that says they match.
+func TestPlatformsAreTheTargetsEveryPullRequestCompiles(t *testing.T) {
+	workflow, err := os.ReadFile(filepath.Join(repositoryRoot(t), ".github", "workflows", "pr-checks.yml"))
+	if err != nil {
+		t.Fatalf("reading the pull-request workflow returned %v", err)
+	}
+	loop := regexp.MustCompile(`(?s)for target in\s+(.*?);\s*do`).FindSubmatch(workflow)
+	if loop == nil {
+		t.Fatal("the cross-build check no longer lists its targets in a loop this test can read")
+	}
+
+	compiled := map[string]bool{}
+	for _, target := range regexp.MustCompile(`[a-z0-9]+/[a-z0-9]+`).FindAllString(string(loop[1]), -1) {
+		compiled[target] = true
+	}
+	published := map[string]bool{}
+	for _, platform := range release.Platforms {
+		published[platform.String()] = true
+	}
+	for target := range compiled {
+		if !published[target] {
+			t.Errorf("%s is compiled on every pull request and no module publishes for it", target)
+		}
+	}
+	for target := range published {
+		if !compiled[target] {
+			t.Errorf("a module publishes for %s and no pull request compiles it", target)
+		}
+	}
 }

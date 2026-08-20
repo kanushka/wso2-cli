@@ -29,6 +29,7 @@ package release
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -37,14 +38,22 @@ import (
 	"github.com/wso2/wso2-cli/sdk/protocol"
 )
 
-// ShellWindow reports the protocol versions the released shell supports.
+// ShellWindow reports the protocol versions a shell built from this checkout
+// supports.
 //
 // It is read from sdk/protocol, which is the same single declaration the shell
 // itself reads when it announces what it speaks, so the gate and the shell
-// cannot come to disagree about what is supported. The release workflow holds
-// the other end of that equality: it asks the published binary what it speaks
-// and fails the release when the answer is not what the source declares, so
-// what is read here describes the shell a user can actually have.
+// cannot come to disagree about what is supported. The shell's own release
+// workflow holds the other end of that equality: it asks the published binary
+// what it speaks and fails the release when the answer is not what the source
+// declares.
+//
+// It is what this checkout declares rather than what is published, so it is
+// the fallback rather than the answer: between a protocol bump landing here and
+// the shell release that carries it, the two differ, and that gap is the skew
+// the gate exists to catch. The release workflow therefore asks the published
+// shell what it speaks and passes that in, and falls back to this only when no
+// shell has been released at all.
 func ShellWindow() []int {
 	return protocol.Window()
 }
@@ -77,18 +86,18 @@ func Gate(namespace, version string, module modules.Compatibility, shellWindow [
 		return fmt.Errorf("release refused: the released shell declares no supported module-contract protocol, "+
 			"so whether the %s module at %s can run cannot be decided", namespace, version)
 	}
-	if module.Shell != "" {
-		if _, err := semver.ParseRange(module.Shell); err != nil {
-			return fmt.Errorf("release refused: the %s module at %s declares an unreadable shell range %q: %w",
-				namespace, version, module.Shell, err)
-		}
-	} else {
-		return fmt.Errorf("release refused: the %s module at %s declares no shell range", namespace, version)
+	// Not part of the protocol decision, but a precondition of it: a module
+	// whose shell range the catalog cannot read publishes no entry, so it is
+	// refused here where the message can name the module rather than several
+	// steps later where it names a document.
+	if _, err := semver.ParseRange(module.Shell); err != nil {
+		return fmt.Errorf("release refused: the %s module at %s declares an unusable shell range %q: %w",
+			namespace, version, module.Shell, err)
 	}
 
 	supported := map[int]bool{}
-	for _, version := range shellWindow {
-		supported[version] = true
+	for _, supportedVersion := range shellWindow {
+		supported[supportedVersion] = true
 	}
 	for _, declared := range module.ProtocolVersions {
 		if supported[declared] {
@@ -100,7 +109,7 @@ func Gate(namespace, version string, module modules.Compatibility, shellWindow [
 	speaks := FormatProtocols(shellWindow)
 	refusal := fmt.Sprintf("release refused: the %s module at %s requires module-contract protocol %s, "+
 		"and the released shell speaks %s", namespace, version, required, speaks)
-	if lowest(module.ProtocolVersions) > highest(shellWindow) {
+	if slices.Min(module.ProtocolVersions) > slices.Max(shellWindow) {
 		return fmt.Errorf("%s. The shell ships first: publishing this would put a module on the catalog "+
 			"that no installed shell can launch. Either wait for a shell release that speaks %s, "+
 			"or build this module against the SDK for %s", refusal, required, speaks)
@@ -109,8 +118,8 @@ func Gate(namespace, version string, module modules.Compatibility, shellWindow [
 		"supports, so build this module against the SDK for %s", refusal, required, speaks)
 }
 
-// FormatProtocols renders a protocol version set the way the shell's own
-// refusals render one, newest first, so the two read alike.
+// FormatProtocols renders a protocol version set newest first, in the form the
+// shell's own refusals use.
 func FormatProtocols(versions []int) string {
 	ordered := append([]int(nil), versions...)
 	sort.Sort(sort.Reverse(sort.IntSlice(ordered)))
@@ -122,24 +131,4 @@ func FormatProtocols(versions []int) string {
 		return "no version"
 	}
 	return strings.Join(rendered, ", ")
-}
-
-func lowest(versions []int) int {
-	found := versions[0]
-	for _, version := range versions {
-		if version < found {
-			found = version
-		}
-	}
-	return found
-}
-
-func highest(versions []int) int {
-	found := versions[0]
-	for _, version := range versions {
-		if version > found {
-			found = version
-		}
-	}
-	return found
 }

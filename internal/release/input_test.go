@@ -17,6 +17,7 @@
 package release_test
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"strings"
@@ -140,6 +141,30 @@ func TestAssembleInputIsDeterministic(t *testing.T) {
 	if fmt.Sprint(first.Tags) != fmt.Sprint(second.Tags) {
 		t.Fatalf("the tag order differs: %v against %v", first.Tags, second.Tags)
 	}
+	// The bytes, not the ordering alone: what is published has to be identical,
+	// which is what "regenerating without new tags produces no change" means.
+	if !bytes.Equal(rendered(t, first), rendered(t, second)) {
+		t.Error("two generations over the same tag set published different bytes")
+	}
+}
+
+// rendered is what generating over one input publishes, as bytes.
+func rendered(t *testing.T, input catalog.Input) []byte {
+	t.Helper()
+	generated, err := catalog.Generate(input)
+	if err != nil {
+		t.Fatalf("generating the catalog returned %v", err)
+	}
+	files, err := generated.Files()
+	if err != nil {
+		t.Fatalf("rendering the catalog returned %v", err)
+	}
+	var all []byte
+	for _, file := range files {
+		all = append(all, file.Path...)
+		all = append(all, file.Content...)
+	}
+	return all
 }
 
 func TestAssembleInputRefusesAReleaseMissingAPlatform(t *testing.T) {

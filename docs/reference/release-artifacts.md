@@ -138,16 +138,20 @@ the same conventions as a shell release, with the module's own names.
 wso2-module-<namespace>-v<version>-<os>-<arch>.<extension>
 ```
 
-The target list is the eight above: a module that published for fewer would
-leave a user who can install the shell unable to install the module. The
+The target list is the eight above, and a test holds it equal to the list the
+pull-request cross-build check compiles: a module that published for fewer
+would leave a user who can install the shell unable to install the module. The
 extension is `tar.gz` on every platform, including the two where a shell
 release publishes a zip, because the shell extracts a module archive as a
-gzipped tarball and refuses anything else. Each archive carries, at its root and in no subdirectory, the module executable
-named `wso2-module-<namespace>` — `.exe` on Windows — beside `LICENSE` and
-`NOTICE`. That name is a convention rather than a catalog field: the shell
-extracts a module archive expecting exactly it and refuses an archive that does
-not carry it rather than searching for something executable. Both halves of
-that convention read it from `internal/release`, so it is written down once.
+gzipped tarball and refuses anything else.
+
+Each archive carries, at its root and in no subdirectory, the module
+executable named `wso2-module-<namespace>` — `.exe` on Windows — beside
+`LICENSE` and `NOTICE`. That name is a convention rather than a catalog field:
+the shell extracts a module archive expecting exactly it and refuses an
+archive that does not carry it rather than searching for something executable.
+Both halves of that convention read the name from one function, so it is
+written down once rather than twice.
 
 A module release publishes a `checksums.txt` covering every archive, in the
 format `sha256sum` reads. It is what the catalog's digests are read back from:
@@ -174,9 +178,14 @@ The refusal names both sides — the protocol the module requires and the set th
 released shell speaks — so a product team can tell whether to wait for a shell
 release or to change the module.
 
-The released shell's supported set is read from `sdk/protocol`, which is the
-same single declaration the shell itself reads when it announces what it
-speaks, so the gate and the shell cannot come to disagree. The shell release
+The released shell's supported set comes from `sdk/protocol`, the same single
+declaration the shell itself reads when it announces what it speaks, so the
+gate and the shell cannot come to disagree. The workflow asks the published
+shell binary for it rather than reading this checkout, because between a
+protocol bump landing on the default branch and the shell release that carries
+it the two are not the same thing, and it is the shell a user can have that
+decides whether a module can run. What this checkout declares is the fallback,
+for the case where no shell has been released at all. The shell's own release
 holds the other end of that equality: it asks the published binary what it
 speaks and fails the release when the answer is not what the source declares.
 
