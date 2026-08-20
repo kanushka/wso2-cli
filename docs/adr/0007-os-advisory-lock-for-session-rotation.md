@@ -1,4 +1,4 @@
-# ADR 0005: OS Advisory Lock for Session Rotation
+# ADR 0007: OS Advisory Lock for Session Rotation
 
 **Status:** Accepted
 
