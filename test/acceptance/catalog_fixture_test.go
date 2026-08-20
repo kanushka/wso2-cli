@@ -67,6 +67,20 @@ const (
 	catalogAncientStable = "reference/v0.1.0"
 )
 
+// A second namespace, on its own version scheme. Several criteria are about one
+// module's policy being independent of another's — a channel chosen per module,
+// a pin that survives an update run that moves everything else — and none of
+// them can be stated with one namespace in the store.
+//
+// It is a fixture namespace rather than a product module: only the reference
+// module exists, and migrating apictl, amctl, and mi is separate work.
+const (
+	catalogOtherNamespace  = "sample"
+	catalogOtherStable     = "sample/v1.0.0"
+	catalogOtherNewer      = "sample/v1.1.0"
+	catalogOtherPrerelease = "sample/v1.2.0-rc.1"
+)
+
 // catalogPlatforms are the platforms the fixture releases publish for. They are
 // fixed rather than taken from the running machine: nothing here is executed,
 // and a fixed set keeps the generated files identical on every runner.
@@ -175,15 +189,29 @@ func (c *catalogHarness) input(tags []string) catalog.Input {
 	// capabilities in a fixture entry are the reference module's own rather
 	// than values invented here. A module installed from a catalog that
 	// published none would be denied every brokered request it makes.
-	var capabilities modules.Capabilities
+	capabilities := map[string]modules.Capabilities{}
+	compatibility := map[string]modules.Compatibility{}
 	for _, declaration := range declarations {
-		if declaration.Namespace == catalogNamespace {
-			capabilities = declaration.Capabilities
-		}
+		capabilities[declaration.Namespace] = declaration.Capabilities
+		compatibility[declaration.Namespace] = declaration.Compatibility
 	}
+	// The second namespace has no module directory, because no second module
+	// exists to give it one. Its declaration is the reference module's, under
+	// another namespace, which is all the generator needs to accept its tags.
+	declarations = append(declarations, catalog.Declaration{
+		SchemaVersion: catalog.SchemaVersion,
+		Namespace:     catalogOtherNamespace,
+		Compatibility: compatibility[catalogNamespace],
+		Capabilities:  capabilities[catalogNamespace],
+	})
+	capabilities[catalogOtherNamespace] = capabilities[catalogNamespace]
 
 	published := map[string]catalog.Release{}
 	for _, tag := range tags {
+		namespace, _, err := catalog.ParseTag(tag)
+		if err != nil {
+			c.t.Fatalf("the fixture tag %q is malformed: %v", tag, err)
+		}
 		artifacts := make([]catalog.Artifact, 0, len(c.options.platforms))
 		for _, platform := range c.options.platforms {
 			body := c.archiveBytes(tag, platform)
@@ -205,7 +233,7 @@ func (c *catalogHarness) input(tags []string) catalog.Input {
 				Shell:            ">=0.1.0 <2.0.0",
 				ProtocolVersions: protocols,
 			},
-			Capabilities: capabilities,
+			Capabilities: capabilities[namespace],
 			Artifacts:    artifacts,
 		}
 	}
@@ -223,12 +251,12 @@ func (c *catalogHarness) publish(tag string, platform modules.Platform, body []b
 // archivePath reports where one tag's archive for one platform is served from.
 func (c *catalogHarness) archivePath(tag string, platform modules.Platform) string {
 	c.t.Helper()
-	_, version, err := catalog.ParseTag(tag)
+	namespace, version, err := catalog.ParseTag(tag)
 	if err != nil {
 		c.t.Fatalf("the fixture tag %q is malformed: %v", tag, err)
 	}
 	return fmt.Sprintf("download/%s/v%s/wso2-module-%s-v%s-%s-%s.tar.gz",
-		catalogNamespace, version, catalogNamespace, version, platform.OS, platform.Arch)
+		namespace, version, namespace, version, platform.OS, platform.Arch)
 }
 
 // platformExecutableSuffix reports the executable suffix of a published
@@ -264,7 +292,7 @@ func (c *catalogHarness) archiveBytes(tag string, platform modules.Platform) []b
 // is what makes caching its result sound.
 func (c *catalogHarness) buildArchive(tag string, platform modules.Platform) []byte {
 	c.t.Helper()
-	_, version, err := catalog.ParseTag(tag)
+	namespace, version, err := catalog.ParseTag(tag)
 	if err != nil {
 		c.t.Fatalf("the fixture tag %q is malformed: %v", tag, err)
 	}
@@ -283,7 +311,7 @@ func (c *catalogHarness) buildArchive(tag string, platform modules.Platform) []b
 		name string
 		body []byte
 	}{
-		{"wso2-module-" + catalogNamespace + platformExecutableSuffix(platform), executable},
+		{"wso2-module-" + namespace + platformExecutableSuffix(platform), executable},
 		{"RELEASE", []byte(tag + " " + platform.String() + "\n")},
 	}
 	if c.options.carriesNoModule[tag] {

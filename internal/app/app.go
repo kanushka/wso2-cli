@@ -65,7 +65,7 @@ func builtins() []builtin {
 	return []builtin{
 		{name: "help", summary: "Show the shell command tree.", run: Shell.help},
 		{name: "login", summary: "Log in to the selected context's identity.", run: Shell.login},
-		{name: "module", summary: "Install a product module from the module catalog.", run: Shell.module},
+		{name: "module", summary: "Install, list, and update product modules from the module catalog.", run: Shell.module},
 		{name: "version", summary: "Show the shell, protocol, and installed module versions.", run: Shell.version},
 	}
 }

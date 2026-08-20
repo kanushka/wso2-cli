@@ -18,6 +18,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/wso2/wso2-cli/internal/catalog"
 	"github.com/wso2/wso2-cli/internal/install"
+	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -37,17 +39,26 @@ func (s Shell) module(args []string) error {
 	if len(args) == 0 {
 		return problem.New(problem.CategoryUsage, "shell.missing_argument",
 			"wso2 module needs a subcommand").
-			WithRecovery("Run wso2 module install <module> to install a product module.")
+			WithRecovery(moduleRecovery)
 	}
 	switch args[0] {
 	case "install":
 		return s.moduleInstall(args[1:])
+	case "available":
+		return s.moduleAvailable(args[1:])
+	case "list":
+		return s.moduleList(args[1:])
+	case "update":
+		return s.moduleUpdate(args[1:])
 	default:
 		return problem.New(problem.CategoryUsage, "shell.unknown_command",
 			fmt.Sprintf("%q is not a wso2 module subcommand", args[0])).
-			WithRecovery("Run wso2 module install <module> to install a product module.")
+			WithRecovery(moduleRecovery)
 	}
 }
+
+const moduleRecovery = "Run wso2 module available to see what can be installed, " +
+	"wso2 module install <module> to install one, or wso2 module update --all to update what is installed."
 
 // moduleInstall installs one product module from the catalog.
 //
@@ -61,22 +72,12 @@ func (s Shell) moduleInstall(args []string) error {
 		return err
 	}
 
-	store, err := s.store()
+	installer, err := s.installer()
 	if err != nil {
 		return err
 	}
-	identity, err := s.identity()
-	if err != nil {
-		return err
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), catalogTimeout)
 	defer cancel()
-	installer := install.Installer{
-		Store:  store,
-		Client: catalog.Client{Origin: catalog.Origin(), HTTP: &http.Client{}},
-		Shell:  identity,
-	}
 	installed, err := installer.Run(ctx, install.Request{Namespace: namespace, Policy: policy})
 	if err != nil {
 		return err
@@ -128,4 +129,230 @@ func parseInstallArguments(args []string) (string, catalog.Policy, error) {
 			WithRecovery("Pin a version, or choose a channel, but not both.")
 	}
 	return namespace, policy, nil
+}
+
+// installer builds the installer this invocation uses: one store, one catalog
+// origin, and this shell's own identity.
+func (s Shell) installer() (install.Installer, error) {
+	store, err := s.store()
+	if err != nil {
+		return install.Installer{}, err
+	}
+	identity, err := s.identity()
+	if err != nil {
+		return install.Installer{}, err
+	}
+	return install.Installer{
+		Store:  store,
+		Client: catalog.Client{Origin: catalog.Origin(), HTTP: &http.Client{}},
+		Shell:  identity,
+	}, nil
+}
+
+// moduleAvailable lists the product modules the catalog publishes, so what can
+// be installed is discoverable from the shell rather than from documentation.
+//
+// It costs one request: the index carries the latest version on each channel
+// for every namespace, and nothing here selects a specific version.
+func (s Shell) moduleAvailable(args []string) error {
+	if len(args) > 0 {
+		return problem.New(problem.CategoryUsage, "shell.unexpected_argument",
+			fmt.Sprintf("wso2 module available takes no arguments, got %q", args[0])).
+			WithRecovery("Run wso2 module available.")
+	}
+	installer, err := s.installer()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), catalogTimeout)
+	defer cancel()
+	available, err := installer.Available(ctx)
+	if err != nil {
+		return err
+	}
+
+	if len(available) == 0 {
+		_, err := fmt.Fprintln(s.Streams.Out, "The module catalog publishes no modules.")
+		return err
+	}
+	table := output.NewTable("module", "channel", "version")
+	for _, module := range available {
+		for _, channel := range module.Channels {
+			table.Append(module.Namespace, channel.Channel, "v"+channel.Version)
+		}
+	}
+	if err := table.Render(s.Streams.Out); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(s.Streams.Out,
+		"\nRun wso2 module install <module> to install one.")
+	return err
+}
+
+// moduleList reports the installed modules and which of them have an update
+// available on the channel each one follows.
+//
+// The whole report costs one request whatever is installed, because the index
+// carries the latest version per channel and no version history is fetched: a
+// check selects nothing, and selecting is what a history is for.
+func (s Shell) moduleList(args []string) error {
+	if len(args) > 0 {
+		return problem.New(problem.CategoryUsage, "shell.unexpected_argument",
+			fmt.Sprintf("wso2 module list takes no arguments, got %q", args[0])).
+			WithRecovery("Run wso2 module list.")
+	}
+	installer, err := s.installer()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), catalogTimeout)
+	defer cancel()
+	statuses, err := installer.Check(ctx)
+	if err != nil {
+		return err
+	}
+
+	if len(statuses) == 0 {
+		_, err := fmt.Fprintln(s.Streams.Out, "No modules are installed.")
+		return err
+	}
+	updates := 0
+	table := output.NewTable("module", "installed", "channel", "update")
+	for _, status := range statuses {
+		table.Append(status.Namespace, "v"+status.Installed, status.Channel, updateColumn(status))
+		if status.Update {
+			updates++
+		}
+	}
+	if err := table.Render(s.Streams.Out); err != nil {
+		return err
+	}
+	if updates == 0 {
+		_, err := fmt.Fprintln(s.Streams.Out, "\nEvery installed module is current.")
+		return err
+	}
+	_, err = fmt.Fprintf(s.Streams.Out,
+		"\n%d module(s) have an update available. Run wso2 module update --all to take them.\n", updates)
+	return err
+}
+
+// updateColumn says what is available for one module in the terms that decide
+// it: an update to take, a pin holding it where it is, or a channel the catalog
+// publishes nothing on.
+func updateColumn(status install.Status) string {
+	switch {
+	case status.Pinned:
+		return "pinned to v" + status.Installed
+	case status.Update:
+		return "v" + status.Available + " available"
+	case status.Available == "":
+		return "not published"
+	default:
+		return "current"
+	}
+}
+
+// moduleUpdate brings installed modules to the newest version their own channel
+// publishes.
+//
+// A pinned module is passed over rather than moved, so updating everything else
+// cannot silently take a module off the version it is held at. A module whose
+// update is refused keeps the version that was active before the run, and the
+// refusal is reported rather than swallowed.
+func (s Shell) moduleUpdate(args []string) error {
+	namespaces, err := parseUpdateArguments(args)
+	if err != nil {
+		return err
+	}
+	installer, err := s.installer()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), catalogTimeout)
+	defer cancel()
+	outcomes, err := installer.Update(ctx, namespaces)
+	if err != nil {
+		return err
+	}
+	if len(outcomes) == 0 {
+		_, err := fmt.Fprintln(s.Streams.Out, "No modules are installed.")
+		return err
+	}
+
+	var failures []error
+	for _, outcome := range outcomes {
+		line, failure := updateLine(outcome)
+		if _, err := fmt.Fprintln(s.Streams.Out, line); err != nil {
+			return err
+		}
+		if failure != nil {
+			failures = append(failures, failure)
+		}
+	}
+	if len(failures) == 0 {
+		return nil
+	}
+	// Every refusal is reported, and the first is what the run exits on, so a
+	// run that moved some modules and refused others is neither silent about
+	// the refusals nor reported as a success.
+	for _, failure := range failures[1:] {
+		output.Diagnostic(s.Streams.Err, asProblem(failure))
+	}
+	return failures[0]
+}
+
+// updateLine renders one module's outcome, and reports the refusal to exit on.
+func updateLine(outcome install.Outcome) (string, error) {
+	switch outcome.Action {
+	case install.ActionUpdated:
+		return fmt.Sprintf("Updated %s from v%s to v%s.", outcome.Namespace, outcome.From, outcome.To), nil
+	case install.ActionPinned:
+		return fmt.Sprintf("%s is pinned to v%s and was not updated.", outcome.Namespace, outcome.From), nil
+	case install.ActionFailed:
+		return fmt.Sprintf("%s could not be updated. v%s is still active.",
+			outcome.Namespace, outcome.From), outcome.Err
+	default:
+		return fmt.Sprintf("%s is current at v%s.", outcome.Namespace, outcome.From), nil
+	}
+}
+
+// parseUpdateArguments reads the modules an update run covers. Updating
+// everything is asked for explicitly, so a mistyped module name cannot become a
+// run over every installed module.
+func parseUpdateArguments(args []string) ([]string, error) {
+	all := false
+	var namespaces []string
+	for _, argument := range args {
+		switch {
+		case argument == "--all":
+			all = true
+		case strings.HasPrefix(argument, "-"):
+			return nil, problem.New(problem.CategoryUsage, "shell.unknown_flag",
+				fmt.Sprintf("%q is not a wso2 module update flag", argument)).
+				WithRecovery("Run wso2 module update <module>, or wso2 module update --all.")
+		default:
+			namespaces = append(namespaces, argument)
+		}
+	}
+	if all && len(namespaces) > 0 {
+		return nil, problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
+			"--all updates every installed module, so naming one as well is ambiguous").
+			WithRecovery("Run wso2 module update <module>, or wso2 module update --all.")
+	}
+	if !all && len(namespaces) == 0 {
+		return nil, problem.New(problem.CategoryUsage, "shell.missing_argument",
+			"wso2 module update needs a module, or --all").
+			WithRecovery("Run wso2 module update <module>, or wso2 module update --all.")
+	}
+	return namespaces, nil
+}
+
+// asProblem renders a refusal that is not the one this run exits on, so a
+// second failure is still reported in the shell's own idiom.
+func asProblem(err error) problem.Problem {
+	var typed problem.Problem
+	if errors.As(err, &typed) {
+		return typed
+	}
+	return problem.New(problem.CategoryModuleProcess, "modules.update_failed", err.Error())
 }
