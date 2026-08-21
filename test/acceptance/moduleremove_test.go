@@ -29,10 +29,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wso2/wso2-cli/internal/catalog"
 	"github.com/wso2/wso2-cli/internal/exit"
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/state"
 )
+
+// listModules runs one inventory listing against a catalog origin.
+//
+// The origin is supplied rather than left to the shell's default because
+// listing a non-empty inventory asks the catalog what is newest: a run without
+// it reaches the published catalog, which would make an acceptance test depend
+// on the network and on what is published that day.
+func listModules(shell, stateRoot, origin string) (string, string, error) {
+	environment := shellEnvironment(stateRoot, catalog.OriginEnvVar+"="+origin)
+	return runShellWith(shell, environment, "module", "list")
+}
 
 // removeModule runs one removal and reports both streams and the exit error.
 func removeModule(shell, stateRoot string, args ...string) (string, string, error) {
@@ -73,7 +85,10 @@ func TestRemovingAModuleTakesItOffTheMachine(t *testing.T) {
 		t.Errorf("the module policy survives removal: %v", err)
 	}
 
-	inventory, _ := runShell(t, shell, stateRoot, "module", "list")
+	inventory, _, err := listModules(shell, stateRoot, origin.server.URL)
+	if err != nil {
+		t.Fatalf("listing returned %v", err)
+	}
 	if strings.Contains(inventory, catalogNamespace) {
 		t.Errorf("a removed module is still listed as installed:\n%s", inventory)
 	}
@@ -121,7 +136,14 @@ func TestRemovingOneModuleLeavesTheOthersInstalled(t *testing.T) {
 	if got := installedVersion(t, stateRoot, catalogOtherNamespace); got == "" {
 		t.Fatal("the module that was not named lost its active version")
 	}
-	inventory, _ := runShell(t, shell, stateRoot, "module", "list")
+	// Listing an inventory that is not empty asks the catalog what is newest,
+	// so this run has to be pointed at the fixture origin. Without it the shell
+	// would fall back to the published one and this test would depend on the
+	// network and on what is published today.
+	inventory, _, err := listModules(shell, stateRoot, origin.server.URL)
+	if err != nil {
+		t.Fatalf("listing returned %v", err)
+	}
 	if !strings.Contains(inventory, catalogOtherNamespace) {
 		t.Errorf("the module that was not named is no longer listed:\n%s", inventory)
 	}
