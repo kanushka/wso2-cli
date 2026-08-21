@@ -214,6 +214,70 @@ The origin the shell reads is `https://wso2.github.io/wso2-cli`. It can be
 overridden with `WSO2_CLI_CATALOG_ORIGIN`, which exists so the acceptance suite
 can drive the shell against a local origin serving a generated catalog.
 
+## Discovering what can be installed
+
+```sh
+wso2 module available
+```
+
+One request, the index, lists every namespace the catalog publishes with the
+latest version on each of its channels. What exists is therefore discoverable
+from the shell rather than from this document.
+
+## Update checks, channels, and pins
+
+```sh
+wso2 module list
+wso2 module update reference
+wso2 module update --all
+```
+
+`wso2 module list` reports the installed modules and which of them have an
+update available. It costs one request whatever is installed, because
+`index.json` already carries the latest version per channel and no version
+history is fetched: a check selects nothing, and selecting is what a history is
+for. Extending a module's release history therefore does not make a check cost
+more, which is the property the index exists for.
+
+Channel and pin are recorded per module, in a `policy.json` beside that
+module's installations:
+
+```json
+{
+  "schemaVersion": 1,
+  "namespace": "reference",
+  "channel": "prerelease",
+  "pinnedVersion": ""
+}
+```
+
+An install records what it was asked for, and an update reads it back. That is
+what makes a channel a property of the module rather than of the shell — a user
+takes a prerelease of one product without taking prereleases of all of them —
+and what makes a pin survive an update run rather than being a one-off
+argument. A pinned module is passed over by `wso2 module update --all` rather
+than moved, so updating everything else cannot silently take a module off the
+version it is held at. Re-running `wso2 module install` is how a module's
+channel or pin is changed, because what is recorded is what the last install
+asked for.
+
+An update selects under exactly the rules an install does: among the versions
+that module's own channel permits, the newest whose protocol versions intersect
+what the shell speaks and which publishes an artifact for the platform. The
+newest release on a channel is not assumed usable, so a shell too old for the
+newest release updates to the newest it can launch rather than to something it
+could not run.
+
+An update that fails partway leaves the previous version active and usable.
+Nothing is deactivated until a replacement has been downloaded, verified, and
+unpacked, so a failed update can only fail to add: the version that was working
+is still the version that runs, and the module's own channel and pin are left
+as they were. A run over several modules attempts every one of them, reports
+every refusal, and exits on the first, so a partial run neither stops at the
+first problem nor reports itself as a success. `modules.not_installed`, exit
+64, is naming a module that is not installed, which is a mistake rather than a
+run over nothing.
+
 ## What the digest proves
 
 `sha256` proves that a downloaded archive is the one this entry describes. It

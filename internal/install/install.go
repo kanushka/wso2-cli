@@ -34,8 +34,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -91,6 +93,13 @@ func (i Installer) Run(ctx context.Context, request Request) (Installed, error) 
 	if err != nil {
 		return Installed{}, err
 	}
+	return i.runWithIndex(ctx, index, request)
+}
+
+// runWithIndex installs one module version from an index already read, which is
+// how an update run that moves several modules still costs one index request
+// however many it moves.
+func (i Installer) runWithIndex(ctx context.Context, index catalog.Index, request Request) (Installed, error) {
 	entry, err := index.Module(request.Namespace)
 	if err != nil {
 		return Installed{}, err
@@ -112,7 +121,7 @@ func (i Installer) Run(ctx context.Context, request Request) (Installed, error) 
 		return Installed{}, err
 	}
 
-	if err := i.activate(request.Namespace, selection, archive); err != nil {
+	if err := i.activate(request.Namespace, selection, request.Policy, archive); err != nil {
 		return Installed{}, err
 	}
 	return Installed{
@@ -146,11 +155,13 @@ func verify(namespace string, selection catalog.Selection, archive []byte) error
 const corruptedRecovery = "The download was corrupted or substituted. Try again; if it keeps failing, report it to the module's maintainers."
 
 // activate stages the verified archive, moves it into its immutable version
-// directory, writes the receipt, and points the active-version pointer at it.
+// directory, writes the receipt and the version policy, and points the
+// active-version pointer at it.
 //
 // Everything before the last step happens where a failure can be swept away, so
 // a refused install is indistinguishable from one that never ran.
-func (i Installer) activate(namespace string, selection catalog.Selection, archive []byte) error {
+func (i Installer) activate(namespace string, selection catalog.Selection,
+	requested catalog.Policy, archive []byte) error {
 	namespaceDir := i.Store.NamespaceDir(namespace)
 	_, existedErr := os.Stat(namespaceDir)
 	namespaceExisted := existedErr == nil
@@ -174,11 +185,22 @@ func (i Installer) activate(namespace string, selection catalog.Selection, archi
 	// version and failing would take away the installation that was working.
 	replaced := ""
 	installed := false
+	// The policy this install would replace, so a failure leaves the module
+	// following what it followed before. A failed update must change nothing at
+	// all, the channel and pin included.
+	previousPolicy, previousPolicyExists, previousPolicyAbsent := readPolicyDocument(
+		i.Store.PolicyPath(namespace))
 	defer func() {
 		_ = os.RemoveAll(staging)
 		if installed {
 			_ = os.RemoveAll(replaced)
 			return
+		}
+		if previousPolicyExists {
+			_ = writeAtomically("restoring the version policy",
+				i.Store.PolicyPath(namespace), previousPolicy)
+		} else if previousPolicyAbsent {
+			_ = os.Remove(i.Store.PolicyPath(namespace))
 		}
 		// A failed install leaves nothing behind: the version it was writing
 		// goes, whatever it displaced comes back, and a namespace this run
@@ -227,6 +249,10 @@ func (i Installer) activate(namespace string, selection catalog.Selection, archi
 		return storeFailure("writing the module receipt", err)
 	}
 
+	if err := i.recordPolicy(namespace, selection, requested); err != nil {
+		return err
+	}
+
 	active := modules.Active{
 		SchemaVersion: modules.ActiveSchemaVersion,
 		Namespace:     namespace,
@@ -237,11 +263,51 @@ func (i Installer) activate(namespace string, selection catalog.Selection, archi
 	if err != nil {
 		return err
 	}
-	if err := writeAtomically(i.Store.ActivePath(namespace), activeDocument); err != nil {
+	if err := writeAtomically("writing the active-version pointer",
+		i.Store.ActivePath(namespace), activeDocument); err != nil {
 		return err
 	}
 	installed = true
 	return nil
+}
+
+// recordPolicy writes what this install asked for beside the installation, so a
+// later update run reads the channel and the pin the module was installed under
+// rather than needing to be told again.
+func (i Installer) recordPolicy(namespace string, selection catalog.Selection,
+	requested catalog.Policy) error {
+	policy := modules.Policy{
+		SchemaVersion: modules.PolicySchemaVersion,
+		Namespace:     namespace,
+		Channel:       requested.Channel,
+	}
+	if requested.Version != "" {
+		// The pin records the version that was actually selected rather than
+		// the string the user typed, so the policy names a version the store
+		// holds.
+		policy.PinnedVersion = selection.Version.Version
+	}
+	document, err := policy.Encode()
+	if err != nil {
+		return err
+	}
+	return writeAtomically("writing the version policy", i.Store.PolicyPath(namespace), document)
+}
+
+// readPolicyDocument reads a policy document as bytes, for putting back exactly
+// as it stood. It reports absence rather than failing: a module installed
+// before any policy was recorded has none.
+//
+// absent separates the two ways there is nothing to put back. A policy that is
+// genuinely missing may be removed again on rollback; one that merely could not
+// be read must be left alone, because deleting it would lose the channel and
+// pin that a failed install is required to leave untouched.
+func readPolicyDocument(path string) (content []byte, exists, absent bool) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false, errors.Is(err, fs.ErrNotExist)
+	}
+	return content, true, false
 }
 
 // receipt records what the catalog published, so what the shell later gates a
@@ -384,15 +450,18 @@ func safePath(destination, name string) (string, error) {
 }
 
 // writeAtomically replaces a file in one step, so a reader never sees a half
-// written active-version pointer.
-func writeAtomically(target string, content []byte) error {
-	temporary, err := os.CreateTemp(filepath.Dir(target), ".active-")
+// written document. action names what is being written and reaches the user in
+// the failure, so the store's two documents are told apart when one cannot be
+// written.
+func writeAtomically(action, target string, content []byte) error {
+	temporary, err := os.CreateTemp(filepath.Dir(target), "."+filepath.Base(target)+"-")
 	if err != nil {
-		return storeFailure("writing the active-version pointer", err)
+		return storeFailure(action, err)
 	}
 	// CreateTemp opens at 0600, but every other file in the store is 0644 and
-	// the pointer is no more secret than the receipts beside it. Set the mode
-	// before the rename so the file never appears at the target under 0600.
+	// neither document written here is more secret than the receipts beside
+	// them. Set the mode before the rename so the file never appears at the
+	// target under 0600.
 	err = temporary.Chmod(0o644)
 	if err == nil {
 		_, err = temporary.Write(content)
@@ -405,7 +474,7 @@ func writeAtomically(target string, content []byte) error {
 	}
 	if err != nil {
 		_ = os.Remove(temporary.Name())
-		return storeFailure("writing the active-version pointer", err)
+		return storeFailure(action, err)
 	}
 	return nil
 }

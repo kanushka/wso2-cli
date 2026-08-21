@@ -1,0 +1,276 @@
+// Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package install
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/wso2/wso2-cli/internal/catalog"
+	"github.com/wso2/wso2-cli/internal/modules"
+	"github.com/wso2/wso2-cli/internal/semver"
+	"github.com/wso2/wso2-cli/sdk/problem"
+)
+
+// Status is what one installed module's own policy and the published index say
+// about it: the version installed, the channel it follows, whether it is held
+// at an exact version, and the newest version published on that channel.
+type Status struct {
+	Namespace string
+	Installed string
+	Channel   string
+	Pinned    bool
+	// PinnedVersion is the version the policy holds the module at, which is
+	// what a report shows. It is empty when nothing is pinned.
+	PinnedVersion string
+	// Available is the newest version the index publishes on the followed
+	// channel. It is empty when the catalog publishes no such version, which is
+	// what a module the catalog has never heard of looks like.
+	Available string
+	// Update reports that Available is newer than Installed and the module is
+	// free to move to it.
+	Update bool
+}
+
+// Check reports what an update run would do, in one catalog request.
+//
+// The request is the index, whose size is bounded by namespaces times channels
+// rather than by release history, so extending a module's history does not make
+// this cost more. A version history is deliberately not fetched here: selecting
+// a specific version is what pays for one, and a check selects nothing.
+func (i Installer) Check(ctx context.Context) ([]Status, error) {
+	installed, _, err := i.Store.Inventory()
+	if err != nil {
+		return nil, err
+	}
+	if len(installed) == 0 {
+		return nil, nil
+	}
+	index, err := i.Client.Index(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return i.statuses(index, installed)
+}
+
+// statuses joins local inventory and policy against the published index.
+func (i Installer) statuses(index catalog.Index, installed []modules.Installed) ([]Status, error) {
+	statuses := make([]Status, 0, len(installed))
+	for _, entry := range installed {
+		policy, err := i.Store.ReadPolicy(entry.Namespace)
+		if err != nil {
+			return nil, err
+		}
+		status := Status{
+			Namespace:     entry.Namespace,
+			Installed:     entry.Version,
+			Channel:       policy.FollowedChannel(),
+			Pinned:        policy.Pinned(),
+			PinnedVersion: policy.PinnedVersion,
+		}
+		status.Available = latestOnChannel(index, entry.Namespace, status.Channel)
+		newer, err := isNewer(status.Available, status.Installed)
+		if err != nil {
+			return nil, err
+		}
+		// A pinned module is never reported as having an update to take: it is
+		// held where the user put it, and reporting it as movable would invite
+		// an update run to move it.
+		status.Update = newer && !status.Pinned
+		statuses = append(statuses, status)
+	}
+	return statuses, nil
+}
+
+// latestOnChannel reports the newest version the index publishes for one
+// namespace on one channel, or the empty string when it publishes none.
+func latestOnChannel(index catalog.Index, namespace, channel string) string {
+	for _, module := range index.Modules {
+		if module.Namespace != namespace {
+			continue
+		}
+		for _, published := range module.Channels {
+			if published.Channel == channel {
+				return published.Version
+			}
+		}
+	}
+	return ""
+}
+
+// isNewer compares two versions of one module. It never compares a module's
+// version against the shell's: what is being asked is whether this module has
+// moved on, which is a question about one product's own version scheme.
+func isNewer(candidate, installed string) (bool, error) {
+	if candidate == "" {
+		return false, nil
+	}
+	published, err := semver.Parse(candidate)
+	if err != nil {
+		return false, problem.New(problem.CategoryModuleTrust, "catalog.malformed_version",
+			fmt.Sprintf("the module catalog publishes an unreadable version %q", candidate)).
+			WithRecovery("Report this to the module catalog's maintainers.")
+	}
+	local, err := semver.Parse(installed)
+	if err != nil {
+		// Unreachable: a receipt the shell would resolve records a semantic
+		// version, and inventory is what produced this one. Reported rather
+		// than ignored so a future change cannot make it silent.
+		return false, problem.New(problem.CategoryModuleTrust, "modules.receipt_malformed",
+			fmt.Sprintf("the installed version %q is not a readable version", installed)).
+			WithRecovery("Reinstall the module so the shell can record a readable version.")
+	}
+	return semver.Compare(published, local) > 0, nil
+}
+
+// Action is what an update run did to one module.
+type Action string
+
+const (
+	// ActionUpdated means a newer version was installed and activated.
+	ActionUpdated Action = "updated"
+	// ActionCurrent means the module already had the newest version its
+	// channel publishes.
+	ActionCurrent Action = "current"
+	// ActionPinned means the module is held at an exact version and was passed
+	// over.
+	ActionPinned Action = "pinned"
+	// ActionFailed means the update was attempted and refused. The version that
+	// was active before it is still active.
+	ActionFailed Action = "failed"
+)
+
+// Outcome is what happened to one module in an update run.
+type Outcome struct {
+	Namespace string
+	Action    Action
+	// From is the version that was active before the run, and To the version
+	// active after it. They are equal for every action but ActionUpdated.
+	From string
+	To   string
+	// Err is why an attempted update was refused.
+	Err error
+}
+
+// Update brings installed modules to the newest version their own channel
+// publishes, within the policy each module carries.
+//
+// A pinned module is passed over rather than moved, so updating everything else
+// cannot silently take a module off the version it is held at. A module whose
+// update is refused keeps the version that was active before the run: nothing
+// is deactivated until a replacement has been downloaded, verified, and
+// unpacked, so a run that fails partway can only fail to add.
+//
+// One index request serves the whole run, however many modules it moves. A
+// module actually being updated then pays for its own version history and
+// archive, because that is what selecting a specific version costs.
+func (i Installer) Update(ctx context.Context, namespaces []string) ([]Outcome, error) {
+	installed, _, err := i.Store.Inventory()
+	if err != nil {
+		return nil, err
+	}
+	selected, err := selectInstalled(installed, namespaces)
+	if err != nil {
+		return nil, err
+	}
+	if len(selected) == 0 {
+		return nil, nil
+	}
+
+	index, err := i.Client.Index(ctx)
+	if err != nil {
+		return nil, err
+	}
+	statuses, err := i.statuses(index, selected)
+	if err != nil {
+		return nil, err
+	}
+
+	outcomes := make([]Outcome, 0, len(statuses))
+	for _, status := range statuses {
+		outcomes = append(outcomes, i.updateOne(ctx, index, status))
+	}
+	return outcomes, nil
+}
+
+// updateOne moves one module, or reports why it was not moved.
+func (i Installer) updateOne(ctx context.Context, index catalog.Index, status Status) Outcome {
+	outcome := Outcome{Namespace: status.Namespace, From: status.Installed, To: status.Installed}
+	switch {
+	case status.Pinned:
+		outcome.Action = ActionPinned
+		return outcome
+	case !status.Update:
+		outcome.Action = ActionCurrent
+		return outcome
+	}
+
+	request := Request{
+		Namespace: status.Namespace,
+		Policy:    catalog.Policy{Channel: status.Channel},
+	}
+	updated, err := i.runWithIndex(ctx, index, request)
+	if err != nil {
+		outcome.Action = ActionFailed
+		outcome.Err = err
+		return outcome
+	}
+	outcome.Action = ActionUpdated
+	outcome.To = updated.Version
+	if updated.Version == status.Installed {
+		// The channel's newest version was not launchable here, and the newest
+		// that was is the one already installed. Nothing moved.
+		outcome.Action = ActionCurrent
+	}
+	return outcome
+}
+
+// selectInstalled reports the installed modules an update run covers. Naming a
+// module that is not installed is a mistake rather than a silent no-op: an
+// update run over nothing looks exactly like one that worked.
+func selectInstalled(installed []modules.Installed, namespaces []string) ([]modules.Installed, error) {
+	if len(namespaces) == 0 {
+		return installed, nil
+	}
+	selected := make([]modules.Installed, 0, len(namespaces))
+	for _, namespace := range namespaces {
+		found := false
+		for _, entry := range installed {
+			if entry.Namespace == namespace {
+				selected = append(selected, entry)
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, problem.New(problem.CategoryUsage, "modules.not_installed",
+				fmt.Sprintf("no version of the %q module is installed", namespace)).
+				WithRecovery("Run wso2 module install " + namespace + " to install it, or wso2 version to see what is installed.")
+		}
+	}
+	return selected, nil
+}
+
+// Available reports the modules the catalog publishes, in one index request, so
+// what can be installed is discoverable without reading documentation.
+func (i Installer) Available(ctx context.Context) ([]catalog.IndexModule, error) {
+	index, err := i.Client.Index(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return index.Modules, nil
+}
