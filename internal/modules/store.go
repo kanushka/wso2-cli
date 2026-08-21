@@ -183,17 +183,17 @@ func activeMalformed(namespace, detail string) problem.Problem {
 		WithRecovery(reinstallRecovery)
 }
 
-// Remove takes one module off the machine: its versions, its receipts, its
-// active-version pointer, and its policy all live inside the namespace
-// directory, so removing that directory removes the module.
+// Remove takes one module off the machine. Everything the module has here —
+// its versions, its receipts, its active-version pointer, and its policy —
+// lives inside the namespace directory, so removing that directory is the whole
+// operation, and nothing outside the store is touched: a module's identity, its
+// credentials, and the user's configuration are not the module's to take with
+// it.
 //
 // It reports whether the namespace was installed. A namespace with nothing in
 // the store is not an error here, because whether that is a typo or a no-op is
 // a question about what the user asked for rather than about the store, and the
 // command is the only place that knows.
-//
-// Nothing outside the store is touched. A module's identity, its credentials,
-// and the user's configuration are not the module's to take with it.
 func (s Store) Remove(namespace string) (bool, error) {
 	if !ValidNamespace(namespace) {
 		return false, problem.New(problem.CategoryUsage, "modules.invalid_namespace",
@@ -202,13 +202,27 @@ func (s Store) Remove(namespace string) (bool, error) {
 	}
 
 	directory := s.NamespaceDir(namespace)
-	if _, err := os.Stat(directory); os.IsNotExist(err) {
+	// A namespace directory that cannot be inspected is not the same as one
+	// that is not there. Treating both as "not installed" would report a
+	// permission failure as a typo, and would then try to remove a directory
+	// the shell has already been told it cannot read.
+	switch _, err := os.Stat(directory); {
+	case os.IsNotExist(err):
 		return false, nil
+	case err != nil:
+		return false, removeFailed(namespace, err)
 	}
 	if err := os.RemoveAll(directory); err != nil {
-		return false, problem.New(problem.CategoryModuleProcess, "modules.remove_failed",
-			fmt.Sprintf("the %s module could not be removed: %v", namespace, err)).
-			WithRecovery("Check the permissions on the module store and try again.")
+		return false, removeFailed(namespace, err)
 	}
 	return true, nil
+}
+
+// removeFailed reports a removal the filesystem refused. The class follows the
+// store's existing precedent for a store operation that could not be carried
+// out, rather than inventing one for removal alone.
+func removeFailed(namespace string, err error) problem.Problem {
+	return problem.New(problem.CategoryModuleProcess, "modules.remove_failed",
+		fmt.Sprintf("the %s module could not be removed: %v", namespace, err)).
+		WithRecovery("Check the permissions on the module store and try again.")
 }
