@@ -57,12 +57,8 @@ type Tree struct {
 	handlers map[*cobra.Command]module.Handler
 }
 
-// New prepares a command tree to be served.
-//
-// Every command in the tree, including ones added later, is silenced: its output
-// is redirected to standard error, and Cobra is prevented from printing errors
-// and usage itself. Standard error is where a module's diagnostics belong, and
-// standard output is left to the protocol.
+// New prepares a command tree to be served. It reads nothing and changes
+// nothing about the tree; the silencing happens in [Tree.Commands].
 func New(root *cobra.Command) *Tree {
 	return &Tree{root: root, handlers: map[*cobra.Command]module.Handler{}}
 }
@@ -78,6 +74,13 @@ func (t *Tree) Handle(command *cobra.Command, run module.Handler) *Tree {
 
 // Commands reports the tree as the commands [module.Serve] accepts, one per
 // command a handler was bound to.
+//
+// Every command in the tree is silenced here, including ones added after New:
+// its output is redirected to standard error and Cobra is prevented from
+// printing errors and usage itself. Standard error is where a module's
+// diagnostics belong, and standard output is left to the protocol. Inspecting
+// the tree before this is called finds it unsilenced, so the guarantee holds
+// from the point the tree is served, which is the only point it can be observed.
 func (t *Tree) Commands() []module.Command {
 	silence(t.root)
 
