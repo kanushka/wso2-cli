@@ -84,6 +84,20 @@ func NamespacePath(namespace string) string {
 type Declaration struct {
 	SchemaVersion int    `json:"schemaVersion"`
 	Namespace     string `json:"namespace"`
+	// Compatibility is what the module claims about the shells that can launch
+	// it: the shell range and the module-contract protocol versions it speaks.
+	// It is what the release gate decides over, and the conformance job is what
+	// proves the claim rather than taking it on faith.
+	Compatibility modules.Compatibility `json:"compatibility"`
+	// Capabilities are the access requests the module is permitted to make.
+	// Publishing them is what lets a module installed from the catalog use the
+	// authentication broker at all: the broker intersects a runtime request
+	// with what the receipt records, and a receipt written from a catalog entry
+	// carrying nothing would deny every request.
+	Capabilities modules.Capabilities `json:"capabilities,omitzero"`
+	// Directory is where the declaration was found, relative to the repository
+	// root. It is how a tag reaches the source the release job builds.
+	Directory string `json:"-"`
 }
 
 // Artifact is one platform's published archive for one module version.
@@ -100,6 +114,7 @@ type Artifact struct {
 // version being released and not the versions already released.
 type Release struct {
 	Compatibility modules.Compatibility `json:"compatibility"`
+	Capabilities  modules.Capabilities  `json:"capabilities,omitzero"`
 	Artifacts     []Artifact            `json:"artifacts"`
 }
 
@@ -161,6 +176,7 @@ type Version struct {
 	Version       string                `json:"version"`
 	Channel       string                `json:"channel"`
 	Compatibility modules.Compatibility `json:"compatibility"`
+	Capabilities  modules.Capabilities  `json:"capabilities,omitzero"`
 	Artifacts     []VersionArtifact     `json:"artifacts"`
 }
 
@@ -260,7 +276,9 @@ func Generate(input Input) (Catalog, error) {
 		histories[namespace] = append(histories[namespace], entry)
 	}
 
-	catalog := Catalog{Index: Index{SchemaVersion: SchemaVersion}}
+	// The module list is empty rather than absent when no module has been
+	// tagged, so a reader meets a list either way.
+	catalog := Catalog{Index: Index{SchemaVersion: SchemaVersion, Modules: []IndexModule{}}}
 	for _, namespace := range sortedKeys(histories) {
 		versions := histories[namespace]
 		if err := sortVersions(versions); err != nil {
@@ -337,7 +355,8 @@ func versionEntry(tag, version string, release Release) (Version, error) {
 			Shell:            release.Compatibility.Shell,
 			ProtocolVersions: protocols,
 		},
-		Artifacts: artifacts,
+		Capabilities: release.Capabilities,
+		Artifacts:    artifacts,
 	}, nil
 }
 

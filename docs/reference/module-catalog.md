@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Related:** [Release artifacts](release-artifacts.md),
 [architecture](../architecture.md)
-**Last reviewed:** 2026-08-19
+**Last reviewed:** 2026-08-20
 
 This document is the contract between the tags a product module is released
 under and the two files a shell reads to discover, select, and verify a module
@@ -46,12 +46,37 @@ A module declares the namespace it owns in a `module.json` beside its
 ```json
 {
   "schemaVersion": 1,
-  "namespace": "reference"
+  "namespace": "reference",
+  "compatibility": {
+    "shell": ">=0.1.0 <2.0.0",
+    "protocolVersions": [2]
+  },
+  "capabilities": {
+    "authAudiences": ["reference-status"],
+    "authScopes": ["reference:status:read"]
+  }
 }
 ```
 
 The namespace is declared rather than taken from the directory name, so a
 module directory and the command word it owns are free to differ.
+
+`compatibility` is what the module claims about the shells that can launch it,
+and it is what the [release gate](release-artifacts.md#the-release-gate)
+decides over. The claim is not taken on faith: the conformance job builds the
+module against the published SDK for the previous protocol and launches it
+under the current shell, which is what makes declaring the older half of the
+window mean something.
+
+`capabilities` are the access requests the module is permitted to make. The
+authentication broker intersects a runtime request with what the installed
+receipt records, so a catalog entry that carried none would leave a module
+installed from the catalog denied every brokered request it makes. What the
+module declares is what the catalog publishes and what the receipt records.
+
+A tag publishes the declaration as it stood at that tag, not as it stands on
+the default branch: a module that widened its protocol range last week did not
+widen the entry it published last year.
 
 ## Where the catalog is published
 
@@ -107,6 +132,10 @@ The full history for one namespace, newest version first.
       "compatibility": {
         "shell": ">=0.1.0 <2.0.0",
         "protocolVersions": [1]
+      },
+      "capabilities": {
+        "authAudiences": ["reference-status"],
+        "authScopes": ["reference:status:read"]
       },
       "artifacts": [
         {
@@ -203,6 +232,7 @@ values would suggest a trust chain that does not exist.
 ## Generation
 
 ```sh
+go run ./cmd/wso2-catalog-input -repo . -out releases.json
 go run ./cmd/wso2-catalog -input releases.json -out site -repo .
 ```
 
@@ -237,6 +267,36 @@ checkout, because the checkout describes the version being released and not
 the versions already released. The buildable modules are read from the
 checkout, because whether a namespace exists is a fact about this repository
 now.
+
+Nobody writes that document by hand. `cmd/wso2-catalog-input` assembles it:
+the module tags come from git, the compatibility and capabilities each tag
+declared come from the module declaration as it stood at that tag, and each
+artifact's URL and size are read back from the release that published it, with
+its digest read from the checksum file published beside it. A release missing
+a supported platform, or an archive the checksum file does not cover, fails
+assembly rather than publishing an entry pointing at something unverifiable.
+
+## Publishing the catalog
+
+`scripts/assemble-site.sh` assembles everything the origin serves — the
+install and uninstall scripts, the landing page, and the regenerated catalog —
+and both workflows that deploy there run it. A deployment replaces the whole
+site, so a deployment that assembled only half of it would take the other half
+down.
+
+`.github/workflows/module-release.yml` runs on a module tag: it gates, builds
+and publishes the module's artifacts, then regenerates and deploys the
+catalog. `.github/workflows/pages.yml` runs on a change to the scripts or the
+generator on `main` and deploys the same assembled site. Each job holds only
+the permissions it needs: the gate and the catalog jobs read repository
+contents, the publish job alone writes them, and only the deploying job holds
+Pages access.
+
+Whoever can publish to that origin controls the update channel for the shell
+and for every module. That exposure already existed for the install scripts,
+and serving the catalog there grows its blast radius rather than creating it.
+The mitigation is branch protection and required review on these two
+workflows. Manifest signing is a tracked follow-up.
 
 Generation is deterministic. Every namespace, channel, version, and artifact
 is emitted in a fixed order and the documents are rendered with fixed

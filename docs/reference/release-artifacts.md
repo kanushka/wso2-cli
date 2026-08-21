@@ -2,8 +2,8 @@
 
 **Status:** Accepted
 **Related:** [Distribution research](../research/root-cli-installation-distribution.md),
-[architecture](../architecture.md)
-**Last reviewed:** 2026-08-10
+[module catalog](module-catalog.md), [architecture](../architecture.md)
+**Last reviewed:** 2026-08-20
 
 This document is the naming contract between a published release and the
 programs that download from it. An install script derives every URL it needs
@@ -126,6 +126,78 @@ extracts the Linux archive and runs `wso2 version`. The release fails if the
 binary reports the development placeholder, reports a version unrelated to the
 tag, or reports a protocol window that disagrees with the one the shell's own
 source declares.
+
+## Module releases
+
+A product module is released by pushing a tag in its own namespace, which is a
+separate release from the shell's and runs
+`.github/workflows/module-release.yml`. What that workflow publishes follows
+the same conventions as a shell release, with the module's own names.
+
+```text
+wso2-module-<namespace>-v<version>-<os>-<arch>.<extension>
+```
+
+The target list is the eight above, and a test holds it equal to the list the
+pull-request cross-build check compiles: a module that published for fewer
+would leave a user who can install the shell unable to install the module. The
+extension is `tar.gz` on every platform, including the two where a shell
+release publishes a zip, because the shell extracts a module archive as a
+gzipped tarball and refuses anything else.
+
+Each archive carries, at its root and in no subdirectory, the module
+executable named `wso2-module-<namespace>` — `.exe` on Windows — beside
+`LICENSE` and `NOTICE`. That name is a convention rather than a catalog field:
+the shell extracts a module archive expecting exactly it and refuses an
+archive that does not carry it rather than searching for something executable.
+Both halves of that convention read the name from one function, so it is
+written down once rather than twice.
+
+A module release publishes a `checksums.txt` covering every archive, in the
+format `sha256sum` reads. It is what the catalog's digests are read back from:
+the release API reports no digest, so a release whose checksum file does not
+cover an archive publishes nothing that archive could be verified against, and
+catalog generation fails rather than publishing an entry with no digest.
+
+## The release gate
+
+Before anything is built or uploaded, the release decides whether the module
+can run on a shell that exists at all:
+
+```sh
+go run ./cmd/wso2-module-release -tag reference/v4.5.0 -gate-only
+```
+
+A module is admitted when at least one module-contract protocol version it
+declares is one the released shell speaks. A module requiring a protocol newer
+than the released shell speaks is refused, which enforces that the shell ships
+first; so is a module speaking only a protocol the window has already left
+behind, because no shell in existence could launch it either.
+
+The refusal names both sides — the protocol the module requires and the set the
+released shell speaks — so a product team can tell whether to wait for a shell
+release or to change the module.
+
+The released shell's supported set comes from `sdk/protocol`, the same single
+declaration the shell itself reads when it announces what it speaks, so the
+gate and the shell cannot come to disagree. The workflow asks the published
+shell binary for it rather than reading this checkout, because between a
+protocol bump landing on the default branch and the shell release that carries
+it the two are not the same thing, and it is the shell a user can have that
+decides whether a module can run. What this checkout declares is the fallback,
+for the case where no shell has been released at all. The shell's own release
+holds the other end of that equality: it asks the published binary what it
+speaks and fails the release when the answer is not what the source declares.
+
+This is not the gate a pull request runs. That one, in
+`scripts/previous-protocol.sh`, asks whether a change to the shell or the SDK
+broke the older half of the protocol window. This one asks whether a module
+being released can run anywhere. They catch different failures and neither
+stands in for the other.
+
+The decision is a pure function of what the module declares and what the
+released shell supports, so it is proven by tests over fixture data in
+`internal/release` rather than by pushing a tag.
 
 ## Prereleases
 

@@ -55,12 +55,14 @@ func Discover(repositoryRoot string) ([]Declaration, error) {
 			if !entry.IsDir() {
 				continue
 			}
-			path := filepath.Join(repositoryRoot, root, entry.Name(), DeclarationFileName)
+			directory := filepath.Join(root, entry.Name())
+			path := filepath.Join(repositoryRoot, directory, DeclarationFileName)
 			declaration, found, err := readDeclaration(path)
 			if err != nil {
 				return nil, err
 			}
 			if found {
+				declaration.Directory = filepath.ToSlash(directory)
 				declarations = append(declarations, declaration)
 			}
 		}

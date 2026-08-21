@@ -1,6 +1,7 @@
-name: Install scripts
+name: Catalog origin
 
-# Publishes the install and uninstall scripts to GitHub Pages, so the command in
+# Publishes the install and uninstall scripts, and the module catalog generated
+# from the tags that exist, to GitHub Pages, so the command in
 # the README points at a stable URL that carries no branch name and can be
 # repointed at a WSO2-owned domain later without changing what users have already
 # copied and shared.
@@ -22,6 +23,11 @@ on:
       - 'scripts/uninstall.sh'
       - 'scripts/uninstall.ps1'
       - '.github/workflows/pages.yml'
+      - 'scripts/assemble-site.sh'
+      - 'internal/catalog/**'
+      - 'internal/release/**'
+      - 'cmd/wso2-catalog/**'
+      - 'cmd/wso2-catalog-input/**'
   workflow_dispatch:
 
 permissions:
@@ -41,14 +47,29 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     permissions:
-      # What deploying to Pages requires, and nothing else. `contents` stays read.
+      # What deploying to Pages requires, and nothing else. `contents` stays
+      # read: the catalog is generated from tags and from released assets, and
+      # both are read.
       pages: write
       id-token: write
+      contents: read
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
         with:
+          # Every module tag has to be present: this deployment replaces the
+          # whole site, so it regenerates the catalog rather than publishing a
+          # site without one.
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: |
+            go.mod
+            sdk/go.mod
 
       # A run that published an unrunnable script would break the one command the
       # README tells people to use, so the shell script is parsed before it goes
@@ -61,40 +82,9 @@ jobs:
           bash -n scripts/uninstall.sh
 
       - name: Assemble the site
-        run: |
-          set -euo pipefail
-          mkdir -p site
-          cp scripts/install.sh scripts/install.ps1 scripts/uninstall.sh scripts/uninstall.ps1 site/
-          # A landing page, so someone who opens the host in a browser finds out
-          # what these files are rather than a directory listing or a 404.
-          cat > site/index.html <<'HTML'
-          <!doctype html>
-          <html lang="en">
-          <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1">
-          <title>Install the WSO2 CLI</title>
-          </head>
-          <body>
-          <h1>Install the WSO2 CLI</h1>
-          <p>macOS, Linux, and WSL:</p>
-          <pre><code>curl -fsSL https://wso2.github.io/wso2-cli/install.sh | bash</code></pre>
-          <p>Windows:</p>
-          <pre><code>iwr https://wso2.github.io/wso2-cli/install.ps1 -useb | iex</code></pre>
-          <p>
-          These scripts download a published release, verify it against the
-          checksum file published beside it, and install the binary under your WSO2
-          state root. Read either one before running it: they are plain text at the
-          URLs above.
-          </p>
-          <p>
-          <a href="https://github.com/wso2/wso2-cli/blob/main/docs/guides/installing.md">Installation guide</a>,
-          including how to install without piping a script to a shell, how to pin a
-          version, and how to uninstall.
-          </p>
-          </body>
-          </html>
-          HTML
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/assemble-site.sh site
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

@@ -171,6 +171,17 @@ func (c *catalogHarness) input(tags []string) catalog.Input {
 		c.t.Fatalf("discovering the buildable modules returned %v", err)
 	}
 
+	// What the module itself declares is what a release publishes, so the
+	// capabilities in a fixture entry are the reference module's own rather
+	// than values invented here. A module installed from a catalog that
+	// published none would be denied every brokered request it makes.
+	var capabilities modules.Capabilities
+	for _, declaration := range declarations {
+		if declaration.Namespace == catalogNamespace {
+			capabilities = declaration.Capabilities
+		}
+	}
+
 	published := map[string]catalog.Release{}
 	for _, tag := range tags {
 		artifacts := make([]catalog.Artifact, 0, len(c.options.platforms))
@@ -194,7 +205,8 @@ func (c *catalogHarness) input(tags []string) catalog.Input {
 				Shell:            ">=0.1.0 <2.0.0",
 				ProtocolVersions: protocols,
 			},
-			Artifacts: artifacts,
+			Capabilities: capabilities,
+			Artifacts:    artifacts,
 		}
 	}
 	return catalog.Input{Tags: tags, Modules: declarations, Published: published}
