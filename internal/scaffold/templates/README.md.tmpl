@@ -26,7 +26,9 @@ go test ./modules/{{.Namespace}}/...
 
 The workspace composes this module with the SDK from source, so a change to the
 SDK reaches it without a release. The `go.mod` here requires the SDK by version,
-which is how it resolves for anyone outside this checkout.
+at the same version the reference module requires it at: while that version is
+still the unpublished placeholder, the workspace is what resolves it, and the
+requirement becomes the ordinary kind once an SDK version is published.
 
 ## What to change first
 
@@ -45,4 +47,5 @@ module deliberately leaves out.
 It must not import anything under the shell's `internal` tree, and it must not
 print to standard output: that stream carries protocol frames, and anything
 written there directly corrupts them. Diagnostics go to standard error. Both
-rules are asserted by tests in this repository.
+rules are asserted for every module under `modules/`, including this one, by the
+tests in `internal/boundaries`.

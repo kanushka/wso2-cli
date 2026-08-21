@@ -37,9 +37,52 @@ import (
 	"testing"
 )
 
-// goModules are every Go module in this repository, by directory relative to
-// the repository root.
-var goModules = []string{".", "sdk", "modules/reference"}
+// goModules reports every Go module in this repository, by directory relative
+// to the repository root.
+//
+// The product modules are discovered rather than listed, because a list is a
+// second place a module has to be registered and the one place a new module is
+// forgotten. Every boundary these tests state — the license header, the
+// prohibition on replace directives, workspace composition, and the rule that a
+// module may not reach into the shell's internals — then covers a module the
+// moment it exists, including one a scaffold has just created.
+func goModules(t *testing.T) []string {
+	t.Helper()
+	modules := []string{".", "sdk"}
+	modules = append(modules, productModules(t)...)
+	return modules
+}
+
+// productModules reports the product modules, by directory relative to the
+// repository root.
+func productModules(t *testing.T) []string {
+	t.Helper()
+	root := repoRoot(t)
+	entries, err := os.ReadDir(filepath.Join(root, "modules"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		t.Fatalf("cannot read the modules directory: %v", err)
+	}
+
+	var modules []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		// A directory is a module when it declares one. Anything else there is
+		// not something these boundaries are about.
+		if _, err := os.Stat(filepath.Join(root, "modules", entry.Name(), "go.mod")); err != nil {
+			continue
+		}
+		modules = append(modules, "modules/"+entry.Name())
+	}
+	if len(modules) == 0 {
+		t.Fatal("no product module was found under modules/")
+	}
+	return modules
+}
 
 // buildArgs builds a module's packages, writing any executable to a temporary
 // directory so a build check never leaves artifacts in the working tree. The Go
@@ -76,7 +119,7 @@ func TestEveryGoFileCarriesTheLicenseHeader(t *testing.T) {
 	root := repoRoot(t)
 
 	var paths []string
-	for _, module := range goModules {
+	for _, module := range goModules(t) {
 		paths = append(paths, goFiles(t, filepath.Join(root, module))...)
 	}
 
@@ -100,7 +143,7 @@ func TestEveryGoFileCarriesTheLicenseHeader(t *testing.T) {
 func TestEveryModuleBuildsInTheLocalWorkspace(t *testing.T) {
 	root := repoRoot(t)
 
-	for _, module := range goModules {
+	for _, module := range goModules(t) {
 		t.Run(module, func(t *testing.T) {
 			runGo(t, filepath.Join(root, module), nil, buildArgs(t, module)...)
 		})
@@ -122,7 +165,7 @@ func TestNoCommittedModuleReplacesALocalCheckout(t *testing.T) {
 	root := repoRoot(t)
 	replaceDirective := regexp.MustCompile(`(?m)^\s*replace\s|^\s*replace\s*\(`)
 
-	for _, module := range goModules {
+	for _, module := range goModules(t) {
 		path := filepath.Join(root, module, "go.mod")
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -164,7 +207,7 @@ func TestTheSDKAndReferenceModuleCannotImportShellInternals(t *testing.T) {
 	root := repoRoot(t)
 	const shellInternalPrefix = "github.com/wso2/wso2-cli/internal"
 
-	for _, module := range []string{"sdk", "modules/reference"} {
+	for _, module := range append([]string{"sdk"}, productModules(t)...) {
 		for _, path := range goFiles(t, filepath.Join(root, module)) {
 			// The import declarations are parsed rather than matched as text:
 			// a raw-string import literal is still an import, and a path
@@ -277,7 +320,7 @@ func TestTheWorkspaceComposesEveryModule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot read go.work: %v", err)
 	}
-	for _, module := range goModules {
+	for _, module := range goModules(t) {
 		entry := module
 		if entry != "." {
 			entry = "./" + filepath.ToSlash(entry)
@@ -299,7 +342,7 @@ func goFiles(t *testing.T, directory string) []string {
 			return err
 		}
 		if entry.IsDir() {
-			if path != directory && isModuleRoot(root, path) {
+			if path != directory && isModuleRoot(t, root, path) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -320,8 +363,9 @@ func goFiles(t *testing.T, directory string) []string {
 
 // isModuleRoot reports whether the directory is one of this repository's other
 // Go modules.
-func isModuleRoot(root, directory string) bool {
-	for _, module := range goModules {
+func isModuleRoot(t *testing.T, root, directory string) bool {
+	t.Helper()
+	for _, module := range goModules(t) {
 		if module != "." && directory == filepath.Join(root, module) {
 			return true
 		}

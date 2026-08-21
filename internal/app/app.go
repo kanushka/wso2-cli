@@ -26,7 +26,6 @@ import (
 	"fmt"
 	"runtime"
 	"slices"
-	"sort"
 
 	"github.com/wso2/wso2-cli/internal/exit"
 	"github.com/wso2/wso2-cli/internal/modules"
@@ -84,7 +83,7 @@ func CommandNames() []string {
 	for _, command := range builtins() {
 		names = append(names, command.name)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return names
 }
 

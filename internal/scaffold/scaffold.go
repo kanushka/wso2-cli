@@ -31,6 +31,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -92,7 +93,7 @@ func Generate(request Request) (Result, error) {
 		return Result{}, err
 	}
 
-	sdkVersion, err := sdkVersion(request.RepositoryRoot)
+	declared, err := readReference(request.RepositoryRoot)
 	if err != nil {
 		return Result{}, err
 	}
@@ -101,10 +102,11 @@ func Generate(request Request) (Result, error) {
 	data := templateData{
 		Namespace:        request.Namespace,
 		Executable:       "wso2-module-" + request.Namespace,
-		SDKVersion:       sdkVersion,
+		SDKVersion:       declared.Requires["github.com/wso2/wso2-cli/sdk"],
+		CobraVersion:     declared.Requires["github.com/spf13/cobra"],
 		ShellRange:       shellRange,
 		ProtocolVersions: protocol.Supported(),
-		GoVersion:        goVersion(request.RepositoryRoot),
+		GoVersion:        declared.GoVersion,
 	}
 
 	result := Result{Directory: directory}
@@ -163,50 +165,94 @@ func checkNamespace(request Request) error {
 	if _, err := os.Stat(directory); err == nil {
 		return fmt.Errorf("%s already exists", directory)
 	}
-	return nil
+	// Asked here rather than after the files are written, so that every reason a
+	// generation can fail is decided before anything is created. A workspace
+	// that cannot be joined would otherwise be found out at the end, and the
+	// cleanup for it would have to undo a module that already looked complete.
+	return checkWorkspaceCanBeJoined(request.RepositoryRoot)
 }
 
-// sdkVersion reports the SDK version this checkout builds modules against,
-// which is the version the reference module requires.
-//
-// It is read rather than declared because there is no second place to declare
-// it that would not immediately be able to disagree with the module the whole
-// repository already builds. The requirement is matched on the module path, so
-// a require block, a comment, or an indirect marker cannot change the answer.
-func sdkVersion(repositoryRoot string) (string, error) {
-	const modulePath = "github.com/wso2/wso2-cli/sdk"
-
-	path := filepath.Join(repositoryRoot, ModulesDirectory, ReservedNamespace, "go.mod")
+// checkWorkspaceCanBeJoined reports whether the workspace has the line a new
+// module's entry is placed after.
+func checkWorkspaceCanBeJoined(repositoryRoot string) error {
+	path := filepath.Join(repositoryRoot, "go.work")
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("scaffold: cannot read the SDK version this checkout uses: %w", err)
+		return fmt.Errorf("scaffold: cannot read the workspace: %w", err)
 	}
 	for _, line := range strings.Split(string(content), "\n") {
-		fields := strings.Fields(line)
-		for index, field := range fields {
-			if field == modulePath && index+1 < len(fields) {
-				return fields[index+1], nil
-			}
+		if strings.TrimSpace(line) == workspaceAnchor {
+			return nil
 		}
 	}
-	return "", fmt.Errorf("scaffold: %s requires no SDK version to generate against", path)
+	return fmt.Errorf("scaffold: %s does not compose %s on a line of its own, so a generated module cannot join it",
+		path, workspaceAnchor)
 }
 
-// goVersion reports the language version the checkout's own modules declare, so
-// a generated module does not ask for a toolchain the repository does not.
-func goVersion(repositoryRoot string) string {
-	const fallback = "1.25.0"
+// reference describes what the reference module declares: the language version,
+// and the version of each dependency a generated module shares with it.
+type reference struct {
+	GoVersion string
+	Requires  map[string]string
+}
 
-	content, err := os.ReadFile(filepath.Join(repositoryRoot, ModulesDirectory, ReservedNamespace, "go.mod"))
+// readReference reports what a generated module should be built against, read
+// from the module this repository already builds.
+//
+// There is no second place to declare these that could not immediately disagree
+// with the module the whole repository is checked against. The module graph is
+// asked for them rather than the file scanned as text: a commented-out line, an
+// exclude, or a versionless replace all mention a module path, and only the
+// graph knows which one is the requirement.
+func readReference(repositoryRoot string) (reference, error) {
+	directory := filepath.Join(repositoryRoot, ModulesDirectory, ReservedNamespace)
+
+	command := exec.Command("go", "mod", "edit", "-json")
+	command.Dir = directory
+	command.Env = os.Environ()
+	output, err := command.Output()
 	if err != nil {
-		return fallback
+		return reference{}, fmt.Errorf(
+			"scaffold: cannot read what %s is built against: %w", directory, err)
 	}
-	for _, line := range strings.Split(string(content), "\n") {
-		if fields := strings.Fields(line); len(fields) == 2 && fields[0] == "go" {
-			return fields[1]
+
+	var parsed struct {
+		Go      string `json:"Go"`
+		Require []struct {
+			Path    string `json:"Path"`
+			Version string `json:"Version"`
+		} `json:"Require"`
+	}
+	if err := json.Unmarshal(output, &parsed); err != nil {
+		return reference{}, fmt.Errorf("scaffold: cannot read the module graph of %s: %w", directory, err)
+	}
+
+	declared := reference{GoVersion: parsed.Go, Requires: map[string]string{}}
+	for _, requirement := range parsed.Require {
+		declared.Requires[requirement.Path] = requirement.Version
+	}
+	if declared.GoVersion == "" {
+		return reference{}, fmt.Errorf("scaffold: %s declares no language version", directory)
+	}
+	for _, path := range sharedRequirements {
+		if declared.Requires[path] == "" {
+			return reference{}, fmt.Errorf("scaffold: %s does not require %s, so there is no version to generate against",
+				directory, path)
 		}
 	}
-	return fallback
+	return declared, nil
+}
+
+// sharedRequirements are the dependencies a generated module takes at the same
+// version the reference module takes them at.
+//
+// The SDK is here for the obvious reason. Cobra is here because a generated
+// module declares its commands with it, and two modules in one workspace
+// resolving different Cobra versions would build against a version neither was
+// checked with.
+var sharedRequirements = []string{
+	"github.com/wso2/wso2-cli/sdk",
+	"github.com/spf13/cobra",
 }
 
 // addToWorkspace composes the new module from source, so a local SDK change
@@ -219,44 +265,44 @@ func addToWorkspace(repositoryRoot, namespace string) error {
 		return fmt.Errorf("scaffold: cannot read the workspace: %w", err)
 	}
 
-	entry := "\t./" + ModulesDirectory + "/" + namespace + "\n"
-	if strings.Contains(string(content), strings.TrimSpace(entry)) {
-		return nil
+	// Matched as a whole line. A substring test would find "./modules/foo"
+	// inside "./modules/foobar" and report a module composed that is not, and
+	// the module would then resolve the SDK from the proxy instead of from this
+	// checkout.
+	entry := "./" + ModulesDirectory + "/" + namespace
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.TrimSpace(line) == entry {
+			return nil
+		}
 	}
-	// The entry is placed beside the module it is closest to, which keeps the
-	// use block in the order a reader expects rather than appending to the end
-	// of the file where it would not be part of the block at all.
-	anchor := "\t./" + ModulesDirectory + "/" + ReservedNamespace + "\n"
-	updated := strings.Replace(string(content), anchor, anchor+entry, 1)
-	if updated == string(content) {
-		return fmt.Errorf("scaffold: %s does not compose %s/%s, so a generated module cannot join it",
-			path, ModulesDirectory, ReservedNamespace)
+	// Placed beside the reference module, so the entry lands inside the use
+	// block in the order a reader expects rather than after the end of the file
+	// where it would not be part of the block at all. The anchor's own
+	// indentation is reused, so nothing here assumes how the file is formatted.
+	lines := strings.Split(string(content), "\n")
+	for index, line := range lines {
+		if strings.TrimSpace(line) != workspaceAnchor {
+			continue
+		}
+		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+		lines = slices.Insert(lines, index+1, indent+entry)
+		return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
 	}
-	return os.WriteFile(path, []byte(updated), 0o644)
+	return fmt.Errorf("scaffold: %s does not compose %s on a line of its own, so a generated module cannot join it",
+		path, workspaceAnchor)
 }
 
-// RemoveFromWorkspace takes a module's workspace entry back out. It exists for
-// the tests that generate a module into this checkout and have to leave the
-// repository as they found it.
-func RemoveFromWorkspace(repositoryRoot, namespace string) error {
-	path := filepath.Join(repositoryRoot, "go.work")
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	entry := "\t./" + ModulesDirectory + "/" + namespace + "\n"
-	updated := strings.Replace(string(content), entry, "", 1)
-	if updated == string(content) {
-		return nil
-	}
-	return os.WriteFile(path, []byte(updated), 0o644)
-}
+// workspaceAnchor is the workspace entry a new module's entry is placed after.
+// It is the reference module because that is the one product module every
+// checkout has.
+var workspaceAnchor = "./" + ModulesDirectory + "/" + ReservedNamespace
 
 // templateData is what every generated file is rendered from.
 type templateData struct {
 	Namespace        string
 	Executable       string
 	SDKVersion       string
+	CobraVersion     string
 	ShellRange       string
 	ProtocolVersions []int
 	GoVersion        string

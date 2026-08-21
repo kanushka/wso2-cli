@@ -143,7 +143,6 @@ func TestGenerationIsRefusedAndWritesNothing(t *testing.T) {
 		// a module here would build, release, install, and never run.
 		{name: "a shell command name", namespace: app.CommandNames()[0], reason: "shell command"},
 		{name: "the reserved reference namespace", namespace: "reference", reason: "reserved"},
-		{name: "an already declared namespace", namespace: "reference", reason: "reserved"},
 		{name: "an uppercase name", namespace: "MyCloud", reason: "lowercase"},
 		{name: "a name with a hyphen", namespace: "my-cloud", reason: "lowercase"},
 		{name: "a name starting with a digit", namespace: "1cloud", reason: "lowercase"},
@@ -170,6 +169,88 @@ func TestGenerationIsRefusedAndWritesNothing(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestANamespaceAnotherModuleDeclaresIsRefused covers the collision a directory
+// listing cannot see. A namespace is declared by a module rather than by the
+// directory it sits in, so two modules can collide on a namespace while their
+// directories do not, and the refusal has to name the module that already owns
+// it rather than a path that does not exist.
+func TestANamespaceAnotherModuleDeclaresIsRefused(t *testing.T) {
+	root := temporaryRepository(t)
+	const namespace = "elsewhere"
+
+	// Declared from a directory of another name, which is exactly the case a
+	// check on the target directory would miss.
+	declaring := filepath.Join(root, "modules", "under-another-name")
+	if err := os.MkdirAll(declaring, 0o755); err != nil {
+		t.Fatalf("cannot create the declaring module: %v", err)
+	}
+	writeFile(t, filepath.Join(declaring, "module.json"),
+		`{"schemaVersion": 1, "namespace": "`+namespace+`"}`+"\n")
+
+	_, err := scaffold.Generate(scaffold.Request{RepositoryRoot: root, Namespace: namespace})
+	if err == nil {
+		t.Fatalf("generating the already declared namespace %q succeeded", namespace)
+	}
+	if !strings.Contains(err.Error(), "already") {
+		t.Errorf("the refusal does not say the namespace is taken: %v", err)
+	}
+	// Naming where it is taken is the difference between a refusal a developer
+	// can act on and one that just says no.
+	if !strings.Contains(err.Error(), "under-another-name") {
+		t.Errorf("the refusal does not name the module that declares it: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "modules", namespace)); !os.IsNotExist(statErr) {
+		t.Errorf("the refused generation left a directory behind: %v", statErr)
+	}
+}
+
+// TestAGenerationIntoARepositoryWithNoWorkspaceIsRefusedBeforeWriting keeps the
+// last failure path from being the one that leaves half a module behind: a
+// workspace that cannot be joined is decided before anything is created.
+func TestAGenerationIntoARepositoryWithNoWorkspaceIsRefusedBeforeWriting(t *testing.T) {
+	root := temporaryRepository(t)
+	if err := os.Remove(filepath.Join(root, "go.work")); err != nil {
+		t.Fatalf("cannot remove the workspace: %v", err)
+	}
+
+	_, err := scaffold.Generate(scaffold.Request{RepositoryRoot: root, Namespace: "noworkspace"})
+	if err == nil {
+		t.Fatal("generating into a repository with no workspace succeeded")
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "modules", "noworkspace")); !os.IsNotExist(statErr) {
+		t.Errorf("the refused generation left a directory behind: %v", statErr)
+	}
+}
+
+// TestAModuleWhoseNameIsAPrefixOfAnotherJoinsTheWorkspace pins the difference
+// between a whole-line match and a substring one. "cloud" is a substring of
+// "cloudops", and a generation that took that for an existing entry would report
+// success while leaving the module out of the workspace — where it would then
+// resolve the SDK from the proxy rather than from this checkout.
+func TestAModuleWhoseNameIsAPrefixOfAnotherJoinsTheWorkspace(t *testing.T) {
+	root := temporaryRepository(t)
+
+	if _, err := scaffold.Generate(scaffold.Request{RepositoryRoot: root, Namespace: "cloudops"}); err != nil {
+		t.Fatalf("generating cloudops returned %v", err)
+	}
+	if _, err := scaffold.Generate(scaffold.Request{RepositoryRoot: root, Namespace: "cloud"}); err != nil {
+		t.Fatalf("generating cloud returned %v", err)
+	}
+
+	workspace := readFile(t, filepath.Join(root, "go.work"))
+	for _, entry := range []string{"./modules/cloudops", "./modules/cloud"} {
+		found := false
+		for _, line := range strings.Split(workspace, "\n") {
+			if strings.TrimSpace(line) == entry {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s is not composed by the workspace:\n%s", entry, workspace)
+		}
 	}
 }
 

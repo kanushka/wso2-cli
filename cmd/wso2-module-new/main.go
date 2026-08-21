@@ -52,7 +52,6 @@ func main() {
 func run() error {
 	namespace := flag.String("namespace", "",
 		"The product namespace the new module will own, such as mycloud.")
-	repositoryRoot := flag.String("repo", ".", "Repository checkout to create the module in.")
 	flag.Parse()
 
 	if *namespace == "" {
@@ -60,7 +59,10 @@ func run() error {
 		return fmt.Errorf("-namespace is required")
 	}
 
-	root, err := filepath.Abs(*repositoryRoot)
+	// The checkout is where the command is run from. A flag naming another one
+	// would be a way to generate a module into a repository other than the one
+	// whose SDK and protocol version it was generated against.
+	root, err := os.Getwd()
 	if err != nil {
 		return err
 	}
