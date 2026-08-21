@@ -162,6 +162,35 @@ the release API reports no digest, so a release whose checksum file does not
 cover an archive publishes nothing that archive could be verified against, and
 catalog generation fails rather than publishing an entry with no digest.
 
+## SDK releases
+
+The public SDK is released by pushing a tag in the `sdk/` prefix, which
+publishes nothing and uploads nothing: a Go submodule is published by its tag
+alone, and `sdk/vX.Y.Z` is what makes that version fetchable from the module
+proxy. `.github/workflows/sdk-release.yml` runs on such a tag and decides
+whether the tag that already exists should have existed. The module release
+workflow excludes the same prefix, so the two never both claim a tag.
+
+The gate checks the tag names a semantic version, and refuses a major version
+of two or above because that needs a module path suffix `sdk/go.mod` does not
+declare. It then runs the boundaries tests and builds and tests the SDK with
+workspace composition disabled, which is what a consumer resolving a published
+version actually does. Finally it asks the module proxy for the version that
+was tagged, which both proves the version is servable and warms the proxy so
+the first module to require it does not wait.
+
+What makes an SDK version publishable — that it imports nothing under the
+shell's internal tree, and that it builds and tests without the workspace — is
+asserted by the ordinary test suite rather than by that workflow, so the same
+constraints hold on every pull request. A tag is a bad place to learn either of
+them for the first time, because the module proxy keeps a version forever and
+there is no withdrawing one.
+
+The SDK's version is not a compatibility contract. Which shells can launch a
+module is decided by the protocol version, which is versioned separately,
+declared in `module.json`, and checked by the module release gate below. See
+[ADR 0009](../adr/0009-sdk-versioning-and-publication.md).
+
 ## The release gate
 
 Before anything is built or uploaded, the release decides whether the module
