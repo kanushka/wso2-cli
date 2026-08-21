@@ -169,11 +169,16 @@ publishes nothing and uploads nothing: a Go submodule is published by its tag
 alone, and `sdk/vX.Y.Z` is what makes that version fetchable from the module
 proxy. `.github/workflows/sdk-release.yml` runs on such a tag and decides
 whether the tag that already exists should have existed. The module release
-workflow excludes the same prefix, so the two never both claim a tag.
+workflow triggers on every `*/v*` tag, which matches this prefix too, and
+excludes it at its first job instead: every later job needs that one, so
+nothing an SDK tag triggers publishes a module archive.
 
 The gate checks the tag names a semantic version, and refuses a major version
 of two or above because that needs a module path suffix `sdk/go.mod` does not
-declare. It then runs the boundaries tests and builds and tests the SDK with
+declare. It then checks the tag against the SDK version this commit is built
+around, which is the version the reference module requires and the version a
+scaffolded module is generated against: a tag that disagrees with it would
+publish an SDK nothing in this repository is built against. It then runs the boundaries tests and builds and tests the SDK with
 workspace composition disabled, which is what a consumer resolving a published
 version actually does. Finally it asks the module proxy for the version that
 was tagged, which both proves the version is servable and warms the proxy so

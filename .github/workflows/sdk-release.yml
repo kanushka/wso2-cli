@@ -62,6 +62,38 @@ jobs:
             ;;
           esac
           echo "${GITHUB_REF_NAME} names ${version}"
+          echo "version=${version}" >>"${GITHUB_OUTPUT}"
+        id: version
+
+      # A tag is a claim about this commit, and the commit says which SDK
+      # version it is built around: the reference module requires one, and it is
+      # the version every scaffolded module is generated against. A tag that
+      # disagrees with it would publish an SDK that nothing in this repository
+      # is built against, so the two have to be the same.
+      #
+      # While the requirement is still the unpublished placeholder there is
+      # nothing to compare against, and this reports that rather than inventing
+      # agreement. The comparison starts working by itself once the placeholder
+      # is replaced, which is the commit that follows the first SDK tag.
+      - name: Check the tag agrees with the version this commit is built around
+        run: |
+          set -euo pipefail
+          declared="$(awk '$1 == "github.com/wso2/wso2-cli/sdk" { print $2 }' modules/reference/go.mod)"
+          if [ -z "${declared}" ]; then
+            echo "::error::modules/reference/go.mod requires no SDK version to compare the tag against"
+            exit 1
+          fi
+          if [ "${declared}" = "v0.0.0" ]; then
+            echo "the checkout still requires the unpublished placeholder, so there is no version to disagree with"
+            exit 0
+          fi
+          if [ "${declared}" != "${VERSION}" ]; then
+            echo "::error::${GITHUB_REF_NAME} names ${VERSION}, but this commit is built against ${declared}"
+            exit 1
+          fi
+          echo "the tag and the checkout agree on ${declared}"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
 
       # What makes an SDK version publishable is asserted by the test suite
       # rather than by this workflow, so the same constraints hold on every pull
