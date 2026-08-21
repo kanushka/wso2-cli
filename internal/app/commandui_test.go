@@ -17,11 +17,15 @@
 package app_test
 
 import (
+	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/wso2/wso2-cli/internal/app"
 	"github.com/wso2/wso2-cli/internal/exit"
 	"github.com/wso2/wso2-cli/internal/modules/fixture"
+	"github.com/wso2/wso2-cli/internal/output"
 )
 
 // TestHelpListsEveryShellCommand proves the help text is generated from the
@@ -292,5 +296,40 @@ func TestLoginActsOnTheContextFlagFromEitherSide(t *testing.T) {
 				t.Fatalf("the context flag did not reach login:\n%s", errOut)
 			}
 		})
+	}
+}
+
+// failingWriter refuses every write, standing in for an unwritable output
+// stream such as a closed pipe.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, errors.New("the stream is closed")
+}
+
+// TestAFailureInsideACommandIsNotReportedAsAUsageProblem proves the framework's
+// error path did not swallow the shell's classification.
+//
+// Executing the command tree runs the command bodies as well as parsing flags,
+// so treating every error it returns as a parse failure would report an
+// unwritable stream as the user's mistake, with the usage exit class and
+// recovery guidance about flags. A flag failure is a usage problem; a stream
+// that cannot be written is not.
+func TestAFailureInsideACommandIsNotReportedAsAUsageProblem(t *testing.T) {
+	shell := app.Shell{
+		StateRoot: t.TempDir(),
+		Streams:   output.Streams{Out: failingWriter{}, Err: &bytes.Buffer{}},
+	}
+
+	code := shell.Run([]string{"version"})
+
+	if code == exit.OK {
+		t.Fatalf("exit code = %d, want a failure", code)
+	}
+	if code == exit.Usage {
+		t.Fatalf("an unwritable output stream was reported as a usage problem (exit %d)", code)
+	}
+	if code != exit.ModuleProcess {
+		t.Fatalf("exit code = %d, want the module process class %d", code, exit.ModuleProcess)
 	}
 }

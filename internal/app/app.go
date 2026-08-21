@@ -121,10 +121,10 @@ func (s Shell) dispatch(args []string) error {
 	// unparsed, so it never enters the command tree.
 	if strings.HasPrefix(name, "-") || isShellCommand(root, name) {
 		root.SetArgs(args)
-		if err := root.Execute(); err != nil {
-			return usageProblem(err)
-		}
-		return nil
+		// Execute runs the command bodies too, so its error is returned as it
+		// is. A flag-parsing failure has already been turned into a usage
+		// problem by the flag-error hook; anything else is classified by Run.
+		return root.Execute()
 	}
 
 	return s.dispatchNamespace(root, name, args[1:])

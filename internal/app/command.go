@@ -96,13 +96,18 @@ func (s Shell) rootCommand() *cobra.Command {
 	// command, which reads as "that command does not exist" rather than as
 	// missing information.
 	root.CompletionOptions.DisableDefaultCmd = true
+	// Only a flag-parsing failure becomes a usage problem. Cobra reports one
+	// through this hook, so wrapping here keeps every other error a command
+	// returns — an unwritable stream, a failed lookup — classified as what it
+	// is instead of as the user's mistake.
+	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return usageProblem(err)
+	})
 	root.SetHelpTemplate(helpTemplate)
 	root.SetUsageTemplate(helpTemplate)
 	root.SetOut(s.Streams.Out)
 	root.SetErr(s.Streams.Err)
 
-	// Declared here so its description reads in the shell's voice rather than
-	// as the framework's default.
 	// Flag parsing stops at the first argument that is not a flag. Everything
 	// after it may be a product namespace and the module's own flags, and those
 	// must reach the module verbatim rather than being parsed here. Without
@@ -110,6 +115,8 @@ func (s Shell) rootCommand() *cobra.Command {
 	// the module's flag and none of the shell's business.
 	root.Flags().SetInterspersed(false)
 
+	// The help flag is declared rather than left to Cobra so its description
+	// reads in the shell's voice rather than as the framework's default.
 	root.PersistentFlags().BoolP("help", "h", false, "Show help for a command.")
 	root.PersistentFlags().String(contextFlag, "", "Use the named context instead of the selected one.")
 	root.PersistentFlags().StringP(outputFlag, "o", string(output.ModeTable), "Render results as table or json.")
@@ -268,6 +275,10 @@ func (s Shell) versionCommand() *cobra.Command {
 // no recovery guidance, and the process would exit 1. The shell's exit classes
 // are a documented contract, so a parse failure has to arrive as a usage
 // problem like any other.
+//
+// It is reached only from the flag-error hook, so every error it sees is a parse
+// failure. An error a command body returns is left alone for the shell's own
+// classification.
 func usageProblem(err error) error {
 	var typed problem.Problem
 	if errors.As(err, &typed) {
