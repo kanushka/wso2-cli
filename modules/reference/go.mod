@@ -4,4 +4,8 @@ go 1.25.0
 
 require github.com/wso2/wso2-cli/sdk v0.0.0
 
-require google.golang.org/protobuf v1.36.11 // indirect
+require (
+	github.com/spf13/cobra v1.10.2
+	github.com/spf13/pflag v1.0.9
+	google.golang.org/protobuf v1.36.11 // indirect
+)

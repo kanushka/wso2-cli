@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -199,6 +200,47 @@ func TestTheReferenceModuleDependsOnThePublicSDKOnly(t *testing.T) {
 	}
 	if slices.Contains(required, "github.com/wso2/wso2-cli") {
 		t.Errorf("the reference module requires the shell module; it must depend on the public SDK only")
+	}
+}
+
+func TestNoModuleWritesToStandardOutputOutsideTheProtocol(t *testing.T) {
+	// A module's standard output carries protocol frames only, so anything else
+	// written there corrupts the stream the shell is reading. The Cobra adapter
+	// points every writer in a command tree at standard error, but it cannot
+	// stop a handler printing directly, so the source is asserted as well.
+	//
+	// sdk/module/serve.go is the one legitimate writer: it is what hands the
+	// stream to the protocol in the first place.
+	root := repoRoot(t)
+	allowed := filepath.Join("sdk", "module", "serve.go")
+
+	for _, tree := range []string{"sdk", "modules"} {
+		err := filepath.WalkDir(filepath.Join(root, tree), func(path string, entry fs.DirEntry, err error) error {
+			if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".go") {
+				return err
+			}
+			relative, relErr := filepath.Rel(root, path)
+			if relErr != nil {
+				return relErr
+			}
+			if relative == allowed || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			source, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return readErr
+			}
+			for _, forbidden := range []string{"os.Stdout", "fmt.Print(", "fmt.Println(", "fmt.Printf("} {
+				if strings.Contains(string(source), forbidden) {
+					t.Errorf("%s writes to standard output with %s; a module's standard output carries protocol frames only",
+						relative, forbidden)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s failed: %v", tree, err)
+		}
 	}
 }
 
