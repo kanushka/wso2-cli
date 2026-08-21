@@ -17,11 +17,18 @@ pushing `sdk/vX.Y.Z` makes that version fetchable, and the module proxy then
 keeps it forever. That immutability is the reason the tag is gated by a workflow
 rather than pushed by hand. The gate asks the questions a bad tag would answer
 too late: that `sdk/` builds and tests standalone rather than only inside the
-workspace, that it imports nothing under `internal/`, and that the protocol
-window it declares is the one the released shell speaks. An accidental
-`internal/` import is the failure worth spending a workflow on — it would pull
-the shell into every module's build graph, and it cannot be withdrawn from the
-proxy once tagged.
+workspace, that it imports nothing under `internal/`, and that the version the
+tag names is the one this commit is built against. An accidental `internal/`
+import is the failure worth spending a workflow on — it would pull the shell
+into every module's build graph, and it cannot be withdrawn from the proxy once
+tagged.
+
+Whether a protocol version is one a released shell speaks is deliberately not
+asked here. The SDK is not launched by anything; a module built against it is,
+and the module release gate already refuses a module whose protocol no released
+shell speaks, naming both sides. Asking the same question of an SDK tag would
+put the decision in two places, and the one that matters is the one standing
+between a user and a module they cannot run.
 
 **The version starts below 1.0 deliberately.** Go's compatibility promise
 attaches to `v1`, and the SDK's surface is moving under active work: the Cobra
