@@ -1,11 +1,19 @@
 # Shell command framework: own dispatcher versus Cobra
 
-**Status:** Research recommendation  
+**Status:** Superseded in part by [ADR 0008](../adr/0008-cobra-for-the-shell-command-ui.md)  
 **Date:** 2026-07-27  
 **Scope:** How the `wso2` shell parses its own arguments, routes built-in
 commands, and forwards product arguments to a module
 
 ## Executive recommendation
+
+> **This recommendation has been acted on and partly reversed.** The shell now
+> routes its own commands with Cobra; see
+> [ADR 0008](../adr/0008-cobra-for-the-shell-command-ui.md) for the decision and
+> its constraints. The trigger conditions below fired as written. What remains
+> current here is the evidence: the unknown-flag passthrough analysis, and in
+> particular why the allowlist option must never be used at the namespace
+> boundary.
 
 **Keep the shell's own dispatcher for the architecture proof. Adopt Cobra for
 the shell when the root command surface grows, and keep the module-facing
@@ -287,6 +295,17 @@ because they are what makes the choice reversible:
   framework change cannot silently alter which flags the shell consumes.
 
 ## Decisions requiring agreement
+
+> **All four are now settled.** 1 keeps positional passthrough, with the
+> `--` terminator rejected as a permanent user-facing tax; the position wart is
+> fixed instead by having modules declare their command trees. 2 accepts the
+> current behaviour until that declaration exists. 3 is yes, bounded by
+> [ADR 0008](../adr/0008-cobra-for-the-shell-command-ui.md) to `cobra` and
+> `pflag` with the documentation generator excluded and the linked set asserted
+> by a test. 4 lands with the module that declares its own tree, rather than
+> with the shell. The original wording is kept below because the reasoning that
+> made them open is still the reasoning behind the answers.
+
 
 1. **Flag-passthrough syntax.** Retain positional passthrough
    (`wso2 api gateway list --env prod`, first-unknown-flag wins) or require the

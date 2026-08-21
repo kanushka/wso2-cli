@@ -1,0 +1,300 @@
+// Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package app
+
+import (
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/sdk/problem"
+)
+
+// The flags every shell command shares, declared once on the root command.
+const (
+	contextFlag = "context"
+	outputFlag  = "output"
+)
+
+// helpTemplate preserves the help shape the shell published before Cobra routed
+// it. The wording is a user-facing contract, so it is templated rather than
+// left to Cobra's default layout. What Cobra supplies is that the command list
+// is walked from the real tree, so it cannot omit a command that exists.
+const helpTemplate = `Usage: {{.UseLine}}
+{{if .Long}}
+{{.Long}}
+{{end}}{{if .HasAvailableSubCommands}}
+Shell commands
+{{range .Commands}}{{if or .IsAvailableCommand (eq .Name "help")}}   {{rpad .Name .NamePadding}}   {{.Short}}
+{{end}}{{end}}{{end}}{{if .HasAvailableFlags}}
+Flags
+{{.Flags.FlagUsages}}{{end}}{{if not .HasParent}}
+Product commands are provided by installed modules.
+{{end}}`
+
+// rootCommand builds the shell's command tree.
+//
+// Only shell-owned commands are registered. A product namespace is resolved
+// from the managed module store instead, so built-in precedence stays a
+// property of dispatch order rather than an interaction between Cobra's command
+// lookup and a command set discovered at runtime, and so asking for help reads
+// no module store.
+func (s Shell) rootCommand() *cobra.Command {
+	root := &cobra.Command{
+		Use:  "wso2 <command> [arguments]",
+		Args: cobra.ArbitraryArgs,
+		// The shell reports every failure as a typed problem through one exit
+		// path, so Cobra must not write errors or usage itself.
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		// A shell flag is accepted on either side of a command name.
+		TraverseChildren:      true,
+		DisableFlagsInUseLine: true,
+		// The shell offers its own suggestions, so that they can later cover
+		// resolved namespaces as well as built-in commands.
+		DisableSuggestions: true,
+		// SuggestionsFor is used directly, so the distance Cobra would default
+		// during Execute has to be set here.
+		SuggestionsMinimumDistance: 2,
+		PersistentPreRunE:          s.validateShellFlags,
+		// Arguments left after the root's own flags are a product namespace and
+		// its arguments. Reaching them here is how a shell flag written before
+		// the namespace is honored.
+		RunE: func(command *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return s.help(command.Root())
+			}
+			// A product namespace honors every shell flag, and its own parser
+			// reads them back off the argument list.
+			forwarded, err := forwardShellFlags(command, args[1:])
+			if err != nil {
+				return err
+			}
+			return s.dispatchNamespace(command.Root(), args[0], forwarded)
+		},
+	}
+	// Completion is deliberately absent. Until a module declares its command
+	// tree, a generated completion would know every built-in and no product
+	// command, which reads as "that command does not exist" rather than as
+	// missing information.
+	root.CompletionOptions.DisableDefaultCmd = true
+	root.SetHelpTemplate(helpTemplate)
+	root.SetUsageTemplate(helpTemplate)
+	root.SetOut(s.Streams.Out)
+	root.SetErr(s.Streams.Err)
+
+	// Declared here so its description reads in the shell's voice rather than
+	// as the framework's default.
+	// Flag parsing stops at the first argument that is not a flag. Everything
+	// after it may be a product namespace and the module's own flags, and those
+	// must reach the module verbatim rather than being parsed here. Without
+	// this, "wso2 --context prod api list --env stage" fails on --env, which is
+	// the module's flag and none of the shell's business.
+	root.Flags().SetInterspersed(false)
+
+	root.PersistentFlags().BoolP("help", "h", false, "Show help for a command.")
+	root.PersistentFlags().String(contextFlag, "", "Use the named context instead of the selected one.")
+	root.PersistentFlags().StringP(outputFlag, "o", string(output.ModeTable), "Render results as table or json.")
+
+	root.AddCommand(s.loginCommand(), s.moduleCommand(), s.versionCommand())
+
+	// Cobra's generated help command describes itself generically. The shell
+	// published its own summary for it, and that wording is kept.
+	root.InitDefaultHelpCmd()
+	for _, command := range root.Commands() {
+		if command.Name() == "help" {
+			command.Short = "Show the shell command tree."
+		}
+	}
+	return root
+}
+
+// validateShellFlags refuses an unusable value for a shell-owned flag before any
+// command runs, so the refusal is one typed problem rather than one per command.
+func (s Shell) validateShellFlags(command *cobra.Command, _ []string) error {
+	flag := command.Flags().Lookup(outputFlag)
+	if flag == nil || !flag.Changed {
+		return nil
+	}
+	if _, ok := output.ParseMode(flag.Value.String()); !ok {
+		return problem.New(problem.CategoryUsage, "shell.unknown_output_mode",
+			fmt.Sprintf("%q is not an output mode", flag.Value.String())).
+			WithRecovery("Use --output table or --output json.")
+	}
+	return nil
+}
+
+// shellFlagsFor reports the shell-owned flags a built-in command honors.
+//
+// A shell flag is declared once on the root, but not every command can act on
+// every one of them: version and the module lifecycle commands render their own
+// fixed output and select no context. Naming what each command honors keeps a
+// flag it cannot act on a refusal rather than a value silently ignored.
+func shellFlagsFor(name string) []string {
+	switch name {
+	case "wso2":
+		// The root routes a product namespace, and a module command may act on
+		// every shell flag.
+		return []string{contextFlag, outputFlag}
+	case "login":
+		return []string{contextFlag}
+	default:
+		return nil
+	}
+}
+
+// forwardShellFlags re-attaches the shell flags Cobra parsed to the argument
+// list a built-in command's own parser expects, and refuses a flag the command
+// cannot act on.
+//
+// The re-attachment is deliberate scaffolding. The built-in command bodies still
+// parse their own arguments, so this change alters routing and not flag
+// semantics, and the existing tests stay a regression suite for it. It goes away
+// when each command declares its flags directly.
+func forwardShellFlags(command *cobra.Command, args []string) ([]string, error) {
+	honored := shellFlagsFor(command.Name())
+	forwarded := make([]string, 0, len(args)+4)
+	for _, name := range []string{contextFlag, outputFlag} {
+		flag := command.Root().PersistentFlags().Lookup(name)
+		if flag == nil || !flag.Changed {
+			continue
+		}
+		if !slices.Contains(honored, name) {
+			return nil, problem.New(problem.CategoryUsage, "shell.unsupported_flag",
+				fmt.Sprintf("wso2 %s does not take the flag --%s", command.Name(), name)).
+				WithRecovery(fmt.Sprintf("Run wso2 %s --help to see the flags it accepts.", command.Name()))
+		}
+		forwarded = append(forwarded, "--"+name, flag.Value.String())
+	}
+	return append(forwarded, args...), nil
+}
+
+// wantsHelp reports whether a command whose own parser owns its arguments was
+// asked for help. Flag parsing is disabled on those commands, so Cobra never
+// sets its help flag and the request has to be recognized here.
+func wantsHelp(args []string) bool {
+	for _, argument := range args {
+		if argument == "--help" || argument == "-h" {
+			return true
+		}
+	}
+	return false
+}
+
+// loginCommand and moduleCommand keep their own argument parsing for now, so
+// flag parsing is disabled on them rather than allowed to fail on a flag the
+// root does not declare.
+//
+// Cobra's allowlist for unknown flags must not be used for this: it does not
+// forward an unknown flag, it discards it together with its value, so a command
+// would run without a flag the user gave and without any diagnostic.
+func (s Shell) loginCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:                   "login",
+		Short:                 "Log in to the selected context's identity.",
+		DisableFlagsInUseLine: true,
+		DisableFlagParsing:    true,
+		RunE: func(command *cobra.Command, args []string) error {
+			if wantsHelp(args) {
+				return command.Help()
+			}
+			forwarded, err := forwardShellFlags(command, args)
+			if err != nil {
+				return err
+			}
+			return s.login(forwarded)
+		},
+	}
+}
+
+func (s Shell) moduleCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "module <subcommand>",
+		Short: "Install, list, and update product modules from the module catalog.",
+		// module still routes its own subcommands, so they are named here
+		// rather than walked from the tree. They move into the tree when the
+		// command declares its flags directly.
+		Long:                  "Subcommands: available, install, list, update.",
+		DisableFlagsInUseLine: true,
+		DisableFlagParsing:    true,
+		RunE: func(command *cobra.Command, args []string) error {
+			if wantsHelp(args) {
+				return command.Help()
+			}
+			forwarded, err := forwardShellFlags(command, args)
+			if err != nil {
+				return err
+			}
+			return s.module(forwarded)
+		},
+	}
+}
+
+func (s Shell) versionCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:                   "version",
+		Short:                 "Show the shell, protocol, and installed module versions.",
+		DisableFlagsInUseLine: true,
+		RunE: func(command *cobra.Command, args []string) error {
+			if _, err := forwardShellFlags(command, args); err != nil {
+				return err
+			}
+			return s.version(args)
+		},
+	}
+}
+
+// usageProblem wraps a flag-parsing failure as a typed problem.
+//
+// Cobra and pflag report a parse failure as a plain error with no category and
+// no recovery guidance, and the process would exit 1. The shell's exit classes
+// are a documented contract, so a parse failure has to arrive as a usage
+// problem like any other.
+func usageProblem(err error) error {
+	var typed problem.Problem
+	if errors.As(err, &typed) {
+		return typed
+	}
+	message := err.Error()
+	code := "shell.flag_invalid"
+	switch {
+	case strings.Contains(message, "needs an argument"):
+		code = "shell.flag_needs_value"
+	case strings.Contains(message, "unknown flag"), strings.Contains(message, "unknown shorthand flag"):
+		code = "shell.unknown_flag"
+	}
+	return problem.New(problem.CategoryUsage, code, message).
+		WithRecovery("Run wso2 help to see the shell commands and the flags they accept.")
+}
+
+// suggestionFor reports the shell command closest to an unrecognized name, so a
+// typo costs a keystroke rather than a search through the documentation.
+func suggestionFor(root *cobra.Command, name string) string {
+	candidates := root.SuggestionsFor(name)
+	if len(candidates) == 0 {
+		return ""
+	}
+	quoted := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		quoted = append(quoted, "wso2 "+candidate)
+	}
+	return fmt.Sprintf("Did you mean %s?", strings.Join(quoted, " or "))
+}
