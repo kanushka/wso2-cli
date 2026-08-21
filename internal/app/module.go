@@ -50,6 +50,8 @@ func (s Shell) module(args []string) error {
 		return s.moduleList(args[1:])
 	case "update":
 		return s.moduleUpdate(args[1:])
+	case "remove":
+		return s.moduleRemove(args[1:])
 	default:
 		return problem.New(problem.CategoryUsage, "shell.unknown_command",
 			fmt.Sprintf("%q is not a wso2 module subcommand", args[0])).
@@ -58,7 +60,53 @@ func (s Shell) module(args []string) error {
 }
 
 const moduleRecovery = "Run wso2 module available to see what can be installed, " +
-	"wso2 module install <module> to install one, or wso2 module update --all to update what is installed."
+	"wso2 module install <module> to install one, wso2 module update --all to update what is " +
+	"installed, or wso2 module remove <module> to take one off this machine."
+
+// moduleRemove takes one installed module off this machine.
+//
+// Exactly one namespace is named. Removing several at once would have to decide
+// what a run that failed halfway had done, and a user removing one module at a
+// time never has to ask.
+//
+// What is removed is the module: its versions, its receipts, its active-version
+// pointer, and its version policy. What is not removed is everything else. A
+// user who removes a module has said nothing about their identity, so the
+// credential store and the configuration are left exactly as they were — this
+// is not a logout.
+func (s Shell) moduleRemove(args []string) error {
+	if len(args) == 0 {
+		return problem.New(problem.CategoryUsage, "shell.missing_argument",
+			"wso2 module remove needs the module to remove").
+			WithRecovery("Run wso2 module list to see what is installed, " +
+				"then wso2 module remove <module>.")
+	}
+	if len(args) > 1 {
+		return problem.New(problem.CategoryUsage, "shell.unexpected_argument",
+			fmt.Sprintf("wso2 module remove takes one module, got %q as well", args[1])).
+			WithRecovery("Remove one module at a time: wso2 module remove <module>.")
+	}
+
+	namespace := args[0]
+	store, err := s.store()
+	if err != nil {
+		return err
+	}
+	removed, err := store.Remove(namespace)
+	if err != nil {
+		return err
+	}
+	if !removed {
+		// Reporting success here would tell a user their module is gone when
+		// what is installed is something else under the name they meant.
+		return problem.New(problem.CategoryUsage, "shell.module_not_installed",
+			fmt.Sprintf("no %s module is installed", namespace)).
+			WithRecovery("Run wso2 module list to see what is installed.")
+	}
+
+	_, err = fmt.Fprintf(s.Streams.Out, "Removed the %s module.\n", namespace)
+	return err
+}
 
 // moduleInstall installs one product module from the catalog.
 //

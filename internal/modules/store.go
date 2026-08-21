@@ -182,3 +182,33 @@ func activeMalformed(namespace, detail string) problem.Problem {
 		fmt.Sprintf("the active-version pointer for the %q module %s", namespace, detail)).
 		WithRecovery(reinstallRecovery)
 }
+
+// Remove takes one module off the machine: its versions, its receipts, its
+// active-version pointer, and its policy all live inside the namespace
+// directory, so removing that directory removes the module.
+//
+// It reports whether the namespace was installed. A namespace with nothing in
+// the store is not an error here, because whether that is a typo or a no-op is
+// a question about what the user asked for rather than about the store, and the
+// command is the only place that knows.
+//
+// Nothing outside the store is touched. A module's identity, its credentials,
+// and the user's configuration are not the module's to take with it.
+func (s Store) Remove(namespace string) (bool, error) {
+	if !ValidNamespace(namespace) {
+		return false, problem.New(problem.CategoryUsage, "modules.invalid_namespace",
+			fmt.Sprintf("%q is not a valid module namespace", namespace)).
+			WithRecovery("Run wso2 module list to see the installed modules.")
+	}
+
+	directory := s.NamespaceDir(namespace)
+	if _, err := os.Stat(directory); os.IsNotExist(err) {
+		return false, nil
+	}
+	if err := os.RemoveAll(directory); err != nil {
+		return false, problem.New(problem.CategoryModuleProcess, "modules.remove_failed",
+			fmt.Sprintf("the %s module could not be removed: %v", namespace, err)).
+			WithRecovery("Check the permissions on the module store and try again.")
+	}
+	return true, nil
+}

@@ -15,7 +15,8 @@ open decision. The lifecycle command names below are therefore provisional.
 These are built: `wso2 module available`, `wso2 module list`,
 `wso2 module install <module>`, `wso2 module install <module>@<version>`,
 `wso2 module install <module> --channel <channel>`,
-`wso2 module update <module>`, and `wso2 module update --all`. The
+`wso2 module update <module>`, `wso2 module update --all`, and
+`wso2 module remove <module>`. The
 [module catalog](module-catalog.md) reference describes what they select, what
 they verify, how a channel and a pin are recorded per module, and how each
 refusal is reported.
@@ -48,7 +49,7 @@ refusal is reported.
 | `wso2 module update --all` | Updates all installed product modules. |
 | `wso2 module verify <module>` | Verifies an installed module and its receipt. |
 | `wso2 module rollback <module>` | Reactivates a retained compatible version. |
-| `wso2 module remove <module>` | Removes a module according to the retention policy. |
+| `wso2 module remove <module>` | Removes one installed module, leaving configuration and credentials alone. |
 | `wso2 module install --file <module.wso2module>` | Installs one module from an offline file. |
 | `wso2 bundle create` | Creates a platform-specific, self-installing offline bundle from catalog releases. |
 | `wso2 bundle inspect <file>` | Shows bundle contents without installing it. |
