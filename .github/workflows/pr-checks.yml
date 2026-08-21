@@ -199,3 +199,34 @@ jobs:
       # an SDK-only change is exactly the kind that breaks the shell.
       - name: Run the architecture-proof acceptance gate
         run: ./scripts/acceptance.sh
+
+  previous-protocol:
+    name: Previous Protocol
+    needs: changes
+    if: needs.changes.outputs.shell == 'true' || needs.changes.outputs.sdk == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: |
+            go.mod
+            sdk/go.mod
+
+      # The gate above proves the branch against itself, which is the graph no
+      # released module has. This one reproduces a released module's graph
+      # instead — the workspace dropped and the SDK resolved by version from the
+      # proxy — so a change that breaks the older half of the protocol window is
+      # caught by whoever made it rather than by a user a release later.
+      #
+      # It is the one job that depends on the module proxy for something other
+      # than dependencies, and it reports an unreachable proxy as a failure:
+      # reading it as "nothing is published" would make a blip look like proof.
+      - name: Prove the previous protocol
+        run: ./scripts/previous-protocol.sh

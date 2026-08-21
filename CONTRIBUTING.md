@@ -14,8 +14,9 @@ The repository contains three independently buildable Go modules: the shell at
 the repository root, the public SDK in `sdk/`, and the reference module in
 `examples/reference-module/`. `go.work` composes the unpublished modules for
 local development. Committed `replace` directives are prohibited in every
-`go.mod`; a test enforces this. `go.work` carries one replacement for the
-unpublished SDK version the reference module requires. Replacing a module
+`go.mod`; a test and the previous-protocol gate below both enforce this.
+`go.work` carries one replacement for the unpublished SDK version the
+reference module requires. Replacing a module
 version with contents found elsewhere is what a `go.work` replacement is for
 ([Go modules reference](https://go.dev/ref/mod#go-work-file-replace)); this
 checkout needs one because the reference module requires an SDK version that
@@ -33,6 +34,21 @@ That is the architecture-proof acceptance gate. It roots every run in a
 temporary state directory and clears any ambient `WSO2_` variable first, so it
 never reads or writes real WSO2 state, and it needs no network catalog, no
 credentials, and no product service.
+
+A second gate proves the older half of the protocol window:
+
+```shell
+./scripts/previous-protocol.sh
+```
+
+It resolves the newest published SDK whose protocol generation is the
+predecessor of this branch's, builds the reference module against that SDK
+with the workspace dropped, and launches it under the shell built from this
+checkout. That is the dependency graph a released module has, and it is the
+one graph nothing else here reproduces. Until the first SDK is published the
+gate has no release to resolve, and it says so and checks nothing rather than
+reporting a pass. It needs a reachable module proxy; the acceptance gate does
+not.
 
 While working on one module, run that module alone:
 
