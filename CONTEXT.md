@@ -57,14 +57,10 @@ stable.
 _Avoid_: Stream, ring
 
 **Integrity-checked module**:
-A module whose executable matches its local receipt but whose publisher and
-release metadata have not necessarily passed the production trust chain.
+A module whose executable still matches the digest in its local receipt, and
+whose archive matched the digest the catalog published for it at install time.
+Nothing attests to the authenticity of the catalog entry itself.
 _Avoid_: Verified module
-
-**Verified module**:
-A module whose publisher, release metadata, artifact, compatibility, and
-revocation status have passed the production trust policy.
-_Avoid_: Integrity-checked module
 
 **Architecture proof**:
 A non-production vertical slice that validates the riskiest architectural

@@ -107,7 +107,10 @@ before extracting it. Verification failure is fatal: nothing is extracted and
 nothing is installed.
 
 Artifacts are not signed or notarized. Code signing belongs to the per-platform
-channels, and until then integrity rests on this checksum file and on HTTPS.
+channels, and until then integrity rests on this checksum file and on HTTPS. A
+checksum proves that an archive is the one published beside it; it does not
+prove that the checksum file is authentic. Signing is a tracked follow-up,
+recorded in [architecture](../architecture.md) section 15.
 
 ## Version reporting
 

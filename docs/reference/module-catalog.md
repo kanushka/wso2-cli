@@ -286,7 +286,8 @@ does not prove that this entry is authentic. Artifacts are unsigned, as
 on the digest together with HTTPS. Whoever can publish to the catalog origin
 controls the update channel; that exposure is mitigated by branch protection
 and required review on the workflows that publish, not by cryptography.
-Manifest signing is a tracked follow-up.
+Manifest signing is a tracked follow-up, recorded in
+[architecture](../architecture.md) section 15.
 
 The manifest carries no `publisher`, `signature`, `provenance`, `sbom`, or
 revocation field. With one repository and one CODEOWNERS file, the question
