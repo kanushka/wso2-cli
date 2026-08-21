@@ -45,7 +45,31 @@ func TestParseVersionsSortsNewestFirstAndDropsInvalidEntries(t *testing.T) {
 }
 
 func TestSupportedReflectsBuildTimeVersion(t *testing.T) {
-	if got := Supported(); !reflect.DeepEqual(got, []int{1}) {
-		t.Fatalf("Supported() = %v, want [1]; default protocol version changed without updating the shell", got)
+	if got := Supported(); !reflect.DeepEqual(got, ParseVersions(Version)) {
+		t.Fatalf("Supported() = %v, want the versions declared by Version %q", got, Version)
+	}
+}
+
+func TestWindowIsTheCurrentVersionAndItsPredecessor(t *testing.T) {
+	original := Version
+	t.Cleanup(func() { Version = original })
+
+	tests := []struct {
+		name    string
+		version string
+		want    []int
+	}{
+		{name: "declared", version: original, want: []int{2, 1}},
+		{name: "first generation has no predecessor", version: "1", want: []int{1}},
+		{name: "later generation", version: "7", want: []int{7, 6}},
+		{name: "unreadable", version: "x", want: nil},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			Version = test.version
+			if got := Window(); !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("Window() with Version %q = %v, want %v", test.version, got, test.want)
+			}
+		})
 	}
 }

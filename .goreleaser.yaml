@@ -29,10 +29,6 @@ builds:
       # The shell version carries no leading "v": the version package prefixes
       # one for display, and its semantic-version parse reads the bare form.
       - -X github.com/wso2/wso2-cli/internal/version.shellVersion={{ .Version }}
-      # Kept in step with the default in internal/version by the release
-      # workflow, which runs the built binary and fails the release if the two
-      # disagree. Widening the protocol list means changing both.
-      - -X github.com/wso2/wso2-cli/internal/version.protocolVersion=1
     goos:
       - linux
       - darwin

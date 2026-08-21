@@ -44,12 +44,14 @@ go test ./...                       # shell, including acceptance tests
 ```
 
 The shell, protocol, SDK, and module versions move independently and are
-injected at build time:
+injected at build time. The protocol window is not: a release build leaves it
+alone, because the shell supports the current protocol version and its
+predecessor, declared once in `sdk/protocol`. Only tests narrow it, by
+injecting `internal/version.protocolVersion`.
 
 ```shell
 go build -ldflags "\
-  -X github.com/wso2/wso2-cli/internal/version.shellVersion=0.1.0 \
-  -X github.com/wso2/wso2-cli/internal/version.protocolVersion=1" ./cmd/wso2
+  -X github.com/wso2/wso2-cli/internal/version.shellVersion=0.1.0" ./cmd/wso2
 
 cd examples/reference-module && go build -ldflags "\
   -X main.moduleVersion=0.1.0 \

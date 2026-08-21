@@ -20,9 +20,15 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
+
+	"github.com/wso2/wso2-cli/sdk/protocol"
 )
 
 func TestCurrentReportsShellProtocolAndPlatform(t *testing.T) {
+	original := protocolVersion
+	t.Cleanup(func() { protocolVersion = original })
+	protocolVersion = "4"
+
 	info := Current()
 
 	if info.Shell != "v"+shellVersion {
@@ -96,8 +102,15 @@ func TestProtocolVersionsReadsTheInjectedList(t *testing.T) {
 	}
 }
 
-func TestTheDefaultProtocolVersionIsSupported(t *testing.T) {
-	if got := ProtocolVersions(); !reflect.DeepEqual(got, []int{1}) {
-		t.Fatalf("ProtocolVersions() = %v, want [1]", got)
+// TestTheDefaultProtocolVersionsAreTheDeclaredWindow proves an uninjected shell
+// speaks the window declared once in the SDK, rather than a second list that
+// can drift from it.
+func TestTheDefaultProtocolVersionsAreTheDeclaredWindow(t *testing.T) {
+	original := protocolVersion
+	t.Cleanup(func() { protocolVersion = original })
+
+	protocolVersion = ""
+	if got := ProtocolVersions(); !reflect.DeepEqual(got, protocol.Window()) {
+		t.Fatalf("ProtocolVersions() = %v, want the declared window %v", got, protocol.Window())
 	}
 }

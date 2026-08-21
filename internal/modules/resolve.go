@@ -221,6 +221,16 @@ func checkReceiptMatchesActive(namespace, activeVersion string, receipt Receipt)
 }
 
 // negotiateProtocol selects the newest protocol version both sides support.
+//
+// The launch gate is the protocol window intersected with the platform, and
+// nothing else. The shell must never compare a module's version against its
+// own, in either direction. A product module carries its product's version
+// scheme, chosen so its users recognise it, and that scheme does not track the
+// shell's: a module numbered far above or far below the shell says nothing
+// about whether the two can speak. Refusing on that comparison would reject
+// modules that run perfectly, and it would do so in terms a user cannot act on.
+// Adding it back would look like defensive tightening; it is not, and there is
+// no version pair for which it is correct.
 func negotiateProtocol(receipt Receipt, shell ShellIdentity) (int, error) {
 	for _, candidate := range shell.ProtocolVersions {
 		if receipt.SupportsProtocol(candidate) {

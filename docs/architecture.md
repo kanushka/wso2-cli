@@ -427,7 +427,10 @@ logs go to standard error; machine output goes to standard output.
 
 ## 5. Module contract
 
-Every production module implements protocol version 1 through the SDK.
+Every production module implements one protocol version through the SDK: the
+version of the SDK release it was built against. The shell supports a window of
+two, so a module built against either negotiates successfully. See
+[section 10](#10-version-model).
 
 The shell and a module exchange length-delimited Protobuf messages over the
 module process's inherited standard input and standard output. Module standard
@@ -809,12 +812,30 @@ The runtime has three independent versions:
 - **Protocol version:** compatibility contract between shell and modules.
 - **Module version:** product module release owned by its product team.
 
+The shell supports a protocol window of the current version and its
+predecessor, so a user whose shell is one protocol generation behind is not cut
+off from module releases: there is a full generation in which to update the
+shell before a module release can outrun it. The window is declared once, in
+the SDK's protocol package. The shell reads that declaration, and so will the
+release gate that is to refuse publishing a module the released shell cannot
+launch, so the two cannot come to disagree about what is supported.
+
+The launch gate is the protocol window intersected with the platform, and
+nothing else. **The shell never compares a module's version against its own**,
+in either direction. A product module carries its product's version scheme,
+chosen so its users recognise it, and that scheme does not track the shell's,
+so a module numbered far above or far below the shell says nothing about
+whether the two can speak. Comparing them would refuse modules that run
+perfectly, and in terms a user cannot act on. Reintroducing the comparison
+would look like defensive tightening; it is not, and there is no version pair
+for which it is correct.
+
 Proposed output:
 
 ```text
 $ wso2 version
 WSO2 CLI       v0.1.0
-Protocol       v1
+Protocol       v2, v1
 Commit         abc123
 Platform       darwin/arm64
 

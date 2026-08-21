@@ -81,7 +81,7 @@ jobs:
       # release page rather than inspecting the build output: the checksum file
       # describes every archive published, the archive named for this tag
       # extracts to a binary reporting this tag's version, and the protocol
-      # version it claims is the one the shell's own source defaults to.
+      # window it claims is the one the shell's own source declares.
       #
       # A release that ships a binary still reporting the development
       # placeholder, or a checksum file that does not cover every archive
@@ -144,22 +144,26 @@ jobs:
             exit 1
           fi
 
-          # The protocol version is injected by .goreleaser.yaml and defaulted in
-          # internal/version. A release that disagrees with the shell's own
-          # default would ship a binary claiming support it was not built with,
-          # so the two are compared rather than assumed to have been kept in step.
+          # A release build injects no protocol versions: the shell speaks the
+          # window declared in sdk/protocol, the current version and its
+          # predecessor. A build that narrowed it would cut off module releases
+          # for users a generation behind, so the released binary is asked what
+          # it speaks and held to what the source declares.
           #
-          # Both are required to be non-empty: if the version output ever stops
-          # carrying a Protocol field under this label, an unguarded comparison
-          # would find two empty strings equal and report agreement it never saw.
-          released_protocol="$(awk '$1 == "Protocol" { print $2 }' <<<"${reported}")"
-          source_protocol="$(cd "${GITHUB_WORKSPACE}" && go run ./cmd/wso2 version | awk '$1 == "Protocol" { print $2 }')"
+          # The whole field is read, not its first word, because the window is
+          # a list. Both are required to be non-empty: if the version output
+          # ever stops carrying a Protocol field under this label, an unguarded
+          # comparison would find two empty strings equal and report agreement
+          # it never saw.
+          protocol_field='$1 == "Protocol" { sub(/^Protocol[[:space:]]+/, ""); print }'
+          released_protocol="$(awk "${protocol_field}" <<<"${reported}")"
+          source_protocol="$(cd "${GITHUB_WORKSPACE}" && go run ./cmd/wso2 version | awk "${protocol_field}")"
           if [[ -z "${released_protocol}" || -z "${source_protocol}" ]]; then
             echo "::error::no protocol version was reported, so nothing was compared"
             exit 1
           fi
           if [[ "${released_protocol}" != "${source_protocol}" ]]; then
-            echo "::error::released protocol ${released_protocol} does not match the source default ${source_protocol}"
+            echo "::error::released protocol ${released_protocol} does not match the declared window ${source_protocol}"
             exit 1
           fi
-          echo "Protocol ${released_protocol} matches the source default"
+          echo "Protocol ${released_protocol} matches the declared window"

@@ -51,7 +51,10 @@ type Module struct {
 	// accepts every shell version, including a prerelease development build.
 	ShellRange string
 	// ProtocolVersions are the supported protocol versions. They default to
-	// protocol 1.
+	// protocol 1, which is the older end of the shell's window. An
+	// installation whose executable is a real module built against the SDK
+	// must set what that build speaks instead, because the receipt has to
+	// agree with the executable at the handshake.
 	ProtocolVersions []int
 	// OS and Arch default to the running platform.
 	OS   string

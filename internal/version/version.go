@@ -38,8 +38,12 @@ import (
 // Tests inject them to prove the shell, protocol, SDK, and module versions can
 // vary independently.
 var (
-	shellVersion    = "0.0.0-dev"
-	protocolVersion = "1"
+	shellVersion = "0.0.0-dev"
+	// protocolVersion overrides the protocol versions this shell speaks. Empty
+	// means the window declared in sdk/protocol, which is where the supported
+	// set is declared once. Only tests set it, to prove the shell, protocol,
+	// SDK, and module versions vary independently.
+	protocolVersion = ""
 )
 
 // Info is the shell-owned version inventory, excluding installed modules. Its
@@ -88,10 +92,18 @@ func ProtocolDisplay() string {
 }
 
 // ProtocolVersions reports the protocol versions this shell can speak, newest
-// first. The shell owns its own configured list rather than reading the SDK's,
-// so a module built against a different SDK release cannot widen shell support;
-// only the parsing of that list is shared with the SDK.
+// first: the current protocol version and its predecessor.
+//
+// The window comes from the SDK source this shell was built from, fixed at the
+// shell's build time. A module never contributes to it, so a module built
+// against a different SDK release still cannot widen what this shell supports;
+// what reading one declaration buys is that nothing else deciding what is
+// supported, such as the release gate that will hold module publishing to it,
+// can come to disagree with the shell.
 func ProtocolVersions() []int {
+	if protocolVersion == "" {
+		return protocol.Window()
+	}
 	return protocol.ParseVersions(protocolVersion)
 }
 

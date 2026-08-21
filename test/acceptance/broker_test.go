@@ -132,14 +132,7 @@ func deployAs(t *testing.T, install installation) deployment {
 	installReferenceModule(t, stateRoot, buildReferenceModule(t))
 
 	if install.kind == developmentCredential {
-		service := startStatusService(t, install.service)
-		installReferenceContext(t, stateRoot, service.server.URL, credentialVariable)
-		return deployment{
-			stateRoot:   stateRoot,
-			service:     service.server,
-			calls:       service.calls,
-			environment: shellEnvironment(stateRoot),
-		}
+		return deployInstalled(t, stateRoot, install.service)
 	}
 
 	if install.issuer.Audience == "" {
@@ -168,6 +161,21 @@ func deployAs(t *testing.T, install installation) deployment {
 		service:     service.server,
 		calls:       service.calls,
 		environment: shellEnvironment(stateRoot, oauthSecretVariable+"="+oauthClientSecret),
+	}
+}
+
+// deployInstalled starts the status service and writes the development-credential
+// context for a state root whose reference module is already installed, so a
+// test that installs its own build of the module still deploys it the one way.
+func deployInstalled(t *testing.T, stateRoot string, options statusservice.Options) deployment {
+	t.Helper()
+	service := startStatusService(t, options)
+	installReferenceContext(t, stateRoot, service.server.URL, credentialVariable)
+	return deployment{
+		stateRoot:   stateRoot,
+		service:     service.server,
+		calls:       service.calls,
+		environment: shellEnvironment(stateRoot),
 	}
 }
 

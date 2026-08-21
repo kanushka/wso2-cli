@@ -42,6 +42,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/internal/state"
 	"github.com/wso2/wso2-cli/internal/version"
+	"github.com/wso2/wso2-cli/sdk/protocol"
 )
 
 // These tests run the shell in-process rather than as a built binary, which is
@@ -186,11 +187,14 @@ func installInProcessReferenceModule(t *testing.T, stateRoot string) {
 	build(t, filepath.Join(repoRoot(t), "examples", "reference-module"), binary, "",
 		"./cmd/wso2-module-reference")
 	if _, err := modulefixture.Install(state.ModuleStore(stateRoot), modulefixture.Module{
-		Namespace:     "reference",
-		Version:       version.Shell(),
-		SourcePath:    binary,
-		AuthAudiences: []string{referenceAudience},
-		AuthScopes:    []string{referenceReadScope},
+		Namespace:  "reference",
+		Version:    version.Shell(),
+		SourcePath: binary,
+		// The module was built with no protocol ldflag, so its receipt records
+		// the protocol version the SDK declares rather than a fixed number.
+		ProtocolVersions: protocol.Supported(),
+		AuthAudiences:    []string{referenceAudience},
+		AuthScopes:       []string{referenceReadScope},
 	}); err != nil {
 		t.Fatalf("installing the reference module: %v", err)
 	}

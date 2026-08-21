@@ -64,7 +64,7 @@ on Windows or macOS, or detached-signature verification on Linux.
 ```text
 $ wso2 version
 WSO2 CLI          v0.1.0
-Protocol          v1
+Protocol          v2, v1
 Platform          darwin/arm64
 
 Installed modules
