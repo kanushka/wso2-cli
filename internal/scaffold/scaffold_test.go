@@ -34,6 +34,7 @@
 package scaffold_test
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,6 +43,7 @@ import (
 
 	"github.com/wso2/wso2-cli/internal/app"
 	"github.com/wso2/wso2-cli/internal/scaffold"
+	"github.com/wso2/wso2-cli/sdk/protocol"
 )
 
 // TestAScaffoldedModuleBuildsAndAnswersTheContract is the test that makes the
@@ -71,33 +73,88 @@ func TestAScaffoldedModuleBuildsAndAnswersTheContract(t *testing.T) {
 	runGo(t, directory, "test", "./...")
 }
 
-// TestAScaffoldedModuleDependsOnThePublicSDKAtTheVersionTheCheckoutUses states
-// the property a literal in a template cannot have. A generated module that
-// named a fixed SDK version would be correct until the next SDK release, and
-// then would produce a release-gate refusal the developer did not cause.
-func TestAScaffoldedModuleDependsOnThePublicSDKAtTheVersionTheCheckoutUses(t *testing.T) {
+// TestAScaffoldedModuleIsGeneratedAgainstWhatTheCheckoutDeclares states the
+// property a literal in a template cannot have.
+//
+// The versions in the temporary repository are moved to ones no template would
+// contain before anything is generated. Comparing a generated module against
+// the file it was derived from would pass for a template literal that happened
+// to match today and would keep passing after the checkout moved; moving the
+// declaration first is what makes the assertion about derivation rather than
+// about coincidence.
+func TestAScaffoldedModuleIsGeneratedAgainstWhatTheCheckoutDeclares(t *testing.T) {
 	root := temporaryRepository(t)
 	namespace := "scaffoldversion"
 	directory := filepath.Join(root, "modules", namespace)
+
+	const distinctSDK = "v0.42.7"
+	const distinctCobra = "v1.8.1"
+	referencePath := filepath.Join(root, "modules", "reference", "go.mod")
+	declared := readFile(t, referencePath)
+	declared = strings.Replace(declared,
+		"github.com/wso2/wso2-cli/sdk "+sdkRequirementIn(t, declared),
+		"github.com/wso2/wso2-cli/sdk "+distinctSDK, 1)
+	declared = requireCobraAt(t, declared, distinctCobra)
+	writeFile(t, referencePath, declared)
 
 	if _, err := scaffold.Generate(scaffold.Request{RepositoryRoot: root, Namespace: namespace}); err != nil {
 		t.Fatalf("generating returned %v", err)
 	}
 
-	// The reference module is what the checkout already resolves the SDK
-	// through, so it is the answer a generated module has to agree with.
-	want := sdkRequirement(t, filepath.Join(root, "modules", "reference", "go.mod"))
-	got := sdkRequirement(t, filepath.Join(directory, "go.mod"))
-	if got != want {
-		t.Errorf("the generated module requires the SDK at %q; the checkout uses %q", got, want)
+	generated := readFile(t, filepath.Join(directory, "go.mod"))
+	if got := sdkRequirementIn(t, generated); got != distinctSDK {
+		t.Errorf("the generated module requires the SDK at %q; the checkout declares %q", got, distinctSDK)
+	}
+	if !strings.Contains(generated, "github.com/spf13/cobra "+distinctCobra) {
+		t.Errorf("the generated module does not take Cobra at the checkout's version %q:\n%s",
+			distinctCobra, generated)
 	}
 
-	// The declared protocol versions are the checkout's too, for the same
-	// reason and with the same failure if they are not.
-	declaration := readFile(t, filepath.Join(directory, "module.json"))
-	if !strings.Contains(declaration, `"protocolVersions"`) {
-		t.Errorf("the generated declaration names no protocol versions:\n%s", declaration)
+	// The declared protocol versions are compared with what the SDK in this
+	// checkout actually speaks, rather than merely being present: an empty or
+	// stale array would otherwise satisfy the criterion.
+	wantProtocols, err := json.Marshal(protocol.Supported())
+	if err != nil {
+		t.Fatalf("cannot encode the supported protocol versions: %v", err)
 	}
+	declaration := readFile(t, filepath.Join(directory, "module.json"))
+	var parsed struct {
+		Compatibility struct {
+			ProtocolVersions []int `json:"protocolVersions"`
+		} `json:"compatibility"`
+	}
+	if err := json.Unmarshal([]byte(declaration), &parsed); err != nil {
+		t.Fatalf("the generated declaration is not readable JSON: %v\n%s", err, declaration)
+	}
+	gotProtocols, err := json.Marshal(parsed.Compatibility.ProtocolVersions)
+	if err != nil {
+		t.Fatalf("cannot encode the declared protocol versions: %v", err)
+	}
+	if string(gotProtocols) != string(wantProtocols) {
+		t.Errorf("the generated declaration names protocol versions %s; this SDK speaks %s",
+			gotProtocols, wantProtocols)
+	}
+	if len(parsed.Compatibility.ProtocolVersions) == 0 {
+		t.Error("the generated declaration names no protocol versions")
+	}
+}
+
+// requireCobraAt rewrites a go.mod's Cobra requirement, adding one when the
+// fixture does not already carry it.
+func requireCobraAt(t *testing.T, goMod, version string) string {
+	t.Helper()
+	const modulePath = "github.com/spf13/cobra"
+
+	for _, line := range strings.Split(goMod, "\n") {
+		fields := strings.Fields(line)
+		for index, field := range fields {
+			if field == modulePath && index+1 < len(fields) {
+				return strings.Replace(goMod, line,
+					strings.Replace(line, fields[index+1], version, 1), 1)
+			}
+		}
+	}
+	return goMod + "\nrequire " + modulePath + " " + version + "\n"
 }
 
 // TestAScaffoldedModuleImportsNoShellPackage keeps the generated module a
@@ -372,21 +429,6 @@ func writeFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("cannot write %s: %v", path, err)
 	}
-}
-
-// sdkRequirement reports the SDK version one go.mod requires.
-func sdkRequirement(t *testing.T, path string) string {
-	t.Helper()
-	for _, line := range strings.Split(readFile(t, path), "\n") {
-		fields := strings.Fields(line)
-		for index, field := range fields {
-			if field == "github.com/wso2/wso2-cli/sdk" && index+1 < len(fields) {
-				return fields[index+1]
-			}
-		}
-	}
-	t.Fatalf("%s requires no SDK version", path)
-	return ""
 }
 
 func readFile(t *testing.T, path string) string {

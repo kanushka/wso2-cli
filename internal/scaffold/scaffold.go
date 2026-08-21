@@ -175,17 +175,31 @@ func checkNamespace(request Request) error {
 // checkWorkspaceCanBeJoined reports whether the workspace has the line a new
 // module's entry is placed after.
 func checkWorkspaceCanBeJoined(repositoryRoot string) error {
+	_, _, err := readWorkspace(repositoryRoot)
+	return err
+}
+
+// readWorkspace reads the workspace and locates the line a new entry goes after.
+//
+// Deciding whether a module can join and actually joining it are separated in
+// time — one happens before anything is written and the other after — so they
+// read the workspace through this rather than each having its own idea of what
+// the file has to look like.
+func readWorkspace(repositoryRoot string) (lines []string, anchor int, err error) {
 	path := filepath.Join(repositoryRoot, "go.work")
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("scaffold: cannot read the workspace: %w", err)
+	content, readErr := os.ReadFile(path)
+	if readErr != nil {
+		return nil, 0, fmt.Errorf("scaffold: cannot read the workspace: %w", readErr)
 	}
-	for _, line := range strings.Split(string(content), "\n") {
+
+	lines = strings.Split(string(content), "\n")
+	for index, line := range lines {
 		if strings.TrimSpace(line) == workspaceAnchor {
-			return nil
+			return lines, index, nil
 		}
 	}
-	return fmt.Errorf("scaffold: %s does not compose %s on a line of its own, so a generated module cannot join it",
+	return nil, 0, fmt.Errorf(
+		"scaffold: %s does not compose %s on a line of its own, so a generated module cannot join it",
 		path, workspaceAnchor)
 }
 
@@ -210,10 +224,13 @@ func readReference(repositoryRoot string) (reference, error) {
 	command := exec.Command("go", "mod", "edit", "-json")
 	command.Dir = directory
 	command.Env = os.Environ()
+	var problems strings.Builder
+	command.Stderr = &problems
 	output, err := command.Output()
 	if err != nil {
 		return reference{}, fmt.Errorf(
-			"scaffold: cannot read what %s is built against: %w", directory, err)
+			"scaffold: cannot read what %s is built against: %w: %s",
+			directory, err, strings.TrimSpace(problems.String()))
 	}
 
 	var parsed struct {
@@ -259,10 +276,9 @@ var sharedRequirements = []string{
 // reaches it. A module the workspace does not compose resolves the SDK from the
 // proxy instead, which is not what a developer changing both at once wants.
 func addToWorkspace(repositoryRoot, namespace string) error {
-	path := filepath.Join(repositoryRoot, "go.work")
-	content, err := os.ReadFile(path)
+	lines, anchor, err := readWorkspace(repositoryRoot)
 	if err != nil {
-		return fmt.Errorf("scaffold: cannot read the workspace: %w", err)
+		return err
 	}
 
 	// Matched as a whole line. A substring test would find "./modules/foo"
@@ -270,7 +286,7 @@ func addToWorkspace(repositoryRoot, namespace string) error {
 	// the module would then resolve the SDK from the proxy instead of from this
 	// checkout.
 	entry := "./" + ModulesDirectory + "/" + namespace
-	for _, line := range strings.Split(string(content), "\n") {
+	for _, line := range lines {
 		if strings.TrimSpace(line) == entry {
 			return nil
 		}
@@ -279,17 +295,10 @@ func addToWorkspace(repositoryRoot, namespace string) error {
 	// block in the order a reader expects rather than after the end of the file
 	// where it would not be part of the block at all. The anchor's own
 	// indentation is reused, so nothing here assumes how the file is formatted.
-	lines := strings.Split(string(content), "\n")
-	for index, line := range lines {
-		if strings.TrimSpace(line) != workspaceAnchor {
-			continue
-		}
-		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
-		lines = slices.Insert(lines, index+1, indent+entry)
-		return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
-	}
-	return fmt.Errorf("scaffold: %s does not compose %s on a line of its own, so a generated module cannot join it",
-		path, workspaceAnchor)
+	indent := lines[anchor][:len(lines[anchor])-len(strings.TrimLeft(lines[anchor], " \t"))]
+	lines = slices.Insert(lines, anchor+1, indent+entry)
+	return os.WriteFile(filepath.Join(repositoryRoot, "go.work"),
+		[]byte(strings.Join(lines, "\n")), 0o644)
 }
 
 // workspaceAnchor is the workspace entry a new module's entry is placed after.
