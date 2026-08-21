@@ -32,8 +32,17 @@ func TestStatusAnswersThroughTheContract(t *testing.T) {
 		Command: []string{"status"},
 	})
 
+	// The exchange is checked before the answer. Result and Problem are both
+	// nil when the handshake or the serve loop failed, so reading the result
+	// first would panic instead of reporting what went wrong.
+	if outcome.Err != nil {
+		t.Fatalf("the invocation failed: %v", outcome.Err)
+	}
 	if outcome.Problem != nil {
 		t.Fatalf("status returned the problem %v", outcome.Problem)
+	}
+	if outcome.Result == nil {
+		t.Fatal("status returned no result")
 	}
 	if outcome.Result.Schema != StatusSchema {
 		t.Errorf("schema = %q, want %q", outcome.Result.Schema, StatusSchema)
@@ -55,6 +64,9 @@ func TestAnUnknownCommandIsRefused(t *testing.T) {
 		Command: []string{"nosuchcommand"},
 	})
 
+	if outcome.Err != nil {
+		t.Fatalf("the invocation failed: %v", outcome.Err)
+	}
 	if outcome.Problem == nil {
 		t.Fatalf("an unknown command was answered with %v", outcome.Result)
 	}
