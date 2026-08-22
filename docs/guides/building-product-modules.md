@@ -8,9 +8,10 @@
 **Last reviewed:** 2026-08-20
 
 The single-repository layout this guide describes is
-[ADR 0006](../adr/0006-monorepo-modules-and-generated-catalog.md), which is
-proposed rather than accepted. Read this as the shape the path will take, not
-as a path that is open today.
+[ADR 0006](../adr/0006-monorepo-modules-and-generated-catalog.md). A product
+module lives here and is released by its own tag, on its own schedule: the
+single repository removes the cross-repository trust plumbing, not the
+independent release.
 
 This guide is for a WSO2 product team adding a module to this repository. A
 product module owns one top-level command namespace, such as `api`, and is an
