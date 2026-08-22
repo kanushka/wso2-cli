@@ -12,8 +12,8 @@ supporting public-source research.
 
 The repository contains three independently buildable Go modules: the shell at
 the repository root, the public SDK in `sdk/`, and the reference module in
-`examples/reference-module/`. `go.work` composes the unpublished modules for
-local development. Committed `replace` directives are prohibited in every
+`modules/reference/`. `go.work` composes the unpublished modules for local
+development. Committed `replace` directives are prohibited in every
 `go.mod`; a test and the previous-protocol gate below both enforce this.
 `go.work` carries one replacement for the unpublished SDK version the
 reference module requires. Replacing a module
@@ -56,7 +56,7 @@ While working on one module, run that module alone:
 go build ./...                      # shell
 go test ./...                       # shell, including acceptance tests
 (cd sdk && GOWORK=off go test ./...)  # SDK without workspace composition
-(cd examples/reference-module && go test ./...)  # reference module
+(cd modules/reference && go test ./...)  # reference module
 ```
 
 The shell, protocol, SDK, and module versions move independently and are
@@ -69,7 +69,7 @@ injecting `internal/version.protocolVersion`.
 go build -ldflags "\
   -X github.com/wso2/wso2-cli/internal/version.shellVersion=0.1.0" ./cmd/wso2
 
-cd examples/reference-module && go build -ldflags "\
+cd modules/reference && go build -ldflags "\
   -X main.moduleVersion=0.1.0 \
   -X github.com/wso2/wso2-cli/sdk/module.SDKVersion=0.1.0" ./cmd/wso2-module-reference
 ```

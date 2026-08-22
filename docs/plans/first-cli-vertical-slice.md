@@ -114,8 +114,8 @@ The initial layout is:
 │   └── testkit/
 ├── test/
 │   └── acceptance/
-└── examples/
-    └── reference-module/
+└── modules/
+    └── reference/
         ├── go.mod
         └── cmd/
             └── wso2-module-reference/

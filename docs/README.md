@@ -64,6 +64,11 @@ described commands or schemas are currently available.
   [Identity Server 7.x](guides/login-identity-server.md), and
   [ThunderID](guides/login-thunder.md). They are alternatives; a reader needs
   exactly one, and each hands off to the login guide at its section 2.
+- [Building a product module](guides/building-product-modules.md) shows a
+  product team how to add an independently released module, use the SDK and
+  authentication broker, test it, and release it through the generated catalog.
+  Unlike the guides above it, its reader is a product team rather than a
+  first-time user.
 
 ## Research
 

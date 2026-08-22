@@ -90,7 +90,7 @@ func TestNoDevelopmentFixtureIsReachableFromTheReferenceModule(t *testing.T) {
 	// writes. Nothing a module links may be able to mint its own access or
 	// answer for its own audience.
 	root := repoRoot(t)
-	linked := listDeps(t, filepath.Join(root, "examples", "reference-module"), "./...")
+	linked := listDeps(t, filepath.Join(root, "modules", "reference"), "./...")
 
 	for _, dependency := range linked {
 		if strings.HasPrefix(dependency, "github.com/wso2/wso2-cli/internal") {

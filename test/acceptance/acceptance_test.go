@@ -262,7 +262,7 @@ func buildReferenceModuleSpeaking(t *testing.T, protocolVersion, moduleVersion s
 		"-X github.com/wso2/wso2-cli/sdk/module.SDKVersion=" + testSDKVersion,
 		"-X github.com/wso2/wso2-cli/sdk/protocol.Version=" + protocolVersion,
 	}, " ")
-	build(t, filepath.Join(repoRoot(t), "examples", "reference-module"), binary, ldflags,
+	build(t, filepath.Join(repoRoot(t), "modules", "reference"), binary, ldflags,
 		"./cmd/wso2-module-reference")
 	return binary
 }

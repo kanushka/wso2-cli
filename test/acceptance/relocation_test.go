@@ -75,7 +75,7 @@ func TestTheReferenceModuleWorksFromAnotherRepository(t *testing.T) {
 func relocateReferenceModule(t *testing.T) string {
 	t.Helper()
 	root := repoRoot(t)
-	source := filepath.Join(root, "examples", "reference-module")
+	source := filepath.Join(root, "modules", "reference")
 	// t.TempDir is outside this checkout, so the copy is outside the Go
 	// workspace as well: nothing here composes it with the SDK any more.
 	destination := filepath.Join(t.TempDir(), "product-repository")

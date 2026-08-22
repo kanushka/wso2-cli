@@ -184,7 +184,7 @@ func deployLogin(
 func installInProcessReferenceModule(t *testing.T, stateRoot string) {
 	t.Helper()
 	binary := filepath.Join(t.TempDir(), "wso2-module-reference"+executableSuffix())
-	build(t, filepath.Join(repoRoot(t), "examples", "reference-module"), binary, "",
+	build(t, filepath.Join(repoRoot(t), "modules", "reference"), binary, "",
 		"./cmd/wso2-module-reference")
 	if _, err := modulefixture.Install(state.ModuleStore(stateRoot), modulefixture.Module{
 		Namespace:  "reference",

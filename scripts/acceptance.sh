@@ -72,7 +72,7 @@ stage 'Build the public SDK without workspace composition'
 (cd sdk && GOWORK=off go build ./...)
 
 stage 'Build the reference module'
-(cd examples/reference-module && go build -o "$build_output/" ./...)
+(cd modules/reference && go build -o "$build_output/" ./...)
 
 # 2. The SDK's own boundary and contract tests, again without the workspace.
 stage 'Test the public SDK'
@@ -81,7 +81,7 @@ stage 'Test the public SDK'
 # 3. The reference module's tests, which exercise the SDK as a module author
 #    meets it rather than as this repository composes it.
 stage 'Test the reference module'
-(cd examples/reference-module && go test ./...)
+(cd modules/reference && go test ./...)
 
 # 4. The shell's build boundaries, unit tests, and integration tests.
 #

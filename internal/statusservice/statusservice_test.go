@@ -193,13 +193,24 @@ func TestTheServiceIsReadOnly(t *testing.T) {
 func TestAFaultyServiceFailsWithoutAnswering(t *testing.T) {
 	// The proof needs a service failure that is not an access failure, so the
 	// shell can be shown mapping the two to different exit classes.
-	faulty := options()
-	faulty.Fault = true
+	//
+	// A faulty service is down, not partly down, so every path it serves has
+	// to fail alike. whoami answering while status fails would let a caller
+	// report brokered access from a service that cannot serve anything.
+	for name, outgoing := range map[string]*http.Request{
+		statusservice.StatusPath: request(t, mint(t, claims())),
+		statusservice.WhoamiPath: whoamiRequest(t, mint(t, claims())),
+	} {
+		t.Run(name, func(t *testing.T) {
+			faulty := options()
+			faulty.Fault = true
 
-	response := call(t, faulty, request(t, mint(t, claims())))
+			response := call(t, faulty, outgoing)
 
-	if response.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500\n%s", response.Code, response.Body.String())
+			if response.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, want 500\n%s", response.Code, response.Body.String())
+			}
+		})
 	}
 }
 
@@ -281,5 +292,84 @@ func assertRejected(t *testing.T, response *httptest.ResponseRecorder, want int)
 	}
 	if strings.Contains(response.Body.String(), "operational") {
 		t.Fatalf("a rejected request still received the service status:\n%s", response.Body.String())
+	}
+}
+
+// whoamiRequest builds the whoami call the reference module makes.
+func whoamiRequest(t *testing.T, token string) *http.Request {
+	t.Helper()
+	outgoing := httptest.NewRequest(http.MethodGet, statusservice.WhoamiPath, nil)
+	outgoing.Header.Set("Authorization", "Bearer "+token)
+	outgoing.Header.Set(statusservice.InvocationHeader, invocation)
+	return outgoing
+}
+
+func decodeWhoami(t *testing.T, response *httptest.ResponseRecorder) map[string]string {
+	t.Helper()
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200\n%s", response.Code, response.Body.String())
+	}
+	var granted map[string]string
+	if err := json.Unmarshal(response.Body.Bytes(), &granted); err != nil {
+		t.Fatalf("the whoami answer is not JSON: %v\n%s", err, response.Body.String())
+	}
+	return granted
+}
+
+func TestWhoamiReportsTheClaimsTheServiceVerified(t *testing.T) {
+	granted := decodeWhoami(t, call(t, options(), whoamiRequest(t, mint(t, claims()))))
+
+	for field, want := range map[string]string{
+		"organization": organization,
+		"audiences":    audience,
+		"scopes":       readScope,
+		"invocation":   invocation,
+		"boundTo":      invocation,
+	} {
+		if granted[field] != want {
+			t.Errorf("whoami reports %s = %q, want %q", field, granted[field], want)
+		}
+	}
+}
+
+func TestWhoamiIsAuthorizedExactlyAsTheStatusPathIs(t *testing.T) {
+	// The endpoint reports claims, so an unauthorized caller learning them
+	// would be a disclosure. It must refuse whatever the status path refuses.
+	rejected := map[string]func() *http.Request{
+		"no token": func() *http.Request {
+			outgoing := httptest.NewRequest(http.MethodGet, statusservice.WhoamiPath, nil)
+			outgoing.Header.Set(statusservice.InvocationHeader, invocation)
+			return outgoing
+		},
+		"another invocation": func() *http.Request {
+			bound := claims()
+			bound.Invocation = "a-different-invocation"
+			return whoamiRequest(t, mint(t, bound))
+		},
+	}
+	for name, build := range rejected {
+		t.Run(name, func(t *testing.T) {
+			response := call(t, options(), build())
+			if response.Code == http.StatusOK {
+				t.Fatalf("whoami answered a request it should have refused:\n%s", response.Body.String())
+			}
+			if strings.Contains(response.Body.String(), audience) {
+				t.Fatalf("a refused caller still learned the verified claims:\n%s", response.Body.String())
+			}
+		})
+	}
+}
+
+func TestNoWhoamiAnswerCarriesTheSourceCredential(t *testing.T) {
+	// whoami describes a token, so it is the endpoint most likely to echo one.
+	token := mint(t, claims())
+	response := call(t, options(), whoamiRequest(t, token))
+
+	body := response.Body.String()
+	if strings.Contains(body, token) {
+		t.Fatalf("the whoami answer repeated the presented token:\n%s", body)
+	}
+	if strings.Contains(body, sourceCredential) {
+		t.Fatalf("the whoami answer carried the source credential:\n%s", body)
 	}
 }

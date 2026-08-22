@@ -38,7 +38,7 @@ import (
 
 // goModules are every Go module in this repository, by directory relative to
 // the repository root.
-var goModules = []string{".", "sdk", "examples/reference-module"}
+var goModules = []string{".", "sdk", "modules/reference"}
 
 // buildArgs builds a module's packages, writing any executable to a temporary
 // directory so a build check never leaves artifacts in the working tree. The Go
@@ -163,7 +163,7 @@ func TestTheSDKAndReferenceModuleCannotImportShellInternals(t *testing.T) {
 	root := repoRoot(t)
 	const shellInternalPrefix = "github.com/wso2/wso2-cli/internal"
 
-	for _, module := range []string{"sdk", "examples/reference-module"} {
+	for _, module := range []string{"sdk", "modules/reference"} {
 		for _, path := range goFiles(t, filepath.Join(root, module)) {
 			// The import declarations are parsed rather than matched as text:
 			// a raw-string import literal is still an import, and a path
@@ -192,7 +192,7 @@ func TestTheReferenceModuleDependsOnThePublicSDKOnly(t *testing.T) {
 	// without changing its imports. The requirements are read from the module
 	// graph rather than matched as text, so block syntax and comments cannot
 	// change the outcome.
-	required := requiredModules(t, filepath.Join(repoRoot(t), "examples", "reference-module"))
+	required := requiredModules(t, filepath.Join(repoRoot(t), "modules", "reference"))
 
 	if !slices.Contains(required, "github.com/wso2/wso2-cli/sdk") {
 		t.Errorf("the reference module does not require the public SDK; it requires %v", required)
