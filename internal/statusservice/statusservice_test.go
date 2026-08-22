@@ -193,13 +193,24 @@ func TestTheServiceIsReadOnly(t *testing.T) {
 func TestAFaultyServiceFailsWithoutAnswering(t *testing.T) {
 	// The proof needs a service failure that is not an access failure, so the
 	// shell can be shown mapping the two to different exit classes.
-	faulty := options()
-	faulty.Fault = true
+	//
+	// A faulty service is down, not partly down, so every path it serves has
+	// to fail alike. whoami answering while status fails would let a caller
+	// report brokered access from a service that cannot serve anything.
+	for name, outgoing := range map[string]*http.Request{
+		statusservice.StatusPath: request(t, mint(t, claims())),
+		statusservice.WhoamiPath: whoamiRequest(t, mint(t, claims())),
+	} {
+		t.Run(name, func(t *testing.T) {
+			faulty := options()
+			faulty.Fault = true
 
-	response := call(t, faulty, request(t, mint(t, claims())))
+			response := call(t, faulty, outgoing)
 
-	if response.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500\n%s", response.Code, response.Body.String())
+			if response.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, want 500\n%s", response.Code, response.Body.String())
+			}
+		})
 	}
 }
 

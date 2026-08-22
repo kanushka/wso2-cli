@@ -174,16 +174,17 @@ func (s *Service) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	if request.URL.Path == WhoamiPath {
-		s.writeWhoami(writer, granted, request.Header.Get(InvocationHeader))
-		return
-	}
-
-	// The fault is applied after authorization, so the failure a test observes
-	// is the service failing rather than the request being refused.
+	// The fault is applied after authorization but before any path-specific
+	// answer, so the failure a test observes is the service failing rather
+	// than the request being refused, and it fails every path alike.
 	if s.options.Fault {
 		s.fail(writer, http.StatusInternalServerError, "unavailable",
 			"the reference status service cannot read its status")
+		return
+	}
+
+	if request.URL.Path == WhoamiPath {
+		s.writeWhoami(writer, granted, request.Header.Get(InvocationHeader))
 		return
 	}
 
