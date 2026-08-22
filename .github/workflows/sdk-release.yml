@@ -78,7 +78,12 @@ jobs:
       - name: Check the tag agrees with the version this commit is built around
         run: |
           set -euo pipefail
-          declared="$(awk '$1 == "github.com/wso2/wso2-cli/sdk" { print $2 }' modules/reference/go.mod)"
+          # Read the requirement through go rather than by matching text. A
+          # go.mod spells a single requirement on one line and a grouped one
+          # over several, and only go itself is guaranteed to read both the
+          # way the toolchain does.
+          declared="$(go mod edit -json modules/reference/go.mod |
+            jq -r '.Require[]? | select(.Path == "github.com/wso2/wso2-cli/sdk") | .Version')"
           if [ -z "${declared}" ]; then
             echo "::error::modules/reference/go.mod requires no SDK version to compare the tag against"
             exit 1
