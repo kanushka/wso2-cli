@@ -32,6 +32,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/spf13/cobra"
+
+	"github.com/wso2/wso2-cli/sdk/cobratree"
 	"github.com/wso2/wso2-cli/sdk/module"
 	"github.com/wso2/wso2-cli/sdk/result"
 )
@@ -79,7 +82,7 @@ func main() {
 	// Standard output now carries protocol frames only. Anything this process
 	// wants to say goes to standard error, where the shell captures it as
 	// bounded diagnostics.
-	err := module.Serve(context.Background(), options, statusCommand(), whoamiCommand())
+	err := module.Serve(context.Background(), options, commands()...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "wso2-module-reference: %v\n", err)
 		os.Exit(1)
@@ -96,14 +99,32 @@ func moduleOptions() module.Options {
 	}
 }
 
-// statusCommand binds "wso2 reference status" to its handler.
-func statusCommand() module.Command {
-	return module.Command{Path: []string{"status"}, Run: status}
-}
+// commands builds this module's command tree and binds each command to its
+// handler.
+//
+// The tree is a Cobra tree because a product CLI being migrated already has one:
+// its commands, its flags, and its help are declared here exactly as they would
+// be in a standalone CLI. What changes is the ending — a handler returns typed
+// fields instead of printing, because the shell owns rendering.
+func commands() []module.Command {
+	root := &cobra.Command{
+		Use:   "reference",
+		Short: "Reference product module for the WSO2 CLI.",
+	}
+	statusCommand := &cobra.Command{
+		Use:   "status",
+		Short: "Report the reference status service's own answer.",
+	}
+	whoamiCommand := &cobra.Command{
+		Use:   "whoami",
+		Short: "Report the access the shell brokered for this invocation.",
+	}
+	root.AddCommand(statusCommand, whoamiCommand)
 
-// whoamiCommand binds "wso2 reference whoami" to its handler.
-func whoamiCommand() module.Command {
-	return module.Command{Path: []string{"whoami"}, Run: whoami}
+	return cobratree.New(root).
+		Handle(statusCommand, status).
+		Handle(whoamiCommand, whoami).
+		Commands()
 }
 
 // status answers "wso2 reference status".

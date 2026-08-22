@@ -157,6 +157,44 @@ A handler receives the selected non-secret context, original product arguments,
 requested output mode, a per-invocation ID, and an access broker. It does not
 receive refresh tokens, client secrets, or the shell configuration store.
 
+### Serving an existing Cobra command tree
+
+A product CLI being migrated already has a Cobra command tree. `sdk/cobratree`
+serves that tree directly, so the commands, their flags, and their help stay
+where they are and only the ending changes: a handler returns typed fields
+instead of printing.
+
+```go
+func commands() []module.Command {
+	root := &cobra.Command{Use: namespace}
+	statusCommand := &cobra.Command{Use: "status", Short: "Report service status."}
+	statusCommand.Flags().String("env", "", "Target environment.")
+	root.AddCommand(statusCommand)
+
+	return cobratree.New(root).Handle(statusCommand, status).Commands()
+}
+```
+
+Pass the result to `module.Serve` in place of the individual commands. The
+adapter parses the module's own arguments with the matched command's flag set
+before the handler runs, so a handler reads its flags from the command it was
+written beside.
+
+Two things the adapter guarantees without being asked. Every writer in the tree
+points at standard error, and Cobra prints neither errors nor usage itself, so
+the tree cannot write to standard output — which carries protocol frames, and
+which a stray write would corrupt. And a flag failure reaches the shell as a
+typed usage problem rather than as Cobra's own error text, so the user sees a
+classified refusal instead of a module crash.
+
+The limit is worth knowing: a handler that calls `fmt.Println` writes to
+standard output and corrupts the stream. No adapter can prevent that. Send
+diagnostics to standard error, and return everything the user should see as
+result fields.
+
+A command with no handler bound is not served, so the shell reports it as an
+unknown command rather than as one that silently succeeded.
+
 ## 3. Request access only when the command needs it
 
 For a protected product API, request access through `request.Access`. The shell
