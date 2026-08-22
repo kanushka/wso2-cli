@@ -1,6 +1,6 @@
 # ADR 0006: Product Modules in One Repository with a Generated Catalog
 
-**Status:** Proposed
+**Status:** Accepted
 
 Product module source moves into this repository. Modules keep independent
 releases: each is tagged, built, and published on its own schedule, and the

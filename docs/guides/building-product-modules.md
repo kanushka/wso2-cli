@@ -8,9 +8,10 @@
 **Last reviewed:** 2026-08-20
 
 The single-repository layout this guide describes is
-[ADR 0006](../adr/0006-monorepo-modules-and-generated-catalog.md), which is
-proposed rather than accepted. Read this as the shape the path will take, not
-as a path that is open today.
+[ADR 0006](../adr/0006-monorepo-modules-and-generated-catalog.md). A product
+module lives here and is released by its own tag, on its own schedule: the
+single repository removes the cross-repository trust plumbing, not the
+independent release.
 
 This guide is for a WSO2 product team adding a module to this repository. A
 product module owns one top-level command namespace, such as `api`, and is an
@@ -55,26 +56,70 @@ Two rules follow from this split:
    reserved for the module contract; return a `result.Result` or a typed
    `problem.Problem` and let the shell render it.
 
-## 1. Create the module shape
+## 1. Create the module
 
-Each module is an independent Go module below `modules/`. The directory name
-is a source-location choice; `module.json` declares the namespace that users
-type.
+One command creates the module, and what it creates builds and passes its own
+test with nothing edited:
 
-```text
-modules/<product>/
-├── go.mod
-├── module.json
-└── cmd/
-    └── wso2-module-<namespace>/
-        └── main.go
+```console
+$ make new-module NAMESPACE=api
+Created the api module in modules/api:
+  modules/api/go.mod
+  modules/api/module.json
+  modules/api/README.md
+  modules/api/cmd/wso2-module-api/main.go
+  modules/api/cmd/wso2-module-api/main_test.go
+
+Build and test it:
+  go test ./modules/api/...
+Then open modules/api/cmd/wso2-module-api/main.go
 ```
 
-For a product namespace called `api`, the release tooling expects the main
-package at `modules/api/cmd/wso2-module-api` and packages an executable named
-`wso2-module-api` (or `wso2-module-api.exe` on Windows).
+```console
+$ go test ./modules/api/...
+ok  	github.com/wso2/wso2-cli/modules/api/cmd/wso2-module-api	0.618s
+```
 
-Start with a `module.json` beside `go.mod`:
+Do not assemble a module by hand. The generator is not a convenience over a
+documented layout: it reads two facts from the checkout that a hand-written
+module would have to guess and would then hold wrongly for as long as nobody
+noticed: the SDK version to build against, and the module contract
+versions to declare.
+
+Choose the namespace before you run it. It is the user's top-level command, the
+tag prefix, the catalog identity, the executable name, and the installed-store
+key, so changing it later is a migration rather than a rename. Four namespaces
+are refused, and nothing is written when one is:
+
+```console
+$ make new-module NAMESPACE=login
+wso2-module-new: "login" is a shell command, so a module owning that namespace could never be reached; the shell owns help, login, module, version
+```
+
+That refusal is the one worth understanding. The shell resolves its own commands
+before it consults an installed module, so a module in a shadowed namespace
+would build, release, install, and then never run: every invocation would reach
+the shell command instead. The others are a namespace another module already
+declares, the reserved `reference` namespace, and anything that is not lowercase
+letters and digits starting with a letter.
+
+### What it wrote
+
+```text
+modules/api/
+├── go.mod
+├── module.json
+├── README.md
+└── cmd/
+    └── wso2-module-api/
+        ├── main.go
+        └── main_test.go
+```
+
+The directory name is a source-location choice; `module.json` declares the
+namespace users type. The release tooling expects the main package at
+`modules/<namespace>/cmd/wso2-module-<namespace>` and packages an executable of
+that name.
 
 ```json
 {
@@ -85,26 +130,44 @@ Start with a `module.json` beside `go.mod`:
     "protocolVersions": [2]
   },
   "capabilities": {
-    "authAudiences": ["api.example.com"],
-    "authScopes": ["api:read"]
+    "authAudiences": [],
+    "authScopes": []
   }
 }
 ```
 
-Choose a namespace before implementation. It is the user's top-level command,
-the tag prefix, catalog identity, executable name, and installed-store key.
-Changing it later is a migration, not a rename.
+`compatibility.protocolVersions` is the module contract versions this release
+supports, and it was read from the SDK in your checkout rather than chosen. Do
+not invent a version and do not compare your product version with the shell
+version: the release gate accepts a module only when its declared protocol
+intersects the protocol window of an already released shell.
 
-`compatibility.protocolVersions` declares the module contract versions the
-release supports. The protocol comes from the SDK your module is built with;
-do not invent a version or compare your product version with the shell version.
-The release gate accepts a module only when its declared protocol intersects
-the protocol window of an already released shell.
+`capabilities` are the maximum audiences and scopes the module may ever request,
+and they are empty because a new module asks the shell for nothing yet. Keep
+them equal to the `module.Options` declaration in the executable. Installation
+records them in the local receipt, and the broker refuses an access request the
+receipt did not authorize — so an audience you add in one place and not the
+other is refused at runtime rather than at build time.
 
-`capabilities` are the maximum audiences and scopes the module may request.
-Keep them equal to the `module.Options` declaration in the executable. Catalog
-installation records these values in the local receipt, and the broker refuses
-an access request that the receipt did not authorize.
+### The versions your module depends on
+
+```text
+require (
+	github.com/spf13/cobra v1.10.2
+	github.com/wso2/wso2-cli/sdk v0.0.0
+)
+```
+
+The SDK version is the one the checkout builds modules against, and it is worth
+knowing what it does and does not promise. It says which Go API your module
+compiled against, and nothing more. Below `1.0` it may break on a minor bump, so
+read the SDK's release notes before moving it.
+
+What decides whether a user's shell can launch your module is the **protocol
+version**, which is versioned separately, declared in `module.json`, checked by
+the release gate, and negotiated at every invocation. Two modules built against
+different SDK versions run on the same shell if they speak a protocol it speaks.
+See [ADR 0009](../adr/0009-sdk-versioning-and-publication.md).
 
 ## 2. Build commands with the SDK
 
@@ -321,7 +384,8 @@ flowchart LR
 ```
 
 The release tool builds archives for the supported shell platforms, injects the
-module version, and publishes `checksums.txt`. Catalog generation then reads
+module version and the SDK version the module was built against, and publishes
+`checksums.txt`. Catalog generation then reads
 the tag, the `module.json` as it existed at that tag, and the published assets.
 No one hand-authors a catalog entry.
 
@@ -331,20 +395,84 @@ against its catalog digest, and atomically activates the new installed version.
 Normal product commands run from that local managed store and do not need the
 catalog.
 
-For a local release-artifact check without publishing, run:
+Run the gate alone before you tag, and it answers the only question a tag
+cannot take back — whether any shell that exists can launch what you are about
+to publish:
 
-```sh
-go run ./cmd/wso2-module-release -tag api/v1.2.0 -out dist
+```console
+$ go run ./cmd/wso2-module-release -tag api/v1.2.0-rc.1 -gate-only
+api/v1.2.0-rc.1 speaks module-contract protocol v2 and the released shell speaks v2, v1
 ```
 
-Run this only after the new module is present under `modules/` with a valid
-declaration. It writes build artifacts to `dist/`; do not commit those output
-files.
+For the full artifact check without publishing:
+
+```console
+$ go run ./cmd/wso2-module-release -tag api/v1.2.0-rc.1 -out dist
+...
+8 archives and checksums.txt written into dist
+```
+
+Run this only after the module is present under `modules/` with a valid
+declaration. It writes build artifacts to `dist/`; do not commit them.
+
+A version carrying a prerelease identifier, such as `api/v1.2.0-rc.1`, is
+published on the prerelease channel: it is installable by anyone who asks for
+that channel and is offered to nobody following the stable one. That is the
+channel to release a first module on.
+
+## 7. Install, update, and remove it
+
+The other end of the lifecycle is what a user does, and it is worth running
+once against your own module rather than reading about.
+
+```sh
+# What the catalog publishes, and what is installed here.
+wso2 module available
+
+# The first release is a prerelease, so it is offered on that channel only.
+# Asking for the stable channel here finds nothing to install yet.
+wso2 module install api --channel prerelease
+wso2 module install api@1.2.0-rc.1
+
+wso2 module list
+wso2 module update api
+wso2 module update --all
+```
+
+Installation resolves the newest version on the chosen channel that this shell
+can launch on this platform, verifies the archive against the digest the catalog
+published, and writes a receipt recording what it installed. Pinning an exact
+version is what a pipeline does so its behaviour does not depend on what is
+newest that day.
+
+Removing takes the module off the machine — its versions, its receipts, its
+active-version pointer, and its version policy — and touches nothing else. It
+is not a logout: your configuration and credentials are left as they were.
+
+```console
+$ wso2 module remove api
+Removed the api module.
+```
+
+Removing something that is not installed is refused rather than reported as
+done, so a typo is distinguishable from a no-op:
+
+```console
+$ wso2 module remove api
+error: no api module is installed (shell.module_not_installed)
+  Run wso2 module list to see what is installed.
+```
+
+Remove and reinstall freely while iterating: removal leaves no receipt or
+version directory behind, so the next install resolves cleanly rather than
+against something you already discarded.
 
 ## Product-module checklist
 
 Before asking for review, confirm that:
 
+- the module was created with `make new-module`, rather than assembled by
+  hand;
 - the namespace is assigned and appears identically in `module.json`,
   `module.Options`, executable path, and intended tag;
 - the module imports public SDK packages only and has no `replace` directive;
@@ -354,5 +482,6 @@ Before asking for review, confirm that:
   than formatting output or choosing exit codes;
 - access tokens and other credentials cannot reach output, logs, files,
   arguments, or environment variables;
-- unit and acceptance tests cover the new command's behavior; and
+- the generated test still passes, and unit and acceptance tests cover the new
+  command's behavior; and
 - `./scripts/acceptance.sh` passes from a clean checkout.
