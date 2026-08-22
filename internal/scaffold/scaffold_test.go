@@ -203,6 +203,10 @@ func TestGenerationIsRefusedAndWritesNothing(t *testing.T) {
 		{name: "an uppercase name", namespace: "MyCloud", reason: "lowercase"},
 		{name: "a name with a hyphen", namespace: "my-cloud", reason: "lowercase"},
 		{name: "a name starting with a digit", namespace: "1cloud", reason: "lowercase"},
+		// Longer than the shell's own namespace bound. Generating it would
+		// write a module the catalog later refuses, so the developer would
+		// find out at release time instead of here.
+		{name: "a name past the length the shell allows", namespace: strings.Repeat("c", 33), reason: "lowercase"},
 		{name: "an empty name", namespace: "", reason: "lowercase"},
 	}
 

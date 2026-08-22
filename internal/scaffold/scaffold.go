@@ -40,6 +40,7 @@ import (
 
 	"github.com/wso2/wso2-cli/internal/app"
 	"github.com/wso2/wso2-cli/internal/catalog"
+	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/sdk/protocol"
 )
 
@@ -53,10 +54,12 @@ const ReservedNamespace = "reference"
 // catalog-eligible without anything else being told about it.
 const ModulesDirectory = "modules"
 
-// namespacePattern is what a namespace a user has to type may look like: lower
-// case, starting with a letter, letters and digits only. It is deliberately
-// narrower than a directory name, because a namespace is the first word of a
-// command.
+// namespacePattern narrows what a namespace a user has to type may look like:
+// lower case, starting with a letter, letters and digits only. A namespace is
+// the first word of a command, so this is deliberately tighter than what the
+// shell will accept from a published module. It only ever narrows: every
+// namespace generated here must also satisfy modules.ValidNamespace, which is
+// the rule the catalog and installation apply.
 var namespacePattern = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
 
 // shellRange is the shell versions a generated module declares support for.
@@ -133,9 +136,13 @@ func Generate(request Request) (Result, error) {
 // refusal names the rule rather than reporting the namespace invalid, because
 // "invalid" is not something a developer can act on.
 func checkNamespace(request Request) error {
-	if !namespacePattern.MatchString(request.Namespace) {
+	// Both rules, because this generator only narrows the shell's. A namespace
+	// it accepted but the catalog refused would produce a module that builds
+	// and can never be released, and the developer would learn that at release
+	// time rather than here. The length bound is the shell's.
+	if !namespacePattern.MatchString(request.Namespace) || !modules.ValidNamespace(request.Namespace) {
 		return fmt.Errorf(
-			"%q cannot be a product namespace: a namespace is lowercase letters and digits, starting with a letter",
+			"%q cannot be a product namespace: a namespace is up to 32 lowercase letters and digits, starting with a letter",
 			request.Namespace)
 	}
 	if request.Namespace == ReservedNamespace {
