@@ -50,6 +50,18 @@ product namespace, whose size is bounded by namespaces and channels rather than
 by release history.
 _Avoid_: Manifest, listing
 
+**Module version**:
+A module's own release version, moving independently of the shell version, the
+protocol version, and the SDK version. A module tag carries it, and the catalog
+publishes it per channel.
+_Avoid_: Version, release number
+
+**SDK version**:
+The Go module version of the public SDK a module compiles against. It is the
+version a module's `go.mod` names, and it says nothing about which shells can
+launch the module: the protocol version alone decides that.
+_Avoid_: Contract version, API version
+
 **Release channel**:
 The track a module version is published on, derived from its version: a version
 carrying a prerelease identifier is a prerelease and every other version is

@@ -1,0 +1,140 @@
+name: SDK release
+
+# An SDK tag is the whole publication. A Go submodule needs no upload: pushing
+# sdk/vX.Y.Z makes that version fetchable, and the module proxy then keeps it
+# forever. That immutability is why this workflow exists at all — there is no
+# withdrawing a bad SDK version, only publishing another one.
+#
+# Module tags are excluded by the prefix, and the module release workflow
+# excludes this one by the same prefix. The two never both run for a tag.
+on:
+  push:
+    tags:
+      - 'sdk/v*'
+
+# Read-only throughout. This workflow publishes nothing: the tag already did
+# that. It decides whether the tag that exists should have existed, and says so.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: Release gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: |
+            go.mod
+            sdk/go.mod
+
+      # A tag the module proxy cannot serve as a version is not a release, and
+      # the failure it produces downstream names a revision rather than a
+      # mistake. The shape is checked here so that message is never the first
+      # thing a product team sees.
+      - name: Check the tag names a version
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#sdk/}"
+          if ! printf '%s' "${version}" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::${GITHUB_REF_NAME} does not name a semantic version"
+            exit 1
+          fi
+          # A v2 or later major version needs a matching module path suffix,
+          # which this repository does not declare. Publishing one would make a
+          # version nothing can import.
+          case "${version}" in
+          v0.*|v1.*) ;;
+          *)
+            echo "::error::${version} needs a matching module path suffix in sdk/go.mod, which is not declared"
+            exit 1
+            ;;
+          esac
+          echo "${GITHUB_REF_NAME} names ${version}"
+          echo "version=${version}" >>"${GITHUB_OUTPUT}"
+        id: version
+
+      # A tag is a claim about this commit, and the commit says which SDK
+      # version it is built around: the reference module requires one, and it is
+      # the version every scaffolded module is generated against. A tag that
+      # disagrees with it would publish an SDK that nothing in this repository
+      # is built against, so the two have to be the same.
+      #
+      # While the requirement is still the unpublished placeholder there is
+      # nothing to compare against, and this reports that rather than inventing
+      # agreement. The comparison starts working by itself once the placeholder
+      # is replaced, which is the commit that follows the first SDK tag.
+      - name: Check the tag agrees with the version this commit is built around
+        run: |
+          set -euo pipefail
+          # Read the requirement through go rather than by matching text. A
+          # go.mod spells a single requirement on one line and a grouped one
+          # over several, and only go itself is guaranteed to read both the
+          # way the toolchain does.
+          declared="$(go mod edit -json modules/reference/go.mod |
+            jq -r '.Require[]? | select(.Path == "github.com/wso2/wso2-cli/sdk") | .Version')"
+          if [ -z "${declared}" ]; then
+            echo "::error::modules/reference/go.mod requires no SDK version to compare the tag against"
+            exit 1
+          fi
+          if [ "${declared}" = "v0.0.0" ]; then
+            echo "the checkout still requires the unpublished placeholder, so there is no version to disagree with"
+            exit 0
+          fi
+          if [ "${declared}" != "${VERSION}" ]; then
+            echo "::error::${GITHUB_REF_NAME} names ${VERSION}, but this commit is built against ${declared}"
+            exit 1
+          fi
+          echo "the tag and the checkout agree on ${declared}"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
+      # What makes an SDK version publishable is asserted by the test suite
+      # rather than by this workflow, so the same constraints hold on every pull
+      # request: that the SDK imports nothing under the shell's internal tree,
+      # and that it builds and tests with workspace composition disabled. A tag
+      # is a bad place to learn either of those for the first time, and a
+      # constraint that lived only here would be one this repository could break
+      # for weeks without noticing.
+      - name: Check what makes the SDK publishable
+        run: go test ./internal/boundaries/
+
+      # Run again directly, because the assertion above is only as good as the
+      # test continuing to make it. This is the thing a consumer actually does.
+      - name: Build and test the SDK as a consumer resolves it
+        run: |
+          set -euo pipefail
+          cd sdk
+          GOWORK=off go build ./...
+          GOWORK=off go test ./...
+
+      # The proxy is asked for the version that was just tagged, which both
+      # proves it is servable and warms it, so the first product team to require
+      # it does not wait for the proxy to fetch it. A proxy that has not caught
+      # up yet is not a failure, so this retries before it gives up.
+      - name: Resolve the published version from the module proxy
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#sdk/}"
+          module="github.com/wso2/wso2-cli/sdk@${version}"
+          for attempt in 1 2 3 4 5 6; do
+            if GOWORK=off GOFLAGS=-mod=mod go list -m "${module}"; then
+              echo "${module} is servable"
+              exit 0
+            fi
+            echo "the proxy does not serve ${module} yet; waiting"
+            sleep 20
+          done
+          echo "::error::${module} could not be resolved from the module proxy"
+          exit 1
