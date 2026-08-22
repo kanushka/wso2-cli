@@ -19,6 +19,7 @@ package app_test
 import (
 	"bytes"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -27,6 +28,12 @@ import (
 	"github.com/wso2/wso2-cli/internal/modules/fixture"
 	"github.com/wso2/wso2-cli/internal/output"
 )
+
+func TestCommandNamesAreDerivedFromTheShellCommandTree(t *testing.T) {
+	if got, want := app.CommandNames(), []string{"help", "login", "module", "version"}; !slices.Equal(got, want) {
+		t.Errorf("CommandNames() = %v, want %v", got, want)
+	}
+}
 
 // TestHelpListsEveryShellCommand proves the help text is generated from the
 // command tree rather than maintained by hand: a command that exists is listed,

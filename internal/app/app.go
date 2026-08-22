@@ -54,25 +54,6 @@ type Shell struct {
 	OpenBrowser func(url string) error
 }
 
-// builtin is one shell-owned command.
-type builtin struct {
-	name    string
-	summary string
-	run     func(Shell, []string) error
-}
-
-// builtins are the shell's own commands. They take precedence over any
-// installed module namespace, so an installed module can never shadow shell
-// policy.
-func builtins() []builtin {
-	return []builtin{
-		{name: "help", summary: "Show the shell command tree.", run: Shell.help},
-		{name: "login", summary: "Log in to the selected context's identity.", run: Shell.login},
-		{name: "module", summary: "Install, list, update, and remove product modules from the module catalog.", run: Shell.module},
-		{name: "version", summary: "Show the shell, protocol, and installed module versions.", run: Shell.version},
-	}
-}
-
 // CommandNames reports the shell's own command names, sorted.
 //
 // A namespace with one of these names is unreachable: the shell resolves its
@@ -82,9 +63,10 @@ func builtins() []builtin {
 // of its own, because a list of its own is one that stops being true the next
 // time a command is added.
 func CommandNames() []string {
-	names := make([]string, 0, len(builtins()))
-	for _, command := range builtins() {
-		names = append(names, command.name)
+	root := (Shell{}).rootCommand()
+	names := make([]string, 0, len(root.Commands()))
+	for _, command := range root.Commands() {
+		names = append(names, command.Name())
 	}
 	slices.Sort(names)
 	return names
