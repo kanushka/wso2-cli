@@ -70,8 +70,9 @@ func TestTheReferenceModuleWorksFromAnotherRepository(t *testing.T) {
 //
 // It proves the copy is a copy: every Go source file has to arrive byte for
 // byte, so a relocation cannot be made to work by editing an import on the way
-// out. Only go.mod is touched, and only to say where the SDK is — which is the
-// one thing publishing an SDK release makes unnecessary.
+// out. Nothing is touched at all now that an SDK release is published: the copy
+// resolves the SDK by the version it requires, which is what a module in a
+// product team's own repository does.
 func relocateReferenceModule(t *testing.T) string {
 	t.Helper()
 	root := repoRoot(t)
@@ -86,12 +87,15 @@ func relocateReferenceModule(t *testing.T) string {
 	// GOWORK=off is what makes this a real relocation. With the workspace
 	// still in force the copy would resolve the SDK from this checkout however
 	// far away it was moved, and prove nothing.
+	//
+	// Nothing is edited on the way out any more. This copy resolves the SDK the
+	// way any consumer does — by the version its own go.mod requires, from the
+	// module proxy — which is what an SDK release made possible and is the whole
+	// of what this test now proves. It needs a warm or reachable module cache,
+	// like every other build in this repository.
 	environment := []string{"GOWORK=off"}
-	sdkRequirement := "github.com/wso2/wso2-cli/sdk@" + sdkPlaceholderVersion
-	runGoIn(t, destination, environment,
-		"mod", "edit", "-replace", sdkRequirement+"="+filepath.Join(root, "sdk"))
-	// The published SDK's own dependencies are recorded here, because a module
-	// outside a workspace has to carry its own checksums.
+	// The SDK's own dependencies are recorded here, because a module outside a
+	// workspace has to carry its own checksums.
 	runGoIn(t, destination, environment, "mod", "tidy")
 
 	binary := filepath.Join(destination, "wso2-module-reference"+executableSuffix())
@@ -102,11 +106,6 @@ func relocateReferenceModule(t *testing.T) string {
 	}, " "), "-o", binary, "./cmd/wso2-module-reference")
 	return binary
 }
-
-// sdkPlaceholderVersion is the unpublished SDK version the reference module
-// requires. It is the version go.work resolves from this checkout today, and
-// the version a real release replaces.
-const sdkPlaceholderVersion = "v0.0.0"
 
 // copyTree copies a directory recursively, preserving whether a file is
 // executable.

@@ -71,10 +71,6 @@ jobs:
       # disagrees with it would publish an SDK that nothing in this repository
       # is built against, so the two have to be the same.
       #
-      # While the requirement is still the unpublished placeholder there is
-      # nothing to compare against, and this reports that rather than inventing
-      # agreement. The comparison starts working by itself once the placeholder
-      # is replaced, which is the commit that follows the first SDK tag.
       - name: Check the tag agrees with the version this commit is built around
         run: |
           set -euo pipefail
@@ -87,10 +83,6 @@ jobs:
           if [ -z "${declared}" ]; then
             echo "::error::modules/reference/go.mod requires no SDK version to compare the tag against"
             exit 1
-          fi
-          if [ "${declared}" = "v0.0.0" ]; then
-            echo "the checkout still requires the unpublished placeholder, so there is no version to disagree with"
-            exit 0
           fi
           if [ "${declared}" != "${VERSION}" ]; then
             echo "::error::${GITHUB_REF_NAME} names ${VERSION}, but this commit is built against ${declared}"
