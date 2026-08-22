@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/wso2/wso2-cli/internal/install"
@@ -120,5 +121,70 @@ func TestPlatformsAreTheTargetsEveryPullRequestCompiles(t *testing.T) {
 		if !compiled[target] {
 			t.Errorf("a module publishes for %s and no pull request compiles it", target)
 		}
+	}
+}
+
+// A released module announces two versions at the handshake, and both are
+// build-time variables carrying development placeholders. The shell checks the
+// module's own version against the receipt, so a missing injection there is
+// caught at launch. Nothing checks the SDK version, so a missing injection
+// there is not caught at all: the module simply tells every shell it was built
+// against a development SDK that was never published, in an archive that cannot
+// be changed once released.
+func TestBuildFlagsInjectBothVersionsAModuleAnnounces(t *testing.T) {
+	flags := release.BuildFlags("4.5.0", "0.1.0")
+
+	for _, want := range []string{
+		"-X main.moduleVersion=4.5.0",
+		"-X github.com/wso2/wso2-cli/sdk/module.SDKVersion=0.1.0",
+	} {
+		if !strings.Contains(flags, want) {
+			t.Errorf("the build flags %q do not carry %q", flags, want)
+		}
+	}
+}
+
+// The SDK version comes from the module being built rather than from the run,
+// so it describes the build. Reading it from the module graph rather than from
+// the file's text is what makes an exclude, a comment, or a versionless replace
+// unable to change the answer.
+func TestTheSDKVersionIsReadFromTheModuleGraph(t *testing.T) {
+	directory := t.TempDir()
+	writeModuleFile(t, directory, `module example.com/product
+
+go 1.25.0
+
+// github.com/wso2/wso2-cli/sdk v9.9.9 is a comment and not a requirement.
+exclude github.com/wso2/wso2-cli/sdk v0.0.1
+
+require github.com/wso2/wso2-cli/sdk v0.4.2
+`)
+
+	version, err := release.SDKVersion(directory)
+	if err != nil {
+		t.Fatalf("reading the SDK version returned %v", err)
+	}
+	// Announced as a version rather than as a tag, which is the shape the
+	// handshake and the receipt both carry.
+	if version != "0.4.2" {
+		t.Errorf("SDK version = %q, want %q", version, "0.4.2")
+	}
+}
+
+// A module that requires no SDK is not a module this repository can release, and
+// saying so beats building one that announces nothing.
+func TestAModuleRequiringNoSDKCannotBeBuilt(t *testing.T) {
+	directory := t.TempDir()
+	writeModuleFile(t, directory, "module example.com/product\n\ngo 1.25.0\n")
+
+	if _, err := release.SDKVersion(directory); err == nil {
+		t.Fatal("a module requiring no SDK reported an SDK version")
+	}
+}
+
+func writeModuleFile(t *testing.T, directory, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(directory, "go.mod"), []byte(content), 0o644); err != nil {
+		t.Fatalf("cannot write go.mod: %v", err)
 	}
 }

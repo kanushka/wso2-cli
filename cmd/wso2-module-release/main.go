@@ -168,12 +168,21 @@ func build(repositoryRoot string, declaration catalog.Declaration, version strin
 	output := filepath.Join(workDir, install.ExecutableName(declaration.Namespace, platform))
 	packagePath := release.MainPackage(declaration.Namespace)
 
-	// The module reports its own version at the handshake and the shell checks
-	// it against the receipt, so a build that left the development placeholder
-	// in would install and refuse to launch.
-	ldflags := "-s -w -X main.moduleVersion=" + version
+	moduleDir := filepath.Join(repositoryRoot, filepath.FromSlash(declaration.Directory))
+
+	// The module reports its own version and the SDK it was built against at
+	// the handshake. The shell checks the first against the receipt, so a build
+	// that left that placeholder in would install and refuse to launch; the
+	// second is what a published module tells the shell about its own build, so
+	// a release that left it out would announce a development SDK that was
+	// never published.
+	sdkVersion, err := release.SDKVersion(moduleDir)
+	if err != nil {
+		return nil, err
+	}
+	ldflags := release.BuildFlags(version, sdkVersion)
 	command := exec.Command("go", "build", "-trimpath", "-ldflags", ldflags, "-o", output, packagePath)
-	command.Dir = filepath.Join(repositoryRoot, filepath.FromSlash(declaration.Directory))
+	command.Dir = moduleDir
 	command.Env = append(os.Environ(),
 		"CGO_ENABLED=0",
 		"GOOS="+platform.OS,

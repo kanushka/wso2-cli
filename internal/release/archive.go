@@ -20,10 +20,13 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/wso2/wso2-cli/internal/install"
 	"github.com/wso2/wso2-cli/internal/modules"
@@ -150,4 +153,58 @@ func ReadArchiveFiles(repositoryRoot string, names ...string) ([]ArchiveFile, er
 // archive, which is flat.
 func baseName(name string) string {
 	return path.Base(name)
+}
+
+// BuildFlags are the linker flags a module release is built with.
+//
+// A released module announces two versions at the handshake: its own, and the
+// SDK release it was built against. Both are build-time variables with
+// development placeholders, so a release that injected neither would install
+// and then refuse to launch, and a release that injected only its own version
+// would launch while telling the shell it was built against a development SDK
+// that was never published.
+//
+// The SDK version is the one the module's own go.mod requires, so it describes
+// the build rather than restating something a release run was told.
+func BuildFlags(moduleVersion, sdkVersion string) string {
+	flags := "-s -w -X main.moduleVersion=" + moduleVersion
+	if sdkVersion != "" {
+		flags += " -X github.com/wso2/wso2-cli/sdk/module.SDKVersion=" + sdkVersion
+	}
+	return flags
+}
+
+// SDKVersion reports the SDK release a module is built against, read from the
+// module graph of its own directory.
+//
+// The graph is asked rather than the file scanned, because an exclude, a
+// comment, or a versionless replace all mention the module path and only the
+// graph knows which one is the requirement. The leading "v" is dropped, because
+// what the module announces is a version rather than a tag.
+func SDKVersion(moduleDir string) (string, error) {
+	const modulePath = "github.com/wso2/wso2-cli/sdk"
+
+	command := exec.Command("go", "mod", "edit", "-json")
+	command.Dir = moduleDir
+	command.Env = os.Environ()
+	output, err := command.Output()
+	if err != nil {
+		return "", fmt.Errorf("release: cannot read the SDK version %s is built against: %w", moduleDir, err)
+	}
+
+	var parsed struct {
+		Require []struct {
+			Path    string `json:"Path"`
+			Version string `json:"Version"`
+		} `json:"Require"`
+	}
+	if err := json.Unmarshal(output, &parsed); err != nil {
+		return "", fmt.Errorf("release: cannot read the module graph of %s: %w", moduleDir, err)
+	}
+	for _, requirement := range parsed.Require {
+		if requirement.Path == modulePath {
+			return strings.TrimPrefix(requirement.Version, "v"), nil
+		}
+	}
+	return "", fmt.Errorf("release: %s does not require %s", moduleDir, modulePath)
 }
