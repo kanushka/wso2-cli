@@ -400,14 +400,14 @@ cannot take back — whether any shell that exists can launch what you are about
 to publish:
 
 ```console
-$ go run ./cmd/wso2-module-release -tag reference/v0.1.0-rc.1 -gate-only
-reference/v0.1.0-rc.1 speaks module-contract protocol v2 and the released shell speaks v2, v1
+$ go run ./cmd/wso2-module-release -tag api/v1.2.0-rc.1 -gate-only
+api/v1.2.0-rc.1 speaks module-contract protocol v2 and the released shell speaks v2, v1
 ```
 
 For the full artifact check without publishing:
 
 ```console
-$ go run ./cmd/wso2-module-release -tag reference/v0.1.0-rc.1 -out dist
+$ go run ./cmd/wso2-module-release -tag api/v1.2.0-rc.1 -out dist
 ...
 8 archives and checksums.txt written into dist
 ```
@@ -428,9 +428,11 @@ once against your own module rather than reading about.
 ```sh
 # What the catalog publishes, and what is installed here.
 wso2 module available
-wso2 module install api
+
+# The first release is a prerelease, so it is offered on that channel only.
+# Asking for the stable channel here finds nothing to install yet.
 wso2 module install api --channel prerelease
-wso2 module install api@1.2.0
+wso2 module install api@1.2.0-rc.1
 
 wso2 module list
 wso2 module update api
