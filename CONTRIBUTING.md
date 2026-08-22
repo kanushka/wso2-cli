@@ -99,6 +99,28 @@ Tests never read or write real WSO2 user state. The shell resolves all local
 state below one root, overridden with `WSO2_HOME`, and the test-only fixture
 installer refuses to write into `~/.wso2`.
 
+## Starting a new product module
+
+```sh
+make new-module NAMESPACE=mycloud
+```
+
+This creates `modules/mycloud`, which builds and passes its own test with
+nothing edited, and composes it in the workspace. The SDK version it depends on
+and the protocol versions it declares are read from the checkout rather than
+written into a template, so a generated module is never generated against a
+version this repository does not build against.
+
+The namespace is the first word of every command the module will answer, so it
+is refused when another module already declares it, when a shell command owns it
+— such a module could never be reached, because the shell resolves its own
+commands first — when it is the reference module's reserved namespace, or when
+it is not something a user could type. Nothing is written when a namespace is
+refused.
+
+`docs/guides/building-product-modules.md` carries the rest: what to change
+first, how a handler asks the shell for access, and how the module is released.
+
 ## Documentation standards
 
 Contributions must:

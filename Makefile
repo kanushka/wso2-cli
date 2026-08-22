@@ -91,6 +91,9 @@ help:
 	@echo '  make release-check        Validate the release configuration.'
 	@echo '  make release-snapshot     Build every release artifact into dist/, publishing nothing.'
 	@echo ''
+	@echo 'Starting a new product module:'
+	@echo '  make new-module NAMESPACE=<namespace>   Create modules/<namespace>, ready to build.'
+	@echo ''
 	@echo 'Against a real deployment (Asgardeo, Identity Server 7.x, or ThunderID):'
 	@echo '  make smoke-login          Log in and broker one acquisition. Opens a browser.'
 	@echo '  make smoke-login-device   The same, approved on another device. Opens no browser.'
@@ -102,6 +105,19 @@ help:
 	@echo 'They read $(SMOKE_ENV) when it exists; name another with'
 	@echo 'SMOKE_ENV=<path>. Copy test/smoke/env.example to start one.'
 	@echo 'See test/smoke/RUNNING.md.'
+
+# Creates a new product module, ready to build and test with nothing edited.
+#
+# The namespace is the first word of every command the module will answer, so it
+# is refused when it is already taken, when a shell command owns it, when it is
+# the reference module's reserved namespace, or when it is not something a user
+# could type. See docs/guides/building-product-modules.md.
+.PHONY: new-module
+new-module:
+ifndef NAMESPACE
+	$(error NAMESPACE is required: make new-module NAMESPACE=mycloud)
+endif
+	$(GO) run ./cmd/wso2-module-new -namespace '$(NAMESPACE)'
 
 .PHONY: test
 test:

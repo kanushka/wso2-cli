@@ -70,6 +70,23 @@ func builtins() []builtin {
 	}
 }
 
+// CommandNames reports the shell's own command names, sorted.
+//
+// A namespace with one of these names is unreachable: the shell resolves its
+// own commands before it consults an installed module, so a module owning such
+// a namespace would build, release, install, and never run. Whatever decides
+// whether a namespace may be created has to ask this rather than keep a list
+// of its own, because a list of its own is one that stops being true the next
+// time a command is added.
+func CommandNames() []string {
+	names := make([]string, 0, len(builtins()))
+	for _, command := range builtins() {
+		names = append(names, command.name)
+	}
+	slices.Sort(names)
+	return names
+}
+
 // Run executes one invocation and returns the process exit code.
 func (s Shell) Run(args []string) exit.Code {
 	err := s.dispatch(args)

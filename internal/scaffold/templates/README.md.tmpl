@@ -1,0 +1,51 @@
+# The {{.Namespace}} product module
+
+This is a WSO2 CLI product module. It is a separate program: the `wso2` shell
+resolves it from the managed module store and launches it, and the two speak the
+module contract over the module's standard input and output.
+
+It lives in this repository and is released by its own tag, independently of the
+shell and of every other module:
+
+```sh
+git tag {{.Namespace}}/v0.1.0
+git push origin {{.Namespace}}/v0.1.0
+```
+
+That tag builds the module for every supported platform, publishes the archives,
+and regenerates the module catalog a user installs from. A release is refused if
+no shell that exists can launch it.
+
+## Working on it
+
+```sh
+# From the repository root.
+go build ./modules/{{.Namespace}}/...
+go test ./modules/{{.Namespace}}/...
+```
+
+The workspace composes this module with the SDK from source, so a change to the
+SDK reaches it without a release. The `go.mod` here requires the SDK by version,
+at the same version the reference module requires it at: while that version is
+still the unpublished placeholder, the workspace is what resolves it, and the
+requirement becomes the ordinary kind once an SDK version is published.
+
+## What to change first
+
+`cmd/{{.Executable}}/main.go` declares one `status` command that reports what it
+can know without asking the shell for anything. To call your product, a handler
+needs access, and access is something the shell brokers rather than something a
+module holds: declare an audience and a scope in `module.json` and in
+`moduleOptions`, then ask for them with `request.Access.Acquire`. A module never
+sees a credential and cannot obtain a second token.
+
+`modules/reference` is the complete worked example, including the part this
+module deliberately leaves out.
+
+## What this module must not do
+
+It must not import anything under the shell's `internal` tree, and it must not
+print to standard output: that stream carries protocol frames, and anything
+written there directly corrupts them. Diagnostics go to standard error. Both
+rules are asserted for every module under `modules/`, including this one, by the
+tests in `internal/boundaries`.
