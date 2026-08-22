@@ -247,6 +247,41 @@ func TestAProxyThatCannotBeAskedFailsTheGate(t *testing.T) {
 	}
 }
 
+// A protocol generation that never had an SDK release has nothing in the field
+// built against it, so there is nothing for this gate to prove. That is not the
+// same as a generation whose release is missing: a published version cannot be
+// withdrawn, so a generation that was ever released stays resolvable and stays
+// enforced. Reporting the empty premise as a failure would make the gate red for
+// a reason no change can fix, which is how a gate gets switched off.
+func TestAGenerationThatWasNeverPublishedIsNotEnforceable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("the gate builds the SDK to read the protocol it declares")
+	}
+	window := protocol.Window()
+	if len(window) < 2 {
+		t.Skip("this branch declares the first protocol generation, which has no predecessor")
+	}
+
+	// A proxy publishing the current generation only, which is what the first
+	// SDK release of a repository looks like.
+	proxy := t.TempDir()
+	publishSDK(t, proxy, "v0.1.0", window[0])
+
+	output := runGate(t, "GOPROXY=file://"+filepath.ToSlash(proxy)+",off", "GOSUMDB=off")
+
+	if !strings.Contains(output, "NOT ENFORCEABLE") {
+		t.Fatalf("the gate did not report the generation as unenforceable:\n%s", output)
+	}
+	// The versions it examined have to be named, so a reader can tell an empty
+	// premise from a gate that failed to look.
+	if !strings.Contains(output, "v0.1.0") {
+		t.Errorf("the gate does not name the published versions it examined:\n%s", output)
+	}
+	if strings.Contains(output, "FAILED") {
+		t.Errorf("the gate reported a failure for an empty premise:\n%s", output)
+	}
+}
+
 // TestThePreviousProtocolGateRefusesACommittedReplaceDirective proves the
 // prohibition on committed replace directives is enforced rather than
 // documented. The directive is written into a scratch checkout, so nothing in

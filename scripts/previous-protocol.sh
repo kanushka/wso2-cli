@@ -191,12 +191,24 @@ if [ -z "$resolved" ]; then
 		printf 'proving it on the first SDK release.\n'
 		exit 0
 	fi
-	printf '\nFAILED: protocol v%s is inside the window this branch declares '\
+	# Versions are published but none speaks the predecessor, which is what a
+	# protocol generation that never had an SDK release looks like. The first
+	# published SDK declared the generation current at the time, so the one
+	# before it was never released and no module in the field was ever built
+	# against it: the premise this gate reasons from is empty rather than broken.
+	#
+	# This is not the same as a generation whose SDK release once existed. A
+	# published version cannot be withdrawn, so a generation that was ever
+	# released stays resolvable and is enforced below. The unenforceable case is
+	# only ever a generation that was never published at all.
+	printf '\nNOT ENFORCEABLE: protocol v%s is inside the window this branch '\
 		"$previous"
-	printf '(v%s), but\nno published SDK speaks it. Published SDK versions: %s.\n'\
-		"$(printf '%s' "$window" | sed 's/,/, v/g')" \
+	printf 'declares\n(v%s), but no published SDK ever spoke it, so no module in '\
+		"$(printf '%s' "$window" | sed 's/,/, v/g')"
+	printf 'the field was\nbuilt against it. The previous protocol was NOT '
+	printf 'checked. Published SDK\nversions: %s.\n'\
 		"$(printf '%s\n' "$published" | tr '\n' ' ')"
-	exit 1
+	exit 0
 fi
 printf 'Resolved SDK %s for protocol v%s.\n' "$resolved" "$previous"
 
