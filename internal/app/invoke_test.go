@@ -127,6 +127,22 @@ func TestAnOutputFlagWithoutAValueIsAUsageProblem(t *testing.T) {
 	}
 }
 
+func TestAnAttachedOutputFlagWithAnEmptyValueIsAUsageProblem(t *testing.T) {
+	// The flag is the shell's however it is spelled, so an empty attached
+	// value fails here rather than being handed to the module. A module asked
+	// to interpret the shell's own --output would report it as its unknown
+	// flag, sending the reader to the wrong place for the same mistake.
+	for _, args := range [][]string{
+		{"status", "--output="},
+		{"status", "-o="},
+	} {
+		_, _, _, _, err := parseProductArgs("reference", args)
+		if code := usageProblemCode(t, err); code != "shell.unknown_output_mode" {
+			t.Errorf("parsing %v gave problem %q, want %q", args, code, "shell.unknown_output_mode")
+		}
+	}
+}
+
 func TestMissingContextFlagValue(t *testing.T) {
 	// An explicitly empty value is refused too: a user who named a context and
 	// got the default one instead would never see that it happened.
