@@ -271,7 +271,7 @@ func TestAGenerationThatWasNeverPublishedIsNotEnforceable(t *testing.T) {
 	// cache under whatever version it names: reusing a version that is really
 	// published would leave a poisoned entry there, and the next build to want
 	// the real one fails verification against the checksum database. See the
-	// note on fixtureVersion.
+	// note above fixturePreviousVersion and fixtureCurrentVersion.
 	proxy := t.TempDir()
 	publishSDK(t, proxy, fixtureCurrentVersion, window[0])
 
@@ -377,10 +377,6 @@ func cloneRepository(t *testing.T) string {
 	return clone
 }
 
-// publishSDK writes this checkout's SDK to a file-backed module proxy at one
-// version, speaking one protocol generation. It is how a released SDK is
-// reproduced without releasing one: the source is the same, and only the
-// protocol generation it declares differs.
 // The SDK versions the fixtures publish.
 //
 // None of them is a version the SDK really publishes, and that is a rule rather
@@ -441,6 +437,10 @@ func sdkVersionRequiredBy(t *testing.T, moduleDir string) string {
 	return ""
 }
 
+// publishSDK writes this checkout's SDK to a file-backed module proxy at one
+// version, speaking one protocol generation. It is how a released SDK is
+// reproduced without releasing one: the source is the same, and only the
+// protocol generation it declares differs.
 func publishSDK(t *testing.T, proxy, version string, protocolVersion int) {
 	t.Helper()
 	const modulePath = "github.com/wso2/wso2-cli/sdk"
