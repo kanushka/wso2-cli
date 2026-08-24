@@ -121,7 +121,7 @@ func (s Shell) rootCommand() *cobra.Command {
 	root.PersistentFlags().String(contextFlag, "", "Use the named context instead of the selected one.")
 	root.PersistentFlags().StringP(outputFlag, "o", string(output.ModeTable), "Render results as table or json.")
 
-	root.AddCommand(s.loginCommand(), s.moduleCommand(), s.versionCommand())
+	root.AddCommand(s.loginCommand(), s.logoutCommand(), s.moduleCommand(), s.versionCommand())
 
 	// Cobra's generated help command describes itself generically. The shell
 	// published its own summary for it, and that wording is kept.
@@ -163,6 +163,12 @@ func shellFlagsFor(name string) []string {
 		return []string{contextFlag, outputFlag}
 	case "login":
 		return []string{contextFlag}
+	case "logout":
+		// The only interactive-auth command that renders a machine-readable
+		// result, because it is the only one whose result a script has to read:
+		// what the issuer was told about the ended session is not observable
+		// any other way.
+		return []string{contextFlag, outputFlag}
 	default:
 		return nil
 	}
@@ -228,6 +234,25 @@ func (s Shell) loginCommand() *cobra.Command {
 				return err
 			}
 			return s.login(forwarded)
+		},
+	}
+}
+
+func (s Shell) logoutCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:                   "logout",
+		Short:                 "End the selected context's session.",
+		DisableFlagsInUseLine: true,
+		DisableFlagParsing:    true,
+		RunE: func(command *cobra.Command, args []string) error {
+			if wantsHelp(args) {
+				return command.Help()
+			}
+			forwarded, err := forwardShellFlags(command, args)
+			if err != nil {
+				return err
+			}
+			return s.logout(forwarded)
 		},
 	}
 }

@@ -73,33 +73,8 @@ func (s Shell) login(args []string) error {
 
 	// The kind decides before the mode does, so a context that has no login
 	// step is told so whether or not the caller asked for one interactively.
-	switch selected.Identity.Auth.Kind {
-	case "":
-		return problem.New(problem.CategoryAuthPolicy, "auth.context_not_selected",
-			"no WSO2 CLI context is selected to log in to").
-			// The pointer names a document that exists today. The login
-			// walkthrough is a later slice, and recovery text that sends a
-			// stuck user to a missing file helps nobody.
-			WithRecovery("Author a context document and select a context, then run wso2 login. " +
-				"See docs/examples/authentication-contexts.md.")
-	case contexts.KindClientCredentials, contexts.MethodDevelopmentCredential:
-		return problem.New(problem.CategoryAuthPolicy, "auth.login_not_required",
-			fmt.Sprintf("the %q context acquires access inline and has no login step",
-				selected.Context.Name)).
-			WithRecovery("Run the product command directly; the shell authenticates during it.")
-	case contexts.KindPAT:
-		return problem.New(problem.CategoryAuthPolicy, "auth.kind_not_implemented",
-			fmt.Sprintf("the %q context uses an authentication kind this release does not implement",
-				selected.Context.Name)).
-			WithRecovery("Use a browser, device-code, or client-credentials identity. Personal " +
-				"access token login is planned.")
-	case contexts.KindOAuthBrowser, contexts.KindOAuthDevice:
-		// The two kinds this release logs in interactively.
-	default:
-		return problem.New(problem.CategoryAuthPolicy, "auth.method_unsupported",
-			fmt.Sprintf("the %q context uses an authentication method this shell does not implement",
-				selected.Context.Name)).
-			WithRecovery("Select a context with a supported authentication kind.")
+	if err := loginKindGate.check(selected); err != nil {
+		return err
 	}
 	if flags.nonInteractive || os.Getenv(NonInteractiveEnvVar) != "" {
 		// Named for the mode actually refused. Both are interactive and both

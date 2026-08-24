@@ -320,8 +320,37 @@ command afterwards behaves identically.
   exactly the permissions that module declared, proves the result carries what
   was asked for, and hands over only that.
 
-To sign out, delete the secure-store entry named by `credentialRef`.
-(`wso2 logout` is a proposed command and is not in this release.)
+To sign out, run `wso2 logout`. It asks the deployment to revoke the session's
+refresh token and removes the secure-store entry named by `credentialRef`. What
+it can promise about the first of those depends on the deployment, and it tells
+you which of three things happened:
+
+- **`confirmed`** — the deployment accepted the request. That means it was told,
+  not that anything was found to retract: RFC 7009 requires a server to answer
+  an unknown token exactly as it answers a live one, so revocation cannot be
+  used to probe for valid tokens.
+- **`not-attempted`** — the deployment publishes no `revocation_endpoint` in its
+  OpenID configuration, so it was never asked, and its own copy of the session
+  stands until it expires.
+- **`failed`** — the deployment was asked and did not accept, or could not be
+  reached. Most likely it requires a confidential client on that endpoint, and
+  the shell is a public client with no secret.
+
+**The secure-store entry goes under all three, and the command succeeds under
+all three.** You asked to end a session; you do not keep one because the
+deployment was unreachable. What changes between the outcomes is only what the
+shell claims, which is the decision recorded in
+[ADR 0010](../adr/0010-best-effort-revocation-on-session-end.md).
+
+**Two things logout does not do.** It does not end the browser single-sign-on
+session at the identity provider, so a later `wso2 login` may complete without
+prompting you for credentials — sections 2.3 and 3.3 describe that session.
+And because a session is keyed by `credentialRef`, which belongs to the
+identity, ending it ends it for every context naming that identity; the command
+names them.
+
+A `client-credentials` identity has no session to end and is refused with
+`auth.logout_not_required` (section 5).
 
 ---
 
@@ -535,6 +564,13 @@ would reject the redirect and the error would name the wrong problem.
 No usable session. Either you have not logged in for this `credentialRef`, or
 the deployment has stopped accepting the stored refresh token — it was revoked,
 it expired, or it was rotated away by a concurrent run. Run `wso2 login` again.
+
+### `auth.logout_not_required`
+
+You ran `wso2 logout` against a context whose identity acquires access inline
+and never holds a session — a `client-credentials` identity, in practice.
+Nothing is stored for it, so there is nothing to end. Remove the credential from
+the environment to stop the shell acquiring access with it.
 
 ### `auth.keyring_unavailable`
 

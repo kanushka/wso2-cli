@@ -332,3 +332,77 @@ func assertProblemCode(t *testing.T, err error, code string) {
 		t.Fatalf("expected auth_policy category, got %q", typed.Category)
 	}
 }
+
+func TestDeleteRemovesTheEntry(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := store.Save("acme-cloud-login",
+		session.Session{Issuer: "https://issuer.example.test", RefreshToken: "rt-1"}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	removed, err := store.Delete("acme-cloud-login")
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if !removed {
+		t.Error("delete did not report removing the entry it removed")
+	}
+	_, err = store.Load("acme-cloud-login")
+	assertProblemCode(t, err, "auth.login_required")
+}
+
+// Deleting what is not there is the state the caller asked for, so it is not a
+// failure. Logging out twice must not turn the second attempt into an error a
+// user has to interpret.
+func TestDeleteMissingEntrySucceeds(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	removed, err := store.Delete("never-logged-in")
+	if err != nil {
+		t.Fatalf("delete of a missing entry: %v", err)
+	}
+	if removed {
+		t.Error("delete reported removing an entry that was never there")
+	}
+}
+
+// A stale entry Load refuses to read is still an entry, and deleting it reports
+// that something was removed. Load cannot distinguish it from a missing one, so
+// this is the only way a caller learns a session was really ended.
+func TestDeleteReportsRemovingAnUnreadableEntry(t *testing.T) {
+	keyring.MockInit()
+	if err := keyring.Set(session.Service, "acme-cloud-login", "not json"); err != nil {
+		t.Fatalf("seed foreign entry: %v", err)
+	}
+	store := session.Store{StateRoot: t.TempDir()}
+	removed, err := store.Delete("acme-cloud-login")
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if !removed {
+		t.Error("delete did not report removing an unreadable entry")
+	}
+}
+
+// Deleting one reference leaves every other session alone. Two identities on
+// one machine share the service name and are separated only by the reference.
+func TestDeleteLeavesOtherReferences(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	for _, ref := range []string{"acme-cloud-login", "acme-staging-login"} {
+		if err := store.Save(ref,
+			session.Session{Issuer: "https://issuer.example.test", RefreshToken: "rt-" + ref}); err != nil {
+			t.Fatalf("save %s: %v", ref, err)
+		}
+	}
+	if _, err := store.Delete("acme-cloud-login"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	loaded, err := store.Load("acme-staging-login")
+	if err != nil {
+		t.Fatalf("load the untouched reference: %v", err)
+	}
+	if loaded.RefreshToken != "rt-acme-staging-login" {
+		t.Fatalf("the untouched reference changed: %+v", loaded)
+	}
+}

@@ -85,3 +85,11 @@ through a browser on this machine, or through a code approved on another
 device. It is a property of the machine and the moment, not of the identity's
 credentials, so the same identity may be established either way.
 _Avoid_: Login type, authentication kind
+
+**Session**:
+The authorization one interactive identity holds on this machine after a
+login, kept in the OS secure store under that identity's credential
+reference. One session serves every product namespace the identity declares
+and every context that names that identity, so it is a property of the
+identity rather than of the context a command happens to select.
+_Avoid_: Login, credential, token

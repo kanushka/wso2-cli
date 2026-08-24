@@ -143,6 +143,28 @@ func deployLogin(
 	t *testing.T, options fakeissuer.Options, alter func(*contexts.Document),
 ) *loginDeployment {
 	t.Helper()
+	return deployLoginInstallation(t, options, alter, true)
+}
+
+// deployLoginWithoutModule is the same installation with no product module in
+// the store.
+//
+// Installing one builds the reference module, which costs more than everything
+// else these tests do put together. A test whose subject is the session itself —
+// establishing one, ending one — never dispatches a namespace, so it never
+// resolves a module, and paying for one would buy nothing. A test that does
+// dispatch must use deployLogin.
+func deployLoginWithoutModule(
+	t *testing.T, options fakeissuer.Options, alter func(*contexts.Document),
+) *loginDeployment {
+	t.Helper()
+	return deployLoginInstallation(t, options, alter, false)
+}
+
+func deployLoginInstallation(
+	t *testing.T, options fakeissuer.Options, alter func(*contexts.Document), withModule bool,
+) *loginDeployment {
+	t.Helper()
 	keyring.MockInit()
 	// A developer's own environment must not decide what these tests prove.
 	t.Setenv("WSO2_CONTEXT", "")
@@ -153,7 +175,9 @@ func deployLogin(
 	issuer := fakeissuer.New(t, options)
 	service := startRecordingService(t)
 	stateRoot := isolatedStateRoot(t)
-	installInProcessReferenceModule(t, stateRoot)
+	if withModule {
+		installInProcessReferenceModule(t, stateRoot)
+	}
 
 	document := browserDocument(issuer.URL, service.server.URL)
 	if alter != nil {

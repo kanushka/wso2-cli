@@ -12,7 +12,8 @@ product modules, such as `wso2 api`, `wso2 identity`, `wso2 integration`, and
 The distinction between catalog refresh and module binary update remains an
 open decision. The lifecycle command names below are therefore provisional.
 
-These are built: `wso2 module available`, `wso2 module list`,
+These are built: `wso2 login`, `wso2 logout`, `wso2 module available`,
+`wso2 module list`,
 `wso2 module install <module>`, `wso2 module install <module>@<version>`,
 `wso2 module install <module> --channel <channel>`,
 `wso2 module update <module>`, `wso2 module update --all`, and
@@ -28,7 +29,7 @@ refusal is reported.
 | `wso2 help` | Shows the root command tree and help for a command. |
 | `wso2 version` | Shows the shell, protocol, and installed module versions. |
 | `wso2 login` | Authenticates the selected context using its configured method. |
-| `wso2 logout` | Removes the active session from the shell-owned credential store. |
+| `wso2 logout` | Ends the session of the identity the selected context names: asks the identity provider to revoke its refresh token, and removes the shell-owned session that every context sharing that credential reference reaches. |
 | `wso2 whoami` | Shows the signed-in user and active organization. |
 | `wso2 org list` | Lists organizations available to the signed-in user. |
 | `wso2 org use <organization>` | Selects an organization and activates its organization-bound session. |
@@ -91,6 +92,33 @@ User           jane@example.com
 Organization   acme
 Context        cloud-us
 ```
+
+### Ending a session
+
+```text
+$ wso2 logout
+
+Ended the session for the "cloud-us" context.
+Context      cloud-us
+Identity     acme-cloud
+Session      ended
+Revocation   confirmed
+Shared with  cloud-us
+
+The identity provider accepted the request to revoke this session's refresh token.
+
+A browser single-sign-on session at the identity provider is unaffected by this
+command, so a later login may not prompt for credentials.
+```
+
+`Revocation` is `confirmed` when the identity provider accepted the request,
+`not-attempted` when it publishes no revocation endpoint and so was never asked,
+and `failed` when it was asked and did not accept, or could not be reached. The
+shell-owned session is removed under all three, and the command succeeds under
+all three; what changes is only what it claims. `--output json` renders the same
+fields as a JSON object, which is the only way a script can read which of the
+three happened. See
+[ADR 0010](../adr/0010-best-effort-revocation-on-session-end.md).
 
 ### Context
 
