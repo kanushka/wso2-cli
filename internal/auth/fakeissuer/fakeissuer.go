@@ -981,8 +981,17 @@ func (i *Issuer) handleRevoke(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
+	presented := r.PostForm.Get("token")
+	if presented == "" {
+		// RFC 7009 section 2.1 makes token a required parameter. Answering 200
+		// to a request that carries none would let a client regression that
+		// stopped sending the refresh token look like a successful revocation
+		// in every test that asserts the outcome.
+		oauthError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
 	i.mutex.Lock()
-	delete(i.refreshTokens, r.PostForm.Get("token"))
+	delete(i.refreshTokens, presented)
 	i.mutex.Unlock()
 	w.WriteHeader(http.StatusOK)
 }

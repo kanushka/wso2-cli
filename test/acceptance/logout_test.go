@@ -264,6 +264,38 @@ func TestLogoutNamesEveryContextSharingTheSession(t *testing.T) {
 	}
 }
 
+// Two identity records may name one credential reference, and the document
+// forbids only duplicate identity names. The session is keyed by the reference,
+// so ending it ends theirs too — and a report that matched on the identity name
+// would delete their session without naming them.
+func TestLogoutNamesContextsReachingTheSessionThroughAnotherIdentity(t *testing.T) {
+	const secondIdentity = "reference-cloud-alias"
+	const secondContext = "reference-alias"
+	deployment := deployLoginWithoutModule(t, fakeissuer.Options{AllowAnyLoopbackPort: true},
+		func(document *contexts.Document) {
+			alias := document.Identities[0]
+			alias.Name = secondIdentity
+			document.Identities = append(document.Identities, alias)
+			document.Contexts = append(document.Contexts, contexts.Context{
+				Name:         secondContext,
+				Identity:     secondIdentity,
+				Organization: referenceOrganization,
+			})
+		})
+	deployment.login(t)
+
+	deployment.logout(t)
+
+	reported := deployment.out.String()
+	if !strings.Contains(reported, secondContext) {
+		t.Errorf("logout did not name the context reaching this session through another identity:\n%s",
+			reported)
+	}
+	if !strings.Contains(reported, "share one session") {
+		t.Errorf("logout did not warn that the session is shared:\n%s", reported)
+	}
+}
+
 // No token material reaches any output surface, under any outcome. The refresh
 // token is the value logout handles most directly, so this is asserted where it
 // is most at risk of being echoed.

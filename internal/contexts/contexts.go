@@ -36,6 +36,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
@@ -229,6 +230,32 @@ func (d Document) Select(name string) (Selection, error) {
 		}
 	}
 	return Selection{}, unknownContext(wanted)
+}
+
+// ContextsUsingCredential names every context whose identity keeps its session
+// under the given credential reference, sorted.
+//
+// The reference, not the identity name, is what decides who shares a session:
+// it is the key the secure store holds the session under. Two identity records
+// may name the same one, because the document requires identity names to be
+// unique and says nothing about their references — so the contexts reaching a
+// single session can arrive through more than one identity, and a caller that
+// matched on the identity name would miss them.
+//
+// An empty reference matches nothing rather than matching every identity that
+// keeps no session.
+func (d Document) ContextsUsingCredential(ref string) []string {
+	if ref == "" {
+		return nil
+	}
+	var names []string
+	for _, candidate := range d.Contexts {
+		if d.identity(candidate.Identity).Auth.CredentialRef == ref {
+			names = append(names, candidate.Name)
+		}
+	}
+	slices.Sort(names)
+	return names
 }
 
 func (d Document) identity(name string) Identity {

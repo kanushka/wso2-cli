@@ -29,7 +29,7 @@ refusal is reported.
 | `wso2 help` | Shows the root command tree and help for a command. |
 | `wso2 version` | Shows the shell, protocol, and installed module versions. |
 | `wso2 login` | Authenticates the selected context using its configured method. |
-| `wso2 logout` | Ends the selected context's session: asks the identity provider to revoke its refresh token, and removes the shell-owned session. |
+| `wso2 logout` | Ends the session of the identity the selected context names: asks the identity provider to revoke its refresh token, and removes the shell-owned session that every context sharing that credential reference reaches. |
 | `wso2 whoami` | Shows the signed-in user and active organization. |
 | `wso2 org list` | Lists organizations available to the signed-in user. |
 | `wso2 org use <organization>` | Selects an organization and activates its organization-bound session. |

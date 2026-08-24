@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -76,7 +75,7 @@ func (s Shell) logout(args []string) error {
 	if err != nil {
 		return err
 	}
-	shared := contextsSharingIdentity(document, selected)
+	shared := document.ContextsUsingCredential(selected.Identity.Auth.CredentialRef)
 
 	reference := selected.Identity.Auth.CredentialRef
 	store := session.Store{StateRoot: root}
@@ -156,24 +155,6 @@ type logoutOutcome struct {
 func isNoSession(err error) bool {
 	var reported problem.Problem
 	return errors.As(err, &reported) && reported.Code == "auth.login_required"
-}
-
-// contextsSharingIdentity names every context that reaches the same session,
-// the selected one included, sorted.
-//
-// A session is keyed by the identity's credential reference, so it is a
-// property of the identity and not of the context a command selects. Ending one
-// ends it for all of them, and a user who selected one context by name would
-// not otherwise learn that.
-func contextsSharingIdentity(document contexts.Document, selected contexts.Selection) []string {
-	var names []string
-	for _, candidate := range document.Contexts {
-		if candidate.Identity == selected.Context.Identity {
-			names = append(names, candidate.Name)
-		}
-	}
-	slices.Sort(names)
-	return names
 }
 
 // reportLogout states what was ended and what the issuer was told.
@@ -267,15 +248,31 @@ func parseLogoutArgs(args []string) (logoutFlags, error) {
 			}
 			flags.contextName = name
 			remaining = remaining[consumed:]
-		case argument == "--output" || argument == "-o" || strings.HasPrefix(argument, "--output="):
-			value, consumed := logoutOutputValue(remaining)
+		case argument == "--output" || argument == "-o":
+			if len(remaining) < 2 {
+				return logoutFlags{}, logoutUsage("shell.missing_flag_value",
+					fmt.Sprintf("%s needs a value", argument))
+			}
+			parsed, ok := output.ParseMode(remaining[1])
+			if !ok {
+				return logoutFlags{}, logoutUsage("shell.unknown_output_mode",
+					fmt.Sprintf("%q is not an output mode", remaining[1]))
+			}
+			flags.mode = parsed
+			remaining = remaining[2:]
+		case attachedOutput(argument):
+			// Every spelling the shell's own flags accept is accepted here too.
+			// A mode that worked on a product namespace and not on wso2 logout
+			// would be exactly the drift TestEveryOutputFlagInterpreterAgrees
+			// exists to catch.
+			value, _ := outputFlagValue(argument)
 			parsed, ok := output.ParseMode(value)
 			if !ok {
 				return logoutFlags{}, logoutUsage("shell.unknown_output_mode",
 					fmt.Sprintf("%q is not an output mode", value))
 			}
 			flags.mode = parsed
-			remaining = remaining[consumed:]
+			remaining = remaining[1:]
 		case strings.HasPrefix(argument, "-"):
 			return logoutFlags{}, logoutUsage("shell.unknown_flag",
 				fmt.Sprintf("wso2 logout does not take the flag %q", argument))
@@ -285,20 +282,6 @@ func parseLogoutArgs(args []string) (logoutFlags, error) {
 		}
 	}
 	return flags, nil
-}
-
-// logoutOutputValue reads the --output value, in either the joined or the
-// separated form. An absent value is returned empty, which is refused as an
-// unknown mode rather than treated as the default: a user who named a mode must
-// not silently get another one.
-func logoutOutputValue(args []string) (value string, consumed int) {
-	if joined, found := strings.CutPrefix(args[0], "--output="); found {
-		return joined, 1
-	}
-	if len(args) < 2 || strings.HasPrefix(args[1], "-") {
-		return "", 1
-	}
-	return args[1], 2
 }
 
 // logoutUsageRecovery is the way back from every wso2 logout usage refusal.

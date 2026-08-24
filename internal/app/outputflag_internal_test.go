@@ -23,16 +23,15 @@ import (
 	"github.com/wso2/wso2-cli/internal/output"
 )
 
-// TestBothOutputFlagInterpretersAgree pins the two parsers of the output flag
-// to one another.
+// TestEveryOutputFlagInterpreterAgrees pins the parsers of the output flag to
+// one another.
 //
 // The shell parses its own flags with pflag, and parses them again by hand on
-// the product namespace path, because flag parsing has to be disabled there for
-// a module's arguments to arrive unparsed. Two parsers of one flag can drift,
-// so they are asserted to agree for as long as both exist. The duplication ends
-// when a module declares its command tree and the namespace path no longer
-// needs unparsed arguments.
-func TestBothOutputFlagInterpretersAgree(t *testing.T) {
+// the product namespace path and in wso2 logout, because flag parsing has to be
+// disabled on both for arguments to arrive unparsed. Parsers of one flag can
+// drift, so they are asserted to agree for as long as they all exist. The
+// duplication ends when each command declares its flags directly.
+func TestEveryOutputFlagInterpreterAgrees(t *testing.T) {
 	for _, spelling := range [][]string{
 		{"--output", "json"},
 		{"--output=json"},
@@ -64,6 +63,15 @@ func TestBothOutputFlagInterpretersAgree(t *testing.T) {
 			if viaPflag != viaHand {
 				t.Fatalf("the two parsers disagree on %v: pflag reports %q, the namespace parser reports %q",
 					spelling, viaPflag, viaHand)
+			}
+
+			viaLogout, err := parseLogoutArgs(spelling)
+			if err != nil {
+				t.Fatalf("the logout parser rejected %v: %v", spelling, err)
+			}
+			if viaPflag != viaLogout.mode {
+				t.Fatalf("the logout parser disagrees on %v: pflag reports %q, logout reports %q",
+					spelling, viaPflag, viaLogout.mode)
 			}
 		})
 	}
