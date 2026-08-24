@@ -177,30 +177,79 @@ func TestNoCommittedModuleReplacesALocalCheckout(t *testing.T) {
 	}
 }
 
-func TestTheWorkspaceReplacesOnlyTheUnpublishedSDKVersion(t *testing.T) {
-	// Local composition belongs in go.work, but only just enough of it: the
-	// reference module requires an SDK version that does not exist yet, and
-	// the Go tool cannot build the workspace module graph without resolving
-	// it. Any further replacement would let the workspace conceal a
-	// dependency that a released build would not have.
+func TestTheWorkspaceDeclaresNoReplacements(t *testing.T) {
+	// The workspace replaced an SDK version that had never been published,
+	// because the Go tool cannot build a module graph that requires a version
+	// with no revision. sdk/v0.1.0 exists now, so every module requires a
+	// version the module proxy can serve and the replacement is gone.
 	//
-	// See docs/plans/first-cli-vertical-slice.md section 4.
-	const allowed = "replace github.com/wso2/wso2-cli/sdk v0.0.0 => ./sdk"
-
+	// A replacement here would let the workspace conceal a dependency a
+	// released build would not have, and there is no longer a reason to allow
+	// one. See docs/adr/0009-sdk-versioning-and-publication.md.
 	data, err := os.ReadFile(filepath.Join(repoRoot(t), "go.work"))
 	if err != nil {
 		t.Fatalf("cannot read go.work: %v", err)
 	}
 
-	var replacements []string
 	for _, line := range strings.Split(string(data), "\n") {
 		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "replace") {
-			replacements = append(replacements, trimmed)
+			t.Errorf("go.work declares the replacement %q; the published SDK needs none", trimmed)
 		}
 	}
-	if len(replacements) != 1 || replacements[0] != allowed {
-		t.Errorf("go.work declares the replacements %q; it may declare only %q", replacements, allowed)
+}
+
+func TestEveryProductModuleRequiresAPublishedSDKVersion(t *testing.T) {
+	// The placeholder was never published, so a module requiring it builds only
+	// where a workspace or a replacement resolves it. Requiring the version this
+	// release actually published is what makes a module an ordinary consumer of
+	// the SDK, and therefore what makes it something a product team can own and
+	// release.
+	//
+	// Every product module is checked rather than the reference module alone, so
+	// a scaffolded module that reintroduced the placeholder, or drifted to some
+	// other unpublished version, would be caught.
+	const (
+		sdkModule    = "github.com/wso2/wso2-cli/sdk"
+		sdkPublished = "v0.1.0"
+	)
+
+	for _, module := range productModules(t) {
+		path := filepath.Join(repoRoot(t), module, "go.mod")
+		requirement := requiredVersion(t, path, sdkModule)
+		if requirement != sdkPublished {
+			t.Errorf("%s requires %s %s; the published SDK is %s", path, sdkModule, requirement, sdkPublished)
+		}
 	}
+}
+
+// requiredVersion reports the version at which a go.mod requires the named
+// module, via `go mod edit -json` rather than a text match, so a require
+// spread across a block, or reordered by `go mod tidy`, is still found.
+func requiredVersion(t *testing.T, goModPath, modulePath string) string {
+	t.Helper()
+
+	output, err := exec.Command("go", "mod", "edit", "-json", goModPath).Output()
+	if err != nil {
+		t.Fatalf("go mod edit -json %s: %v", goModPath, err)
+	}
+
+	var parsed struct {
+		Require []struct {
+			Path    string
+			Version string
+		}
+	}
+	if err := json.Unmarshal(output, &parsed); err != nil {
+		t.Fatalf("cannot parse go mod edit -json output for %s: %v", goModPath, err)
+	}
+
+	for _, requirement := range parsed.Require {
+		if requirement.Path == modulePath {
+			return requirement.Version
+		}
+	}
+	t.Fatalf("%s does not require %s", goModPath, modulePath)
+	return ""
 }
 
 func TestTheSDKAndReferenceModuleCannotImportShellInternals(t *testing.T) {

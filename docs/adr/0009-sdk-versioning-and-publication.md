@@ -1,6 +1,6 @@
 # ADR 0009: Publishing the SDK, and What Its Version Promises
 
-**Status:** Proposed
+**Status:** Accepted
 
 The public SDK is published as a Go submodule of this repository, by tag, and
 starting at `v0.1.0`. Until now it has not been published at all: the reference

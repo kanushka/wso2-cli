@@ -18,6 +18,7 @@ package acceptance_test
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"io"
 	"io/fs"
 	"os"
@@ -136,9 +137,9 @@ func TestThePreviousProtocolGateResolvesThePublishedSDKItsGenerationNames(t *tes
 	current, previous := window[0], window[1]
 
 	proxy := t.TempDir()
-	const wanted = "v1.4.0"
+	const wanted = fixturePreviousVersion
 	publishSDK(t, proxy, wanted, previous)
-	publishSDK(t, proxy, "v1.5.0", current)
+	publishSDK(t, proxy, fixtureCurrentVersion, current)
 
 	output := runGate(t, "GOPROXY=file://"+filepath.ToSlash(proxy)+
 		",https://proxy.golang.org,direct", "GOSUMDB=off")
@@ -171,7 +172,7 @@ func TestBreakingThePreviousProtocolFailsTheGate(t *testing.T) {
 
 	clone := cloneRepository(t)
 	proxy := t.TempDir()
-	const sdkVersion = "v1.4.0"
+	const sdkVersion = fixturePreviousVersion
 	publishSDK(t, proxy, sdkVersion, window[1])
 	breakPreviousProtocol(t, clone)
 
@@ -244,6 +245,48 @@ func TestAProxyThatCannotBeAskedFailsTheGate(t *testing.T) {
 	}
 	if !strings.Contains(string(output), "FAILED") {
 		t.Errorf("the gate did not report the proxy as a failure:\n%s", output)
+	}
+}
+
+// A protocol generation that never had an SDK release has nothing in the field
+// built against it, so there is nothing for this gate to prove. That is not the
+// same as a generation whose release is missing: a published version cannot be
+// withdrawn, so a generation that was ever released stays resolvable and stays
+// enforced. Reporting the empty premise as a failure would make the gate red for
+// a reason no change can fix, which is how a gate gets switched off.
+func TestAGenerationThatWasNeverPublishedIsNotEnforceable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("the gate builds the SDK to read the protocol it declares")
+	}
+	window := protocol.Window()
+	if len(window) < 2 {
+		t.Skip("this branch declares the first protocol generation, which has no predecessor")
+	}
+
+	// A proxy publishing the current generation only, which is what the first
+	// SDK release of a repository looks like.
+	//
+	// The version is deliberately one no real SDK release will ever carry. A
+	// fixture publishes with GOSUMDB=off, so its synthetic zip enters the module
+	// cache under whatever version it names: reusing a version that is really
+	// published would leave a poisoned entry there, and the next build to want
+	// the real one fails verification against the checksum database. See the
+	// note above fixturePreviousVersion and fixtureCurrentVersion.
+	proxy := t.TempDir()
+	publishSDK(t, proxy, fixtureCurrentVersion, window[0])
+
+	output := runGate(t, "GOPROXY=file://"+filepath.ToSlash(proxy)+",off", "GOSUMDB=off")
+
+	if !strings.Contains(output, "NOT ENFORCEABLE") {
+		t.Fatalf("the gate did not report the generation as unenforceable:\n%s", output)
+	}
+	// The versions it examined have to be named, so a reader can tell an empty
+	// premise from a gate that failed to look.
+	if !strings.Contains(output, fixtureCurrentVersion) {
+		t.Errorf("the gate does not name the published versions it examined:\n%s", output)
+	}
+	if strings.Contains(output, "FAILED") {
+		t.Errorf("the gate reported a failure for an empty premise:\n%s", output)
 	}
 }
 
@@ -332,6 +375,66 @@ func cloneRepository(t *testing.T) string {
 		t.Fatalf("git add failed: %v\n%s", err, combined)
 	}
 	return clone
+}
+
+// The SDK versions the fixtures publish.
+//
+// None of them is a version the SDK really publishes, and that is a rule rather
+// than a coincidence. A fixture serves its own zip from a file proxy with
+// GOSUMDB=off, and the module cache keys that zip by the version it names. A
+// fixture that reused a real published version would leave the cache holding
+// bytes the checksum database does not vouch for, and the next build in the same
+// job that wanted the real module would fail verification — a failure whose
+// message points at the module rather than at the fixture that poisoned it.
+const (
+	fixturePreviousVersion = "v1.4.0"
+	fixtureCurrentVersion  = "v1.5.0"
+)
+
+// TestNoFixtureVersionCollidesWithThePublishedSDK is the rule above, enforced.
+//
+// It failed once as a checksum mismatch on the real module, in a job where a
+// fixture had published its own zip under a version the SDK really carries. The
+// message named the module and the checksum database, and said nothing about the
+// fixture, so the same mistake would be as expensive to find the second time.
+func TestNoFixtureVersionCollidesWithThePublishedSDK(t *testing.T) {
+	required := sdkVersionRequiredBy(t, filepath.Join(repoRoot(t), "modules", "reference"))
+
+	for _, fixture := range []string{fixturePreviousVersion, fixtureCurrentVersion} {
+		if fixture == required {
+			t.Errorf("the fixture version %s is the version the reference module requires; "+
+				"a fixture must name a version no real release carries", fixture)
+		}
+	}
+}
+
+// sdkVersionRequiredBy reports the SDK version one module requires, read from
+// its module graph.
+func sdkVersionRequiredBy(t *testing.T, moduleDir string) string {
+	t.Helper()
+	command := exec.Command("go", "mod", "edit", "-json")
+	command.Dir = moduleDir
+	command.Env = os.Environ()
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("reading the module graph of %s failed: %v", moduleDir, err)
+	}
+	var parsed struct {
+		Require []struct {
+			Path    string `json:"Path"`
+			Version string `json:"Version"`
+		} `json:"Require"`
+	}
+	if err := json.Unmarshal(output, &parsed); err != nil {
+		t.Fatalf("cannot read the module graph of %s: %v", moduleDir, err)
+	}
+	for _, requirement := range parsed.Require {
+		if requirement.Path == "github.com/wso2/wso2-cli/sdk" {
+			return requirement.Version
+		}
+	}
+	t.Fatalf("%s requires no SDK version", moduleDir)
+	return ""
 }
 
 // publishSDK writes this checkout's SDK to a file-backed module proxy at one

@@ -1,21 +1,17 @@
 go 1.25.0
 
-// The workspace composes the unpublished SDK and reference module during local
-// development. Committed replace directives are prohibited in every go.mod;
-// see docs/plans/first-cli-vertical-slice.md section 4.
+// The workspace composes the SDK and the product modules from source during
+// local development, so a change to the SDK is testable before it is tagged.
+//
+// It declares no replacements. It used to replace an SDK version that had never
+// been published, because the Go tool cannot build a module graph that requires
+// a version with no revision. sdk/v0.1.0 exists now, so a module requires a
+// version the module proxy can serve and the replacement is gone. Committed
+// replace directives remain prohibited in every go.mod; see
+// docs/plans/first-cli-vertical-slice.md section 4 and
+// docs/adr/0009-sdk-versioning-and-publication.md.
 use (
 	.
 	./modules/reference
 	./sdk
 )
-
-// The reference module requires the public SDK by version, which is how it will
-// depend on a published release. That version does not exist yet, so the
-// workspace resolves it from this checkout while building the module graph.
-//
-// This belongs here rather than in a go.mod precisely because it is local
-// composition: it disappears the moment an SDK version is published, and it
-// cannot travel with the reference module to another repository.
-// The replacement names the exact placeholder version, because a workspace
-// module may not be replaced at all versions.
-replace github.com/wso2/wso2-cli/sdk v0.0.0 => ./sdk
