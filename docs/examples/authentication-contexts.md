@@ -55,11 +55,11 @@ One identity means one *login*, not one credential handed around. The broker
 derives a separate short-lived token per product invocation, bound to that
 product's audience/resource and to scopes.
 
-How narrowly it can bind is a per-backend capability — full audience and scope
-narrowing on some backends, scope selection only on others — so the broker
-resolves a strategy per deployment and refuses rather than silently issuing
-broader access. The context shape is identical either way: this is a broker
-capability, not a configuration difference.
+How narrowly it can bind is a per-backend capability, with full audience and
+scope narrowing on some backends and scope selection only on others, so the
+broker resolves a strategy per deployment and refuses rather than silently
+issuing broader access. The context shape is identical either way: this is a
+broker capability, not a configuration difference.
 
 ### As deployments improve, contexts collapse
 
@@ -171,8 +171,8 @@ identity, and the arrangement is §6 rather than this one.
 ## 5. Everything on-premises behind one identity provider
 
 The customer runs the products themselves, with one shared identity provider in
-front. Structurally identical to §4 — one login, one context — differing only in
-`type` and in listing endpoints the CLI has no way to resolve.
+front. Structurally identical to §4, one login and one context, differing only
+in `type` and in listing endpoints the CLI has no way to resolve.
 
 ```yaml
 identities:
@@ -214,7 +214,7 @@ wso2 integration status
 
 Two things this example asserts, both of which can be wrong at runtime:
 
-- every listed product accepts access derived from that shared session — if one
+- every listed product accepts access derived from that shared session. If one
   validates only its own resident issuer, it does not belong here;
 - the user is *authorized* for each. One login authenticates for all three; it
   does not authorize. A user who is authenticated but not entitled gets a typed
@@ -290,7 +290,7 @@ the configuration says so rather than hiding it behind one name.
 Note what `namespaceContexts` is doing. Without it, every `agent` and `api`
 command would need an explicit `--context`, because the default context cannot
 reach those products. With it, each namespace resolves from a decision the
-login commands recorded — not from the shell guessing which context looks
+login commands recorded, not from the shell guessing which context looks
 plausible.
 
 `onprem-api` is a compatibility-adapter identity. Its access cannot be narrowed
@@ -346,8 +346,8 @@ Highest precedence first:
 2. `WSO2_CONTEXT`;
 3. `namespaceContexts[<invoked namespace>]`, if recorded;
 4. `defaultContext`;
-5. none — the command runs with no context, and anything needing access is
-   refused by the broker with recovery guidance.
+5. none. The command runs with no context, and the broker refuses anything
+   needing access, with recovery guidance.
 
 Step 3 is a recorded decision, not an inference. A binding exists only because
 a command wrote it, and `wso2 context list` shows it. The shell never scans for
@@ -371,8 +371,8 @@ several contexts share an identity, one login covers all of them.
 
 `wso2 login --url <issuer>` and `wso2 <namespace> login --url <issuer>` may
 create the context they authenticate, so a first run does not require
-hand-written configuration. Creation names the context explicitly — from
-`--context <name>` or a deterministic derivation — reports what it created, and
+hand-written configuration. Creation names the context explicitly, from
+`--context <name>` or a deterministic derivation, reports what it created, and
 never silently replaces an existing context. The namespace form also records
 the `namespaceContexts` binding.
 
@@ -384,7 +384,7 @@ that testable.
 ## 9. CI
 
 CI is non-interactive and uses client credentials. There is no reusable session
-to establish, so there is **no separate login step** — the shell acquires access
+to establish, so there is **no separate login step**. The shell acquires access
 inline during the command.
 
 ```yaml
@@ -440,8 +440,8 @@ availability is per deployment, not universal:
 | `pat` | only for products that accept product-issued long-lived tokens | validates, refuses at use with `auth.kind_not_implemented` |
 
 The last column is what the shell implements, not a property of the kind. A
-document naming a deferred kind loads and validates — that is deliberate, so
-configuration written ahead of the shell stays readable — and refuses only when
+document naming a deferred kind loads and validates, deliberately, so that
+configuration written ahead of the shell stays readable. It refuses only when
 an identity using it is actually selected. Examples below that use `pat`
 therefore describe intended shape, not something to run today.
 
@@ -453,7 +453,7 @@ two stored kinds. `oauth-device` appears as a kind only where an identity can
 That flag is not in this release. Until it arrives, an identity that could be
 established either way declares `oauth-browser` and is established that way, and
 `oauth-device` is the kind for an identity where the browser mode is not
-available at all — a deployment that cannot register the loopback callback URLs,
+available at all: a deployment that cannot register the loopback callback URLs,
 or one whose users are only ever on machines with no reachable browser. A
 developer who merely *happens* to be on a headless machine today is served by a
 second identity, not by this kind; that is the gap `--device-code` closes.
@@ -490,7 +490,7 @@ Not a production kind and not a production shape. It exists only for the
 non-production `wso2 reference status` proof, in the reference namespace alone,
 and predates this model: no identity list, and a single flat `endpoint`. It is
 kept here because it is the document the shell reads today, and because it obeys
-the one rule everything above obeys — it names a credential source and never
+the one rule everything above obeys: it names a credential source and never
 holds a credential.
 
 ```json
@@ -526,7 +526,7 @@ Migrating it to the shape in §2 is schema-version work.
 - Atomic-write and Windows-replace mechanics, which the research makes sharper:
   rotated refresh tokens need atomic single-writer persistence.
 - Client provisioning. The research is explicit that a client identifier cannot
-  be assumed to exist — it needs published public clients, per-tenant
+  be assumed to exist. It needs published public clients, per-tenant
   registration at context creation, or dynamic registration.
 - Whether contexts need grouping across identities, so "everything in staging"
   is expressible where one environment spans several logins.

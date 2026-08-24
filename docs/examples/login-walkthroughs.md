@@ -1,6 +1,6 @@
 # Login walkthroughs
 
-**Status:** Proposal, pending review — **target user experience, not slice 1**
+**Status:** Proposal, pending review. **Target user experience, not slice 1**
 **Date:** 2026-08-05
 **Authoritative constraints:** [Architecture](../architecture.md) §4.6, §4.7 ·
 [Product requirements](../product-requirements.md) §7.2, §7.3
@@ -16,8 +16,8 @@ developer asks first: **"what do I type, and what happens?"**
 > implementation slice delivers.** Slice 1 requires a hand-authored context and
 > implements browser PKCE plus inline client credentials only. Login-created
 > contexts, fresh-machine cloud tenant resolution, a WSO2-published CLI client,
-> and organization switch are all deferred or are backend asks — each is listed
-> in [Gaps](#gaps-these-walkthroughs-depend-on). See the
+> and organization switch are all deferred or are backend asks. [Gaps](#gaps-these-walkthroughs-depend-on)
+> lists each one. See the
 > [login first slice plan](../plans/login-first-slice.md)
 > for what is in scope now.
 
@@ -37,8 +37,9 @@ Two rules hold in every walkthrough:
 - **Every YAML block below is non-secret in full.** Refresh tokens, access
   tokens, personal access tokens, and client secrets live *only* in the OS
   secure store, never in these files. `credentialRef: keychain://wso2/<name>` is
-  an opaque lookup key — not the credential, and not a capability: naming an
-  entry the invoking OS user cannot read fails as an authentication problem.
+  an opaque lookup key. It is not the credential, and not a capability;
+  naming an entry the invoking OS user cannot read fails as an authentication
+  problem.
   Fields ending in `Variable` hold environment-variable *names*, never values.
   Being credential-free is not the same as being public: these files still carry
   internal hostnames, tenant names, and organization identifiers, which many
@@ -52,15 +53,15 @@ Two rules hold in every walkthrough:
 ## Why the file has two blocks
 
 Every configuration below has an `identities:` list and a `contexts:` list. In
-the simplest case — one login, one target — that looks like overhead, and it is:
-A.1's file would be shorter as a single block.
+the simplest case, one login and one target, that looks like overhead, and it
+is: A.1's file would be shorter as a single block.
 
 The split pays for itself the moment **one login serves several targets**, which
 is the normal case as soon as a team has more than one environment. Merged, the
 same three targets look like this:
 
 ```yaml
-# NOT the design — what merging costs
+# NOT the design. What merging costs
 contexts:
   - name: retail-dev
     issuer: https://api.asgardeo.io/t/acme/oauth2/token
@@ -91,16 +92,16 @@ Three problems, in increasing order of seriousness:
 
 This is also the direction the industry moved, not away from: AWS CLI v2
 replaced its one-credential-per-profile shape with `[sso-session]` blocks that
-any number of `[profile]` blocks reference — the same split under different
+any number of `[profile]` blocks reference, the same split under different
 names. kubectl separates `clusters`, `users`, and `contexts` for the same
 reason.
 
 **What this means for the person using the CLI:** they think in contexts.
 `wso2 login` writes the identity; `wso2 context use` switches targets. The
-identity block is machine-managed, and most users never edit it by hand — the
+identity block is machine-managed, and most users never edit it by hand, the
 same way most people never hand-edit the `users:` block of a kubeconfig.
 
-## Scenario A — WSO2 Cloud
+## Scenario A: WSO2 Cloud
 
 ### A.1 First run: products that share the cloud identity provider
 
@@ -108,7 +109,7 @@ same way most people never hand-edit the `users:` block of a kubeconfig.
 $ wso2 login                                                    # decided
 Opening your browser to sign in to WSO2 Cloud.
 If it does not open, visit:
-  https://cloud.wso2.com/cli/authorize?...        # see gap 1 — entry point TBD
+  https://cloud.wso2.com/cli/authorize?...        # see gap 1, entry point TBD
 
 ✓ Signed in as kanushka@acme.com
   Home tenant: acme
@@ -122,7 +123,7 @@ Created context "acme" targeting organization acme.
 Set as the default context.
 ```
 
-The tenant is not known before the flow starts — Asgardeo discovery is
+The tenant is not known before the flow starts. Asgardeo discovery is
 tenant-qualified, so the tenant-qualified issuer can only be *reported* once
 authentication has resolved it. How WSO2 Cloud resolves a user to a tenant
 without being told is [gap 1](#gaps-these-walkthroughs-depend-on).
@@ -134,8 +135,8 @@ retail-checkout     1.4.0     published
 retail-inventory    2.0.1     published
 ```
 
-No new user login. The command may still call the network — refreshing the
-stored session, and deriving an audience- and scope-bound token for `api` — but
+No new user login. The command may still call the network, refreshing the
+stored session and deriving an audience- and scope-bound token for `api`, but
 nothing was asked of the person at the keyboard.
 
 **What the shell wrote:**
@@ -158,7 +159,7 @@ defaultContext: acme
 ```
 
 `products` is absent. `clientId` is absent because the cloud identity uses the
-WSO2-published CLI client — which does not exist yet
+WSO2-published CLI client, which does not exist yet
 ([gap 2](#gaps-these-walkthroughs-depend-on)).
 
 `tenant` is the home tenant the login belongs to. It is deliberately not the
@@ -168,7 +169,7 @@ context's `organization`, which is what commands target.
 
 **The CLI does not know, and login does not find out.** Login proves who you
 are at an issuer. It does not enumerate entitlements, and it deliberately does
-not probe each product — architecture §4.6 makes reachability a property of the
+not probe each product. Architecture §4.6 makes reachability a property of the
 running deployment discovered at first use, not a promise recorded at login.
 
 So `wso2 api list` is *attempted*, and there are three distinct ways it can
@@ -179,7 +180,7 @@ message:
 | --- | --- | --- |
 | The `api` module is not installed | the shell, locally, before any network call | install the module |
 | The shell cannot derive a token for that audience | the broker | log in to the identity that reaches it, or fix the context |
-| The product rejects a valid token | the product | request entitlement — this is **authorization**, not authentication |
+| The product rejects a valid token | the product | request entitlement; this is **authorization**, not authentication |
 
 The third row is the one most easily mistaken for a login problem. One login
 **authenticates** for every product in its identity domain; it **authorizes**
@@ -198,7 +199,7 @@ Error: not authorized for "api" in organization acme
 ```
 
 For cloud, whether the control plane can enumerate a subscribed product set at
-all — turning "attempt and find out" into "know in advance" — is **unverified**
+all, turning "attempt and find out" into "know in advance", is **unverified**
 ([gap 7](#gaps-these-walkthroughs-depend-on)). If such an API exists, login
 could record the reachable set and give a much better first-run experience; this
 document does not assume it does.
@@ -231,7 +232,7 @@ No browser opened. This is the case the identity/context split exists for: one
 login, several targets.
 
 **On `--project`.** The value is supplied by the user, who knows their own
-project name. That is different from *discovering* which projects exist — a
+project name. That is different from *discovering* which projects exist. A
 project is a product-domain object, so enumeration requires an installed product
 module and belongs to that product's command surface, not to generic login or
 context creation. **Project discovery has no agreed flow**
@@ -270,7 +271,7 @@ session. No login required.
 
 `acme-partner` is a sub-organization of the `acme` root tenant, so the broker
 reaches it with an `organization_switch` exchange on the stored session, lazily,
-during the command that needs access — not at `context create`, and not at
+during the command that needs access, not at `context create` and not at
 `context use`.
 
 **The boundary that decides whether a new login is required:**
@@ -278,10 +279,10 @@ during the command that needs access — not at `context create`, and not at
 | Move | Mechanism | New login? |
 | --- | --- | --- |
 | Root tenant → sub-organization of the same root | `organization_switch` exchange | No |
-| Root tenant → a different root tenant | Different issuer, different discovery document | **Yes** — a different identity |
+| Root tenant → a different root tenant | Different issuer, different discovery document | **Yes**, a different identity |
 
 **Evidence status.** Asgardeo and IS both advertise the `organization_switch`
-grant, and `iamctl` uses it in production — but with a *confidential* client
+grant, and `iamctl` uses it in production, but with a *confidential* client
 authenticating by client credentials
 ([setup.go](https://github.com/wso2-extensions/identity-tools-cli/blob/master/iamctl/pkg/utils/setup.go)).
 Two things this flow depends on are untested:
@@ -289,8 +290,8 @@ Two things this flow depends on are untested:
 1. whether a **public client** holding a PKCE-obtained *user* token may perform
    the switch at all;
 2. whether the switch response carries a **refresh token for the sub-organization**,
-   or whether the broker must re-exchange from the root session each time —
-   which decides whether the secure store holds one entry per identity or one
+   or whether the broker must re-exchange from the root session each time.
+   That decides whether the secure store holds one entry per identity or one
    per context.
 
 Both need a live-tenant test before this walkthrough is implementable.
@@ -304,8 +305,8 @@ identity domains:
 | Product | Validates | Same identity as A.1? |
 | --- | --- | --- |
 | API Platform | the configured cloud issuer | Yes |
-| Agent Manager | its own provisioned Thunder | **No** — shown below |
-| Choreo / WDP | proprietary control-plane sessions | **No** — not modelled yet |
+| Agent Manager | its own provisioned Thunder | **No**, shown below |
+| Choreo / WDP | proprietary control-plane sessions | **No**, not modelled yet |
 
 Evidence:
 [product authentication compatibility](../research/product-authentication-compatibility.md) §3.
@@ -379,26 +380,26 @@ $ wso2 agent status --context acme-agent
 
 Two browser logins, because Agent Manager's Thunder issues its own tokens and
 the cloud session cannot produce access it accepts. As deployments converge on
-one issuer this collapses back to A.1 — the configuration shrinks, and no
+one issuer this collapses back to A.1. The configuration shrinks, and no
 concept changes.
 
 **Two things this flow assumes that are not available yet.**
 
 - **The Thunder issuer is supplied, not discovered.** `--url` here names the
-  issuer directly. Deriving it from an Agent Manager *instance* URL — the
-  RFC 9728 → RFC 8414 resource-first chain `amctl` uses — is explicitly out of
+  issuer directly. Deriving it from an Agent Manager *instance* URL, over the
+  RFC 9728 → RFC 8414 resource-first chain `amctl` uses, is explicitly out of
   scope for login slice 1, so until it lands the operator supplies the issuer.
 - **`clientId: wso2-cli` must be registered on that Thunder.** Agent Manager
   seeds a client named `amctl`, but this CLI binds different loopback callback
   ports, and a registration's redirect URIs are exact. The `amctl` client
   therefore cannot be assumed to accept `wso2` callbacks. Either the operator
   registers a client, or Agent Manager seeds a `wso2-cli` client alongside
-  `amctl` — a **backend ask, owner: Agent Manager / Thunder**.
+  `amctl`. That is a **backend ask, owner: Agent Manager / Thunder**.
 
-## Scenario B — Everything on-premises behind one identity provider
+## Scenario B: everything on-premises behind one identity provider
 
 The customer runs the products with one identity provider in front. One login,
-one context — differing from A in that nothing is discoverable, and the shell
+one context. It differs from A in that nothing is discoverable, and the shell
 must never assume a self-hosted deployment supports cloud SSO.
 
 ### B.1 First login
@@ -448,7 +449,7 @@ NAME                VERSION   STATUS
 orders              3.1.0     published
 ```
 
-**What the shell wrote** — every value came from a flag or the login response:
+**What the shell wrote.** Every value came from a flag or the login response:
 
 ```yaml
 identities:
@@ -478,9 +479,9 @@ defaultContext: customer
 
 The context carries no `organization`. Nothing in the login response supplied
 one, and this deployment's identity provider was not asked for an organization
-model — so the field is absent rather than invented. Where a self-hosted IS does
-expose organizations, `wso2 context create --organization <id>` records one
-explicitly.
+model, so the field is absent rather than invented. Where a self-hosted IS
+does expose organizations, `wso2 context create --organization <id>` records
+one explicitly.
 
 ### B.3 What this configuration asserts, and how it fails
 
@@ -499,14 +500,14 @@ Error: authentication failed for product "integration"
   and context. See: wso2 login --url <its issuer> --context <name>
 ```
 
-A typed authentication failure at first use — never a malformed document, and
+A typed authentication failure at first use: never a malformed document, and
 never a silent fallback to another credential.
 
-## Scenario C — Mixed estate
+## Scenario C: mixed estate
 
 An on-premises Agent Manager behind its own identity provider, an on-premises
 API Manager configured for its own credentials, and integration in WSO2 Cloud.
-**Three identities and three credential establishments** — two interactive
+**Three identities and three credential establishments**, two interactive
 logins and one stored product token. "Three logins" would be wrong: the adapter
 identity has no session to establish.
 
@@ -553,10 +554,10 @@ Error: this deployment advertises no interactive login method the CLI supports
         --product api --endpoint https://api.own.example
 ```
 
-The refusal is scoped to what was observed — *this deployment advertises no
-supported path* — not a claim that API Manager can never accept IdP-issued
-tokens. Its Key Manager framework supports named and custom OIDC connectors, so
-an operator can wire it deliberately.
+The refusal is scoped to what was observed, *this deployment advertises no
+supported path*, and is not a claim that API Manager can never accept
+IdP-issued tokens. Its Key Manager framework supports named and custom OIDC
+connectors, so an operator can wire it deliberately.
 
 ### C.2 The adapter identity
 
@@ -573,7 +574,7 @@ Paste the token (read from stdin, not echoed, never stored in configuration):
 ✓ Stored in the OS secure store as keychain://wso2/own-api
 ```
 
-Read from stdin, never from a flag — matching Choreo's shipping `--with-token`
+Read from stdin, never from a flag, matching Choreo's shipping `--with-token`
 practice and requirements §7.2's rule against secrets in arguments.
 
 ```yaml
@@ -636,7 +637,7 @@ of the design today: selection resolves `--context` → `WSO2_CONTEXT` → defau
 and nothing else.
 
 This is the developer-experience cost of a mixed estate, and it is what the
-planned **workspace** layer exists to remove — a named project routing each
+planned **workspace** layer exists to remove: a named project routing each
 namespace to the context that serves it:
 
 ```yaml
@@ -655,9 +656,9 @@ for this routing. It is deliberately not used here: it is out of scope for login
 slice 1, and workspace is expected to supersede it, so shipping the map first
 would mean migrating configuration users had already authored. It remains
 architecturally recorded until workspace is designed and the architecture
-updated — this document defers it rather than deleting it.
+updated. This document defers it rather than deleting it.
 
-## Scenario D — CI
+## Scenario D: CI
 
 CI is non-interactive, so there is **no login step at all**. The shell acquires
 access inline during the invoking command.
@@ -688,7 +689,7 @@ Error: interactive login is not available in non-interactive mode
   credentials for automation.
 ```
 
-**The configuration this runs against** — authored once, no login ever:
+**The configuration this runs against.** Authored once, no login ever:
 
 ```yaml
 identities:
@@ -730,7 +731,7 @@ or the module environment.
 `wso2 logout` is the one row whose network column is not a yes or a no. It asks
 the deployment to revoke the session's refresh token when the deployment
 publishes a `revocation_endpoint`, and it removes the secure-store entry whether
-or not that request was made or accepted — reporting which of the three
+or not that request was made or accepted, reporting which of the three
 happened rather than implying the strongest one.
 [ADR 0010](../adr/0010-best-effort-revocation-on-session-end.md) records
 why. It does not end the browser single-sign-on session either way.
@@ -746,12 +747,12 @@ Stated plainly, because several of these flows do not work today.
 1. **Bare `wso2 login` needs a tenant before it can start.** Asgardeo discovery
    is tenant-qualified (`/t/{org}/...`), so A.1 requires WSO2 Cloud to expose a
    common entry point that resolves the organization during authentication.
-   Choreo and WDP evidently do this; the mechanism is not public. **Open —
+   Choreo and WDP evidently do this; the mechanism is not public. **Open, and
    needs an internal answer.** The URL shown in A.1 is a placeholder for it.
 2. **No WSO2-published public client exists for a CLI in Asgardeo or IS.**
    Agent Manager seeds `amctl` on the Thunder side; cloud has no equivalent, so
    A.1 requires a seeded client and B requires the operator to register one.
-   **Backend ask — owner: Asgardeo service team**
+   **Backend ask, owner: Asgardeo service team**
    ([evidence](../research/product-authentication-compatibility.md) §1.1).
 3. **Organization switch is not in slice 1, and is unverified for this client
    type.** A.3 depends on it. Until it ships, a context may target only its
@@ -764,7 +765,7 @@ Stated plainly, because several of these flows do not work today.
    test before implementation**
    ([evidence](../research/asgardeo-redirect-uri-and-scope-narrowing.md)).
 5. **Project discovery has no flow.** A project is a product-domain object, so
-   it cannot be enumerated at login — on a fresh machine no product module is
+   it cannot be enumerated at login: on a fresh machine no product module is
    installed to ask. `--project` persists a value the user supplies; discovering
    valid values is per-product work with no agreed command surface.
 6. **Login-created contexts and identities are deferred.** Slice 1 requires a
@@ -774,15 +775,15 @@ Stated plainly, because several of these flows do not work today.
    A.1 omits `products` for `type: cloud`. That is only tenable if either the
    control plane can report which products an organization has, or the CLI
    accepts "attempt and find out" as the permanent answer. No public source
-   establishes such an API. **Open — needs an internal answer**, and it
+   establishes such an API. **Open, and needs an internal answer**; it
    determines whether first-run can tell a user what they can do.
 8. **Resource-first discovery is deferred.** RFC 9728 → RFC 8414 resolution
-   from a product instance URL — how `amctl` finds its issuer — is out of scope
-   for slice 1, so A.4 supplies the Thunder issuer directly instead of deriving
-   it from the Agent Manager instance.
+   from a product instance URL, which is how `amctl` finds its issuer, is out
+   of scope for slice 1, so A.4 supplies the Thunder issuer directly instead of
+   deriving it from the Agent Manager instance.
 9. **A `wso2-cli` client on Agent Manager's Thunder does not exist.** A.4
    requires one, because this CLI's loopback callback ports differ from
-   `amctl`'s and redirect URIs match exactly. **Backend ask — owner: Agent
+   `amctl`'s and redirect URIs match exactly. **Backend ask, owner: Agent
    Manager / Thunder.**
 
 Items 1, 2, 4, and 7 gate the flagship path in A.1. Items 3, 5, 6, 8, and 9

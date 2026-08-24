@@ -39,12 +39,12 @@ requirements or architecture.
 - [Proposed shell commands](reference/commands.md)
 - [Release artifacts](reference/release-artifacts.md) is the naming, checksum,
   and version contract between a published release and the programs that
-  download from it. Unlike the documents beside it, it describes what a release
-  actually publishes rather than a proposed interface.
+  download from it. It describes what a release actually publishes, not a
+  proposed interface.
 - [Module catalog](reference/module-catalog.md) is the contract between the
   tags a product module is released under and the two generated files a shell
-  reads to discover, select, and verify a module version. Like the document
-  above it, it describes what is generated rather than a proposed interface.
+  reads to discover, select, and verify a module version. It too describes what
+  is generated rather than a proposed interface.
 - [Authentication context examples](examples/authentication-contexts.md)
 
 These documents illustrate proposed interfaces. They are not evidence that the
@@ -67,8 +67,7 @@ described commands or schemas are currently available.
 - [Building a product module](guides/building-product-modules.md) shows a
   product team how to add an independently released module, use the SDK and
   authentication broker, test it, and release it through the generated catalog.
-  Unlike the guides above it, its reader is a product team rather than a
-  first-time user.
+  Its reader is a product team, not a first-time user.
 
 ## Research
 

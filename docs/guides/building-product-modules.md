@@ -146,7 +146,7 @@ intersects the protocol window of an already released shell.
 and they are empty because a new module asks the shell for nothing yet. Keep
 them equal to the `module.Options` declaration in the executable. Installation
 records them in the local receipt, and the broker refuses an access request the
-receipt did not authorize — so an audience you add in one place and not the
+receipt did not authorize, so an audience you add in one place and not the
 other is refused at runtime rather than at build time.
 
 ### The versions your module depends on
@@ -245,7 +245,7 @@ written beside.
 
 Two things the adapter guarantees without being asked. Every writer in the tree
 points at standard error, and Cobra prints neither errors nor usage itself, so
-the tree cannot write to standard output — which carries protocol frames, and
+the tree cannot write to standard output, which carries protocol frames and
 which a stray write would corrupt. And a flag failure reaches the shell as a
 typed usage problem rather than as Cobra's own error text, so the user sees a
 classified refusal instead of a module crash.
@@ -396,8 +396,8 @@ Normal product commands run from that local managed store and do not need the
 catalog.
 
 Run the gate alone before you tag, and it answers the only question a tag
-cannot take back — whether any shell that exists can launch what you are about
-to publish:
+cannot take back, which is whether any shell that exists can launch what you
+are about to publish:
 
 ```console
 $ go run ./cmd/wso2-module-release -tag api/v1.2.0-rc.1 -gate-only
@@ -445,8 +445,8 @@ published, and writes a receipt recording what it installed. Pinning an exact
 version is what a pipeline does so its behaviour does not depend on what is
 newest that day.
 
-Removing takes the module off the machine — its versions, its receipts, its
-active-version pointer, and its version policy — and touches nothing else. It
+Removing takes the module off the machine, meaning its versions, its receipts,
+its active-version pointer, and its version policy, and touches nothing else. It
 is not a logout: your configuration and credentials are left as they were.
 
 ```console

@@ -1,4 +1,4 @@
-# WSO2 CLI — Architecture
+# WSO2 CLI architecture
 
 **Status:** Working draft  
 **Date:** 2026-07-24  
@@ -207,8 +207,8 @@ capability, so the broker resolves a downscoping strategy per deployment and
 exposes what it can enforce instead of degrading silently.
 
 Product-specific legacy authentication that cannot yield derived, short-lived
-access — a management password grant, or a long-lived token the shell can only
-pass through unchanged — remains compatibility-adapter territory. A module
+access remains compatibility-adapter territory: a management password grant,
+or a long-lived token the shell can only pass through unchanged. A module
 reached that way does not carry the same trust property, and the design states
 that rather than presenting it as equivalent.
 
@@ -218,8 +218,8 @@ that rather than presenting it as equivalent.
 > shell implements browser Authorization Code with PKCE, the Device
 > Authorization Grant, and inline client credentials. Personal access tokens
 > validate as legal configuration and refuse at use with the stable code
-> `auth.kind_not_implemented` — accepted so that a document written for them
-> stays readable, not executed. See
+> `auth.kind_not_implemented`. They are accepted so that a document written for
+> them stays readable, not executed. See
 > [the login first slice](plans/login-first-slice.md).
 >
 > The device grant is reached through the `oauth-device` **kind**, not yet
@@ -313,15 +313,15 @@ Configuration divides along that boundary:
   identifier, and an opaque OS-secure-store reference or CI variable name;
 - a **product entry** on an identity carries the endpoint plus the
   audience/resource metadata the broker needs to target access;
-- a **context** carries targeting only — organization, project — and the name
-  of its identity.
+- a **context** carries targeting only, the organization and project, plus the
+  name of its identity.
 
 A context therefore never mixes authentication methods across products. Where
 an identity's authentication cannot reach a product, that product belongs to
 another identity and another context.
 
-Where authentication itself needs a tenant — a home organization at the issuer
-— that belongs to the identity's authentication configuration and is named
+Where authentication itself needs a tenant, meaning a home organization at the
+issuer, that belongs to the identity's authentication configuration and is named
 distinctly from the context's target organization, which the broker may reach
 through an organization-switch exchange on the same session.
 
@@ -550,8 +550,8 @@ stable, because nothing labels it.
 There is no `publisher`, `signature`, `provenance`, `sbom`, or revocation
 field, and no per-release document envelope for one to live in. With one
 repository and one CODEOWNERS file, the question those fields existed to
-answer — whether this publisher may claim this namespace — has one answer,
-and carrying empty values would suggest a trust chain that does not exist.
+answer, whether this publisher may claim this namespace, has one answer, and
+carrying empty values would suggest a trust chain that does not exist.
 What a digest does and does not prove is stated in section 9.2.
 
 ### 6.1 Module publishing and consumption flow
@@ -853,15 +853,15 @@ What a digest proves is narrow and worth stating exactly. It proves that the
 artifact the shell downloaded is the artifact the catalog entry describes. It
 does not prove that the entry is authentic. Nothing signs the catalog, so the
 integrity of the manifest itself rests on HTTPS to the origin and on control
-of what is published there — not on a signature the shell can check.
+of what is published there, not on a signature the shell can check.
 
 Publishing to the catalog origin is therefore a concentrated trust point.
 That origin serves the install scripts, the catalog the shell reads to decide
 what to install, and the digests it checks a download against, so whoever can
 publish there controls the update channel for the shell and for every module,
 and can rewrite both an artifact and the digest that would have caught it.
-The exposure is not new — it already existed for the install scripts — but its
-blast radius grows from a first install to every update of every module.
+The exposure is not new, since it already existed for the install scripts, but
+its blast radius grows from a first install to every update of every module.
 
 The mitigation is process rather than cryptography: branch protection on the
 default branch, and required review on the release and deployment workflows,
@@ -877,9 +877,9 @@ deliberately, and this is the deferral it was traded for.
 Out of scope, rather than pending: publisher authority and per-publisher
 keys, artifact and code signing, notarization, build provenance, an SBOM, and
 revocation of a published version or key. The earlier design's TUF-style
-hierarchy — rotatable trust roots, threshold root authority, delegated
-namespace publishing authority, and expiring timestamp and snapshot metadata —
-was never built and is not planned. Its purpose was to decide whether a given
+hierarchy was never built and is not planned: rotatable trust roots, threshold
+root authority, delegated namespace publishing authority, and expiring
+timestamp and snapshot metadata. Its purpose was to decide whether a given
 publisher may claim a product namespace, and with one organization owning
 every module that question has one answer. Registry admission checks for
 ownership, policy, scans, and provenance do not exist; what admits a module

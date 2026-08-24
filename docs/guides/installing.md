@@ -17,8 +17,8 @@ installed.
 
 The binaries are **not code signed or notarized**. macOS Gatekeeper and Windows
 SmartScreen may warn about them, and integrity rests on that checksum file and
-on HTTPS. Signed, per-platform channels — Homebrew, WinGet, APT, RPM — are
-the intended destination and are described in the
+on HTTPS. Signed, per-platform channels are the intended destination, namely
+Homebrew, WinGet, APT, and RPM, and are described in the
 [distribution research](../research/root-cli-installation-distribution.md); this
 channel exists so the CLI is installable before they are ready.
 
@@ -196,7 +196,7 @@ printed.
 
 **A checksum mismatch.** The install stops and nothing is written. Retry once,
 in case the download was truncated. If it happens again, do not work around
-it — open an issue with the tag and platform, since a released archive not
+it. Open an issue with the tag and platform, since a released archive not
 matching its published checksum is a problem worth knowing about.
 
 **Windows says it cannot replace the binary.** Something is running it. Close

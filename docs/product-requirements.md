@@ -1,4 +1,4 @@
-# WSO2 CLI — Product Requirements
+# WSO2 CLI product requirements
 
 **Status:** Working draft  
 **Date:** 2026-07-24
@@ -406,7 +406,7 @@ protocol version, platform, and installed-module versions. Module inventory is
 read from receipts, whose integrity the shell checks, rather than by running
 every module executable.
 
-The CLI may additionally show available versions after an explicit metadata
+The CLI may also show available versions after an explicit metadata
 refresh or network-enabled check.
 
 ### 7.8 Security
@@ -450,7 +450,7 @@ These stages describe product-level progression, not task order. The
 bounded architecture proof. Later stages require separate reviewed
 implementation plans.
 
-### Stage 1 — Foundation
+### Stage 1: foundation
 
 - root command;
 - context and secure credential model;
@@ -460,20 +460,20 @@ implementation plans.
 - generated catalog format;
 - conformance test kit.
 
-### Stage 2 — Pilot modules
+### Stage 2: pilot modules
 
 Migrate two product CLIs with different internal shapes: one whose Cobra root
 is already factory-injected and one with more global initialization. This tests
 both the preferred SDK path and the migration adapter.
 
-### Stage 3 — Managed distribution
+### Stage 3: managed distribution
 
 - generated catalog and publishing gate;
 - update, verification, rollback, and pinning;
 - platform installers;
 - signed offline bundles.
 
-### Stage 4 — Product adoption
+### Stage 4: product adoption
 
 - migrate remaining agreed product CLIs;
 - publish module-authoring guidance;
