@@ -53,7 +53,7 @@ func (d *loginDeployment) sessionStored() bool {
 // because any one of them alone would pass against a command that only did the
 // other two.
 func TestLogoutRevokesAtTheIssuerAndRemovesTheSession(t *testing.T) {
-	deployment := deployLogin(t, fakeissuer.Options{AllowAnyLoopbackPort: true}, nil)
+	deployment := deployLoginWithoutModule(t, fakeissuer.Options{AllowAnyLoopbackPort: true}, nil)
 	deployment.login(t)
 	refreshToken := deployment.storedSession(t).RefreshToken
 
@@ -97,7 +97,7 @@ func TestAfterLogoutAModuleCommandIsRefusedWithLoginGuidance(t *testing.T) {
 // session still goes: a user who asked to end a session does not keep one
 // because the deployment offers no way to retract it.
 func TestLogoutWhenTheIssuerAdvertisesNoRevocationEndpoint(t *testing.T) {
-	deployment := deployLogin(t, fakeissuer.Options{
+	deployment := deployLoginWithoutModule(t, fakeissuer.Options{
 		AllowAnyLoopbackPort:   true,
 		OmitRevocationEndpoint: true,
 	}, nil)
@@ -125,7 +125,7 @@ func TestLogoutWhenTheIssuerAdvertisesNoRevocationEndpoint(t *testing.T) {
 // reported as a refusal, and the user is told the issuer's copy may remain
 // usable. This is the outcome the command's name most invites lying about.
 func TestLogoutWhenTheIssuerRefusesRevocation(t *testing.T) {
-	deployment := deployLogin(t, fakeissuer.Options{
+	deployment := deployLoginWithoutModule(t, fakeissuer.Options{
 		AllowAnyLoopbackPort: true,
 		RefuseRevocation:     true,
 	}, nil)
@@ -148,7 +148,7 @@ func TestLogoutWhenTheIssuerRefusesRevocation(t *testing.T) {
 // Logging out twice is not an error the second time. Nothing is stored, which
 // is the state the user asked for.
 func TestLogoutWithNoSessionSucceeds(t *testing.T) {
-	deployment := deployLogin(t, fakeissuer.Options{AllowAnyLoopbackPort: true}, nil)
+	deployment := deployLoginWithoutModule(t, fakeissuer.Options{AllowAnyLoopbackPort: true}, nil)
 
 	deployment.logout(t)
 
@@ -168,7 +168,7 @@ func TestLogoutWithNoSessionSucceeds(t *testing.T) {
 // it managed to read would delete a real entry and tell the user nothing was
 // stored.
 func TestLogoutEndsASessionItCannotRead(t *testing.T) {
-	deployment := deployLogin(t, fakeissuer.Options{AllowAnyLoopbackPort: true}, nil)
+	deployment := deployLoginWithoutModule(t, fakeissuer.Options{AllowAnyLoopbackPort: true}, nil)
 	if err := keyring.Set(session.Service, loginCredentialRef, "not json"); err != nil {
 		t.Fatalf("seeding a stale session: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestLogoutEndsASessionItCannotRead(t *testing.T) {
 // Every outcome the command establishes is readable by a script, because what
 // the issuer was told is not observable any other way.
 func TestLogoutRendersJSON(t *testing.T) {
-	deployment := deployLogin(t, fakeissuer.Options{AllowAnyLoopbackPort: true}, nil)
+	deployment := deployLoginWithoutModule(t, fakeissuer.Options{AllowAnyLoopbackPort: true}, nil)
 	deployment.login(t)
 	deployment.out.Reset()
 
@@ -243,7 +243,7 @@ func TestLogoutRendersJSON(t *testing.T) {
 // named one context by hand would not otherwise learn that.
 func TestLogoutNamesEveryContextSharingTheSession(t *testing.T) {
 	const secondContext = "reference-staging"
-	deployment := deployLogin(t, fakeissuer.Options{AllowAnyLoopbackPort: true},
+	deployment := deployLoginWithoutModule(t, fakeissuer.Options{AllowAnyLoopbackPort: true},
 		func(document *contexts.Document) {
 			document.Contexts = append(document.Contexts, contexts.Context{
 				Name:         secondContext,
@@ -274,7 +274,7 @@ func TestLogoutRevealsNoTokenMaterial(t *testing.T) {
 		"refused":       {AllowAnyLoopbackPort: true, RefuseRevocation: true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			deployment := deployLogin(t, options, nil)
+			deployment := deployLoginWithoutModule(t, options, nil)
 			deployment.login(t)
 			stored := deployment.storedSession(t)
 			deployment.out.Reset()
@@ -303,7 +303,7 @@ func TestLogoutRevealsNoTokenMaterial(t *testing.T) {
 // An identity that acquires access inline holds no session, and is told so
 // rather than being reported as having ended one.
 func TestLogoutRefusesAnIdentityThatHoldsNoSession(t *testing.T) {
-	deployment := deployLogin(t, fakeissuer.Options{AllowAnyLoopbackPort: true},
+	deployment := deployLoginWithoutModule(t, fakeissuer.Options{AllowAnyLoopbackPort: true},
 		func(document *contexts.Document) {
 			document.Identities[0].Auth.Kind = contexts.KindClientCredentials
 			document.Identities[0].Auth.ClientSecretVariable = inlineSecretVariable
