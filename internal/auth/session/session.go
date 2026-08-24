@@ -87,6 +87,35 @@ func (s Store) Save(ref string, value Session) error {
 	return nil
 }
 
+// Delete removes the session for a credential reference, reporting whether
+// there was one to remove.
+//
+// A missing entry is not an error. The caller asked for a machine with no
+// session for this reference, and that is the state either way; a second logout
+// would otherwise refuse for having succeeded the first time.
+//
+// The boolean is the only honest answer to "was a session ended", and Load
+// cannot give it: a stale or foreign entry is reported by Load as
+// auth.login_required exactly as a missing one is, so a caller that inferred
+// existence from Load would tell a user nothing was stored while this method
+// removed something.
+//
+// Only the shell-owned entry goes. Whether the issuer's own copy of the session
+// was retracted is a separate fact the caller establishes separately, because
+// nothing this store can see reveals it. See
+// docs/adr/0010-best-effort-revocation-on-session-end.md.
+func (s Store) Delete(ref string) (bool, error) {
+	err := keyring.Delete(Service, ref)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, keyring.ErrNotFound):
+		return false, nil
+	default:
+		return false, keyringUnavailable()
+	}
+}
+
 // loginRequired reports the absence of a usable session, whatever its cause.
 // Missing, stale, foreign, and lock-contended sessions all recover the same
 // way, so they share one stable code.

@@ -159,6 +159,21 @@ type Options struct {
 	// grant out of the discovery document, modeling a deployment that does not
 	// serve the grant at all. Thunder is such a deployment today.
 	OmitDeviceEndpoint bool
+
+	// OmitRevocationEndpoint leaves revocation_endpoint out of the discovery
+	// document, modeling a deployment that publishes no way to retract a
+	// refresh token. Whether any supported deployment is such a deployment was
+	// unmeasured when logout was designed, which is exactly why the shell
+	// discovers this rather than assuming it. See
+	// docs/adr/0010-best-effort-revocation-on-session-end.md.
+	OmitRevocationEndpoint bool
+	// RefuseRevocation advertises the endpoint and then answers every
+	// revocation request with invalid_request, modeling the deployment that
+	// says it revokes and will not. RFC 7009 tells a server to answer 200 even
+	// for a token it does not recognize, so a refusal here is a deployment
+	// disagreeing with the request itself — a client the endpoint declines to
+	// serve, most plausibly a public one.
+	RefuseRevocation bool
 	// OmitDeviceVerificationURIComplete leaves verification_uri_complete out of
 	// the device authorization response, modeling the many deployments that
 	// publish only the code and the plain URI. RFC 8628 makes the member
@@ -280,6 +295,7 @@ func New(t *testing.T, opts Options) *Issuer {
 	mux.HandleFunc("GET /authorize", issuer.handleAuthorize)
 	mux.HandleFunc("POST /token", issuer.handleToken)
 	mux.HandleFunc("POST /introspect", issuer.handleIntrospect)
+	mux.HandleFunc("POST /revoke", issuer.handleRevoke)
 	mux.HandleFunc("POST /device_authorize", issuer.handleDeviceAuthorize)
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
@@ -348,6 +364,7 @@ func (i *Issuer) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
 		"token_endpoint":                        i.URL + "/token",
 		"jwks_uri":                              i.URL + "/jwks",
 		"introspection_endpoint":                i.URL + "/introspect",
+		"revocation_endpoint":                   i.URL + "/revoke",
 		"response_types_supported":              []string{"code"},
 		"subject_types_supported":               []string{"public"},
 		"id_token_signing_alg_values_supported": []string{"RS256"},
@@ -359,6 +376,9 @@ func (i *Issuer) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
 	}
 	if i.opts.OmitS256 {
 		delete(document, "code_challenge_methods_supported")
+	}
+	if i.opts.OmitRevocationEndpoint {
+		delete(document, "revocation_endpoint")
 	}
 	if i.opts.OmitDeviceEndpoint {
 		// Both go, because a deployment without the grant advertises neither.
@@ -925,6 +945,60 @@ func scopeMode(t *testing.T, option, configured string) string {
 		t.Fatalf("fakeissuer: %s = %q, want honor, ignore, or reject", option, configured)
 		return ""
 	}
+}
+
+// handleRevoke retracts a refresh token per RFC 7009.
+//
+// An unknown token is answered 200 with an empty body, which is the RFC's
+// instruction rather than this fixture's leniency: a client must not be able to
+// tell a token that was already dead from one it just killed, or revocation
+// becomes an oracle for guessing tokens. The consequence for the shell is that
+// a confirmed revocation confirms the deployment was told, not that anything
+// was found to retract.
+//
+// No client authentication is required, because this fixture stands in for a
+// deployment that lets its public client revoke. RefuseRevocation is how a test
+// asks for the other kind.
+func (i *Issuer) handleRevoke(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		oauthError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	if i.opts.OmitRevocationEndpoint {
+		// A deployment that advertises no endpoint serves none either.
+		// Answering here anyway would let a client that never read discovery
+		// pass a test it should fail.
+		oauthError(w, http.StatusNotFound, "invalid_request")
+		return
+	}
+	if i.opts.RefuseRevocation {
+		oauthError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	if presentedClientID(r) == "" {
+		// RFC 7009 leaves client authentication to the deployment, but a
+		// request that names no client at all is malformed on any of them.
+		oauthError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	i.mutex.Lock()
+	delete(i.refreshTokens, r.PostForm.Get("token"))
+	i.mutex.Unlock()
+	w.WriteHeader(http.StatusOK)
+}
+
+// RefreshTokenLive reports whether this issuer would still renew a session with
+// the given refresh token.
+//
+// It exists because revocation is otherwise unobservable from the client side:
+// the endpoint answers 200 whether or not it found anything, so a test that
+// only read the response could not tell a revocation that worked from one that
+// was politely ignored.
+func (i *Issuer) RefreshTokenLive(token string) bool {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	_, found := i.refreshTokens[token]
+	return found
 }
 
 func (i *Issuer) handleIntrospect(w http.ResponseWriter, r *http.Request) {

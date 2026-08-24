@@ -725,7 +725,15 @@ or the module environment.
 | `wso2 context use` | never | selection only | never | **no** |
 | `wso2 identity add-product` | modifies | never | never | no |
 | `wso2 identity set-credential` | never | never | writes | no |
-| `wso2 logout` | never | never | removes entry | revocation only |
+| `wso2 logout` | never | never | removes entry | best effort |
+
+`wso2 logout` is the one row whose network column is not a yes or a no. It asks
+the deployment to revoke the session's refresh token when the deployment
+publishes a `revocation_endpoint`, and it removes the secure-store entry whether
+or not that request was made or accepted — reporting which of the three
+happened rather than implying the strongest one.
+[ADR 0010](../adr/0010-best-effort-revocation-on-session-end.md) records
+why. It does not end the browser single-sign-on session either way.
 
 The row that matters most is `context use`: a local write and nothing else.
 Architecture §4.7 requires it, and it is what makes several targets over one

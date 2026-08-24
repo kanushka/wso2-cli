@@ -117,19 +117,34 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 // an empty one, and a module that needs access is refused by the broker with
 // guidance rather than run against a guessed target.
 func (s Shell) selection(flagName string) (contexts.Selection, error) {
+	selected, _, err := s.selectionAndDocument(flagName)
+	return selected, err
+}
+
+// selectionAndDocument resolves the selection and hands back the document it
+// was resolved from.
+//
+// A command that has to reason about contexts other than the selected one — such
+// as wso2 logout, which names every context sharing the ended session — reads
+// them from this document rather than loading it a second time. Two reads of a
+// file a user can edit can disagree, and a command that reported one answer
+// about the selection and another about its neighbours would be reporting a
+// document that never existed.
+func (s Shell) selectionAndDocument(flagName string) (contexts.Selection, contexts.Document, error) {
 	name := flagName
 	if name == "" {
 		name = os.Getenv("WSO2_CONTEXT")
 	}
 	root, err := s.stateRoot()
 	if err != nil {
-		return contexts.Selection{}, err
+		return contexts.Selection{}, contexts.Document{}, err
 	}
 	document, err := contexts.Load(root)
 	if err != nil {
-		return contexts.Selection{}, err
+		return contexts.Selection{}, contexts.Document{}, err
 	}
-	return document.Select(name)
+	selected, err := document.Select(name)
+	return selected, document, err
 }
 
 // parseProductArgs separates the shell's own flags from the module's arguments.
