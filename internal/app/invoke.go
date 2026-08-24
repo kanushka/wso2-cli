@@ -154,8 +154,12 @@ func parseProductArgs(namespace string, args []string) (command, arguments []str
 			}
 			mode = parsed
 			remaining = remaining[2:]
-		case strings.HasPrefix(argument, "--output="):
-			value := strings.TrimPrefix(argument, "--output=")
+		case attachedOutput(argument):
+			// Every spelling pflag accepts for the shell's own flags is
+			// accepted here too. A spelling that worked before a product
+			// namespace and not after it would be the drift this path and the
+			// root command's parser are pinned against.
+			value, _ := outputFlagValue(argument)
 			parsed, ok := output.ParseMode(value)
 			if !ok {
 				return nil, nil, "", "", unknownOutputMode(namespace, value)
@@ -181,6 +185,39 @@ func parseProductArgs(namespace string, args []string) (command, arguments []str
 		}
 	}
 	return command, remaining, mode, contextName, nil
+}
+
+// outputFlagValue reports the value carried by a single argument that spells the
+// output flag with its value attached, and the empty string when the argument is
+// not that. The separated spellings are handled by the caller, which can see the
+// argument that follows.
+// The bool reports whether the argument is the shell's attached output flag at
+// all, which is separate from whether it carries a usable value. `--output=`
+// claims the flag and supplies nothing; reading that as "not the shell's flag"
+// would hand the shell's own malformed flag to the module instead of failing
+// as the usage error it is.
+func outputFlagValue(argument string) (string, bool) {
+	for _, prefix := range []string{"--output=", "-o="} {
+		if value, found := strings.CutPrefix(argument, prefix); found {
+			return value, true
+		}
+	}
+	// A shorthand may carry its value attached with no separator: -ojson. Only
+	// an actual mode is claimed that way, so a module flag that merely starts
+	// with -o stays the module's to interpret.
+	if value, found := strings.CutPrefix(argument, "-o"); found && value != "" && !strings.HasPrefix(value, "=") {
+		if _, ok := output.ParseMode(value); ok {
+			return value, true
+		}
+	}
+	return "", false
+}
+
+// attachedOutput reports whether the argument is the shell's output flag with
+// its value attached, however it spells it.
+func attachedOutput(argument string) bool {
+	_, matched := outputFlagValue(argument)
+	return matched
 }
 
 // contractOutputMode maps the shell's rendering choice onto the contract value

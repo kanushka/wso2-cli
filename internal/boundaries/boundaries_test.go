@@ -287,6 +287,31 @@ func TestNoModuleWritesToStandardOutputOutsideTheProtocol(t *testing.T) {
 	}
 }
 
+func TestTheShellLinksTheCommandFrameworkAndNotItsDocumentationGenerator(t *testing.T) {
+	// Cobra's documentation generator pulls a Markdown renderer and a YAML
+	// parser into the module graph. Neither belongs in a binary whose premise is
+	// verified execution, and neither is needed to route commands, so the linked
+	// set is asserted rather than left to whoever adds the next import. Man page
+	// or Markdown generation belongs in a separate developer tool.
+	linked := shellBinaryPackages(t)
+
+	for _, required := range []string{"github.com/spf13/cobra", "github.com/spf13/pflag"} {
+		if !slices.Contains(linked, required) {
+			t.Errorf("the shell binary does not link %s", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"github.com/spf13/cobra/doc",
+		"github.com/cpuguy83/go-md2man/v2/md2man",
+		"go.yaml.in/yaml/v3",
+		"gopkg.in/yaml.v3",
+	} {
+		if slices.Contains(linked, forbidden) {
+			t.Errorf("the shell binary links %s; command routing does not need it", forbidden)
+		}
+	}
+}
+
 // requiredModules reports the module paths one module requires, read from its
 // go.mod through the Go tool.
 func requiredModules(t *testing.T, moduleDir string) []string {

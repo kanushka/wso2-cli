@@ -26,6 +26,9 @@ import (
 	"fmt"
 	"runtime"
 	"slices"
+	"strings"
+
+	"github.com/spf13/cobra"
 
 	"github.com/wso2/wso2-cli/internal/exit"
 	"github.com/wso2/wso2-cli/internal/modules"
@@ -51,25 +54,6 @@ type Shell struct {
 	OpenBrowser func(url string) error
 }
 
-// builtin is one shell-owned command.
-type builtin struct {
-	name    string
-	summary string
-	run     func(Shell, []string) error
-}
-
-// builtins are the shell's own commands. They take precedence over any
-// installed module namespace, so an installed module can never shadow shell
-// policy.
-func builtins() []builtin {
-	return []builtin{
-		{name: "help", summary: "Show the shell command tree.", run: Shell.help},
-		{name: "login", summary: "Log in to the selected context's identity.", run: Shell.login},
-		{name: "module", summary: "Install, list, update, and remove product modules from the module catalog.", run: Shell.module},
-		{name: "version", summary: "Show the shell, protocol, and installed module versions.", run: Shell.version},
-	}
-}
-
 // CommandNames reports the shell's own command names, sorted.
 //
 // A namespace with one of these names is unreachable: the shell resolves its
@@ -79,9 +63,10 @@ func builtins() []builtin {
 // of its own, because a list of its own is one that stops being true the next
 // time a command is added.
 func CommandNames() []string {
-	names := make([]string, 0, len(builtins()))
-	for _, command := range builtins() {
-		names = append(names, command.name)
+	root := (Shell{}).rootCommand()
+	names := make([]string, 0, len(root.Commands()))
+	for _, command := range root.Commands() {
+		names = append(names, command.Name())
 	}
 	slices.Sort(names)
 	return names
@@ -103,24 +88,40 @@ func (s Shell) Run(args []string) exit.Code {
 }
 
 func (s Shell) dispatch(args []string) error {
+	root := s.rootCommand()
+
 	if len(args) == 0 {
-		return s.help(nil)
+		return s.help(root)
 	}
 
 	name := args[0]
-	for _, command := range builtins() {
-		if command.name == name {
-			return command.run(s, args[1:])
-		}
-	}
-	if name == "--help" || name == "-h" {
-		return s.help(nil)
-	}
 	if name == "--version" {
 		return s.version(nil)
 	}
+	// A shell-owned command, or any leading flag, is Cobra's to route. Anything
+	// else is a product namespace, and its arguments must reach the module
+	// unparsed, so it never enters the command tree.
+	if strings.HasPrefix(name, "-") || isShellCommand(root, name) {
+		root.SetArgs(args)
+		// Execute runs the command bodies too, so its error is returned as it
+		// is. A flag-parsing failure has already been turned into a usage
+		// problem by the flag-error hook; anything else is classified by Run.
+		return root.Execute()
+	}
 
-	return s.dispatchNamespace(name, args[1:])
+	return s.dispatchNamespace(root, name, args[1:])
+}
+
+// isShellCommand reports whether a name is a command the shell owns. A built-in
+// command takes precedence over every installed namespace, so this is asked
+// before the module store is opened.
+func isShellCommand(root *cobra.Command, name string) bool {
+	for _, command := range root.Commands() {
+		if command.Name() == name {
+			return true
+		}
+	}
+	return false
 }
 
 // dispatchNamespace resolves a product namespace from the managed module store
@@ -129,7 +130,7 @@ func (s Shell) dispatch(args []string) error {
 // Resolution proves the module is integrity-checked and compatible before any
 // product code runs, and the executable digest is recomputed as part of it, so
 // nothing is launched that the receipt does not still describe.
-func (s Shell) dispatchNamespace(namespace string, args []string) error {
+func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []string) error {
 	store, err := s.store()
 	if err != nil {
 		return err
@@ -139,9 +140,13 @@ func (s Shell) dispatchNamespace(namespace string, args []string) error {
 		return err
 	}
 	if !slices.Contains(namespaces, namespace) {
+		recovery := "Run wso2 help to see the shell commands, or wso2 version to see the installed modules."
+		if suggestion := suggestionFor(root, namespace); suggestion != "" {
+			recovery = suggestion + " " + recovery
+		}
 		return problem.New(problem.CategoryUsage, "shell.unknown_command",
 			fmt.Sprintf("%q is not a shell command and no installed module owns that namespace", namespace)).
-			WithRecovery("Run wso2 help to see the shell commands, or wso2 version to see the installed modules.")
+			WithRecovery(recovery)
 	}
 
 	identity, err := s.identity()
@@ -192,18 +197,8 @@ func (s Shell) stateRoot() (string, error) {
 	return resolved, nil
 }
 
-// help shows the shell command tree.
-func (s Shell) help(_ []string) error {
-	if _, err := fmt.Fprint(s.Streams.Out, "Usage: wso2 <command> [arguments]\n\nShell commands\n"); err != nil {
-		return err
-	}
-	table := output.NewTable("command", "description")
-	for _, command := range builtins() {
-		table.Append(command.name, command.summary)
-	}
-	if err := table.Render(s.Streams.Out); err != nil {
-		return err
-	}
-	_, err := fmt.Fprint(s.Streams.Out, "\nProduct commands are provided by installed modules.\n")
-	return err
+// help shows the shell command tree, rendered from the command tree itself so
+// that a command cannot exist without being listed.
+func (s Shell) help(root *cobra.Command) error {
+	return root.Help()
 }
