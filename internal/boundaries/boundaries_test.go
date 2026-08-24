@@ -200,24 +200,56 @@ func TestTheWorkspaceDeclaresNoReplacements(t *testing.T) {
 
 func TestEveryProductModuleRequiresAPublishedSDKVersion(t *testing.T) {
 	// The placeholder was never published, so a module requiring it builds only
-	// where a workspace or a replacement resolves it. Requiring a real version
-	// is what makes a module an ordinary consumer of the SDK, and therefore what
-	// makes it something a product team can own and release.
+	// where a workspace or a replacement resolves it. Requiring the version this
+	// release actually published is what makes a module an ordinary consumer of
+	// the SDK, and therefore what makes it something a product team can own and
+	// release.
 	//
 	// Every product module is checked rather than the reference module alone, so
-	// a scaffolded module that reintroduced the placeholder would be caught.
-	const placeholder = "github.com/wso2/wso2-cli/sdk v0.0.0"
+	// a scaffolded module that reintroduced the placeholder, or drifted to some
+	// other unpublished version, would be caught.
+	const (
+		sdkModule    = "github.com/wso2/wso2-cli/sdk"
+		sdkPublished = "v0.1.0"
+	)
 
 	for _, module := range productModules(t) {
 		path := filepath.Join(repoRoot(t), module, "go.mod")
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("cannot read %s: %v", path, err)
-		}
-		if strings.Contains(string(data), placeholder) {
-			t.Errorf("%s requires the unpublished placeholder %q", path, placeholder)
+		requirement := requiredVersion(t, path, sdkModule)
+		if requirement != sdkPublished {
+			t.Errorf("%s requires %s %s; the published SDK is %s", path, sdkModule, requirement, sdkPublished)
 		}
 	}
+}
+
+// requiredVersion reports the version at which a go.mod requires the named
+// module, via `go mod edit -json` rather than a text match, so a require
+// spread across a block, or reordered by `go mod tidy`, is still found.
+func requiredVersion(t *testing.T, goModPath, modulePath string) string {
+	t.Helper()
+
+	output, err := exec.Command("go", "mod", "edit", "-json", goModPath).Output()
+	if err != nil {
+		t.Fatalf("go mod edit -json %s: %v", goModPath, err)
+	}
+
+	var parsed struct {
+		Require []struct {
+			Path    string
+			Version string
+		}
+	}
+	if err := json.Unmarshal(output, &parsed); err != nil {
+		t.Fatalf("cannot parse go mod edit -json output for %s: %v", goModPath, err)
+	}
+
+	for _, requirement := range parsed.Require {
+		if requirement.Path == modulePath {
+			return requirement.Version
+		}
+	}
+	t.Fatalf("%s does not require %s", goModPath, modulePath)
+	return ""
 }
 
 func TestTheSDKAndReferenceModuleCannotImportShellInternals(t *testing.T) {
