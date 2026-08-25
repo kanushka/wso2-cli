@@ -119,11 +119,31 @@ func TestLogoutSmoke(t *testing.T) {
 	// The renewal is proven to work before it is proven to stop. Without this,
 	// a refresh token that never renewed on this deployment would read as a
 	// successful revocation and the run would report a guarantee it never had.
-	if !renews(t, config, refreshToken) {
+	before := present(t, config, refreshToken)
+	if before.verdict == smoke.VerdictRefreshDead {
 		t.Fatal("the refresh token does not renew before logout, so this run can prove " +
 			"nothing about what revoking it achieved")
 	}
-	t.Log("the refresh token renews before logout, as it must for the measurement below to mean anything")
+	// A deployment configured to renew refresh tokens retires the one just
+	// presented and hands back a replacement. The secure store now holds a token
+	// the deployment has already killed, and logging out would revoke a corpse:
+	// the check after logout would report the session dead for a reason that has
+	// nothing to do with revocation, which is the opposite of what this run
+	// exists to establish. Storing the replacement is what the shell itself does
+	// on every rotation, so the session logout ends is the live one either way.
+	if before.rotated != "" {
+		t.Log("the deployment rotates refresh tokens; storing the replacement so that " +
+			"logout ends the session the deployment still considers live")
+		stored.RefreshToken = before.rotated
+		if err := store.Save(smoke.CredentialRef, stored); err != nil {
+			t.Fatalf("the rotated refresh token cannot be stored, so logout would revoke a "+
+				"token the deployment already retired: %v", err)
+		}
+		refreshToken = before.rotated
+	}
+	if before.verdict == smoke.VerdictRefreshAlive {
+		t.Log("the refresh token renews before logout, as it must for the measurement below to mean anything")
+	}
 
 	logoutOutput := &bytes.Buffer{}
 	shell.Streams = output.Streams{Out: logoutOutput, Err: io.MultiWriter(os.Stderr, captured)}
@@ -174,9 +194,14 @@ func TestLogoutSmoke(t *testing.T) {
 	// The independent check, and the reason this test is worth a human's time.
 	// An accepted revocation proves the deployment was told; only presenting the
 	// token afterwards shows whether being told changed anything.
-	refreshVerdict := smoke.VerdictRefreshDead
-	if renews(t, config, refreshToken) {
-		refreshVerdict = smoke.VerdictRefreshAlive
+	//
+	// A baseline that could not be read leaves nothing to compare against, so
+	// the measurement is reported as inconclusive rather than as a result. That
+	// is a verdict line like any other: this run reports what it established,
+	// and "nothing" is sometimes what it established.
+	refreshVerdict := smoke.VerdictRefreshInconclusive
+	if before.verdict == smoke.VerdictRefreshAlive {
+		refreshVerdict = present(t, config, refreshToken).verdict
 	}
 	if reported.Revocation == "confirmed" && refreshVerdict == smoke.VerdictRefreshAlive {
 		t.Log("NOTE: the deployment accepted the revocation and the refresh token still " +
@@ -221,16 +246,26 @@ func advertisesRevocation(t *testing.T, issuer string) bool {
 	return document.RevocationEndpoint != ""
 }
 
-// renews reports whether the deployment still exchanges this refresh token for
-// access.
+// renewal is what presenting a refresh token at the token endpoint showed.
+type renewal struct {
+	// verdict is one of the three smoke.VerdictRefresh* values.
+	verdict string
+	// rotated is the replacement the deployment issued, empty unless it renews
+	// refresh tokens. It has to be read rather than discarded: a replacement
+	// means the presented token is now dead by configuration, and a later check
+	// that did not know would read that as a successful revocation.
+	rotated string
+}
+
+// present offers the refresh token to the deployment and reports what happened.
 //
 // It asks the token endpoint directly rather than going through the broker,
-// because the broker rotates and re-stores what it receives, and a measurement
-// that wrote to the secure store would change the thing it is measuring. A
-// deployment that rotates refresh tokens hands back a replacement here that this
-// test deliberately drops on the floor: the question is whether the presented
-// token was still honored, not what came back.
-func renews(t *testing.T, config smoke.Config, refreshToken string) bool {
+// because the broker would apply the shell's own policy on top and this run is
+// measuring the deployment, not the shell. Every call spends one legitimate use
+// of the token and no more, which matters on a deployment with refresh-token
+// reuse detection: presenting one twice there would invalidate the whole family
+// and destroy the measurement.
+func present(t *testing.T, config smoke.Config, refreshToken string) renewal {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -254,16 +289,34 @@ func renews(t *testing.T, config smoke.Config, refreshToken string) bool {
 		t.Fatalf("the deployment could not be reached to test the refresh token: %v", err)
 	}
 	defer func() { _ = response.Body.Close() }()
-	// The body is never printed. On success it carries a live access token, and
-	// on failure a deployment may quote the request that produced it.
+	// The body is decoded and never printed. On success it carries a live access
+	// token, and on failure a deployment may quote the request that produced it.
 	switch {
 	case response.StatusCode/100 == 2:
-		return true
+		var renewed struct {
+			RefreshToken string `json:"refresh_token"`
+		}
+		if err := json.NewDecoder(response.Body).Decode(&renewed); err != nil {
+			// The renewal was accepted, so the token was honored. Whether a
+			// replacement came back is unknown, and a replacement that went
+			// unnoticed would poison the measurement, so this is inconclusive
+			// rather than alive.
+			t.Logf("the renewal succeeded but its response cannot be decoded: %v", err)
+			return renewal{verdict: smoke.VerdictRefreshInconclusive}
+		}
+		result := renewal{verdict: smoke.VerdictRefreshAlive}
+		if renewed.RefreshToken != "" && renewed.RefreshToken != refreshToken {
+			result.rotated = renewed.RefreshToken
+		}
+		return result
 	case response.StatusCode == http.StatusBadRequest || response.StatusCode == http.StatusUnauthorized:
-		return false
+		return renewal{verdict: smoke.VerdictRefreshDead}
 	default:
-		t.Fatalf("the token endpoint answered %d, which this test cannot read as either a "+
-			"renewal or a refusal: %s", response.StatusCode, smoke.VerdictRefreshInconclusive)
-		return false
+		// Recorded, not fatal. An answer this test cannot classify is a fact
+		// about the deployment worth reporting, and failing the run would
+		// discard the shell-side assertions that already passed.
+		t.Logf("the token endpoint answered %d, which this test cannot read as either a "+
+			"renewal or a refusal", response.StatusCode)
+		return renewal{verdict: smoke.VerdictRefreshInconclusive}
 	}
 }
