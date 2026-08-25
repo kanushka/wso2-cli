@@ -176,6 +176,17 @@ smoke-login:
 smoke-login-device:
 	@$(smoke_env) $(GO) test $(SMOKE_FLAGS) $(SMOKE_PACKAGE) -run TestDeviceLoginSmoke
 
+# Ends a real session and measures what that achieved at the issuer: whether the
+# deployment advertises a revocation endpoint, whether it lets this public client
+# use it, and whether the refresh token stops renewing afterwards. Prints one
+# verdict line per question for recording. Skips when no deployment is
+# configured. See docs/adr/0010-best-effort-revocation-on-session-end.md, which
+# chose a design that survives not knowing these answers and asked for them to
+# be measured.
+.PHONY: smoke-logout
+smoke-logout:
+	@$(smoke_env) $(GO) test $(SMOKE_FLAGS) $(SMOKE_PACKAGE) -run TestLogoutSmoke
+
 # Answers the two questions the redirect-and-narrowing research left open, and
 # prints one verdict line each for recording in that document. Skips when no
 # deployment is configured.
