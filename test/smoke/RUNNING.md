@@ -37,6 +37,36 @@ they read. Keep one per deployment and name the one you want:
 make smoke-login SMOKE_ENV=test/smoke/asgardeo.env
 ```
 
+## Measuring what logout achieves
+
+`make smoke-logout` signs in, ends the session, and reports what that achieved
+at the issuer. It answers two questions no document in this repository answers
+yet, one verdict line each:
+
+- **Does the deployment let this public client revoke a session?** —
+  `advertised and accepted`, `not advertised`, or `advertised and refused`. The
+  shell is a
+  public client with no secret, and a deployment requiring a confidential one at
+  its revocation endpoint refuses it.
+- **Did revoking the refresh token end the session?** — measured by presenting
+  the token afterwards, because an accepted revocation proves only that the
+  deployment was told. RFC 7009 requires a server to answer an unknown token
+  exactly as it answers a live one.
+
+**Every verdict is a pass.** A deployment that publishes no revocation endpoint
+is not a broken deployment, and the shell reports that outcome rather than
+claiming a guarantee it did not obtain — see
+[ADR 0010](../../docs/adr/0010-best-effort-revocation-on-session-end.md). The
+run fails only if the shell leaves the session in the secure store, or reports
+an outcome the deployment then contradicts.
+
+Run it once per product and record the lines against that product in
+[the authentication landscape](../../docs/research/wso2-authentication-landscape.md):
+
+```sh
+make smoke-logout SMOKE_ENV=test/smoke/asgardeo.env
+```
+
 Nothing parses these files. Go has no dotenv convention and this module has no
 dependency that would add one — the file is an ordinary shell fragment, so
 sourcing it yourself does exactly what `make` does, which is what to do when

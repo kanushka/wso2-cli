@@ -49,6 +49,44 @@ const (
 	VerdictInconclusiveUnreadable = "inconclusive (unrecognized narrowing refusal)"
 )
 
+// The verdicts the session-revocation experiment can reach.
+//
+// They answer two questions that no document in this repository answers today:
+// whether a deployment publishes a way to retract a session, and whether this
+// shell — a public client with no secret — is allowed to use it. Like the
+// narrowing verdicts above, these are the words copied by hand into the
+// research record, so they are defined once here.
+const (
+	// VerdictRevocationAccepted: the deployment advertises a revocation
+	// endpoint and accepted this client's request to it.
+	VerdictRevocationAccepted = "advertised and accepted"
+	// VerdictRevocationUnadvertised: the deployment publishes no
+	// revocation_endpoint in its OpenID configuration, so nothing was asked.
+	VerdictRevocationUnadvertised = "not advertised"
+	// VerdictRevocationRefused: the deployment advertises the endpoint and did
+	// not accept the request. The likeliest cause is that it requires a
+	// confidential client there, which this shell is not.
+	VerdictRevocationRefused = "advertised and refused"
+)
+
+// The verdicts of the independent check on what revocation actually did.
+//
+// The revocation response does not answer this. RFC 7009 requires a server to
+// answer an unknown token exactly as it answers a live one, so an accepted
+// request proves the deployment was told and nothing more. The only way to
+// learn whether the session really died is to try to use it.
+const (
+	// VerdictRefreshDead: presenting the refresh token no longer renews.
+	VerdictRefreshDead = "refresh token no longer renews"
+	// VerdictRefreshAlive: the refresh token still renews after revocation.
+	// Against an accepted revocation this is the finding worth reporting
+	// upstream: the deployment said yes and kept the session alive.
+	VerdictRefreshAlive = "refresh token still renews"
+	// VerdictRefreshInconclusive: the token endpoint answered in a way this
+	// test cannot read as either.
+	VerdictRefreshInconclusive = "inconclusive (the token endpoint answered neither a renewal nor a recognized refusal)"
+)
+
 // narrowingCode is the refusal every narrowing outcome arrives as.
 const narrowingCode = "auth.narrowing_unavailable"
 
