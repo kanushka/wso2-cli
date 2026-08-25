@@ -3,8 +3,8 @@
 This is the registration walkthrough for **ThunderID**, one of the three
 deployments `wso2 login` supports. Asgardeo and WSO2 Identity Server have
 [their](login-asgardeo.md) [own](login-identity-server.md) walkthroughs, and
-everything after registration — writing the context document, logging in, CI,
-troubleshooting — is the same document for all three products. Read this one for
+everything after registration is the same document for all three products:
+writing the context document, logging in, CI, troubleshooting. Read this one for
 the registration, then return to
 [section 2 of the login guide](login.md#2-write-the-context-document).
 
@@ -33,7 +33,7 @@ Three things follow:
   URI, so `products.<namespace>.audience` is a URI here. The bare API resource
   identifier that works on Identity Server is refused.
 - **One login reaches one product.** Thunder accepts a single resource indicator
-  per authorization — *"Only a single resource parameter is supported"*. A
+  per authorization: *"Only a single resource parameter is supported"*. A
   session is therefore bound to one resource server, and the context document
   refuses an identity that names Thunder and declares more than one product.
   Lifting that is [tracked separately](https://github.com/wso2/wso2-cli/issues/43).
@@ -60,7 +60,7 @@ docker run -d --name thunderid -p 8090:8090 \
 `setup.sh` generates the deployment's keys and certificates and seeds the
 default resources; `start.sh` serves. It answers in well under a minute. Nothing
 is persisted outside the container, so `docker rm -f thunderid` returns the
-machine to where it started — which is the reason to prefer it while you are
+machine to where it started. That is the reason to prefer it while you are
 learning the console, where a half-registered application from a previous
 attempt is hard to tell from a correct one.
 
@@ -85,7 +85,7 @@ docker run -d --name thunderid -p 8490:8090 \
 ```
 
 **Everything below this point writes `8090`.** If you took the offset recipe,
-substitute the host port you chose — in the discovery URL, the console URL, the
+substitute the host port you chose, in the discovery URL, the console URL, the
 certificate you trust, the resource server's identifier, and the issuer and
 audience you write into the context document. The port is part of the issuer's
 identity here, not a detail of how you reach it, so a value that is close but
@@ -97,8 +97,8 @@ Confirm what it advertises rather than assuming it:
 curl -sk https://localhost:8090/.well-known/openid-configuration
 ```
 
-Note the issuer is the **bare origin** — `https://localhost:8090` — not a path
-under it. Identity Server's issuer is `https://localhost:9443/oauth2/token`; the
+Note the issuer is the **bare origin**, `https://localhost:8090`, and not a
+path under it. Identity Server's issuer is `https://localhost:9443/oauth2/token`; the
 shape is not the same and using one product's shape against the other fails at
 discovery.
 
@@ -118,8 +118,8 @@ certificate is trusted, login cannot reach discovery at all:
 tls: failed to verify certificate: x509: certificate signed by unknown authority
 ```
 
-On macOS, note that Go **ignores `SSL_CERT_FILE`** — `crypto/x509` honors it on
-every Unix except Darwin — so the keychain is the only way in. Take the
+On macOS, note that Go **ignores `SSL_CERT_FILE`**, since `crypto/x509` honors
+it on every Unix except Darwin, so the keychain is the only way in. Take the
 certificate from the port:
 
 ```sh
@@ -173,9 +173,9 @@ server's **Resources** tab there is a **Resource Hierarchy** panel:
 **Handles cannot contain the resource server's delimiter**, which is `:` by
 default. A handle of `reference:status:read` is refused with
 `Delimiter conflict in handle`. A permission of that shape is built as a
-hierarchy instead — `reference`, with a `status` child, with `read` and `write`
-children under that — and Thunder joins the handles with the delimiter to
-produce the permission.
+hierarchy instead: `reference`, with a `status` child, with `read` and `write`
+children under that. Thunder joins the handles with the delimiter to produce
+the permission.
 
 For a first run, two flat resources are enough and simpler to verify: handles
 `read` and `write`, giving permissions `read` and `write`.
@@ -187,7 +187,7 @@ says *"Requests without a resource parameter will fall back to it."* It does
 exactly that, and it is worth understanding rather than using.
 
 With a default configured, Thunder issues tokens for requests that name no
-resource — and binds every one of them to the default, whichever product asked.
+resource, and binds every one of them to the default, whichever product asked.
 That is precisely the weakness the shell's audience check exists to avoid, and
 it is the one thing that would make Thunder's audience guarantee no better than
 Asgardeo's. Leave it unset; the shell names the resource on every request and
@@ -227,7 +227,8 @@ does not need the fallback.
      without it a login succeeds and no module can be granted anything.
    - **Response Types**: `code`.
    - **Public Client**: on. **Client Authentication Method** then locks itself to
-     `none`, which is correct — the shell is a public client and holds no secret.
+     `none`, which is correct: the shell is a public client and holds no
+     secret.
    - **PKCE Required**: locked on, labelled *"Always required for public
      clients."* Nothing to do; Thunder does not let a public client skip it.
 
@@ -245,7 +246,7 @@ does not need the fallback.
 4. Assign the role to the user.
 
 A user with no such role signs in successfully and receives a token stating no
-permissions, which the shell then refuses — see the troubleshooting note below.
+permissions, which the shell then refuses. See the troubleshooting note below.
 
 ---
 
@@ -265,7 +266,7 @@ Thunder deployment refuses the grant outright without it.
 
 **That is why a Thunder CI identity carries `provider` exactly as a browser one
 does.** `provider` is what selects the resource-bound derivation, and the shell
-sends no indicator without it — so the
+sends no indicator without it, so the
 [CI context in the login guide](login.md#51-write-the-ci-context), which is
 written for Asgardeo, cannot be used here as it stands. This is the Thunder
 form:
@@ -308,7 +309,7 @@ which is the same for all three products.
 - **Client ID** of the `WSO2 CLI` application.
 - **Issuer**, the bare origin, taken verbatim from the `issuer` value in
   `https://localhost:8090/.well-known/openid-configuration`.
-- **Audience**, which is the resource server's **identifier** — the absolute URI
+- **Audience**, which is the resource server's **identifier**: the absolute URI
   from section 4, not its name.
 - **Scopes**, the permissions from section 4.
 - **Whether this machine trusts the deployment's certificate** (section 3).
@@ -344,8 +345,8 @@ members are Thunder-specific:
 `provider` is what makes the shell send the resource indicator. Without it the
 login is refused with `invalid_target` and no session is established.
 
-You may also write `narrowing` explicitly — `scoped-refresh` or
-`token-resource` — for a deployment that does not behave the way its product
+You may also write `narrowing` explicitly, as `scoped-refresh` or
+`token-resource`, for a deployment that does not behave the way its product
 ordinarily does. An explicit `narrowing` wins over what `provider` implies. A
 Thunder deployment with a default resource server configured is the case this
 exists for.

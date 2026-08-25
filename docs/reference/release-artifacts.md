@@ -1,4 +1,4 @@
-# Release Artifacts
+# Release artifacts
 
 **Status:** Accepted
 **Related:** [Distribution research](../research/root-cli-installation-distribution.md),
@@ -51,9 +51,10 @@ the tokens above, and `uname -m` answers a wider set, so `x86_64` maps to
 Windows does not go through `uname` at all. The operating system token is fixed:
 anything installing from Windows is on `windows`, so nothing has to be detected
 to choose it. The architecture comes from the environment instead, reading
-`PROCESSOR_ARCHITEW6432` before `PROCESSOR_ARCHITECTURE` — a 32-bit process on
-a 64-bit machine reports `x86` in the second and the real architecture only in
-the first — and mapping `AMD64` to `amd64` and `ARM64` to `arm64`.
+`PROCESSOR_ARCHITEW6432` before `PROCESSOR_ARCHITECTURE`, because a 32-bit
+process on a 64-bit machine reports `x86` in the second and the real
+architecture only in the first, and mapping `AMD64` to `amd64` and `ARM64` to
+`arm64`.
 
 Normalizing is not enough on its own: the result has to name a target the
 release actually carries, and the table below is not the product of every
@@ -86,7 +87,7 @@ every pull request would break in a tag rather than in the change that broke it.
 
 Each archive contains, at its root and in no subdirectory:
 
-- `wso2` — the shell binary, named `wso2.exe` on Windows
+- `wso2`, the shell binary, named `wso2.exe` on Windows
 - `LICENSE`
 - `NOTICE`
 
@@ -115,9 +116,9 @@ recorded in [architecture](../architecture.md) section 15.
 ## Version reporting
 
 A released binary reports the version it was built as. The release injects the
-shell version — the tag with its leading `v` removed, because the version
-package prefixes one for display — through the build-time variables in
-`internal/version`. It injects no protocol versions: the shell speaks the
+shell version through the build-time variables in `internal/version`, as the
+tag with its leading `v` removed, because the version package prefixes one for
+display. It injects no protocol versions: the shell speaks the
 window declared in `sdk/protocol`, the current protocol version and its
 predecessor, and a release that narrowed it would cut off module releases for
 users a protocol generation behind.
@@ -149,7 +150,7 @@ release publishes a zip, because the shell extracts a module archive as a
 gzipped tarball and refuses anything else.
 
 Each archive carries, at its root and in no subdirectory, the module
-executable named `wso2-module-<namespace>` — `.exe` on Windows — beside
+executable named `wso2-module-<namespace>`, with `.exe` on Windows, beside
 `LICENSE` and `NOTICE`. That name is a convention rather than a catalog field:
 the shell extracts a module archive expecting exactly it and refuses an
 archive that does not carry it rather than searching for something executable.
@@ -184,9 +185,9 @@ version actually does. Finally it asks the module proxy for the version that
 was tagged, which both proves the version is servable and warms the proxy so
 the first module to require it does not wait.
 
-What makes an SDK version publishable — that it imports nothing under the
-shell's internal tree, and that it builds and tests without the workspace — is
-asserted by the ordinary test suite rather than by that workflow, so the same
+What makes an SDK version publishable is that it imports nothing under the
+shell's internal tree and that it builds and tests without the workspace. The
+ordinary test suite asserts both, rather than that workflow, so the same
 constraints hold on every pull request. A tag is a bad place to learn either of
 them for the first time, because the module proxy keeps a version forever and
 there is no withdrawing one.
@@ -211,8 +212,8 @@ than the released shell speaks is refused, which enforces that the shell ships
 first; so is a module speaking only a protocol the window has already left
 behind, because no shell in existence could launch it either.
 
-The refusal names both sides — the protocol the module requires and the set the
-released shell speaks — so a product team can tell whether to wait for a shell
+The refusal names both sides, the protocol the module requires and the set the
+released shell speaks, so a product team can tell whether to wait for a shell
 release or to change the module.
 
 The released shell's supported set comes from `sdk/protocol`, the same single
@@ -267,8 +268,8 @@ before a tag exists.
 A snapshot differs from a real release in two ways worth knowing before reading
 its output: the archive names carry the most recent tag in the checkout, which
 is `v0.0.0` when there is none, while the binary inside reports the next patch
-version suffixed with `-snapshot`. Everything else — the target list, the
-archive formats, the archive contents, and the checksum file — is what a tag
-produces.
+version suffixed with `-snapshot`. Everything else is what a tag produces: the
+target list, the archive formats, the archive contents, and the checksum
+file.
 
 `make release-check` validates the configuration without building.

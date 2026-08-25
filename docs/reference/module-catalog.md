@@ -1,4 +1,4 @@
-# Module Catalog
+# Module catalog
 
 **Status:** Accepted
 **Related:** [Release artifacts](release-artifacts.md),
@@ -252,9 +252,9 @@ module's installations:
 ```
 
 An install records what it was asked for, and an update reads it back. That is
-what makes a channel a property of the module rather than of the shell — a user
-takes a prerelease of one product without taking prereleases of all of them —
-and what makes a pin survive an update run rather than being a one-off
+what makes a channel a property of the module rather than of the shell, so a
+user takes a prerelease of one product without taking prereleases of all of
+them, and what makes a pin survive an update run rather than being a one-off
 argument. A pinned module is passed over by `wso2 module update --all` rather
 than moved, so updating everything else cannot silently take a module off the
 version it is held at. Re-running `wso2 module install` is how a module's
@@ -343,9 +343,9 @@ assembly rather than publishing an entry pointing at something unverifiable.
 
 ## Publishing the catalog
 
-`scripts/assemble-site.sh` assembles everything the origin serves — the
-install and uninstall scripts, the landing page, and the regenerated catalog —
-and both workflows that deploy there run it. A deployment replaces the whole
+`scripts/assemble-site.sh` assembles everything the origin serves: the install
+and uninstall scripts, the landing page, and the regenerated catalog. Both
+workflows that deploy there run it. A deployment replaces the whole
 site, so a deployment that assembled only half of it would take the other half
 down.
 

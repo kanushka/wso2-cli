@@ -20,7 +20,7 @@ walkthrough.** Read one of these first, then come back here at section 2:
 | **WSO2 Identity Server 7.x** | [Registering in Identity Server](login-identity-server.md) |
 | **ThunderID** | [Registering in ThunderID](login-thunder.md) |
 
-They are alternatives — you need exactly one. Each is written to be read on its
+They are alternatives. You need exactly one. Each is written to be read on its
 own, and each ends by handing you the four values section 2 asks for.
 
 ---
@@ -49,9 +49,9 @@ is here so you know what the clicking in your product's walkthrough is for.
    http://127.0.0.1:10428/callback
    ```
 
-   Four rather than one so that a developer whose first choice is busy — the
-   port is in the IANA dynamic range and something else may hold it — still
-   lands on a registered redirect instead of a mismatch error.
+   Four rather than one because these ports are in the IANA dynamic range and
+   something else may already hold the first choice. A developer then lands on
+   a registered redirect instead of a mismatch error.
 4. **The refresh token grant.** The session the shell stores *is* the refresh
    token. Without this grant, login succeeds and every later command fails.
 5. **An API resource with scopes, and JWT access tokens.** The shell proves that
@@ -93,8 +93,8 @@ mkdir -p ~/.wso2/cli
 
 ### 2.2 What it says
 
-A context document names **identities** — how to authenticate, and what each
-identity may reach — and **contexts**, which select an identity and the
+A context document names **identities** and **contexts**. An identity says how
+to authenticate and what it may reach. A context selects an identity and the
 organization to act within.
 
 Copy this, then replace the four values marked in the comments below it:
@@ -135,10 +135,10 @@ Copy this, then replace the four values marked in the comments below it:
 
 Replace:
 
-- `issuer` — the value your walkthrough had you confirm against the deployment's
+- `issuer`: the value your walkthrough had you confirm against the deployment's
   own discovery document.
-- `clientId` — the client ID you recorded.
-- `audience` — **the value your product's walkthrough told you to record**, and
+- `clientId`: the client ID you recorded.
+- `audience`: **the value your product's walkthrough told you to record**, and
   the one field where copying another product's document goes wrong. It is the
   client ID on [Asgardeo](login-asgardeo.md#1-what-is-different-about-asgardeo),
   the API resource identifier on
@@ -147,7 +147,7 @@ Replace:
   [Thunder](login-thunder.md#1-what-is-different-about-thunder). The example
   above shows the resource-identifier form, so against Asgardeo it needs the
   client ID substituted here.
-- `scopes` — the scopes you authorized on the application.
+- `scopes`: the scopes you authorized on the application.
 
 Each walkthrough's last-but-one section shows the whole identity block filled in
 for that product, including `type` and any product-specific member.
@@ -160,7 +160,7 @@ for that product, including `type` and any product-specific member.
 | `defaultContext` | The context used when no `--context` flag and no `WSO2_CONTEXT` is given. Must name a context declared below. |
 | `identities[].name` | Lower-case letters, digits and dashes, starting with a letter, up to 64 characters. |
 | `identities[].type` | `cloud` or `onprem`. Nothing else is accepted. |
-| `auth.kind` | `oauth-browser` for a person at a browser. `oauth-device` for an identity that can only be established without one — see section 3.1. `client-credentials` for CI — see section 5. `pat` is named by the schema but not implemented in this release. |
+| `auth.kind` | `oauth-browser` for a person at a browser. `oauth-device` for an identity that can only be established without one, covered in section 3.1. `client-credentials` for CI, covered in section 5. `pat` is named by the schema but not implemented in this release. |
 | `auth.issuer` | The issuer, verbatim from its discovery document. |
 | `auth.clientId` | The registered public client. |
 | `auth.tenant` | The identity's home organization. |
@@ -168,9 +168,9 @@ for that product, including `type` and any product-specific member.
 | `auth.credentialRef` | The name the session is stored under in the OS secure store. **Required** for `oauth-browser` and `oauth-device`; **not allowed** for `client-credentials`. Same character rules as an identity name. |
 | `products.<namespace>` | What this identity may reach for one module. The namespace is the module's own name, and follows the same character rules as an identity name. |
 | `products.<namespace>.endpoint` | The product's base URL. **Required** on every product entry, and must be an absolute `http` or `https` URL with a host. |
-| `products.<namespace>.audience` | What the issued token's `aud` claim must carry. A module asking for any other audience is refused. Which value that is differs by product — see section 2.2. |
+| `products.<namespace>.audience` | What the issued token's `aud` claim must carry. A module asking for any other audience is refused. Which value that is differs by product; section 2.2 has the rule. |
 | `products.<namespace>.scopes` | The permissions this identity carries. A module asking for one that is not listed is refused. |
-| `contexts[].organization` | The organization to act within. Either leave it out, or set it to the identity's `auth.tenant` — this release cannot switch a session out of its home tenant, and any other value is refused. See `auth.organization_switch_unsupported` in section 6. |
+| `contexts[].organization` | The organization to act within. Either leave it out, or set it to the identity's `auth.tenant`. This release cannot switch a session out of its home tenant, and any other value is refused. See `auth.organization_switch_unsupported` in section 6. |
 
 ### 2.4 Check it
 
@@ -204,12 +204,12 @@ What happens, in order:
    it yourself, on this machine.
 4. You sign in and consent.
 5. The browser is redirected back to the loopback listener, and the shell
-   exchanges the code — with the PKCE verifier — for tokens.
+   exchanges the code, with the PKCE verifier, for tokens.
 6. It verifies the identity token, including the nonce it sent.
 7. It writes the refresh token to the operating system's secure store and
    reports who you are.
 
-On a machine with no browser at all — a remote shell, a container — set
+On a machine with no browser at all, a remote shell or a container, set
 `WSO2_NO_BROWSER=1`. The shell then prints the URL and does not attempt to open
 anything. You still have to complete the sign-in in a browser that can reach
 `127.0.0.1` **on this machine**, so this helps with a missing browser, not with
@@ -219,25 +219,25 @@ The command waits up to five minutes for you.
 
 ## 3.1 Logging in without a browser
 
-If the machine you are typing on has no browser that can reach it — you are over
-SSH, or inside a container — the login above cannot finish. It waits for the
-identity provider to redirect back to `127.0.0.1` on *this* machine, and your
-browser's `127.0.0.1` is somewhere else.
+If the machine you are typing on has no browser that can reach it, because you
+are over SSH or inside a container, the login above cannot finish. It waits for
+the identity provider to redirect back to `127.0.0.1` on *this* machine, and
+your browser's `127.0.0.1` is somewhere else.
 
 The device authorization grant solves that. Nothing is bound to loopback, and
 the approval happens on any other device you like.
 
 **When to use it.** Set `"kind": "oauth-device"` on the identity when that
-identity can *only* be established this way — a deployment where the loopback
+identity can *only* be established this way: a deployment where the loopback
 callback URLs cannot be registered, or one whose users are never at a machine
 with a reachable browser. It is a property of the identity, not of where you
 happen to be sitting today.
 
 If you are usually at a laptop and occasionally on a build box, that is the case
 `wso2 login --device-code` is meant for, and **that flag is not in this
-release**. Until it arrives, the way to have both is two identities — one
-`oauth-browser`, one `oauth-device` — with different `credentialRef` values, and
-a context for each.
+release**. Until it arrives, the way to have both is two identities, one
+`oauth-browser` and one `oauth-device`, with different `credentialRef` values
+and a context for each.
 
 **What to register.** Everything in your product's walkthrough applies
 unchanged, with two differences:
@@ -248,7 +248,7 @@ unchanged, with two differences:
 - The four loopback callback URLs are not used by this flow. Leave them
   registered anyway if the same application also serves browser logins.
 
-Thunder-backed products cannot use this flow at all — Thunder registers no
+Thunder-backed products cannot use this flow at all. Thunder registers no
 device grant handler, so its deployments advertise none and the shell refuses
 before printing anything.
 
@@ -294,7 +294,7 @@ paste a link into; the code is deliberately printed on its own line so it
 survives being read aloud.
 
 The shell polls at the rate the deployment asks for and stops when the code
-expires — usually after ten to fifteen minutes, and never later than fifteen.
+expires, usually after ten to fifteen minutes and never later than fifteen.
 Nothing is opened on this machine.
 
 **One difference from browser login worth knowing.** A browser login always
@@ -307,13 +307,14 @@ command afterwards behaves identically.
 
 ## 4. What login stored, and where
 
-- **The refresh token** goes to the operating system's secure store — Keychain
-  on macOS, Secret Service on Linux, Credential Manager on Windows — under the
-  service `wso2-cli` and the name you put in `credentialRef`.
+- **The refresh token** goes to the operating system's secure store, under the
+  service `wso2-cli` and the name you put in `credentialRef`. That store is
+  Keychain on macOS, Secret Service on Linux, and Credential Manager on
+  Windows.
 - **Nothing under `~/.wso2` holds a credential.** The state root holds the
   context document you wrote, the managed module store, and the advisory lock
   files that keep refresh-token rotation single-writer. No session material is
-  ever written there — not the refresh token, not an access token, not a client
+  ever written there: not the refresh token, not an access token, not a client
   secret.
 - **Modules never receive the session.** When a module needs access, the shell
   exchanges the refresh token for a fresh, short-lived access token narrowed to
@@ -325,14 +326,14 @@ refresh token and removes the secure-store entry named by `credentialRef`. What
 it can promise about the first of those depends on the deployment, and it tells
 you which of three things happened:
 
-- **`confirmed`** — the deployment accepted the request. That means it was told,
+- **`confirmed`.** The deployment accepted the request. That means it was told,
   not that anything was found to retract: RFC 7009 requires a server to answer
   an unknown token exactly as it answers a live one, so revocation cannot be
   used to probe for valid tokens.
-- **`not-attempted`** — the deployment publishes no `revocation_endpoint` in its
+- **`not-attempted`.** The deployment publishes no `revocation_endpoint` in its
   OpenID configuration, so it was never asked, and its own copy of the session
   stands until it expires.
-- **`failed`** — the deployment was asked and did not accept, or could not be
+- **`failed`.** The deployment was asked and did not accept, or could not be
   reached. Most likely it requires a confidential client on that endpoint, and
   the shell is a public client with no secret.
 
@@ -344,7 +345,7 @@ shell claims, which is the decision recorded in
 
 **Two things logout does not do.** It does not end the browser single-sign-on
 session at the identity provider, so a later `wso2 login` may complete without
-prompting you for credentials — sections 2.3 and 3.3 describe that session.
+prompting you for credentials; sections 2.3 and 3.3 describe that session.
 And because a session is keyed by `credentialRef`, which belongs to the
 identity, ending it ends it for every context naming that identity; the command
 names them.
@@ -358,7 +359,7 @@ A `client-credentials` identity has no session to end and is refused with
 
 A CI job has no browser and no secure store, so it does not use a session at
 all. It uses a machine-to-machine identity that carries its own credential and
-exchanges it inline, on every command. **There is no login step in CI** — a job
+exchanges it inline, on every command. **There is no login step in CI.** A job
 that runs `wso2 login` is refused with `auth.login_not_required`.
 
 **Register the machine-to-machine application first.** That is product-specific,
@@ -424,9 +425,10 @@ product-specific.** Substitute both before using it against another deployment:
   the API resource identifier the example shows.
 - `auth.provider` carries into a CI identity exactly as it does a browser one.
   A Thunder deployment needs `"provider": "thunder"` here, because that is what
-  makes the shell name the protected resource on the client-credentials request
-  — and Thunder refuses a grant that names none. The document parses either
-  way, so leaving it out fails at the first command rather than at the first
+  makes the shell name the protected resource on the client-credentials
+  request, and Thunder refuses a grant that names none. The document parses
+  either way, so leaving it out fails at the first command rather than at the
+  first
   read. [The Thunder walkthrough](login-thunder.md#7-a-confidential-client-for-ci-if-you-need-one)
   shows the whole identity, including the two further rules a resource-bound
   identity must satisfy.
@@ -463,9 +465,9 @@ namespace it does not own itself to an installed module. Module *installation*
 commands (`wso2 module install`) are proposed and are not in this release, so
 the module has to already be in the managed module store under
 `$WSO2_HOME/cli/modules` for that step to resolve; otherwise it exits with
-`shell.unknown_command`. The authentication half of this section — the identity,
-the secret variable, and the inline grant — is complete and works today, and
-`wso2 version` exercises the context resolution without needing a module.
+`shell.unknown_command`. The identity, the secret variable, and the inline
+grant are complete and work today, and `wso2 version` exercises the context
+resolution without needing a module.
 
 `WSO2_HOME` must be absolute. `WSO2_CONTEXT` selects the context without a flag.
 
@@ -482,7 +484,7 @@ one grant, is never written to the state root, and is never passed to a module.
 
 Every refusal the shell makes carries a typed code. Find yours here. This table
 covers all three products; failures that can only happen on one of them are in
-that product's walkthrough — [Thunder's](login-thunder.md#10-troubleshooting) is
+that product's walkthrough. [Thunder's](login-thunder.md#10-troubleshooting) is
 the longest, because its registration model differs the most.
 
 ### The context document: `contexts.*`
@@ -490,7 +492,7 @@ the longest, because its registration model differs the most.
 These come from the file you wrote in section 2, and they are the ones a
 first-time user meets most often. None of them reaches a browser.
 
-- **`contexts.document_malformed`** — the document was read but is not valid.
+- **`contexts.document_malformed`.** The document was read but is not valid.
   The message names the specific defect, and section 2.3 is the field-by-field
   reference for it. The usual causes are a name that breaks the character rules
   (identity names, context names and `credentialRef` are lower-case letters,
@@ -498,11 +500,11 @@ first-time user meets most often. None of them reaches a browser.
   `cloud` or `onprem`, a missing `endpoint` on a product entry, or the
   `credentialRef` / `clientSecretVariable` rule: exactly one of them belongs on
   an identity, and which one is decided by `auth.kind`.
-- **`contexts.document_unreadable`** — the file exists but could not be read.
+- **`contexts.document_unreadable`.** The file exists but could not be read.
   Check its permissions, or delete it to run without a context.
-- **`contexts.schema_unsupported`** — `schemaVersion` is not one this shell
+- **`contexts.schema_unsupported`.** `schemaVersion` is not one this shell
   reads. It must be `2`.
-- **`contexts.unknown_context`** — you named a context, with `--context` or
+- **`contexts.unknown_context`.** You named a context, with `--context` or
   `WSO2_CONTEXT`, that the document does not declare. The message names the one
   you asked for. Check it against the `contexts` array and `defaultContext`.
 
@@ -531,7 +533,7 @@ usable. In order of likelihood:
   Thunder's is the bare origin.
 - **TLS is not trusted.** Common against a local Identity Server or Thunder
   deployment with a self-signed certificate. Add the deployment's certificate to
-  the operating system trust store — each walkthrough has the commands. The
+  the operating system trust store. Each walkthrough has the commands. The
   shell deliberately has no flag to skip verification.
 - **The machine cannot reach the issuer.** Proxy, VPN, firewall.
 - **The issuer does not advertise `S256`.** Set PKCE to mandatory on the
@@ -562,13 +564,14 @@ would reject the redirect and the error would name the wrong problem.
 ### `auth.login_required`
 
 No usable session. Either you have not logged in for this `credentialRef`, or
-the deployment has stopped accepting the stored refresh token — it was revoked,
-it expired, or it was rotated away by a concurrent run. Run `wso2 login` again.
+the deployment has stopped accepting the stored refresh token: it was revoked,
+it expired, or a concurrent run rotated it away. Run `wso2 login` again.
 
 ### `auth.logout_not_required`
 
 You ran `wso2 logout` against a context whose identity acquires access inline
-and never holds a session — a `client-credentials` identity, in practice.
+and never holds a session, which in practice means a `client-credentials`
+identity.
 Nothing is stored for it, so there is nothing to end. Remove the credential from
 the environment to stop the shell acquiring access with it.
 
@@ -585,7 +588,7 @@ at all.
 
 The shell obtained a token but could not prove it was narrowed to what the
 module asked for, so it refused to hand it over. **This refusal is the designed
-behavior, not a degraded mode** — a module that silently received the whole
+behavior, not a degraded mode.** A module that silently received the whole
 session's authority would hold access nobody decided to give it.
 
 The message tells you which of five things happened:
@@ -598,14 +601,14 @@ The message tells you which of five things happened:
 | "is not bound to the ... audience" | The token's `aud` does not carry your audience. | The `audience` in your context document names something the deployment never puts in `aud`. Which value that is differs by product: the **client ID** on [Asgardeo](login-asgardeo.md#1-what-is-different-about-asgardeo), the **API resource identifier** on [Identity Server](login-identity-server.md#1-what-is-different-about-identity-server) and there only once it is in the application's audience list, and the **resource server URI** on [Thunder](login-thunder.md#1-what-is-different-about-thunder). Failing that, the resource is not authorized on the application. |
 | "refused to narrow this session" | The token endpoint answered `invalid_scope`. | A scope in your context document is not one the application is authorized for. |
 
-The middle case — a deployment that will not narrow — is a property of the
-deployment, not something to work around in the shell. Both products this was
+The middle case, a deployment that will not narrow, is a property of the
+deployment and not something to work around in the shell. Both products this was
 measured on do narrow: on 2026-08-06, against a live Asgardeo tenant and against
 Identity Server 7.3.0, a session carrying two permissions was refreshed down to
 one and answered with exactly that one. Both verdicts are in
 [the research document](../research/asgardeo-redirect-uri-and-scope-narrowing.md).
 So this row should be rare, and where it does appear, login and session
-persistence still work while brokered acquisition refuses — and that refusal is
+persistence still work while brokered acquisition refuses, and that refusal is
 correct.
 
 ### `auth.organization_switch_unsupported`
@@ -626,7 +629,7 @@ for is not in the `scopes` list. Fix the context document.
 ### `auth.audience_not_declared` / `auth.scope_not_declared`
 
 The module asked for more than its own installation declared. This is not a
-context problem — reinstall the module. The shell grants only what a module
+context problem. Reinstall the module. The shell grants only what a module
 receipt declares, whatever the context document allows.
 
 ### `auth.credential_unavailable`
@@ -635,8 +638,8 @@ On a `client-credentials` context: the variable named by `clientSecretVariable`
 is unset, empty, or holds a secret the deployment rejects. The guidance names
 the variable. A variable exported as an empty string is treated as unset.
 
-On a browser login: the flow ended without producing tokens — you closed the
-browser, the consent was denied, or the deployment redirected back with an
+On a browser login: the flow ended without producing tokens. You closed the
+browser, someone denied the consent, or the deployment redirected back with an
 error.
 
 The browser reached "Login complete" and the code exchange succeeded, but the
@@ -651,8 +654,8 @@ says which kind of failure it was:
 | "the shell could not read the signing keys the identity provider publishes" | The key set could not be fetched or parsed. | Confirm the machine can reach the issuer's `jwks_uri`. If it is reachable, see below. |
 
 That last one has a known cause worth naming, because it is not your
-configuration. Many WSO2 deployments — Asgardeo tenants and Identity Servers
-alike — publish a token-signing certificate whose X.509 serial number is
+configuration. Many WSO2 deployments, Asgardeo tenants and Identity Servers
+alike, publish a token-signing certificate whose X.509 serial number is
 negative, which RFC 5280 forbids and which Go has rejected since 1.23. The
 certificate travels in the `x5c` field of the JWKS, and a library that parses
 it eagerly fails the entire key set over it.
@@ -663,7 +666,7 @@ parse it, and such a deployment logs in normally. Nothing needs to be set, and
 in particular the `GODEBUG=x509negativeserial=1` workaround that circulated
 before this was fixed is no longer required.
 
-If you want to confirm a deployment has such a certificate — a leading minus
+If you want to confirm a deployment has such a certificate, a leading minus
 sign on the serial is the whole diagnosis:
 
 ```sh
@@ -684,7 +687,7 @@ On a device login (section 3.1), the message says which of four endings it was:
 | "this login was not approved in time" | The same, reached by the shell's own deadline rather than the deployment's answer. | As above. |
 | "would not start a device authorization" | The deployment refused the request before any code was issued. | Confirm `clientId`, and that the application is registered for the device grant. |
 
-All four leave you in the same place — no session — which is why they share one
+All four leave you with no session, which is why they share one
 code. Only the sentence differs, because only the sentence can.
 
 ### `auth.login_not_required`
@@ -695,7 +698,7 @@ There is no session to establish; just run the command (section 5).
 ### `auth.non_interactive`
 
 `wso2 login` was run with `--non-interactive`, or with `WSO2_NON_INTERACTIVE`
-set. This is the guard that stops a CI job from waiting on a browser forever —
+set. This is the guard that stops a CI job from waiting forever on a browser,
 or, on a device context, from waiting forever on an approval no one is there to
 give. The message names which of the two it refused.
 
@@ -722,7 +725,7 @@ deleted before and after every run.
 ### 7.1 First, the runs that need no deployment
 
 Nothing below is worth a browser sign-in until these pass. The deterministic
-suite already drives the whole chain — login, session, brokered acquisition —
+suite already drives login, session, and brokered acquisition
 against a fake OIDC issuer that signs real JWTs, so what the live runs add is
 evidence about a *deployment*, not about the shell.
 
@@ -753,14 +756,14 @@ cp test/smoke/env.example test/smoke/.env
 ```sh
 export WSO2_SMOKE_ISSUER='https://api.asgardeo.io/t/<org>/oauth2/token'
 export WSO2_SMOKE_CLIENT_ID='<client id>'
-export WSO2_SMOKE_AUDIENCE='<client id>'     # on Asgardeo — see its walkthrough
+export WSO2_SMOKE_AUDIENCE='<client id>'     # on Asgardeo, see its walkthrough
 export WSO2_SMOKE_SCOPE='reference:status:read reference:status:write'
 ```
 
 `make smoke-login` and `make empirical-asgardeo` source `test/smoke/.env` when
 it exists, and print which file they read. Keep one per deployment and name it
-with `SMOKE_ENV=test/smoke/is.env`. Nothing parses these files — Go has no
-dotenv convention and the module carries no dependency that would add one — so
+with `SMOKE_ENV=test/smoke/is.env`. Nothing parses these files. Go has no
+dotenv convention and the module carries no dependency that would add one, so
 `. test/smoke/is.env` in your own shell does exactly what `make` does. Values in
 the file overwrite what the shell already exported, which is what keeps a
 leftover export from the last deployment from quietly outranking the file you
@@ -770,8 +773,8 @@ just edited. `*.env` is ignored by git.
 Asgardeo happens to force to the same value: the first says who is asking, the
 second says what the issued token must be bound to. **On Identity Server and
 Thunder they differ**: it is the API resource identifier on Identity Server and
-an absolute resource-server URI on Thunder, which refuses a bare identifier —
-see
+an absolute resource-server URI on Thunder, which refuses a bare identifier.
+See
 [the Identity Server walkthrough](login-identity-server.md#1-what-is-different-about-identity-server)
 and [the Thunder walkthrough](login-thunder.md#1-what-is-different-about-thunder).
 Copying one deployment's file to another and changing only the issuer is
@@ -798,7 +801,7 @@ make smoke-login-device   # the same, approved on another device (section 3.1)
 make empirical-asgardeo   # answer the two open questions about Asgardeo's behavior
 ```
 
-`make smoke-login-device` reads the same variables and needs no new ones — the
+`make smoke-login-device` reads the same variables and needs no new ones. The
 only thing it wants from the deployment is the device grant enabled on the same
 application. It also reports whether that deployment's device grant returned an
 identity token, which is a per-deployment fact this repository has not yet
@@ -819,14 +822,14 @@ narrowing refusals you got.
 The experiments print one verdict line each. Their answers belong in section 3
 of
 [`docs/research/asgardeo-redirect-uri-and-scope-narrowing.md`](../research/asgardeo-redirect-uri-and-scope-narrowing.md),
-with the date and the `deployment:` line the run printed beneath each verdict —
-the verdicts are per-deployment and a second tenant is not covered by the first
-one's cells. Both questions were answered against a live Asgardeo tenant on
+with the date and the `deployment:` line the run printed beneath each verdict.
+The verdicts are per-deployment, and the first tenant's cells say nothing about
+a second. Both questions were answered against a live Asgardeo tenant on
 2026-08-06: any-port loopback **supported**, refresh narrowing **honored**.
 
 Read
 [`test/smoke/RUNNING.md`](../../test/smoke/RUNNING.md) before recording
 anything. It lists every variable these runs read and, more importantly,
-explains which verdicts are catch-all branches that need corroborating — an
+explains which verdicts are catch-all branches that need corroborating. An
 `ASGARDEO ANY-PORT LOOPBACK: rejected` is what the experiment prints for *any*
 login that did not complete, including one where you simply closed the browser.

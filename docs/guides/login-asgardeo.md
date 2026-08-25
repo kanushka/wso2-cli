@@ -3,8 +3,8 @@
 This is the registration walkthrough for **Asgardeo**, one of the three
 deployments `wso2 login` supports. WSO2 Identity Server and ThunderID have
 [their](login-identity-server.md) [own](login-thunder.md) walkthroughs, and
-everything after registration — writing the context document, logging in, CI,
-troubleshooting — is the same document for all three products. Read this one for
+everything after registration is the same document for all three products:
+writing the context document, logging in, CI, troubleshooting. Read this one for
 the registration, then return to
 [section 2 of the login guide](login.md#2-write-the-context-document).
 
@@ -39,10 +39,10 @@ Two things follow:
   The cost is recorded in
   [the research document](../research/asgardeo-redirect-uri-and-scope-narrowing.md).
 
-Everything else the shell needs — a public client, mandatory S256 PKCE, the four
-loopback callbacks, the refresh token grant, JWT access tokens — is
-[listed in the login guide](login.md#1-what-the-shell-needs-from-a-deployment)
-and is what the sections below configure.
+The login guide
+[lists everything else the shell needs](login.md#1-what-the-shell-needs-from-a-deployment):
+a public client, mandatory S256 PKCE, the four loopback callbacks, the refresh
+token grant, and JWT access tokens. The sections below configure all of it.
 
 Everything that follows is in the Asgardeo console, for the organization you are
 targeting.
@@ -70,7 +70,7 @@ On the application's **Protocol** tab:
 2. Select **Public client**. This is what removes the client secret; the shell
    is installed on people's machines and cannot hold one.
 3. Under **PKCE**, select **Mandatory**. Leave "Support PKCE 'Plain'"
-   **unselected** — the shell only offers `S256`, and allowing plain would
+   **unselected**. The shell only offers `S256`, and allowing plain would
    weaken the flow without the shell ever using it.
 
 ---
@@ -99,7 +99,7 @@ register.
 
 Register all four anyway. The verdict was measured on one tenant, it is
 undocumented by Asgardeo and so may change without notice, and the shell binds
-only these four ports regardless — so nothing is gained by registering fewer,
+only these four ports regardless, so nothing is gained by registering fewer,
 and a deployment that stops waiving the port breaks every developer whose first
 choice is busy.
 
@@ -115,13 +115,13 @@ that many applications can share, so it is created outside your application;
 authorizing it *for* your application is a separate step afterwards.
 
 **First, create the resource.** **API Resources** is a top-level item in the
-Console's left navigation — a sibling of Applications, not a tab inside the one
-you just made.
+Console's left navigation, a sibling of Applications rather than a tab inside
+the one you just made.
 
 1. **API Resources → New API Resource**.
 2. Give it an **Identifier** and record it. This is the string a module's
    `audience` names. It is *not* what lands in an issued token's `aud` claim on
-   Asgardeo — see section 1.
+   Asgardeo; see section 1.
 3. Give it a **Display Name**. This is what a user sees on a consent screen.
 4. Add the scopes the module needs, for example `reference:status:read` and
    `reference:status:write`. Register at least two even when the module only
@@ -139,7 +139,7 @@ select its scopes.
 
 Watch the policy shown beside the resource on that tab. It can read
 `Role Based Access Control (RBAC)` even when the resource itself did not require
-authorization — the resource setting decides whether a policy is *mandatory*,
+authorization. The resource setting decides whether a policy is *mandatory*,
 and this tab is where one is actually chosen. `No Authorization Policy` means
 the scopes selected here are sufficient by themselves. Anything else means
 section 7 applies, and skipping it produces a login that succeeds followed by a
@@ -176,12 +176,13 @@ and no amount of typing your real one will work.
 
 Create a user for this instead:
 
-1. **User Management → Users → Add User** — *Users*, not *Administrators*.
+1. **User Management → Users → Add User**, under *Users* rather than
+   *Administrators*.
 2. Give it a username or email, for example `cli-smoke@example.com`.
 3. Choose to **set a password directly** rather than emailing an invitation. The
    invitation path needs a working inbox, and login waits only five minutes.
 
-**If — and only if — section 5 left you with an authorization policy**, that
+**If, and only if, section 5 left you with an authorization policy**, that
 user also needs a role carrying the scopes. Authorizing the resource on the
 application establishes what the application *may* ask for; under a policy it
 does not establish what a user is *entitled to*, and the gap surfaces at the
@@ -190,13 +191,13 @@ first brokered acquisition as `auth.narrowing_unavailable` naming permissions.
 1. **Applications → your application → Roles → New Role**, with **Role Audience**
    set to **Application**.
 2. Attach the API resource and select **every** scope the context document
-   lists, not just the one a module uses — a session that carries less than it
+   lists, not just the one a module uses. A session that carries less than it
    later asks for cannot be narrowed.
 3. Assign the user to that role, from the role's users list or from
    **User Management → Users → your user → Roles**.
 
 A console change never reaches an existing session. Sign in again after either
-step — and note that a browser SSO session will complete that sign-in without
+step. Note that a browser SSO session will complete that sign-in without
 showing you a login form, which is expected and does not mean the change was
 skipped. Scopes are computed when a token is issued, not frozen into the browser
 session.
@@ -209,15 +210,15 @@ A CI job has no browser and no secure store, so it uses a separate identity that
 carries its own credential. Register a second application for it:
 
 1. **Applications → New Application → M2M Application**.
-2. Grant types: **Client Credentials** only. No redirect URLs, no PKCE — there
-   is no browser and no user.
+2. Grant types: **Client Credentials** only. No redirect URLs, no PKCE, since
+   there is no browser and no user.
 3. Authorize the same API resource and scopes from section 5.
 4. Issue **JWT** access tokens, for the same reason as section 6.
 5. Record the **client ID** and the **client secret**.
 
 Its `audience` follows the same rule as everything else here: the **M2M
 application's own client ID**, not the API resource identifier. Under RBAC there
-is one further difference from a browser login — a client-credentials grant has
+is one further difference from a browser login. A client-credentials grant has
 no user, so a role granting the scopes must be assigned to the **application**
 rather than to a person.
 
@@ -234,7 +235,7 @@ the context document and the job wiring.
 - **Scopes**, the ones you authorized on the application in section 5.
 - **Issuer**, which for Asgardeo takes the shape
   `https://api.asgardeo.io/t/<organization>/oauth2/token`. Confirm it rather
-  than assuming it — fetch
+  than assuming it. Fetch
   `https://api.asgardeo.io/t/<organization>/oauth2/token/.well-known/openid-configuration`
   and use the `issuer` value verbatim. The shell discovers the token endpoint
   from that document and checks that the document belongs to the issuer it was
@@ -283,9 +284,9 @@ registration changes. See
 The live runs in `test/smoke/` work against Asgardeo, and the two one-time
 experiments behind `make empirical-asgardeo` are what produced the verdicts
 cited above. `test/smoke/env.example` carries an Asgardeo block; fill in what
-section 9 told you to record — noting that `WSO2_SMOKE_CLIENT_ID` and
+section 9 told you to record. Note that `WSO2_SMOKE_CLIENT_ID` and
 `WSO2_SMOKE_AUDIENCE` are different fields that Asgardeo happens to force to the
-same value — and see [`test/smoke/RUNNING.md`](../../test/smoke/RUNNING.md).
+same value. See [`test/smoke/RUNNING.md`](../../test/smoke/RUNNING.md).
 
 The measured behaviour behind everything above is recorded in
 [`docs/research/asgardeo-redirect-uri-and-scope-narrowing.md`](../research/asgardeo-redirect-uri-and-scope-narrowing.md)

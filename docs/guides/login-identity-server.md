@@ -3,8 +3,8 @@
 This is the registration walkthrough for **WSO2 Identity Server 7.x**, one of
 the three deployments `wso2 login` supports. Asgardeo and ThunderID have
 [their](login-asgardeo.md) [own](login-thunder.md) walkthroughs, and everything
-after registration — writing the context document, logging in, CI,
-troubleshooting — is the same document for all three products. Read this one for
+after registration is the same document for all three products: writing the
+context document, logging in, CI, troubleshooting. Read this one for
 the registration, then return to
 [section 2 of the login guide](login.md#2-write-the-context-document).
 
@@ -19,7 +19,7 @@ measured on.
 Two facts here have consequences further down, so they are worth reading before
 registering anything.
 
-**An access token's `aud` carries the API resource identifier — but only once
+**An access token's `aud` carries the API resource identifier, but only once
 the resource is in the application's Audience list.** Measured against 7.3.0:
 
 | Application's **Audience** list | An access token's `aud` |
@@ -29,7 +29,7 @@ the resource is in the application's Audience list.** Measured against 7.3.0:
 
 So on Identity Server the API resource identifier *is* the right value for
 `products.<namespace>.audience`. Leave the list empty and `aud` names the client
-alone — exactly as on Asgardeo, which has no such list at all — and every
+alone, exactly as on Asgardeo, which has no such list at all, and every
 brokered acquisition refuses with `auth.narrowing_unavailable` naming the
 audience. Section 7 is where you populate it.
 
@@ -42,10 +42,10 @@ not portable between the two products. What the difference costs is recorded in
 the broker's audience check can distinguish one product from another here, and
 cannot on Asgardeo.
 
-Everything else the shell needs — a public client, mandatory S256 PKCE, the four
-loopback callbacks, the refresh token grant, JWT access tokens — is
-[listed in the login guide](login.md#1-what-the-shell-needs-from-a-deployment)
-and is what the sections below configure.
+The login guide
+[lists everything else the shell needs](login.md#1-what-the-shell-needs-from-a-deployment):
+a public client, mandatory S256 PKCE, the four loopback callbacks, the refresh
+token grant, and JWT access tokens. The sections below configure all of it.
 
 ---
 
@@ -60,7 +60,7 @@ docker run -d --name wso2is -p 9443:9443 -p 9763:9763 wso2/wso2is:7.3.0
 
 It answers in about a minute, with `admin` / `admin`. Nothing is persisted
 outside the container, so `docker rm -f wso2is` returns the machine to where it
-started — which is the reason to prefer it to an unpacked distribution for this,
+started. That is the reason to prefer it to an unpacked distribution here,
 where a half-registered application from a previous attempt is hard to tell from
 a correct one.
 
@@ -72,7 +72,7 @@ section 11 has to say so.
 Everything below is in the Identity Server console, at
 `https://localhost:9443/console` by default. All of it can also be done through
 the management REST APIs, which accept the administrator's credentials over
-basic auth — `POST /api/server/v1/api-resources`, `POST /api/server/v1/applications`,
+basic auth: `POST /api/server/v1/api-resources`, `POST /api/server/v1/applications`,
 `POST /api/server/v1/applications/{id}/authorized-apis`, `POST /scim2/Users`.
 That is the better route when you expect to rebuild the deployment more than
 once.
@@ -90,8 +90,8 @@ login cannot even reach discovery:
 tls: failed to verify certificate: x509: certificate signed by unknown authority
 ```
 
-On macOS, note that Go **ignores `SSL_CERT_FILE`** — `crypto/x509` honors it on
-every Unix except Darwin — so the keychain is the only way in. Take the
+On macOS, note that Go **ignores `SSL_CERT_FILE`**, since `crypto/x509` honors
+it on every Unix except Darwin, so the keychain is the only way in. Take the
 certificate from the port rather than out of a keystore. A container has no
 keystore on your filesystem to read, and the port is in any case the only place
 that answers what the deployment actually serves:
@@ -107,13 +107,13 @@ security add-trusted-cert -r trustRoot -p ssl \
 Use the port the deployment answers on, which is not 9443 if it carries an
 offset. Against 7.3.0 this produces the same bytes as
 `keytool -exportcert -alias wso2carbon -keystore repository/resources/security/wso2carbon.p12 -storepass wso2carbon`
-from an unpacked distribution's root — that is the command to reach for if you
-need the certificate before the deployment is running.
+from an unpacked distribution's root. Reach for that command if you need the
+certificate before the deployment is running.
 
 **Understand what that second command grants before running it.** The default
 certificate is `CA:TRUE`, and its private key ships inside every Identity Server
 download and every copy of the public container image, behind the published
-password `wso2carbon` — the zip and the image serve a byte-identical
+password `wso2carbon`; the zip and the image serve a byte-identical
 certificate. Trusting it as a root means trusting a signing key that anyone can
 obtain, for any hostname, not just this deployment. `-p ssl` confines it to TLS
 and the login keychain confines it to your user. Remove it when the runs are
@@ -126,8 +126,8 @@ security delete-certificate -c localhost ~/Library/Keychains/login.keychain-db
 The alternative, if that trade is not one you want to make even briefly, is to
 replace the deployment's keypair with one whose private key only you hold.
 
-Thunder's equivalent trade is narrower — its certificate is generated on the
-deployment that serves it — and Asgardeo needs none of this. See also
+Thunder's equivalent trade is narrower, because its certificate is generated
+on the deployment that serves it, and Asgardeo needs none of this. See also
 `auth.discovery_failed` in
 [the login guide's troubleshooting](login.md#6-troubleshooting).
 
@@ -149,7 +149,7 @@ On the application's **Protocol** tab:
    login succeeds and no module can be granted anything.
 2. **Public client** selected. This is what removes the client secret; the shell
    is installed on people's machines and cannot hold one.
-3. **PKCE Mandatory** selected, PKCE 'Plain' unselected — the shell only offers
+3. **PKCE Mandatory** selected, PKCE 'Plain' unselected. The shell only offers
    `S256`, and allowing plain would weaken the flow without the shell ever using
    it.
 
@@ -197,8 +197,8 @@ it *for* your application is a separate step afterwards.
 **First, create the resource.** **API Resources → New API Resource**.
 
 1. Give it an **Identifier** and record it. This is the string a module's
-   `audience` names, and — unlike on Asgardeo — it is also what an issued
-   token's `aud` will carry, once section 1's Audience list is populated below.
+   `audience` names. Unlike on Asgardeo, it is also what an issued token's
+   `aud` will carry, once section 1's Audience list is populated below.
 2. Add the scopes the module needs, for example `reference:status:read` and
    `reference:status:write`. Register at least two even when the module only
    uses one: the narrowing experiment works by asking for a strict subset of
@@ -233,18 +233,18 @@ two different populations: the administrator account administers the server,
 while what the application asks for is a user in the user store.
 
 Create a user for this instead, under **User Management → Users**, and set its
-password directly rather than emailing an invitation — the invitation path needs
+password directly rather than emailing an invitation. The invitation path needs
 a working inbox, and login waits only five minutes.
 
-**If — and only if — section 7 left you with an authorization policy**, that
+**If, and only if, section 7 left you with an authorization policy**, that
 user also needs a role carrying the scopes. Authorizing the resource on the
 application establishes what the application *may* ask for; under a policy it
 does not establish what a user is *entitled to*, and the gap surfaces at the
 first brokered acquisition as `auth.narrowing_unavailable` naming permissions.
 Create a role with the application as its audience, attach the API resource and
-select **every** scope the context document lists — not just the one a module
+select **every** scope the context document lists, not just the one a module
 uses, because a session that carries less than it later asks for cannot be
-narrowed — then assign the user to it.
+narrowed. Then assign the user to it.
 
 The reasoning is identical to Asgardeo's and only the console differs; if a
 control is not where this says,
@@ -252,7 +252,7 @@ control is not where this says,
 names the equivalent screens in more detail.
 
 A console change never reaches an existing session. Sign in again after either
-step — and note that a browser SSO session will complete that sign-in without
+step. Note that a browser SSO session will complete that sign-in without
 showing you a login form, which is expected and does not mean the change was
 skipped. Scopes are computed when a token is issued, not frozen into the browser
 session.
@@ -266,13 +266,13 @@ carries its own credential. Register a second application for it:
 
 1. A standard-based application with the **Client Credentials** grant and **no**
    public-client setting.
-2. No redirect URLs, no PKCE — there is no browser and no user.
+2. No redirect URLs, no PKCE. There is no browser and no user.
 3. Authorize the same API resource and scopes from section 7, and add the
    resource to this application's **Audience** list too.
 4. Issue **JWT** access tokens, for the same reason as section 8.
 5. Record the **client ID** and the **client secret**.
 
-Under RBAC there is one further difference from a browser login — a
+Under RBAC there is one further difference from a browser login. A
 client-credentials grant has no user, so a role granting the scopes must be
 assigned to the **application** rather than to a person.
 
@@ -284,7 +284,7 @@ the context document and the job wiring.
 ## 11. Record what you need
 
 - **Client ID**.
-- **Audience**, which is the **API resource identifier** from section 7 — and
+- **Audience**, which is the **API resource identifier** from section 7, and
   which only reaches `aud` because you added it to the application's Audience
   list. This is not the same value as the client ID, and it is not what an
   Asgardeo deployment wants.
