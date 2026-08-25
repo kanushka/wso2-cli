@@ -34,11 +34,18 @@ type fakeReleases struct {
 	tags         []string
 	declarations map[string]catalog.Declaration
 	published    map[string]release.Published
+	// missingDeclaration, if set, is a tag DeclarationAt reports as carrying
+	// no declaration at its ref — the state a tag cut from the wrong commit
+	// is in.
+	missingDeclaration string
 }
 
 func (f fakeReleases) ModuleTags() ([]string, error) { return f.tags, nil }
 
 func (f fakeReleases) DeclarationAt(tag, _ string) (catalog.Declaration, error) {
+	if tag == f.missingDeclaration {
+		return catalog.Declaration{}, fmt.Errorf("no declaration at %s: %w", tag, release.ErrDeclarationMissing)
+	}
 	declaration, found := f.declarations[tag]
 	if !found {
 		return catalog.Declaration{}, fmt.Errorf("no declaration at %s", tag)
@@ -197,5 +204,26 @@ func TestAssembleInputRefusesATagNamingNoBuildableModule(t *testing.T) {
 	world := releasedWorld("ghost/v1.0.0")
 	if _, err := release.AssembleInput(world, referenceDeclarations()); err == nil {
 		t.Fatal("a tag naming no buildable module was assembled into a catalog")
+	}
+}
+
+// A tag cut from the wrong commit — the mistake this guards against actually
+// happened once — carries no declaration at its own ref. It has to be
+// excluded rather than failing every other tag's release.
+func TestAssembleInputExcludesATagWithNoDeclarationAtItsRef(t *testing.T) {
+	world := releasedWorld("reference/v4.4.0", "reference/v4.5.0")
+	world.missingDeclaration = "reference/v4.4.0"
+
+	input, err := release.AssembleInput(world, referenceDeclarations())
+	if err != nil {
+		t.Fatalf("assembling the input returned %v", err)
+	}
+	for _, tag := range input.Tags {
+		if tag == "reference/v4.4.0" {
+			t.Fatalf("the tag with no declaration at its ref was assembled into the catalog: %v", input.Tags)
+		}
+	}
+	if _, published := input.Published["reference/v4.5.0"]; !published {
+		t.Fatal("the valid tag was excluded along with the invalid one")
 	}
 }

@@ -17,12 +17,19 @@
 package release
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/wso2/wso2-cli/internal/catalog"
 )
+
+// ErrDeclarationMissing indicates a tag names a buildable module but the
+// module's declaration does not exist at that ref — most often a tag cut from
+// the wrong commit. Such a tag is not a valid release, so it is excluded from
+// the catalog rather than failing the assembly for every other tag.
+var ErrDeclarationMissing = errors.New("module declaration missing at tag")
 
 // Asset is one file a tag's release published.
 type Asset struct {
@@ -88,6 +95,9 @@ func AssembleInput(releases Releases, declarations []catalog.Declaration) (catal
 				"release: the tag %q names no buildable module in namespace %q", tag, namespace)
 		}
 		declaredAtTag, err := releases.DeclarationAt(tag, declaration.Directory)
+		if errors.Is(err, ErrDeclarationMissing) {
+			continue
+		}
 		if err != nil {
 			return catalog.Input{}, err
 		}

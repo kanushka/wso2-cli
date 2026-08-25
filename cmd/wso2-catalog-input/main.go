@@ -31,9 +31,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -102,8 +104,13 @@ func (p publishedReleases) ModuleTags() ([]string, error) {
 
 func (p publishedReleases) DeclarationAt(tag, directory string) (catalog.Declaration, error) {
 	path := directory + "/" + catalog.DeclarationFileName
-	content, err := p.git("show", tag+":"+path)
+	content, stderr, err := p.gitCapture("show", tag+":"+path)
 	if err != nil {
+		if pathMissingAtRef(stderr) {
+			fmt.Fprintf(os.Stderr, "wso2-catalog-input: %s does not exist at %s; "+
+				"excluding %s from the catalog as an invalid release\n", path, tag, tag)
+			return catalog.Declaration{}, fmt.Errorf("%w: %s at %s", release.ErrDeclarationMissing, path, tag)
+		}
 		return catalog.Declaration{}, fmt.Errorf("reading %s at %s failed: %w", path, tag, err)
 	}
 	var declaration catalog.Declaration
@@ -187,4 +194,30 @@ func (p publishedReleases) command(name string, arguments ...string) (string, er
 		return "", fmt.Errorf("%s %s failed: %w", name, strings.Join(arguments, " "), err)
 	}
 	return string(output), nil
+}
+
+// gitCapture runs a git command, reporting its standard error alongside the
+// usual output-or-error so a caller can tell one failure reason from another.
+// The standard error still reaches the console through the tee, so nothing
+// that would have appeared in the log is lost by capturing it.
+func (p publishedReleases) gitCapture(arguments ...string) (stdout, stderr string, err error) {
+	command := exec.Command("git", arguments...)
+	command.Dir = p.repositoryRoot
+	var errBuffer bytes.Buffer
+	command.Stderr = io.MultiWriter(os.Stderr, &errBuffer)
+	output, err := command.Output()
+	if err != nil {
+		return "", errBuffer.String(),
+			fmt.Errorf("git %s failed: %w", strings.Join(arguments, " "), err)
+	}
+	return string(output), errBuffer.String(), nil
+}
+
+// pathMissingAtRef reports whether git's standard error says the path being
+// read does not exist at the ref, as opposed to some other failure (a network
+// error, an unreadable object, an unauthenticated remote) that a tag being
+// genuinely invalid would not explain.
+func pathMissingAtRef(stderr string) bool {
+	return strings.Contains(stderr, "does not exist in") ||
+		strings.Contains(stderr, "exists on disk, but not in")
 }
