@@ -138,7 +138,7 @@ func TestLoginSmoke(t *testing.T) {
 	// comparison is a set against itself. It holds however the deployment
 	// behaved.
 	if !acquire(t, brokerFor("smoke-login-broad"),
-		auth.Request{Audience: config.Audience, Scopes: config.Scopes},
+		auth.Request{Audience: smoke.ModuleAudience, Scopes: config.Scopes},
 		"granted", "everything the session carries") {
 		// The broad request already refused, and the narrow one would refuse
 		// the same way for the same reason — a deployment that will not issue
@@ -162,7 +162,7 @@ func TestLoginSmoke(t *testing.T) {
 		return
 	}
 	acquire(t, brokerFor("smoke-login-narrowed"),
-		auth.Request{Audience: config.Audience, Scopes: []string{target}},
+		auth.Request{Audience: smoke.ModuleAudience, Scopes: []string{target}},
 		"narrowed", "one permission out of the "+strconv.Itoa(len(config.Scopes))+" the session holds")
 }
 

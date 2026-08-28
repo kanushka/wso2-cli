@@ -133,6 +133,6 @@ func TestDeviceLoginSmoke(t *testing.T) {
 		Selection:    selection,
 		InvocationID: "smoke-device-narrowed",
 		StateRoot:    stateRoot,
-	}, auth.Request{Audience: config.Audience, Scopes: []string{target}},
+	}, auth.Request{Audience: smoke.ModuleAudience, Scopes: []string{target}},
 		"narrowed", "one permission out of the several a device-established session holds")
 }

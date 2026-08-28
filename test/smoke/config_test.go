@@ -319,8 +319,12 @@ func TestCapabilitiesDeclareExactlyWhatTheRunRequests(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	capabilities := config.Capabilities()
-	if !slices.Contains(capabilities.AuthAudiences, config.Audience) {
-		t.Errorf("audiences = %v, want to contain %q", capabilities.AuthAudiences, config.Audience)
+	// The receipt declares the module's own logical name, not the deployment's
+	// audience. Holding the two equal would model a coincidence no real module
+	// has, and would leave every live run unable to fail on a broker that
+	// compared them.
+	if !slices.Contains(capabilities.AuthAudiences, smoke.ModuleAudience) {
+		t.Errorf("audiences = %v, want to contain %q", capabilities.AuthAudiences, smoke.ModuleAudience)
 	}
 	for _, scope := range config.Scopes {
 		if !slices.Contains(capabilities.AuthScopes, scope) {
@@ -378,5 +382,39 @@ func TestEmpiricalIsOptedIntoExplicitly(t *testing.T) {
 				t.Errorf("Empirical = %v, want %v", got, testCase.wantSet)
 			}
 		})
+	}
+}
+
+// TestTheRunAsksByALogicalAudienceAndProvesTheDeploymentsOwn is the regression
+// guard for the blind spot this suite used to carry.
+//
+// Every live run once took a single WSO2_SMOKE_AUDIENCE for both the audience
+// the module asks by and the one the deployment binds. That models a
+// coincidence no real module has: a module's audience is a constant compiled
+// into it, identical against every deployment, while a deployment's is its own
+// — the client ID on Asgardeo, the resource identifier on Identity Server, a
+// URI on Thunder. With the two held equal the gate could not fail on a broker
+// that compared them, and one shipped that did.
+//
+// Keeping them distinct is what makes a live run evidence about the real shape.
+func TestTheRunAsksByALogicalAudienceAndProvesTheDeploymentsOwn(t *testing.T) {
+	values := configured()
+	values[smoke.AudienceVar] = "M0Hkzofj2ZoTEKuEJEPS75EfW8ga" // an Asgardeo client ID
+	config, err := smoke.Load(environment(values))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if smoke.ModuleAudience == config.Audience {
+		t.Fatalf("the module asks by %q and the deployment binds %q; a live run that holds them "+
+			"equal cannot fail on a broker that compares them", smoke.ModuleAudience, config.Audience)
+	}
+	if got := config.Capabilities().AuthAudiences; !slices.Contains(got, smoke.ModuleAudience) {
+		t.Errorf("the receipt declares %v, want the module's own %q", got, smoke.ModuleAudience)
+	}
+	product := config.Document().Identities[0].Products[smoke.Namespace]
+	if product.Audience != config.Audience {
+		t.Errorf("the context registers %q, want the deployment's own %q",
+			product.Audience, config.Audience)
 	}
 }
