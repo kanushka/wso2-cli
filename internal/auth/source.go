@@ -73,6 +73,7 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 		return sessionSource{
 			namespace: b.namespace(),
 			identity:  b.Selection.Identity,
+			audience:  b.productAudience(),
 			sessions:  session.Store{StateRoot: b.StateRoot},
 			client:    b.httpClient(),
 		}, nil
@@ -96,8 +97,19 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 // The registration is the deployment's own statement of what this identity may
 // reach, so a request it does not cover is refused rather than attempted: an
 // issuer would answer with its own error, and a user reading it would have no
-// way to tell a misregistered product from a broken one. Audiences and scope
-// names are not secrets, so a refusal states both sides of the mismatch.
+// way to tell a misregistered product from a broken one. Scope names are not
+// secrets, so a refusal states both sides of the mismatch.
+//
+// It deliberately does not compare the module's requested audience against the
+// registered one. The two name the same protected resource in different
+// vocabularies: a module carries the logical name its API is known by, compiled
+// in and identical for every deployment, while the registration carries the
+// concrete string this deployment stamps into aud — the client ID on Asgardeo,
+// the API resource identifier on Identity Server, an absolute URI on Thunder.
+// Requiring them to be equal would make a module installable only where its
+// compiled-in constant happened to match a deployment value, so the binding is
+// proved where it is real instead: against the token the deployment issued, in
+// tokenResponse.verify.
 func (b *Broker) checkProduct(request Request) error {
 	product, configured := b.Selection.Identity.Products[b.Namespace]
 	if !configured {
@@ -107,12 +119,14 @@ func (b *Broker) checkProduct(request Request) error {
 			fmt.Sprintf("Add the %q product to this identity in the context document, or select a "+
 				"context whose identity reaches it.", b.namespace()))
 	}
-	if product.Audience != "" && request.Audience != product.Audience {
+	if product.Audience == "" {
 		return denial("auth.product_not_configured",
-			fmt.Sprintf("the %q module asked for the %q audience, and this identity registers its %q "+
-				"product against %q", b.namespace(), request.Audience, b.namespace(), product.Audience),
-			"Register the audience the module needs on this identity's product entry, or install a "+
-				"module built for the deployment this identity serves.")
+			fmt.Sprintf("the identity the %q context authenticates as registers no audience for its "+
+				"%q product, so the shell cannot prove what a token it issues is bound to",
+				b.Selection.Context.Name, b.namespace()),
+			"Set the audience this deployment binds access to on this identity's product entry. It "+
+				"is the client ID on Asgardeo, the API resource identifier on Identity Server, and "+
+				"the resource server's URI on Thunder.")
 	}
 	if len(product.Scopes) > 0 {
 		for _, scope := range request.Scopes {
@@ -193,10 +207,21 @@ func (b *Broker) inlineSource() (source, error) {
 		namespace:      b.namespace(),
 		contextName:    b.Selection.Context.Name,
 		identity:       b.Selection.Identity,
+		audience:       b.productAudience(),
 		secret:         secret,
 		secretVariable: variable,
 		client:         b.httpClient(),
 	}, nil
+}
+
+// productAudience is the concrete audience this identity registers for the
+// namespace asking: the string this deployment stamps into an access token's
+// aud claim, and so the one a grant is proved against.
+//
+// checkProduct has already refused an empty one by the time any source is
+// built, so a caller holds a value the deployment actually stated.
+func (b *Broker) productAudience() string {
+	return b.Selection.Identity.Products[b.Namespace].Audience
 }
 
 // httpClient is what reaches an issuer. It defaults to the process-wide client

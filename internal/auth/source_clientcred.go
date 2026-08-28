@@ -52,6 +52,10 @@ type clientCredentialsSource struct {
 	// identity names the issuer and the OAuth client to present. It holds no
 	// credential.
 	identity contexts.Identity
+	// audience is the concrete audience the identity registers for this
+	// namespace: what a resource indicator names, and what an issued token is
+	// proved to be bound to.
+	audience string
 	// secret is the client secret, in process memory for the length of one
 	// grant.
 	secret string
@@ -80,18 +84,20 @@ func (s clientCredentialsSource) mint(request Request, now time.Time) (Grant, er
 		"scope":      {strings.Join(request.Scopes, " ")},
 	}
 	// A deployment that decides the audience per request is told which one, and
-	// the module's own request is what names it. There is no earlier
-	// authorization for this grant to inherit a binding from, so the indicator
-	// is the only thing that can bind the token at all.
+	// the identity's registration for this product is what names it. There is
+	// no earlier authorization for this grant to inherit a binding from, so the
+	// indicator is the only thing that can bind the token at all. It carries the
+	// registered value rather than the module's logical name because the
+	// indicator has to be a resource this deployment knows.
 	if s.identity.Auth.Derivation() == contexts.DerivationTokenResource {
-		form.Set("resource", request.Audience)
+		form.Set("resource", s.audience)
 	}
 	issued, err := requestToken(ctx, s.client, endpoint, form,
 		clientAuth{id: s.identity.Auth.ClientID, secret: s.secret})
 	if err != nil {
 		return Grant{}, s.refusedGrant(err, form.Get("resource"))
 	}
-	facts, err := issued.verify(request, s.namespace)
+	facts, err := issued.verify(request, s.namespace, s.audience)
 	if err != nil {
 		return Grant{}, err
 	}
