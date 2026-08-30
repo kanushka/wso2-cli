@@ -541,7 +541,11 @@ first-time user meets most often. None of them reaches a browser.
   digits and dashes, starting with a letter), a `type` that is not exactly
   `cloud` or `onprem`, a missing `endpoint` on a product entry, or the
   `credentialRef` / `clientSecretVariable` rule: exactly one of them belongs on
-  an identity, and which one is decided by `auth.kind`.
+  an identity, and which one is decided by `auth.kind`. `wso2 identity
+  add-product` reports it for an endpoint that embeds user information, with a
+  recovery of its own naming what to take out; the rejected endpoint is never
+  repeated back, because it is the likeliest place for a credential to have
+  been typed by mistake. Nothing is written when a command is refused this way.
 - **`contexts.document_malformed` is about content, not about version.** If the
   shell declined to overwrite your file because of its `schemaVersion`, the code
   is `contexts.document_frozen` below, and the field reference will not help.
@@ -617,11 +621,12 @@ of them is reported.
   value that is not an issuer URL, and a missing `https://` is the usual cause.
   `wso2 identity add-product` reports it for a product namespace, which follows
   the same name rule, and for a product the context document will not hold: an
-  endpoint that embeds user information, an endpoint no URL parser reads, and a
-  product an identity bound to one protected resource cannot carry. The
-  endpoint is never repeated back, because a rejected one is the likeliest
-  place for a credential to have been typed by mistake. Nothing was written, so
-  retyping the command is the whole fix.
+  endpoint no URL parser reads, or a product an identity bound to one protected
+  resource cannot carry. Nothing was written, so retyping the command is
+  usually the whole fix. The resource-bound case is the exception and says so:
+  no correction of the command succeeds, because the constraint is on the
+  identity rather than on a flag, so the recovery names `--replace` and a
+  second `wso2 login --context <name>` instead.
 - **`shell.missing_argument`, `shell.unexpected_argument`.** The command was
   given too few or too many arguments. The recovery shows the shape it expects.
 

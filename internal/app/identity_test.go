@@ -207,6 +207,16 @@ func TestAnEndpointEmbeddingUserInformationIsRefused(t *testing.T) {
 	if products := identityNamed(t, loadDocument(t, shell), "idp-customer-example").Products; len(products) != 0 {
 		t.Errorf("a refused endpoint was written: %+v", products)
 	}
+	// The document's own refusal already carries the best recovery in this
+	// family: it names the thing to take out of the endpoint, and it says why.
+	// Rewording a refusal at this call site must not overwrite a recovery that
+	// was better than what replaces it.
+	if !strings.Contains(errOut.String(), "Remove the user information from the endpoint") {
+		t.Errorf("the refusal lost its own recovery:\n%s", errOut)
+	}
+	if strings.Contains(errOut.String(), "correct the command and run it again") {
+		t.Errorf("the refusal was given the generic recovery in place of its own:\n%s", errOut)
+	}
 }
 
 func TestAnInvalidNamespaceIsRefusedAsTheArgumentItIs(t *testing.T) {
@@ -459,6 +469,17 @@ func TestASecondProductOnAResourceBoundIdentityIsRefusedIntelligibly(t *testing.
 	}
 	if !strings.Contains(errOut.String(), "was not changed") {
 		t.Errorf("the refusal does not say the document is unchanged:\n%s", errOut)
+	}
+	// No correction of this command succeeds: the constraint is on the
+	// identity rather than on any flag, so advice to correct the command and
+	// re-run it would be false. What does work has to be named instead.
+	if strings.Contains(errOut.String(), "correct the command and run it again") {
+		t.Errorf("the refusal offers a correction of a command no correction fixes:\n%s", errOut)
+	}
+	for _, want := range []string{"--replace", "wso2 login"} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("the refusal does not name %s, which does work:\n%s", want, errOut)
+		}
 	}
 	if products := identityNamed(t, loadDocument(t, shell), "idp-customer-example").Products; len(products) != 1 {
 		t.Errorf("the refused write reached the document: %+v", products)

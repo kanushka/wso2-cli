@@ -166,6 +166,14 @@ func (s Shell) identityAddProduct(
 	// command just built, and nothing before it is; that is what lets the
 	// refusal be reworded honestly. See explainProductRefusal.
 	changed := false
+	// uncorrectable records that the identity is bound to one protected
+	// resource and the change would leave it holding more than one product.
+	// Such a command cannot be made to succeed by correcting a flag, whichever
+	// of the document's checks refuses it first, so the ordinary "correct it
+	// and run it again" would be false. It is read from the identity's own
+	// Derivation rather than reasoned about here: this decides wording, never
+	// whether to refuse, which stays entirely the document's.
+	uncorrectable := false
 	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
 		position := slices.IndexFunc(document.Identities, func(candidate contexts.Identity) bool {
 			return candidate.Name == identity
@@ -193,11 +201,13 @@ func (s Shell) identityAddProduct(
 		products[namespace] = product
 		declared.Products = products
 		document.Identities[position] = declared
+		uncorrectable = declared.Auth.Derivation() == contexts.DerivationTokenResource &&
+			len(products) > 1
 		changed = true
 		return document, nil
 	})
 	if err != nil {
-		return s.explainProductRefusal(root, changed, err)
+		return s.explainProductRefusal(root, changed, uncorrectable, err)
 	}
 
 	if mode == output.ModeJSON {
@@ -385,32 +395,67 @@ func productExists(identity, namespace string) problem.Problem {
 			"Pass --replace to overwrite it, which replaces the whole record.")
 }
 
-// explainProductRefusal turns the document's refusal of the product just built
-// into a complaint about the command that built it.
+// explainProductRefusal replaces a document refusal's generic recovery with one
+// that fits a write that never happened.
 //
 // The document's own validation is what refuses an endpoint that embeds user
 // information, an endpoint no URL parser reads, and a product a resource-bound
 // identity cannot carry. Those checks are not repeated in this package: a
-// second copy is how the two come to disagree. What is wrong with the refusal
-// at this call site is only its recovery — "correct the context document, or
-// remove it" is advice about a file that was never written, and following it
-// would destroy the identity the user just logged in as.
+// second copy is how the two come to disagree. Neither is the message touched,
+// which is also what keeps the rejected endpoint unechoed — Product.validate
+// deliberately never repeats it, and neither does anything here.
+//
+// Only the recovery is replaced, and only when it is the generic one. Several
+// of these refusals carry a sentence naming the exact thing to change; the
+// endpoint-embeds-credentials refusal is the one that matters most, and
+// overwriting its advice with anything generic would make the refusal worse
+// exactly where it counts. The problem code cannot tell the two apart, because
+// both are contexts.document_malformed, so the question asked is whether the
+// recovery is the default one: contexts.CarriesDefaultDocumentRecovery.
+//
+// What makes the default one wrong here is that it offers to remove a document
+// this command never wrote to. Following it would destroy the identity the user
+// just logged in as.
 //
 // Whether the refusal is about the change is answered by changed, not by
 // reading the message. contexts.Update loads the document, calls the change,
 // and only then encodes and decodes the result, so a refusal raised before the
 // change returned cannot be about the change, and one raised after it can be
-// about nothing else. The message is kept exactly as the document phrased it,
-// which is also what keeps the rejected endpoint unechoed: Product.validate
-// deliberately never repeats it, and neither does anything here.
-func (s Shell) explainProductRefusal(stateRoot string, changed bool, err error) error {
+// about nothing else.
+func (s Shell) explainProductRefusal(stateRoot string, changed, uncorrectable bool, err error) error {
 	err = s.explainWriteRefusal(stateRoot, err)
 	var typed problem.Problem
-	if !changed || !errors.As(err, &typed) || typed.Code != "contexts.document_malformed" {
+	if !changed || !errors.As(err, &typed) || !contexts.CarriesDefaultDocumentRecovery(err) {
 		return err
 	}
 	return problem.New(problem.CategoryUsage, "shell.invalid_argument", typed.Message).
-		WithRecovery("The context document was not changed. " +
-			"Run wso2 identity list to see what the identity records, then correct the " +
-			"command and run it again. " + identityAddProductUsage)
+		WithRecovery(productRefusalRecovery(uncorrectable))
+}
+
+// productRefusalRecovery is the way out of a refused product record.
+//
+// The resource-bound case gets its own, because the ordinary advice would be
+// false there: the constraint is on the identity rather than on any flag, so no
+// correction of the command that was typed succeeds. What does succeed is named
+// instead. Both routes have been driven: --replace on the product such an
+// identity already holds is accepted, and a second login under another name
+// produces a second identity for the other product.
+//
+// This lives here rather than beside the check in internal/contexts because it
+// is advice about commands. The same refusal reaches a plain reader — wso2
+// context list, loading a document already holding two products under such an
+// identity — and telling that reader to pass --replace to a command they did
+// not run would be nonsense.
+func productRefusalRecovery(uncorrectable bool) string {
+	if uncorrectable {
+		return "The context document was not changed, and correcting the flags will not " +
+			"help: this identity is bound to one protected resource, so it carries one " +
+			"product and no more. Pass --replace to record this product in place of the " +
+			"one it holds, or run wso2 login --url <issuer> --context <name> to create a " +
+			"second identity for the other product. Run wso2 identity list to see what " +
+			"each identity records."
+	}
+	return "The context document was not changed. Run wso2 identity list to see what the " +
+		"identity records, then correct the command and run it again. " +
+		identityAddProductUsage
 }

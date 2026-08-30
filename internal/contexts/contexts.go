@@ -338,10 +338,34 @@ func (d Document) validate() error {
 	return nil
 }
 
+// DefaultDocumentRecovery is the way out of a document that is wrong as it sits
+// on disk. It is the right advice for a reader, which found the fault already
+// written, and the wrong advice for a writer, which was refused before writing
+// anything: following it there would destroy contexts the fault never reached.
+//
+// It is exported so a writer can tell this generic advice from a refusal that
+// carries specific advice of its own, which several do. See
+// CarriesDefaultDocumentRecovery.
+const DefaultDocumentRecovery = "Correct the context document, or remove it to run without a context."
+
+// CarriesDefaultDocumentRecovery reports whether err offers only the generic
+// document recovery above, rather than advice specific to what was wrong.
+//
+// A writer that rewords a refusal asks this first. Refusals raised through
+// contextProblem — an endpoint embedding user information is the one that
+// matters most — carry a sentence naming the exact thing to change, and
+// replacing that with anything generic makes the refusal worse. Gating on the
+// problem code alone cannot tell the two apart: both are
+// contexts.document_malformed.
+func CarriesDefaultDocumentRecovery(err error) bool {
+	var typed problem.Problem
+	return errors.As(err, &typed) && typed.Recovery == DefaultDocumentRecovery
+}
+
 func malformed(detail string) problem.Problem {
 	return contextProblem("contexts.document_malformed",
 		"the WSO2 CLI context document "+detail,
-		"Correct the context document, or remove it to run without a context.")
+		DefaultDocumentRecovery)
 }
 
 func contextProblem(code, message, recovery string) problem.Problem {
