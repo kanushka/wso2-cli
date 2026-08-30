@@ -375,7 +375,7 @@ context, so no shell command can grant itself access. A production
 survives a writable store: **writing a context or an identity grants nothing.**
 Why the invariant is stated this way, rather than as a rule about which
 command is allowed to write, is recorded in
-[ADR 0011](adr/0011-writing-a-context-or-identity-grants-nothing.md).
+[ADR 0012](adr/0012-writing-a-context-or-identity-grants-nothing.md).
 
 It holds through five properties, each of which is testable:
 

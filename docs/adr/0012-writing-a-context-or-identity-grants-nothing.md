@@ -1,4 +1,4 @@
-# ADR 0011: Writing a Context or an Identity Grants Nothing
+# ADR 0012: Writing a Context or an Identity Grants Nothing
 
 **Status:** Accepted
 
