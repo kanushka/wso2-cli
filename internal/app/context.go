@@ -299,8 +299,12 @@ func (s Shell) contextUse(command *cobra.Command, name string) error {
 		return s.explainWriteRefusal(root, err)
 	}
 
+	// Encoded directly rather than through renderContext: this site has already
+	// branched on the mode, and the table branch below is prose rather than a
+	// field table, so contextSelection has no rows to render and no fields()
+	// method to leave unused.
 	if mode == output.ModeJSON {
-		return renderContext(s.Streams.Out, mode, contextSelection{Context: name})
+		return encodeContextJSON(s.Streams.Out, contextSelection{Context: name})
 	}
 	_, err = fmt.Fprintf(s.Streams.Out, "\nCommands now run against the %q context.\n", name)
 	return err
@@ -458,10 +462,6 @@ func (c contextCreated) fields() [][2]string {
 	}
 }
 
-func (c contextSelection) fields() [][2]string {
-	return [][2]string{{"Context", c.Context}}
-}
-
 func (c contextCurrent) fields() [][2]string {
 	return [][2]string{
 		{"Context", c.Context},
@@ -473,8 +473,15 @@ func (c contextCurrent) fields() [][2]string {
 
 // reportable is a result of this family that renders in either mode.
 type reportable interface {
-	// fields are the labelled values the table shows, in the order the JSON
-	// document declares them, so the two renderings cannot drift apart.
+	// fields are the labelled values the table shows, listed in the order the
+	// JSON document declares them.
+	//
+	// That order is kept by hand, and so is the membership: a member added to
+	// the struct and not to fields() reaches JSON and is silently missing from
+	// the table. The compiler catches the reverse and nothing catches this
+	// direction, so the two are written together or not at all. contextCurrent
+	// departs from the membership deliberately — see the comment there — which
+	// is why this is a convention rather than a guarantee.
 	fields() [][2]string
 }
 
