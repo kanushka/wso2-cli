@@ -32,10 +32,13 @@ import (
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
-// NonInteractiveEnvVar declares that nothing may prompt, open a browser, or
-// wait for a human. A job that sets it wants to fail fast on a misconfigured
-// identity rather than hang until its own timeout.
-const NonInteractiveEnvVar = "WSO2_NON_INTERACTIVE"
+// NoInputEnvVar declares that nothing may prompt, open a browser, or wait for a
+// human. A job that sets it wants to fail fast on a misconfigured identity
+// rather than hang until its own timeout.
+//
+// It is one control rather than two: the architecture names --no-input, and two
+// adjacent spellings for one idea is worse than one broader flag. See #112 D12.
+const NoInputEnvVar = "WSO2_NO_INPUT"
 
 // loginDeadline bounds how long a browser login waits for the user to come
 // back. It is generous because a human is signing in, and it exists at all
@@ -52,8 +55,8 @@ var deviceLoginDeadline = 15 * time.Minute
 // loginFlags are the flags wso2 login owns. It owns all of them: unlike a
 // product command, there is no module to pass an unrecognized argument on to.
 type loginFlags struct {
-	contextName    string
-	nonInteractive bool
+	contextName string
+	noInput     bool
 }
 
 // login establishes the selected context's interactive session.
@@ -76,7 +79,7 @@ func (s Shell) login(args []string) error {
 	if err := loginKindGate.check(selected); err != nil {
 		return err
 	}
-	if flags.nonInteractive || os.Getenv(NonInteractiveEnvVar) != "" {
+	if flags.noInput || os.Getenv(NoInputEnvVar) != "" {
 		// Named for the mode actually refused. Both are interactive and both
 		// are wrong in CI, but telling a device login it is a browser login
 		// sends the reader looking for a browser that was never involved.
@@ -280,8 +283,8 @@ func parseLoginArgs(args []string) (loginFlags, error) {
 			}
 			flags.contextName = name
 			remaining = remaining[consumed:]
-		case argument == "--non-interactive":
-			flags.nonInteractive = true
+		case argument == "--no-input":
+			flags.noInput = true
 			remaining = remaining[1:]
 		case strings.HasPrefix(argument, "-"):
 			return loginFlags{}, loginUsage("shell.unknown_flag",
@@ -295,7 +298,7 @@ func parseLoginArgs(args []string) (loginFlags, error) {
 }
 
 // loginUsageRecovery is the way back from every wso2 login usage refusal.
-const loginUsageRecovery = "Run wso2 login [--context <name>] [--non-interactive]."
+const loginUsageRecovery = "Run wso2 login [--context <name>] [--no-input]."
 
 func loginUsage(code, message string) problem.Problem {
 	return problem.New(problem.CategoryUsage, code, message).WithRecovery(loginUsageRecovery)

@@ -67,6 +67,37 @@ is only for a machine where the shell is already installed. The administrator
 must establish trust in the bootstrap before execution through platform signing
 on Windows or macOS, or detached-signature verification on Linux.
 
+## Exit classes
+
+The shell alone decides the process exit status: a module returns a typed
+problem and the shell maps its category to one of these classes. The mapping is
+a stable contract for automation, so a script may branch on the status without
+parsing any output.
+
+| Status | Class | What produces it |
+| --- | --- | --- |
+| `0` | Success | The command completed. |
+| `64` | Usage | Invalid arguments, flags, or configuration, including a malformed or unselected context. |
+| `69` | Module trust | A module integrity, signature, platform, or compatibility failure. |
+| `70` | Module process | A protocol violation, or a module process that failed to launch or crashed. |
+| `75` | Product service | A failure the product service itself reported. |
+| `77` | Authentication policy | An authentication or broker policy failure, including a missing or expired session. |
+
+An unrecognized problem category is reported as a module process failure, `70`,
+rather than as success.
+
+## Non-interactive use
+
+`--no-input` declares that nothing may prompt, open a browser, or wait for a
+human. `WSO2_NO_INPUT`, set to any non-empty value, does the same for every
+invocation in the environment. A job that sets either wants to fail fast on a
+misconfigured identity rather than hang until its own timeout.
+
+A browser or device login under `--no-input` is refused with
+`auth.non_interactive` and exit class `77`. Automation authenticates with a
+client-credentials identity instead, which acquires access inline with no login
+step.
+
 ## Sample output
 
 ### Version

@@ -38,7 +38,7 @@ import (
 func TestLoginGivesUpWhenTheBrowserNeverComesBack(t *testing.T) {
 	keyring.MockInit()
 	t.Setenv("WSO2_CONTEXT", "")
-	t.Setenv("WSO2_NON_INTERACTIVE", "")
+	t.Setenv("WSO2_NO_INPUT", "")
 	previous := loginDeadline
 	loginDeadline = 50 * time.Millisecond
 	t.Cleanup(func() { loginDeadline = previous })

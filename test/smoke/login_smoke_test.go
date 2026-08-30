@@ -67,7 +67,7 @@ func TestLoginSmoke(t *testing.T) {
 
 	// A developer's own environment must not decide what this run proves.
 	t.Setenv("WSO2_CONTEXT", "")
-	t.Setenv("WSO2_NON_INTERACTIVE", "")
+	t.Setenv("WSO2_NO_INPUT", "")
 
 	stateRoot := filepath.Join(t.TempDir(), "state")
 	if err := fixture.WriteV2(stateRoot, config.Document()); err != nil {

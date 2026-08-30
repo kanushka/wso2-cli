@@ -90,7 +90,7 @@ func installLogin(t *testing.T, shell app.Shell, document contexts.Document) {
 func newLoginShell(t *testing.T) (app.Shell, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
 	t.Setenv("WSO2_CONTEXT", "")
-	t.Setenv("WSO2_NON_INTERACTIVE", "")
+	t.Setenv("WSO2_NO_INPUT", "")
 	shell, out, errOut := newShell(t)
 	shell.OpenBrowser = func(string) error {
 		t.Error("the shell opened a browser for a login it should have refused")
@@ -108,20 +108,20 @@ func TestLoginRefusals(t *testing.T) {
 		code string
 	}{
 		{"no context", nil, nil, nil, "auth.context_not_selected"},
-		{"non-interactive flag", browserDoc, []string{"--non-interactive"}, nil, "auth.non_interactive"},
-		{"non-interactive environment", browserDoc, nil,
-			map[string]string{"WSO2_NON_INTERACTIVE": "1"}, "auth.non_interactive"},
+		{"no-input flag", browserDoc, []string{"--no-input"}, nil, "auth.non_interactive"},
+		{"no-input environment", browserDoc, nil,
+			map[string]string{"WSO2_NO_INPUT": "1"}, "auth.non_interactive"},
 		{"client credentials", identityDoc(contexts.KindClientCredentials), nil, nil, "auth.login_not_required"},
-		{"non-interactive with an inline identity", identityDoc(contexts.KindClientCredentials),
-			[]string{"--non-interactive"}, nil, "auth.login_not_required"},
+		{"no-input with an inline identity", identityDoc(contexts.KindClientCredentials),
+			[]string{"--no-input"}, nil, "auth.login_not_required"},
 		// A device login is interactive too, so it is refused in CI for the
 		// same reason a browser login is: nothing may wait on a human there.
 		// Both doors are checked, because a job that sets the variable rather
 		// than passing the flag is the commoner of the two.
-		{"non-interactive flag with a device identity", identityDoc(contexts.KindOAuthDevice),
-			[]string{"--non-interactive"}, nil, "auth.non_interactive"},
-		{"non-interactive environment with a device identity", identityDoc(contexts.KindOAuthDevice),
-			nil, map[string]string{"WSO2_NON_INTERACTIVE": "1"}, "auth.non_interactive"},
+		{"no-input flag with a device identity", identityDoc(contexts.KindOAuthDevice),
+			[]string{"--no-input"}, nil, "auth.non_interactive"},
+		{"no-input environment with a device identity", identityDoc(contexts.KindOAuthDevice),
+			nil, map[string]string{"WSO2_NO_INPUT": "1"}, "auth.non_interactive"},
 		{"personal access token kind", identityDoc(contexts.KindPAT), nil, nil, "auth.kind_not_implemented"},
 	}
 	for _, testCase := range cases {
@@ -173,7 +173,10 @@ func TestLoginRefusesADevelopmentCredentialContext(t *testing.T) {
 }
 
 func TestLoginRefusesUnknownArguments(t *testing.T) {
-	for _, argument := range []string{"--nope", "extra"} {
+	// --non-interactive is the spelling wso2 login shipped before #122 renamed
+	// it. It is listed here so the rename cannot be half-applied: a build that
+	// still answered to it would fail this test rather than quietly accept both.
+	for _, argument := range []string{"--nope", "extra", "--non-interactive"} {
 		t.Run(argument, func(t *testing.T) {
 			shell, _, errOut := newLoginShell(t)
 			installLogin(t, shell, browserDoc("https://issuer.example.test"))

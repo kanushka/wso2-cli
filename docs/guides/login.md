@@ -471,8 +471,12 @@ resolution without needing a module.
 
 `WSO2_HOME` must be absolute. `WSO2_CONTEXT` selects the context without a flag.
 
-Also set `WSO2_NON_INTERACTIVE=1` on any job where a stray `wso2 login` should
-fail loudly rather than sit waiting on a browser that will never open.
+Also set `WSO2_NO_INPUT=1` on any job where a stray `wso2 login` should fail
+loudly rather than sit waiting on a browser that will never open. The
+`--no-input` flag says the same thing for one invocation. Either way nothing
+prompts, opens a browser, or waits for a human, and a browser or device login
+is refused with `auth.non_interactive`. See [Non-interactive
+use](../reference/commands.md#non-interactive-use) in the command reference.
 
 Each command exchanges the client secret for an access token narrowed to what
 the module asked for. The secret is read into process memory for the length of
@@ -703,10 +707,10 @@ There is no session to establish; just run the command (section 5).
 
 ### `auth.non_interactive`
 
-`wso2 login` was run with `--non-interactive`, or with `WSO2_NON_INTERACTIVE`
-set. This is the guard that stops a CI job from waiting forever on a browser,
-or, on a device context, from waiting forever on an approval no one is there to
-give. The message names which of the two it refused.
+`wso2 login` was run with `--no-input`, or with `WSO2_NO_INPUT` set. This is
+the guard that stops a CI job from waiting forever on a browser, or, on a
+device context, from waiting forever on an approval no one is there to give.
+The message names which of the two it refused.
 
 ### `auth.kind_not_implemented`
 
