@@ -73,7 +73,7 @@ walkthrough states its product's answer and shows the measurement behind it.
 
 ---
 
-## 2. Write the context document
+## 2. The context document
 
 You do not have to write this file by hand. `wso2 login --url <issuer>
 --client-id <id>` creates the identity and the context it authenticates, and
@@ -169,7 +169,7 @@ for that product, including `type` and any product-specific member.
 | `auth.issuer` | The issuer, verbatim from its discovery document. |
 | `auth.clientId` | The registered public client. |
 | `auth.tenant` | The identity's home organization. |
-| `auth.provider` | Names the product when the shell must ask it for tokens in a product-specific shape. Required for Thunder; see [its walkthrough](login-thunder.md#9-write-the-context-document). |
+| `auth.provider` | Names the product when the shell must ask it for tokens in a product-specific shape. Required for Thunder; see [its walkthrough](login-thunder.md#9-log-in-and-check-what-it-wrote). |
 | `auth.credentialRef` | The name the session is stored under in the OS secure store. **Required** for `oauth-browser` and `oauth-device`; **not allowed** for `client-credentials`. Same character rules as an identity name. |
 | `products.<namespace>` | What this identity may reach for one module. The namespace is the module's own name, and follows the same character rules as an identity name. |
 | `products.<namespace>.endpoint` | The product's base URL. **Required** on every product entry, and must be an absolute `http` or `https` URL with a host. |
@@ -633,12 +633,18 @@ of them is reported.
 ### `auth.context_not_selected`
 
 There is no context document at all, or it declares no context to select.
-Create `~/.wso2/cli/contexts.json` as in section 2.
+Run `wso2 login --url <issuer> --client-id <id>`, which creates the identity
+and the context it authenticates, or `wso2 context use <name>` to select one
+that already exists. `wso2 context list` shows what is configured. Writing
+`contexts.json` by hand, as section 2 describes, still works and is what that
+section documents, but it is no longer the way in.
 
 ### `shell.unknown_command`
 
-The first word was not `help`, `login` or `version`, and no installed module
-owns that namespace. See the caveat at the end of section 5.2.
+The first word was not a shell command — `context`, `help`, `identity`,
+`login`, `logout`, `module` or `version` — and no installed module owns that
+namespace. `wso2 help` lists the commands the shell owns. See the caveat at
+the end of section 5.2.
 
 ### `auth.discovery_failed`
 

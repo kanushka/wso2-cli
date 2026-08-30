@@ -53,10 +53,25 @@ credential or a capability; whether the command also authenticates, imports,
 or renames is a separate question with its own review, not an exception to
 this one.
 
-**An issuer or client ID typo is a `wso2 login` failure, not a
-`wso2 context create` failure.** A user who mistypes `--url` sees a working
-write followed by an authentication refusal, not a refusal at write time; the
+**An issuer or client ID typo is an authentication failure, not a document
+failure.** `wso2 context create` records the identity a context names and
+never contacts it, so a context whose identity is misconfigured is written
+without complaint and refused later, by the command that needs access. The
 document itself is never the thing that is wrong.
+
+`wso2 login --url` is the one writer that both authenticates and writes, and
+it does them in that order: it authenticates first and records the identity
+and context only once the issuer has answered. That ordering does not follow
+from this decision — writing grants nothing either way — but from what a
+failure leaves behind. Writing first would leave a context naming an issuer
+that refused, which a user must delete before retrying the corrected command,
+and hand-deleting configuration is the round trip
+[#112](https://github.com/wso2/wso2-cli/issues/112) exists to remove. The cost
+is the mirror image: a session established and then not recorded. Login
+therefore answers everything it can without the network before it starts —
+the shape of `--url`, the name, whether an identity of that name is something
+else, and whether this shell may write the document that is there — so that
+what remains is only a transient failure a retry can clear.
 
 **The documented `credentialRef` examples must match the schema.** They once
 showed a reference like `keychain://wso2/acme-cloud`, not the bare opaque word

@@ -6,7 +6,7 @@ the three deployments `wso2 login` supports. Asgardeo and ThunderID have
 after registration is the same document for all three products: writing the
 context document, logging in, CI, troubleshooting. Read this one for
 the registration, then return to
-[section 2 of the login guide](login.md#2-write-the-context-document).
+[section 2 of the login guide](login.md#2-the-context-document).
 
 **Measured against 7.3.0 on 2026-08-06.** Where this guide states what a
 deployment does rather than what a control is called, that is the version it was
@@ -298,9 +298,19 @@ the context document and the job wiring.
 
 ---
 
-## 12. Write the context document
+## 12. Log in, and check what it wrote
 
-Everything from here is [the main login guide](login.md), from section 2. An
+With the issuer and client ID from the section above, one command creates
+the identity and the context and signs you in:
+
+```console
+$ wso2 login --url https://is.example.com/oauth2/token \
+    --client-id <client-id> --context is-local
+```
+
+It reports the names it assigned, and `wso2 context list` shows them.
+Nothing below has to be typed by hand; it is what the document now holds,
+and reading it is how you check the login recorded what you expected. Everything from here is [the main login guide](login.md), from section 2. An
 Identity Server identity is `"type": "onprem"`, and its `audience` is the API
 resource identifier:
 

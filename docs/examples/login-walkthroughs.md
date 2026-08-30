@@ -13,9 +13,10 @@ a correct configuration look like". This document answers the question a
 developer asks first: **"what do I type, and what happens?"**
 
 > **These walkthroughs describe the intended end state, not what the first
-> implementation slice delivers.** Slice 1 requires a hand-authored context and
-> implements browser PKCE plus inline client credentials only. A login that
-> names an issuer now creates the identity and context it authenticated;
+> implementation slice delivers.** A login that names an issuer now creates the
+> identity and context it authenticated, and `wso2 context create` writes one
+> directly, so a hand-authored context is no longer required to get started;
+> browser PKCE and inline client credentials remain the only methods, and
 > fresh-machine cloud tenant resolution, a WSO2-published CLI client, and
 > organization switch are still deferred or are backend asks. [Gaps](#gaps-these-walkthroughs-depend-on)
 > lists each one. See the
@@ -335,7 +336,7 @@ $ wso2 login --url https://thunder.acme.wso2.cloud \            # decided
   Issuer: https://thunder.acme.wso2.cloud
 Created identity "acme-agent" and context "acme-agent".
 
-$ wso2 identity add-product acme-agent agent \                  # proposed
+$ wso2 identity add-product acme-agent agent \                  # decided
     --endpoint https://agent.acme.wso2.cloud \
     --audience https://agent.acme.wso2.cloud \
     --scopes agent:read,agent:write
@@ -352,7 +353,7 @@ identities:
       credentialRef: acme-cloud
 
   - name: acme-agent
-    type: cloud
+    type: onprem                              # see the note below
     auth:
       kind: oauth-browser
       issuer: https://thunder.acme.wso2.cloud   # from --url
@@ -373,6 +374,14 @@ contexts:
 
 defaultContext: acme
 ```
+
+`type` says `onprem` even though this deployment is hosted in WSO2 Cloud, and
+that is what the shell writes rather than a mistake in the example: a login
+given `--url` records `onprem`, because the flag is what a self-hosted or
+separately provisioned deployment needs and the bare cloud login that would
+record `cloud` depends on [gap 7](#gaps-these-walkthroughs-depend-on). The
+field is descriptive — no shell logic reads it — so it costs nothing here, and
+it will be worth revisiting when a bare login exists to disagree with it.
 
 ```console
 $ wso2 api list                                                 # acme, default
@@ -567,15 +576,15 @@ $ wso2 login --url https://thunder.own.example \                # decided
     --client-id wso2-cli --context own-agent
 ✓ Signed in as ops@own.example
   Issuer: https://thunder.own.example
-Created identity "onprem-agent" and context "own-agent".
+Created identity "own-agent" and context "own-agent".
 
 No products are configured for this identity.
 
-$ wso2 identity add-product onprem-agent agent \                # proposed
+$ wso2 identity add-product own-agent agent \                # decided
     --endpoint https://agent.own.example \
     --audience https://agent.own.example \
     --scopes agent:read,agent:write
-Added product "agent" to identity "onprem-agent".
+Added product "agent" to identity "own-agent".
 ```
 
 The third product refuses interactive login:
@@ -629,13 +638,13 @@ identities:
       tenant: acme
       credentialRef: acme-cloud
 
-  - name: onprem-agent
+  - name: own-agent
     type: onprem
     auth:
       kind: oauth-browser
       issuer: https://thunder.own.example
       clientId: wso2-cli
-      credentialRef: onprem-agent
+      credentialRef: own-agent
     products:
       agent:
         endpoint: https://agent.own.example
@@ -656,7 +665,7 @@ contexts:
     identity: acme-cloud
     organization: acme
   - name: own-agent
-    identity: onprem-agent
+    identity: own-agent
   - name: own-api
     identity: own-api
 

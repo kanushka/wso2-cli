@@ -56,9 +56,11 @@ described commands or schemas are currently available.
   to a working `wso2`, by one command or by hand from the release page, and
   covers pinning a version, release candidates, where files go, and uninstalling.
 - [Logging in](guides/login.md) takes a first-time user from a registered
-  OAuth application, through authoring the context document and the first
-  `wso2 login`, to a CI job that authenticates without one. Everything in it is
-  the same whichever product backs the deployment.
+  OAuth application, through the first `wso2 login`, which creates the identity
+  and context it authenticates, to a CI job that authenticates without one. It
+  also describes the context document itself, for reading what a login wrote or
+  writing one by hand. Everything in it is the same whichever product backs the
+  deployment.
 - Registering the application is product-specific, and each product has its own
   walkthrough: [Asgardeo](guides/login-asgardeo.md),
   [Identity Server 7.x](guides/login-identity-server.md), and
