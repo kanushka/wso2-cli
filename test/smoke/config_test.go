@@ -323,8 +323,8 @@ func TestCapabilitiesDeclareExactlyWhatTheRunRequests(t *testing.T) {
 	// audience. Holding the two equal would model a coincidence no real module
 	// has, and would leave every live run unable to fail on a broker that
 	// compared them.
-	if !slices.Contains(capabilities.AuthAudiences, smoke.ModuleAudience) {
-		t.Errorf("audiences = %v, want to contain %q", capabilities.AuthAudiences, smoke.ModuleAudience)
+	if want := []string{smoke.ModuleAudience}; !slices.Equal(capabilities.AuthAudiences, want) {
+		t.Errorf("audiences = %v, want exactly %v", capabilities.AuthAudiences, want)
 	}
 	for _, scope := range config.Scopes {
 		if !slices.Contains(capabilities.AuthScopes, scope) {
@@ -409,8 +409,8 @@ func TestTheRunAsksByALogicalAudienceAndProvesTheDeploymentsOwn(t *testing.T) {
 		t.Fatalf("the module asks by %q and the deployment binds %q; a live run that holds them "+
 			"equal cannot fail on a broker that compares them", smoke.ModuleAudience, config.Audience)
 	}
-	if got := config.Capabilities().AuthAudiences; !slices.Contains(got, smoke.ModuleAudience) {
-		t.Errorf("the receipt declares %v, want the module's own %q", got, smoke.ModuleAudience)
+	if got, want := config.Capabilities().AuthAudiences, []string{smoke.ModuleAudience}; !slices.Equal(got, want) {
+		t.Errorf("the receipt declares %v, want exactly the module's own %v", got, want)
 	}
 	product := config.Document().Identities[0].Products[smoke.Namespace]
 	if product.Audience != config.Audience {
