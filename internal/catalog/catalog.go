@@ -64,12 +64,11 @@ const (
 	ChannelPrerelease = "prerelease"
 )
 
-// Channels is every channel a version can fall on. It exists so a refusal can
-// tell a name that is not a channel at all from a channel this module has
-// simply not published on yet, which are the same message to a reader but
-// different problems: one is a typo and the other is a release that has not
-// happened.
-var Channels = []string{ChannelPrerelease, ChannelStable}
+// channels is every channel a version can fall on, in the order a refusal
+// names them. It is unexported because permittedVersions is its only reader
+// and a caller that reordered or truncated it would silently change which
+// refusal a user gets.
+var channels = []string{ChannelPrerelease, ChannelStable}
 
 // IndexPath and namespacePathFormat are the published locations of the two
 // files, relative to the catalog origin. They are part of the contract with the

@@ -199,11 +199,19 @@ thing for a user to do about it:
 - `catalog.origin_unreachable`, exit 70: the catalog origin could not be read.
 - `catalog.unknown_module`, exit 64: the catalog was read and publishes no
   such module.
+- `catalog.unknown_channel`, exit 64: the requested channel is not a release
+  channel, so no module will ever publish on it.
+- `catalog.empty_channel`, exit 64: the channel exists and this module has
+  published nothing on it, or has published nothing at all.
 
 The protocol refusal names the protocol versions on both sides, and the
 platform refusal names the platform, so neither reads as a broken download. An
 unreachable origin and an unknown module are deliberately not the same problem:
-one is an outage and the other is a mistake.
+one is an outage and the other is a mistake. The two channel refusals are
+separated for the same reason: an unknown channel is a typo, while an empty one
+is a release that has not happened yet, and only the second is worth waiting
+for. Both name the channels the module does publish on, and the flag that
+chooses one.
 
 Any failure leaves no executable and no receipt. The download is checked before
 anything is written into the store, extraction happens in a staging directory

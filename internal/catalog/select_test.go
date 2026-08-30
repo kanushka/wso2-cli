@@ -85,3 +85,27 @@ func TestAChannelTheModulePublishesNothingOnIsDistinguishable(t *testing.T) {
 		t.Errorf("recovery does not name the published channel and --channel: %q", unknown.Recovery)
 	}
 }
+
+func TestAModuleThatHasPublishedNothingIsNotToldToChooseAChannel(t *testing.T) {
+	// A module in the catalog with an empty version history is a publishing
+	// failure, not a user's mistake, and there is no channel for the user to
+	// choose. Naming --channel here would send them round a loop no flag can
+	// break, so the recovery points at the maintainers instead.
+	_, err := permittedVersions(NamespaceFile{Namespace: "reference"}, Policy{Channel: ChannelStable})
+	var typed problem.Problem
+	if !errors.As(err, &typed) {
+		t.Fatalf("want a typed problem, got %v", err)
+	}
+	if typed.Code != "catalog.empty_channel" {
+		t.Errorf("code = %q, want catalog.empty_channel", typed.Code)
+	}
+	if !strings.Contains(typed.Message, "reference") {
+		t.Errorf("message does not name the module: %q", typed.Message)
+	}
+	if strings.Contains(typed.Recovery, "--channel") {
+		t.Errorf("recovery offers --channel when there is no channel to choose: %q", typed.Recovery)
+	}
+	if !strings.Contains(typed.Recovery, "maintainers") {
+		t.Errorf("recovery does not point at the module's maintainers: %q", typed.Recovery)
+	}
+}
