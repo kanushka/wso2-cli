@@ -18,6 +18,7 @@ package app_test
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -322,6 +323,12 @@ func TestEveryContextSubcommandRendersJSON(t *testing.T) {
 			if len(decoded) == 0 {
 				t.Errorf("the JSON document carries no fields:\n%s", out)
 			}
+			// The shell's own renderer publishes no discriminator, so neither
+			// does this family: one command inventing a second convention is
+			// worse than the convention being absent.
+			if _, published := decoded["schema"]; published {
+				t.Errorf("the result publishes a schema key the rest of the shell suppresses:\n%s", out)
+			}
 		})
 	}
 }
@@ -331,8 +338,13 @@ type failingTransport struct{ t *testing.T }
 
 func (f failingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	f.t.Errorf("a wso2 context subcommand made a request to %s", request.URL.Redacted())
-	return nil, http.ErrUseLastResponse
+	return nil, errNoNetwork
 }
+
+// errNoNetwork is what the guard answers a caller with. It is a plain error
+// rather than a sentinel borrowed from net/http, whose sentinels all mean
+// something specific to a client that a transport must not claim.
+var errNoNetwork = errors.New("this test permits no network call")
 
 // TestNoContextSubcommandOpensANetworkConnection is the D8 guard: an issuer
 // typo has to surface at wso2 login, never at wso2 context create, which is
@@ -350,23 +362,53 @@ func TestNoContextSubcommandOpensANetworkConnection(t *testing.T) {
 	t.Cleanup(func() { http.DefaultTransport = original })
 	http.DefaultTransport = failingTransport{t: t}
 
-	for _, args := range [][]string{
-		{"context", "create", "gamma", "--identity", "acme-cloud", "--organization", "acme"},
-		{"context", "use", "beta"},
-		{"context", "list"},
-		{"context", "current"},
-	} {
-		shell, _, errOut := newShell(t)
-		seeded := identityOnlyDocument()
-		seeded.DefaultContext = "acme"
-		seeded.Contexts = []contexts.Context{
-			{Name: "acme", Identity: "acme-cloud"},
-			{Name: "beta", Identity: "acme-cloud"},
-		}
-		installLogin(t, shell, seeded)
-		if code := shell.Run(args); code != exit.OK {
-			t.Fatalf("%v: exit code = %d; stderr: %s", args, code, errOut)
-		}
+	// The refusal paths are covered alongside the successful ones. A refusal is
+	// where a well-meaning "let me check the issuer before I complain" would be
+	// added, and it is the path a first-run user reaches first.
+	invocations := map[string][]string{
+		"create":                 {"context", "create", "gamma", "--identity", "acme-cloud", "--organization", "acme"},
+		"use":                    {"context", "use", "beta"},
+		"list":                   {"context", "list"},
+		"current":                {"context", "current"},
+		"create, taken name":     {"context", "create", "acme", "--identity", "acme-cloud"},
+		"create, no identity":    {"context", "create", "delta", "--identity", "nosuch"},
+		"create, illegal name":   {"context", "create", "Delta", "--identity", "acme-cloud"},
+		"create, no name":        {"context", "create"},
+		"use, unknown name":      {"context", "use", "nosuch"},
+		"list, stray argument":   {"context", "list", "extra"},
+		"unsupported shell flag": {"--context", "acme", "context", "list"},
+	}
+	for name, args := range invocations {
+		t.Run(name, func(t *testing.T) {
+			shell, _, _ := newShell(t)
+			seeded := identityOnlyDocument()
+			seeded.DefaultContext = "acme"
+			seeded.Contexts = []contexts.Context{
+				{Name: "acme", Identity: "acme-cloud"},
+				{Name: "beta", Identity: "acme-cloud"},
+			}
+			installLogin(t, shell, seeded)
+			// The exit code is not asserted: what is asserted is that whatever
+			// the command decided, it decided it without dialling anything.
+			shell.Run(args)
+		})
+	}
+}
+
+// TestTheNetworkGuardWouldNoticeARequest proves the guard is not vacuous: the
+// same transport, reached by the same in-process route, fails a test.
+func TestTheNetworkGuardWouldNoticeARequest(t *testing.T) {
+	watched := &testing.T{}
+	transport := failingTransport{t: watched}
+	request, err := http.NewRequest(http.MethodGet, "https://idp.example/.well-known/openid-configuration", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	if _, err := transport.RoundTrip(request); !errors.Is(err, errNoNetwork) {
+		t.Errorf("RoundTrip returned %v, want the guard's own error", err)
+	}
+	if !watched.Failed() {
+		t.Error("the guard did not fail the test it was watching, so it would miss a real request")
 	}
 }
 
@@ -446,5 +488,153 @@ func TestTheContextFamilyRefusesTheContextFlag(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "shell.unsupported_flag") {
 		t.Errorf("stderr does not carry shell.unsupported_flag:\n%s", errOut)
+	}
+}
+
+// TestSelectedIsABooleanWhereverItAppears proves one field name does not carry
+// two types inside one command family: a caller that reads create's "selected"
+// and list's must not have to know which is a string.
+func TestSelectedIsABooleanWhereverItAppears(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	installLogin(t, shell, identityOnlyDocument())
+
+	if code := shell.Run([]string{"context", "create", "acme",
+		"--identity", "acme-cloud", "--output", "json"}); code != exit.OK {
+		t.Fatalf("create: exit code = %d; stderr: %s", code, errOut)
+	}
+	var created map[string]any
+	if err := json.Unmarshal(out.Bytes(), &created); err != nil {
+		t.Fatalf("create output is not JSON: %v\n%s", err, out)
+	}
+	if _, ok := created["selected"].(bool); !ok {
+		t.Errorf("create reports selected as %T, want a boolean: %v", created["selected"], created["selected"])
+	}
+
+	out.Reset()
+	if code := shell.Run([]string{"context", "list", "--output", "json"}); code != exit.OK {
+		t.Fatalf("list: exit code = %d; stderr: %s", code, errOut)
+	}
+	var listed struct {
+		Contexts []map[string]any `json:"contexts"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &listed); err != nil {
+		t.Fatalf("list output is not JSON: %v\n%s", err, out)
+	}
+	if len(listed.Contexts) != 1 {
+		t.Fatalf("the listing carries %d contexts, want 1:\n%s", len(listed.Contexts), out)
+	}
+	if _, ok := listed.Contexts[0]["selected"].(bool); !ok {
+		t.Errorf("list reports selected as %T, want a boolean", listed.Contexts[0]["selected"])
+	}
+}
+
+// TestContextCurrentReportsAnUnconfiguredMachineInBothRenderings proves the
+// table and the JSON cannot disagree about what the command found: the prose
+// says no context is configured, and the JSON has to say the same thing rather
+// than leaving a caller to infer it from four empty strings. See ADR 0003.
+func TestContextCurrentReportsAnUnconfiguredMachineInBothRenderings(t *testing.T) {
+	shell, out, errOut := newShell(t)
+
+	if code := shell.Run([]string{"context", "current", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d; stderr: %s", code, errOut)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("the output is not JSON: %v\n%s", err, out)
+	}
+	configured, ok := decoded["configured"].(bool)
+	if !ok {
+		t.Fatalf("the report does not say whether a context is configured: %v", decoded)
+	}
+	if configured {
+		t.Error("an unconfigured machine reported itself as configured")
+	}
+}
+
+// TestAWrongArgumentCountIsAUsageRefusal proves a miscounted argument is
+// reported in the usage class with a way back, rather than in the class the
+// command reference reserves for a module process that crashed.
+//
+// wso2 context create with no argument is the likeliest first-run typo in the
+// family, which is why the class it exits in matters.
+func TestAWrongArgumentCountIsAUsageRefusal(t *testing.T) {
+	for name, args := range map[string][]string{
+		"create with no name":      {"context", "create"},
+		"create with two names":    {"context", "create", "one", "two"},
+		"use with no name":         {"context", "use"},
+		"use with two names":       {"context", "use", "one", "two"},
+		"list with an argument":    {"context", "list", "extra"},
+		"current with an argument": {"context", "current", "extra"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			shell, _, errOut := newShell(t)
+
+			if code := shell.Run(args); code != exit.Usage {
+				t.Fatalf("exit code = %d, want the usage class %d; stderr: %s",
+					code, exit.Usage, errOut)
+			}
+			if strings.Contains(errOut.String(), "shell.unexpected_failure") {
+				t.Errorf("a miscounted argument is reported as an unexpected failure:\n%s", errOut)
+			}
+			// A refusal with no way back leaves the user to guess the shape.
+			if !strings.Contains(errOut.String(), "Run wso2 context") {
+				t.Errorf("the refusal names no way back:\n%s", errOut)
+			}
+		})
+	}
+}
+
+// TestContextCreateRefusesANameTheDocumentCannotHold proves a name the user
+// typed is refused as the argument it is. Telling them their document is
+// malformed and offering to remove it would destroy contexts they already have,
+// over a name that never reached the file.
+func TestContextCreateRefusesANameTheDocumentCannotHold(t *testing.T) {
+	for _, name := range []string{"Acme", "a b", "a/b", "1acme", ""} {
+		t.Run(name, func(t *testing.T) {
+			shell, _, errOut := newShell(t)
+			installLogin(t, shell, identityOnlyDocument())
+
+			code := shell.Run([]string{"context", "create", name, "--identity", "acme-cloud"})
+			if code != exit.Usage {
+				t.Fatalf("exit code = %d, want the usage class %d; stderr: %s",
+					code, exit.Usage, errOut)
+			}
+			reported := errOut.String()
+			if strings.Contains(reported, "contexts.document_malformed") {
+				t.Errorf("a mistyped argument is reported as a malformed document:\n%s", reported)
+			}
+			if strings.Contains(reported, "remove it") {
+				t.Errorf("the refusal offers to remove the user's document:\n%s", reported)
+			}
+			// The rule, so the next attempt is informed rather than another guess.
+			if !strings.Contains(reported, contexts.NameRule) {
+				t.Errorf("the refusal does not state the naming rule:\n%s", reported)
+			}
+		})
+	}
+}
+
+// TestTheFrozenDocumentRecoveryRoutesThroughLogin proves the way out actually
+// works. Moving a version 1 document aside takes its identities with it: they
+// exist only as the compatibility read's synthetic ones, so a user who moves
+// the file and re-runs the create meets a second refusal with their old file
+// already renamed. Login is what creates an identity (#112 D3), so it has to
+// come first.
+func TestTheFrozenDocumentRecoveryRoutesThroughLogin(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	installLegacy(t, shell)
+
+	if code := shell.Run([]string{"context", "create", "acme", "--identity", "legacy"}); code != exit.Usage {
+		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
+	}
+	reported := errOut.String()
+	if !strings.Contains(reported, "wso2 login") {
+		t.Errorf("the recovery does not route through wso2 login, which is what creates an identity:\n%s",
+			reported)
+	}
+	// The instruction that does not work: moving the file aside and re-running
+	// this command refuses again, because the identity went with the file.
+	if strings.Contains(reported, "run the command again") {
+		t.Errorf("the recovery still tells the user to re-run a command that would refuse:\n%s", reported)
 	}
 }

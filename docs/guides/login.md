@@ -536,6 +536,22 @@ first-time user meets most often. None of them reaches a browser.
   organization, project and identity it recorded are not written down anywhere
   else. Choose another name.
 
+### The context commands: `shell.*`
+
+These are about what you typed, not about the file. Nothing is written when one
+of them is reported.
+
+- **`shell.missing_required_flag`.** `wso2 context create` was run without
+  `--identity`. A context authenticates as an identity, and `wso2 login` is what
+  creates one. Not to be confused with `shell.missing_flag_value`, which means a
+  flag was given without the value it needs.
+- **`shell.invalid_argument`.** The name you gave `wso2 context create` is not
+  one a context may have: lower-case letters, digits and hyphens, starting with
+  a letter, at most 64 characters. Nothing was written, so retyping the command
+  is the whole fix.
+- **`shell.missing_argument`, `shell.unexpected_argument`.** The command was
+  given too few or too many arguments. The recovery shows the shape it expects.
+
 ### `auth.context_not_selected`
 
 There is no context document at all, or it declares no context to select.

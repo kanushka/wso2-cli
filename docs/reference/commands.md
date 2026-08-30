@@ -163,6 +163,7 @@ Context        cloud-us
 Identity       acme-cloud
 Organization   acme
 Project
+Selected       yes
 
 It is the first context, so it is now the selected one. Run wso2 context use
 <name> to select another.

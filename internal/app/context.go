@@ -20,26 +20,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/sdk/problem"
-	"github.com/wso2/wso2-cli/sdk/result"
 )
 
-// The result shapes the context family reports.
+// The way back from each subcommand's usage refusals.
 const (
-	contextCreateSchema  = "shell.context-create/v1"
-	contextUseSchema     = "shell.context-use/v1"
-	contextCurrentSchema = "shell.context-current/v1"
-	contextListSchema    = "shell.context-list/v1"
+	contextCreateUsage = "Run wso2 context create <name> --identity <identity> " +
+		"[--organization <name>] [--project <name>]."
+	contextUseUsage     = "Run wso2 context use <name>."
+	contextListUsage    = "Run wso2 context list [--output table|json]."
+	contextCurrentUsage = "Run wso2 context current [--output table|json]."
 )
-
-// contextCreateUsage is the way back from a wso2 context create usage refusal.
-const contextCreateUsage = "Run wso2 context create <name> --identity <identity> " +
-	"[--organization <name>] [--project <name>]."
 
 // contextCommand builds the wso2 context tree.
 //
@@ -64,7 +61,7 @@ func (s Shell) contextCreateCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "create <name>",
 		Short: "Create a context. Writes no credential and makes no network call.",
-		Args:  cobra.ExactArgs(1),
+		Args:  exactlyOneArgument("a name for the context", contextCreateUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := refuseUnusableShellFlags(command); err != nil {
 				return err
@@ -90,7 +87,7 @@ func (s Shell) contextUseCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "use <name>",
 		Short: "Select the context commands run against.",
-		Args:  cobra.ExactArgs(1),
+		Args:  exactlyOneArgument("the name of a configured context", contextUseUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := refuseUnusableShellFlags(command); err != nil {
 				return err
@@ -104,7 +101,7 @@ func (s Shell) contextListCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List the configured contexts and mark the selected one.",
-		Args:  cobra.NoArgs,
+		Args:  noArguments(contextListUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := refuseUnusableShellFlags(command); err != nil {
 				return err
@@ -118,13 +115,50 @@ func (s Shell) contextCurrentCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "current",
 		Short: "Show the selected context.",
-		Args:  cobra.NoArgs,
+		Args:  noArguments(contextCurrentUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := refuseUnusableShellFlags(command); err != nil {
 				return err
 			}
 			return s.contextCurrent(command)
 		},
+	}
+}
+
+// exactlyOneArgument refuses a wrong argument count as the usage failure it is.
+//
+// cobra.ExactArgs refuses it too, but its error takes the same route
+// ValidateRequiredFlags takes: it never reaches the flag-error hook, so it
+// arrives at the shell's classifier untyped and exits in the module-process
+// class, which the command reference documents as a module that crashed. An
+// argument count a user got wrong is theirs to fix, and the class a script
+// branches on has to say so.
+func exactlyOneArgument(what, usage string) cobra.PositionalArgs {
+	return func(command *cobra.Command, args []string) error {
+		switch {
+		case len(args) == 0:
+			return problem.New(problem.CategoryUsage, "shell.missing_argument",
+				fmt.Sprintf("%s needs %s", command.CommandPath(), what)).
+				WithRecovery(usage)
+		case len(args) > 1:
+			return problem.New(problem.CategoryUsage, "shell.unexpected_argument",
+				fmt.Sprintf("%s takes one argument, got %d", command.CommandPath(), len(args))).
+				WithRecovery(usage)
+		}
+		return nil
+	}
+}
+
+// noArguments refuses a stray argument, for the same reason exactlyOneArgument
+// exists: cobra.NoArgs would report it outside the shell's exit classes.
+func noArguments(usage string) cobra.PositionalArgs {
+	return func(command *cobra.Command, args []string) error {
+		if len(args) > 0 {
+			return problem.New(problem.CategoryUsage, "shell.unexpected_argument",
+				fmt.Sprintf("%s takes no arguments, got %q", command.CommandPath(), args[0])).
+				WithRecovery(usage)
+		}
+		return nil
 	}
 }
 
@@ -157,24 +191,39 @@ func (s Shell) contextCreate(command *cobra.Command, name, identity, organizatio
 		return err
 	}
 	if identity == "" {
-		// Left to this check rather than to Cobra's required-flag machinery,
-		// which reports a plain error with no category and would exit outside
-		// the documented classes.
-		return problem.New(problem.CategoryUsage, "shell.missing_flag",
+		// Checked here rather than with Cobra's MarkFlagRequired, whose error
+		// takes the route exactlyOneArgument's comment describes and would exit
+		// outside the documented classes.
+		return problem.New(problem.CategoryUsage, "shell.missing_required_flag",
 			"wso2 context create needs an identity to authenticate the context as").
 			WithRecovery(contextCreateUsage + " Run wso2 login to create an identity.")
 	}
+	// Checked before the document is opened, so that a name the user mistyped
+	// is refused as the argument it is. Left to the document, the same mistake
+	// arrives as contexts.document_malformed, which tells a user their file is
+	// wrong and offers to remove it — advice that would destroy the contexts
+	// they already have, over a name that never reached the file.
+	if !contexts.ValidName(name) {
+		return problem.New(problem.CategoryUsage, "shell.invalid_argument",
+			fmt.Sprintf("%q cannot be used as a context name", name)).
+			WithRecovery(fmt.Sprintf("A context name is %s. %s", contexts.NameRule, contextCreateUsage))
+	}
 
-	// Every value here came from a flag the user typed, so none of it is
-	// credential material: it is already in their shell history, and the
-	// document about to be written names credential sources and holds no
+	// Every value here came from a flag or an argument the user typed, so none
+	// of it is credential material: it is already in their shell history, and
+	// the document about to be written names credential sources and holds no
 	// credential.
 	s.log.Debug("creating a context",
 		"context", name, "identity", identity,
 		"organization", organization, "project", project,
 		"document", contexts.Path(root))
 
-	selected := false
+	created := contextCreated{
+		Context:      name,
+		Identity:     identity,
+		Organization: organization,
+		Project:      project,
+	}
 	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
 		if declaresContext(document, name) {
 			return document, contextExists(name)
@@ -193,7 +242,7 @@ func (s Shell) contextCreate(command *cobra.Command, name, identity, organizatio
 		})
 		if document.DefaultContext == "" {
 			document.DefaultContext = name
-			selected = true
+			created.Selected = true
 		}
 		return document, nil
 	})
@@ -201,26 +250,20 @@ func (s Shell) contextCreate(command *cobra.Command, name, identity, organizatio
 		return s.explainWriteRefusal(root, err)
 	}
 
-	reported := result.New(contextCreateSchema).
-		With("context", "Context", name).
-		With("identity", "Identity", identity).
-		With("organization", "Organization", organization).
-		With("project", "Project", project).
-		With("selected", "Selected", yesNo(selected))
 	if mode == output.ModeJSON {
-		return output.Report(s.Streams.Out, mode, reported)
+		return renderContext(s.Streams.Out, mode, created)
 	}
 	if _, err := fmt.Fprintf(s.Streams.Out, "\nCreated the %q context.\n", name); err != nil {
 		return err
 	}
-	if err := output.Report(s.Streams.Out, mode, reported); err != nil {
+	if err := renderContext(s.Streams.Out, mode, created); err != nil {
 		return err
 	}
 	// Said only when it happened, and said because nothing else says it: a user
 	// whose first context was also selected for them would otherwise have to
 	// run wso2 context current to find out.
-	if selected {
-		_, err = fmt.Fprintf(s.Streams.Out,
+	if created.Selected {
+		_, err = fmt.Fprint(s.Streams.Out,
 			"\nIt is the first context, so it is now the selected one. "+
 				"Run wso2 context use <name> to select another.\n")
 		return err
@@ -256,34 +299,11 @@ func (s Shell) contextUse(command *cobra.Command, name string) error {
 		return s.explainWriteRefusal(root, err)
 	}
 
-	reported := result.New(contextUseSchema).With("context", "Context", name)
 	if mode == output.ModeJSON {
-		return output.Report(s.Streams.Out, mode, reported)
+		return renderContext(s.Streams.Out, mode, contextSelection{Context: name})
 	}
 	_, err = fmt.Fprintf(s.Streams.Out, "\nCommands now run against the %q context.\n", name)
 	return err
-}
-
-// contextEntry is one row of the listing.
-type contextEntry struct {
-	Name         string `json:"name"`
-	Identity     string `json:"identity"`
-	Organization string `json:"organization,omitempty"`
-	Project      string `json:"project,omitempty"`
-	Selected     bool   `json:"selected"`
-}
-
-// contextListing is what wso2 context list reports.
-//
-// It is rendered here rather than through output.Report because a report is a
-// flat ordered list of named values and a listing is n rows of them. Flattening
-// the contexts into one field would hand a JSON caller a sentence to parse,
-// which is the opposite of what --output json is for. The shell gains a list
-// result shape with #85; this converges on it then.
-type contextListing struct {
-	Schema   string         `json:"schema"`
-	Selected string         `json:"selected"`
-	Contexts []contextEntry `json:"contexts"`
 }
 
 func (s Shell) contextList(command *cobra.Command) error {
@@ -300,11 +320,7 @@ func (s Shell) contextList(command *cobra.Command) error {
 		return err
 	}
 
-	listing := contextListing{
-		Schema:   contextListSchema,
-		Selected: document.DefaultContext,
-		Contexts: make([]contextEntry, 0, len(document.Contexts)),
-	}
+	listing := contextListing{Contexts: make([]contextEntry, 0, len(document.Contexts))}
 	for _, configured := range document.Contexts {
 		listing.Contexts = append(listing.Contexts, contextEntry{
 			Name:         configured.Name,
@@ -315,18 +331,12 @@ func (s Shell) contextList(command *cobra.Command) error {
 		})
 	}
 	if mode == output.ModeJSON {
-		encoded, err := json.MarshalIndent(listing, "", "  ")
-		if err != nil {
-			return fmt.Errorf("app: cannot encode the context listing: %w", err)
-		}
-		_, err = fmt.Fprintf(s.Streams.Out, "%s\n", encoded)
-		return err
+		return encodeContextJSON(s.Streams.Out, listing)
 	}
 	// An unconfigured machine is a state, not a breakage, so it reports what to
 	// run rather than that nothing is there.
 	if len(listing.Contexts) == 0 {
-		_, err := fmt.Fprintln(s.Streams.Out,
-			"No contexts are configured.\n\n"+contextCreateUsage)
+		_, err := fmt.Fprintln(s.Streams.Out, "No contexts are configured.\n\n"+contextCreateUsage)
 		return err
 	}
 	table := output.NewTable("current", "context", "identity", "organization", "project")
@@ -352,34 +362,138 @@ func (s Shell) contextCurrent(command *cobra.Command) error {
 		return err
 	}
 
-	if len(document.Contexts) == 0 {
-		reported := result.New(contextCurrentSchema).
-			With("context", "Context", "").
-			With("identity", "Identity", "").
-			With("organization", "Organization", "").
-			With("project", "Project", "")
-		if mode == output.ModeJSON {
-			return output.Report(s.Streams.Out, mode, reported)
+	current := contextCurrent{}
+	if len(document.Contexts) > 0 {
+		selected, err := document.Select("")
+		if err != nil {
+			return err
 		}
-		// Reported as a state rather than refused: a machine nobody has
-		// configured yet has done nothing wrong, and this is the first command
-		// a first-run user runs.
-		_, err := fmt.Fprintln(s.Streams.Out,
-			"No context is configured, so commands run against nothing.\n\n"+
-				"Run wso2 login to create an identity and a context, "+
-				"or wso2 context create <name> --identity <identity> if you already have one.")
-		return err
+		current = contextCurrent{
+			Configured:   true,
+			Context:      selected.Context.Name,
+			Identity:     selected.Context.Identity,
+			Organization: selected.Context.Organization,
+			Project:      selected.Context.Project,
+		}
 	}
-	selected, err := document.Select("")
+	if mode == output.ModeJSON || current.Configured {
+		return renderContext(s.Streams.Out, mode, current)
+	}
+	// Reported as a state rather than refused: a machine nobody has configured
+	// yet has done nothing wrong, and this is among the first commands a
+	// first-run user runs. The sentence carries the same fact the JSON carries
+	// in Configured; four blank rows above a "Configured: no" row would carry
+	// it worse.
+	_, err = fmt.Fprintln(s.Streams.Out,
+		"No context is configured, so commands run against nothing.\n\n"+
+			"Run wso2 login to create an identity and a context, "+
+			"or wso2 context create <name> --identity <identity> if you already have one.")
+	return err
+}
+
+// The results this family reports.
+//
+// They are rendered here rather than through output.Report, which the rest of
+// the shell uses, because result.Result carries string values only: a listing
+// is n rows of fields rather than one, and "selected" is a boolean that a JSON
+// caller would otherwise have to read back out of the word "yes". Both
+// renderings are still driven by one value, which is what ADR 0003 asks for.
+// None of them publishes a discriminator, because the shell's own renderer
+// suppresses result.Result's and one command inventing a second convention is
+// worse than the convention being absent. #85 is where that is settled.
+type (
+	// contextCreated is what wso2 context create reports.
+	contextCreated struct {
+		Context      string `json:"context"`
+		Identity     string `json:"identity"`
+		Organization string `json:"organization"`
+		Project      string `json:"project"`
+		// Selected reports whether this context is now the one commands run
+		// against, which is true for the first context created and no other.
+		Selected bool `json:"selected"`
+	}
+
+	// contextSelection is what wso2 context use reports.
+	contextSelection struct {
+		Context string `json:"context"`
+	}
+
+	// contextCurrent is what wso2 context current reports.
+	contextCurrent struct {
+		// Configured says whether any context exists to be current. It is a
+		// field rather than an absence, because a caller cannot read the
+		// difference between "nothing is configured" and "the context has an
+		// empty name" out of empty strings.
+		Configured   bool   `json:"configured"`
+		Context      string `json:"context"`
+		Identity     string `json:"identity"`
+		Organization string `json:"organization"`
+		Project      string `json:"project"`
+	}
+
+	// contextEntry is one row of the listing. Nothing is omitted when empty:
+	// a caller iterating the rows must not have to tell an absent key from an
+	// unset value, and the other results in this family omit nothing either.
+	contextEntry struct {
+		Name         string `json:"name"`
+		Identity     string `json:"identity"`
+		Organization string `json:"organization"`
+		Project      string `json:"project"`
+		Selected     bool   `json:"selected"`
+	}
+
+	// contextListing is what wso2 context list reports.
+	contextListing struct {
+		Contexts []contextEntry `json:"contexts"`
+	}
+)
+
+func (c contextCreated) fields() [][2]string {
+	return [][2]string{
+		{"Context", c.Context},
+		{"Identity", c.Identity},
+		{"Organization", c.Organization},
+		{"Project", c.Project},
+		{"Selected", yesNo(c.Selected)},
+	}
+}
+
+func (c contextSelection) fields() [][2]string {
+	return [][2]string{{"Context", c.Context}}
+}
+
+func (c contextCurrent) fields() [][2]string {
+	return [][2]string{
+		{"Context", c.Context},
+		{"Identity", c.Identity},
+		{"Organization", c.Organization},
+		{"Project", c.Project},
+	}
+}
+
+// reportable is a result of this family that renders in either mode.
+type reportable interface {
+	// fields are the labelled values the table shows, in the order the JSON
+	// document declares them, so the two renderings cannot drift apart.
+	fields() [][2]string
+}
+
+// renderContext writes one result as JSON or as a labelled field table.
+func renderContext(w io.Writer, mode output.Mode, value reportable) error {
+	if mode == output.ModeJSON {
+		return encodeContextJSON(w, value)
+	}
+	return output.Fields(w, value.fields())
+}
+
+// encodeContextJSON writes one result as an indented JSON document.
+func encodeContextJSON(w io.Writer, value any) error {
+	encoded, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("app: cannot encode the context result: %w", err)
 	}
-	reported := result.New(contextCurrentSchema).
-		With("context", "Context", selected.Context.Name).
-		With("identity", "Identity", selected.Context.Identity).
-		With("organization", "Organization", selected.Context.Organization).
-		With("project", "Project", selected.Context.Project)
-	return output.Report(s.Streams.Out, mode, reported)
+	_, err = fmt.Fprintf(w, "%s\n", encoded)
+	return err
 }
 
 // explainWriteRefusal turns the writer's refusal to overwrite a version 1
@@ -397,9 +511,14 @@ func (s Shell) contextCurrent(command *cobra.Command) error {
 // manages is not this shell's to explain, and the writer's own recovery, which
 // names that CLI, is already the right advice.
 //
-// Nothing is moved, renamed, backed up or converted. There is no migration
-// command, and offering one that does not exist would be worse than the
-// refusal.
+// The route out has to name wso2 login, and not just the file. A version 1
+// document's identities exist only as the ones the compatibility read
+// manufactures, so moving the file aside takes them with it: a user told merely
+// to move it and retry meets a second refusal with their old file already
+// renamed. Login is the only thing that creates an identity (#112 D3).
+//
+// Nothing is moved, renamed, backed up or converted here. There is no migration
+// command, and offering one that does not exist would be worse than the refusal.
 func (s Shell) explainWriteRefusal(stateRoot string, err error) error {
 	var typed problem.Problem
 	if !errors.As(err, &typed) || typed.Code != "contexts.document_frozen" {
@@ -409,16 +528,13 @@ func (s Shell) explainWriteRefusal(stateRoot string, err error) error {
 	if loadErr != nil || document.SchemaVersion != contexts.SchemaVersionLegacy {
 		return err
 	}
-	path := contexts.Path(stateRoot)
 	return problem.New(problem.CategoryUsage, typed.Code,
 		fmt.Sprintf("the WSO2 CLI context document at %s is schema version 1, "+
-			"which this shell reads but does not write", path)).
-		WithRecovery(fmt.Sprintf("The contexts it declares still work: wso2 context list and "+
-			"wso2 context current read it as it is. Writing to it, whether that is creating a "+
-			"context or changing the selection, means starting a schema version 2 document, "+
-			"so move %s "+
-			"aside and run the command again. Nothing converts the old file, and the contexts "+
-			"it declares would have to be created again.", path))
+			"which this shell reads but does not write", contexts.Path(stateRoot))).
+		WithRecovery("wso2 context list and wso2 context current still read it as it is. " +
+			"To write, move the file aside; the shell then starts a fresh schema version 2 " +
+			"document. Nothing is converted, so run wso2 login to create an identity and " +
+			"wso2 context create to declare the contexts again.")
 }
 
 // declaresContext reports whether the document already names this context.
@@ -472,7 +588,7 @@ func selectionMark(selected bool) string {
 	return ""
 }
 
-// yesNo renders a boolean for a reported field, which carries strings only.
+// yesNo renders a boolean for a table cell, which carries text.
 func yesNo(value bool) string {
 	if value {
 		return "yes"

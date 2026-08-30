@@ -70,6 +70,21 @@ const MethodDevelopmentCredential = "development-credential"
 // namePattern constrains a context name to one readable word.
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 
+// NameRule states what namePattern requires, in the words a refusal uses. It
+// lives beside the pattern so that changing one without the other is visible.
+const NameRule = "lower-case letters, digits and hyphens, starting with a letter, " +
+	"at most 64 characters"
+
+// ValidName reports whether a name may be given to a context.
+//
+// It is exported so that a command can refuse a name a user typed before that
+// name reaches the document. The refusal then reads as a complaint about the
+// argument, which the user can retype, rather than as a complaint about the
+// file, which they did not write and must not be told to remove. Both sides ask
+// this one pattern, so a command and the document cannot disagree about what is
+// legal.
+func ValidName(name string) bool { return namePattern.MatchString(name) }
+
 // variablePattern constrains a credential source to something that is
 // recognizably an environment variable name. A credential value pasted where a
 // variable name belongs is rejected rather than stored.
