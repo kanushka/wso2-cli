@@ -16,7 +16,7 @@
 
 //go:build unix
 
-package session
+package lockfile
 
 import (
 	"errors"
