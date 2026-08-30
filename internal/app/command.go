@@ -129,7 +129,8 @@ func (s Shell) rootCommand() *cobra.Command {
 	// same code that parses every other shell flag.
 	root.PersistentFlags().Bool(verboseFlag, false, "Write diagnostics about what the shell attempted to stderr.")
 
-	root.AddCommand(s.loginCommand(), s.logoutCommand(), s.moduleCommand(), s.versionCommand())
+	root.AddCommand(s.contextCommand(), s.loginCommand(), s.logoutCommand(),
+		s.moduleCommand(), s.versionCommand())
 
 	// Cobra's generated help command describes itself generically. The shell
 	// published its own summary for it, and that wording is kept.
@@ -284,6 +285,12 @@ func shellFlagsFor(name string) []string {
 		// The root routes a product namespace, and a module command may act on
 		// every forwarded shell flag.
 		return []string{contextFlag, outputFlag}
+	case "context":
+		// The family renders a machine-readable result, and takes no --context:
+		// naming a context is what its own arguments do, and a selection flag
+		// alongside "wso2 context use beta" would be two answers to one
+		// question.
+		return []string{outputFlag}
 	case "login":
 		return []string{contextFlag}
 	case "logout":

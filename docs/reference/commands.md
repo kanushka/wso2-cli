@@ -12,8 +12,9 @@ product modules, such as `wso2 api`, `wso2 identity`, `wso2 integration`, and
 The distinction between catalog refresh and module binary update remains an
 open decision. The lifecycle command names below are therefore provisional.
 
-These are built: `wso2 login`, `wso2 logout`, `wso2 module available`,
-`wso2 module list`,
+These are built: `wso2 context create <name>`, `wso2 context use <context>`,
+`wso2 context list`, `wso2 context current`, `wso2 login`, `wso2 logout`,
+`wso2 module available`, `wso2 module list`,
 `wso2 module install <module>`, `wso2 module install <module>@<version>`,
 `wso2 module install <module> --channel <channel>`,
 `wso2 module update <module>`, `wso2 module update --all`, and
@@ -34,7 +35,8 @@ refusal is reported.
 | `wso2 org list` | Lists organizations available to the signed-in user. |
 | `wso2 org use <organization>` | Selects an organization and activates its organization-bound session. |
 | `wso2 org current` | Shows the active organization. |
-| `wso2 context list` | Lists saved cloud and on-premises contexts. |
+| `wso2 context create <name>` | Creates a context naming an identity with `--identity`, and optionally an organization and project with `--organization` and `--project`. It writes no credential and makes no network call, so an unreachable issuer or a misspelled organization is reported by the command that needs it rather than here. Creating a context whose name is taken is refused. The first context created becomes the selected one. |
+| `wso2 context list` | Lists saved cloud and on-premises contexts, marking the selected one. |
 | `wso2 context use <context>` | Selects the context used by default for later commands. |
 | `wso2 context current` | Shows the active context. |
 | `wso2 config list` | Shows non-secret shell preferences. |
@@ -154,10 +156,31 @@ three happened. See
 ### Context
 
 ```text
+$ wso2 context create cloud-us --identity acme-cloud --organization acme
+
+Created the "cloud-us" context.
+Context        cloud-us
+Identity       acme-cloud
+Organization   acme
+Project
+
+It is the first context, so it is now the selected one. Run wso2 context use
+<name> to select another.
+
+$ wso2 context list
+CURRENT   CONTEXT    IDENTITY     ORGANIZATION   PROJECT
+*         cloud-us   acme-cloud   acme
+
 $ wso2 context current
-NAME       TYPE    ORGANIZATION   REGION
-cloud-us   cloud   acme           us
+Context        cloud-us
+Identity       acme-cloud
+Organization   acme
+Project
 ```
+
+An identity is created by `wso2 login`, not by a command of its own, so
+`--identity` names one that already exists and a name that does not is refused
+with `contexts.unknown_identity`.
 
 ### Module inventory
 

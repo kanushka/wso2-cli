@@ -527,6 +527,14 @@ first-time user meets most often. None of them reaches a browser.
 - **`contexts.unknown_context`.** You named a context, with `--context` or
   `WSO2_CONTEXT`, that the document does not declare. The message names the one
   you asked for. Check it against the `contexts` array and `defaultContext`.
+- **`contexts.unknown_identity`.** `wso2 context create --identity` named an
+  identity the document does not declare. Logging in is the only thing that
+  creates one, so run `wso2 login` first, or check the name against the
+  `identities` array.
+- **`contexts.context_exists`.** `wso2 context create` was given a name the
+  document already declares. Creating a context never replaces one, because the
+  organization, project and identity it recorded are not written down anywhere
+  else. Choose another name.
 
 ### `auth.context_not_selected`
 
