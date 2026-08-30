@@ -253,6 +253,39 @@ func TestSessionSourceRotationWithoutDisclosureLeavesExpiryAtTheZeroValue(t *tes
 	}
 }
 
+// TestSessionSourceRotationToleratesAStringShapedDisclosedExpiry is the
+// blocker-fix proof at the level a real refresh grant exercises: before
+// optionalSeconds existed, an issuer disclosing
+// "refresh_token_expires_in":"3600" (a JSON string, seen in the wild for this
+// non-standard extension) failed the whole tokenResponse unmarshal, which
+// requestToken reads as errNoAccessToken — Acquire would have refused the
+// entire narrowing, not merely left the expiry unstated. Acquire must
+// succeed, and the disclosed lifetime must still be recorded.
+func TestSessionSourceRotationToleratesAStringShapedDisclosedExpiry(t *testing.T) {
+	const disclosedLifetimeSeconds = 3600
+	deployment := seedBrowserSession(t, fakeissuer.Options{
+		RefreshScopeMode: "honor", RotateRefreshTokens: true,
+		RefreshTokenExpiresIn: disclosedLifetimeSeconds, RefreshTokenExpiresInAsString: true,
+	})
+
+	before := time.Now()
+	if _, err := deployment.broker(t).Acquire(declaredRequest()); err != nil {
+		t.Fatalf("Acquire returned %v, want no error: a string-shaped refresh_token_expires_in "+
+			"must not fail the exchange", err)
+	}
+	after := time.Now()
+
+	rotated := deployment.storedSession(t)
+	if rotated.SessionExpiresAt.IsZero() {
+		t.Fatal("the string-shaped disclosed expiry was not recorded")
+	}
+	earliest := before.Add(disclosedLifetimeSeconds * time.Second)
+	latest := after.Add(disclosedLifetimeSeconds * time.Second)
+	if rotated.SessionExpiresAt.Before(earliest) || rotated.SessionExpiresAt.After(latest) {
+		t.Errorf("SessionExpiresAt = %v, want between %v and %v", rotated.SessionExpiresAt, earliest, latest)
+	}
+}
+
 func TestSessionSourceRefusesOnceTheRotatedTokenSupersedesTheStoredOne(t *testing.T) {
 	// The token the issuer replaced is dead. A session still holding it is a
 	// session to log in again for, not one to keep retrying.

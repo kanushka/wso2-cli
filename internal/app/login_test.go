@@ -373,6 +373,52 @@ func TestLoginRecordsNoSessionExpiryWhenTheIssuerDisclosesNone(t *testing.T) {
 	}
 }
 
+// TestLoginRecordsAStringShapedDisclosedSessionExpiry pins finding 10 (round
+// 1 fixes for #120): before this fix, login.go's Extra("refresh_token_expires_in")
+// type-asserted only to float64, so an issuer disclosing the lifetime as a
+// JSON string was silently treated as not stated — inconsistent with the
+// rotation path, which used to fail outright on the same shape (finding 1).
+// Now both paths call the same auth.RefreshLifetimeSeconds, so a string
+// disclosed at login is recorded exactly as a number would be.
+func TestLoginRecordsAStringShapedDisclosedSessionExpiry(t *testing.T) {
+	keyring.MockInit()
+	const disclosedLifetimeSeconds = 86400
+	issuer := fakeissuer.New(t, fakeissuer.Options{
+		Audience: "reference-status", RefreshTokenExpiresIn: disclosedLifetimeSeconds,
+		RefreshTokenExpiresInAsString: true,
+	})
+	shell, _, _ := newLoginShell(t)
+	installLogin(t, shell, browserDoc(issuer.URL))
+	shell.OpenBrowser = func(authURL string) error {
+		go func() {
+			response, err := http.Get(authURL)
+			if err == nil {
+				_ = response.Body.Close()
+			}
+		}()
+		return nil
+	}
+
+	before := time.Now()
+	if code := shell.Run([]string{"login"}); code != exit.OK {
+		t.Fatalf("login failed: exit %d", code)
+	}
+	after := time.Now()
+
+	stored, err := session.Store{StateRoot: shell.StateRoot}.Load(credentialRef)
+	if err != nil {
+		t.Fatalf("session not stored: %v", err)
+	}
+	if stored.SessionExpiresAt.IsZero() {
+		t.Fatal("a string-shaped disclosed lifetime was not recorded")
+	}
+	earliest := before.Add(disclosedLifetimeSeconds * time.Second)
+	latest := after.Add(disclosedLifetimeSeconds * time.Second)
+	if stored.SessionExpiresAt.Before(earliest) || stored.SessionExpiresAt.After(latest) {
+		t.Errorf("SessionExpiresAt = %v, want between %v and %v", stored.SessionExpiresAt, earliest, latest)
+	}
+}
+
 // TestLoginCompletesFromThePrintedURL proves the printed URL is enough: the
 // browser hook fails outright, and the login still finishes when the URL it
 // printed is followed.
