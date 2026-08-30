@@ -43,6 +43,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/wso2/wso2-cli/internal/atomicfile"
 	"github.com/wso2/wso2-cli/internal/catalog"
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/sdk/problem"
@@ -449,31 +450,15 @@ func safePath(destination, name string) (string, error) {
 	return target, nil
 }
 
-// writeAtomically replaces a file in one step, so a reader never sees a half
-// written document. action names what is being written and reaches the user in
-// the failure, so the store's two documents are told apart when one cannot be
-// written.
+// writeAtomically replaces a store document in one step, so a reader never
+// sees a half written document. action names what is being written and reaches
+// the user in the failure, so the store's two documents are told apart when one
+// cannot be written.
+//
+// The store's documents are 0644: every other file beside them is, and neither
+// document written here is more secret than the receipts they sit next to.
 func writeAtomically(action, target string, content []byte) error {
-	temporary, err := os.CreateTemp(filepath.Dir(target), "."+filepath.Base(target)+"-")
-	if err != nil {
-		return storeFailure(action, err)
-	}
-	// CreateTemp opens at 0600, but every other file in the store is 0644 and
-	// neither document written here is more secret than the receipts beside
-	// them. Set the mode before the rename so the file never appears at the
-	// target under 0600.
-	err = temporary.Chmod(0o644)
-	if err == nil {
-		_, err = temporary.Write(content)
-	}
-	if closeErr := temporary.Close(); err == nil {
-		err = closeErr
-	}
-	if err == nil {
-		err = os.Rename(temporary.Name(), target)
-	}
-	if err != nil {
-		_ = os.Remove(temporary.Name())
+	if err := atomicfile.Write(target, content, 0o644); err != nil {
 		return storeFailure(action, err)
 	}
 	return nil
