@@ -327,9 +327,14 @@ $ wso2 login --url https://thunder.example.com \
 ```
 
 It reports the names it assigned, and `wso2 context list` shows them.
-Nothing below has to be typed by hand; it is what the document now holds,
-and reading it is how you check the login recorded what you expected. Everything from here is [the main login guide](login.md), from section 2. Two
-members are Thunder-specific:
+What it writes is deliberately spare: the issuer and client ID you passed,
+`"type": "onprem"`, a `credentialRef` equal to the identity name, and no
+products. Everything from here is [the main login guide](login.md), from
+section 2.
+
+The record below is the fuller shape, not what login leaves: add the product
+with `wso2 identity add-product`, and set the two Thunder-specific members by
+hand. Login writes neither, and a Thunder deployment needs both:
 
 ```json
 {

@@ -309,10 +309,15 @@ $ wso2 login --url https://is.example.com/oauth2/token \
 ```
 
 It reports the names it assigned, and `wso2 context list` shows them.
-Nothing below has to be typed by hand; it is what the document now holds,
-and reading it is how you check the login recorded what you expected. Everything from here is [the main login guide](login.md), from section 2. An
-Identity Server identity is `"type": "onprem"`, and its `audience` is the API
-resource identifier:
+What it writes is deliberately spare: the issuer and client ID you passed,
+`"type": "onprem"`, a `credentialRef` equal to the identity name, and no
+products. Everything from here is [the main login guide](login.md), from
+section 2.
+
+The record below is the fuller shape, not what login leaves: add products with
+`wso2 identity add-product`. An Identity Server identity is `"type": "onprem"`,
+which is what login already writes, and its `audience` is the API resource
+identifier:
 
 ```json
 {
