@@ -19,6 +19,7 @@ package auth
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -89,16 +90,30 @@ func (o *optionalSeconds) UnmarshalJSON(data []byte) error {
 func RefreshLifetimeSeconds(value any) (int64, bool) {
 	switch v := value.(type) {
 	case float64:
-		if v > 0 {
+		// Compared before the conversion, not after: converting a float64
+		// larger than an int64 can hold is implementation-defined in Go, so a
+		// bound checked on the result would be reading a value that is already
+		// meaningless.
+		if v > 0 && v <= float64(maxLifetimeSeconds) {
 			return int64(v), true
 		}
 	case string:
-		if seconds, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil && seconds > 0 {
+		if seconds, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil &&
+			seconds > 0 && seconds <= maxLifetimeSeconds {
 			return seconds, true
 		}
 	}
 	return 0, false
 }
+
+// maxLifetimeSeconds is the largest lifetime that survives conversion to a
+// time.Duration, which counts nanoseconds in an int64. A larger value wraps
+// when multiplied by time.Second and yields an expiry in the past, so a caller
+// would report a session that has just been issued as long expired. Anything
+// above it is treated as unstated, on the same principle as every other shape
+// this function refuses: a field that exists so wso2 whoami can print
+// something must never produce an answer worse than saying nothing.
+const maxLifetimeSeconds = int64(math.MaxInt64) / int64(time.Second)
 
 // expiry is when the issued token stops working: what the response said, or
 // what the token itself claims when the response said nothing.

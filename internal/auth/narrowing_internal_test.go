@@ -18,6 +18,7 @@ package auth
 
 import (
 	"encoding/json"
+	"strconv"
 	"testing"
 )
 
@@ -141,6 +142,28 @@ func TestRefreshLifetimeSecondsAcceptsBothWireShapes(t *testing.T) {
 		},
 		"an int, a shape neither call site actually produces but must not panic on": {
 			value: int(3600), wantOK: false,
+		},
+		"the largest lifetime a time.Duration can carry": {
+			value: float64(maxLifetimeSeconds), wantOK: true, wantValue: maxLifetimeSeconds,
+		},
+		"the largest lifetime, stated as a string": {
+			value: strconv.FormatInt(maxLifetimeSeconds, 10), wantOK: true, wantValue: maxLifetimeSeconds,
+		},
+		"one second past what a time.Duration can carry": {
+			// Converted, this wraps to a negative duration and dates the
+			// session in the past, so it is refused rather than reported.
+			value: float64(maxLifetimeSeconds + 1), wantOK: false,
+		},
+		"one second past the limit, stated as a string": {
+			value: strconv.FormatInt(maxLifetimeSeconds+1, 10), wantOK: false,
+		},
+		"a float64 far larger than an int64 can hold": {
+			// The bound is checked before the conversion, because converting
+			// this at all is implementation-defined in Go.
+			value: float64(1e30), wantOK: false,
+		},
+		"a string of digits too long for an int64": {
+			value: "99999999999999999999", wantOK: false,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
