@@ -196,14 +196,33 @@ func loginIdentityName(flags loginFlags) (string, error) {
 // issuer to the OIDC client, which reports a discovery failure against the
 // issuer "of the selected context" when no context is selected. Two wrong
 // messages in a row for one typo, so it is caught where the value arrives.
+//
+// Userinfo is refused here for a harder reason. The only other check on it is
+// the document's, which runs inside contexts.Update — after the login — so a
+// URL carrying a password would authenticate, store a session, and only then
+// be refused, stranding a token no identity names. Every condition this
+// function knows has to be one the shell can answer before it mints anything.
+//
+// Neither branch echoes the value. internal/contexts refuses an endpoint or a
+// reference without repeating it, because what was pasted where one belongs may
+// be a credential; a --url is exactly as plausible a place for that, and with
+// the userinfo branch it is the likeliest one in the shell.
 func refuseNonIssuerURL(issuer string) error {
 	parsed, err := url.Parse(issuer)
 	if err != nil || parsed.Host == "" ||
 		(parsed.Scheme != "https" && parsed.Scheme != "http") {
 		return problem.New(problem.CategoryUsage, "shell.invalid_argument",
-			fmt.Sprintf("%q is not an issuer URL", issuer)).
+			"the --url value is not an issuer URL").
 			WithRecovery("Pass the issuer as an absolute URL, as in " +
-				"--url https://idp.example. A missing https:// is the usual cause.")
+				"--url https://idp.example. A missing https:// is the usual cause. " +
+				"The value is not repeated here, in case it holds a secret.")
+	}
+	if parsed.User != nil {
+		return problem.New(problem.CategoryUsage, "shell.invalid_argument",
+			"the --url value carries a user name or password in the URL, which an issuer may not").
+			WithRecovery("Pass the issuer on its own, as in --url https://idp.example. " +
+				"The shell authenticates through the browser login, so a credential in the " +
+				"URL is never used. The value is not repeated here, in case it holds a secret.")
 	}
 	return nil
 }

@@ -334,10 +334,17 @@ func TestEveryContextSubcommandRendersJSON(t *testing.T) {
 }
 
 // failingTransport fails the test if anything it is installed on dials.
-type failingTransport struct{ t *testing.T }
+//
+// family names the command family under test, because more than one installs
+// this guard and a failure that named the wrong one would send a reader to the
+// wrong package for the most load-bearing assertion either family makes.
+type failingTransport struct {
+	t      *testing.T
+	family string
+}
 
 func (f failingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	f.t.Errorf("a wso2 context subcommand made a request to %s", request.URL.Redacted())
+	f.t.Errorf("a wso2 %s subcommand made a request to %s", f.family, request.URL.Redacted())
 	return nil, errNoNetwork
 }
 
@@ -360,7 +367,7 @@ var errNoNetwork = errors.New("this test permits no network call")
 func TestNoContextSubcommandOpensANetworkConnection(t *testing.T) {
 	original := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = original })
-	http.DefaultTransport = failingTransport{t: t}
+	http.DefaultTransport = failingTransport{t: t, family: "context"}
 
 	// The refusal paths are covered alongside the successful ones. A refusal is
 	// where a well-meaning "let me check the issuer before I complain" would be
@@ -399,7 +406,7 @@ func TestNoContextSubcommandOpensANetworkConnection(t *testing.T) {
 // same transport, reached by the same in-process route, fails a test.
 func TestTheNetworkGuardWouldNoticeARequest(t *testing.T) {
 	watched := &testing.T{}
-	transport := failingTransport{t: watched}
+	transport := failingTransport{t: watched, family: "context"}
 	request, err := http.NewRequest(http.MethodGet, "https://idp.example/.well-known/openid-configuration", nil)
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)

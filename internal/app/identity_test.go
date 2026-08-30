@@ -400,7 +400,7 @@ func TestIdentitySubcommandsRenderJSON(t *testing.T) {
 func TestNoIdentitySubcommandOpensANetworkConnection(t *testing.T) {
 	original := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = original })
-	http.DefaultTransport = failingTransport{t: t}
+	http.DefaultTransport = failingTransport{t: t, family: "identity"}
 
 	invocations := map[string][]string{
 		"add-product": {"identity", "add-product", "idp-customer-example", "integration",

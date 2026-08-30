@@ -443,3 +443,91 @@ func TestTheClientIdFlagWithoutTheURLFlagIsRefused(t *testing.T) {
 		t.Errorf("a refused login wrote to standard output:\n%s", out)
 	}
 }
+
+// TestTheUnselectedContextRefusalNamesTheCommandsThatFixIt covers the first
+// command a user is likely to type on a clean machine. The advice it used to
+// give — author a context document — is the editor round trip this wave exists
+// to remove, and the commands that replace it now exist.
+func TestTheUnselectedContextRefusalNamesTheCommandsThatFixIt(t *testing.T) {
+	// The two commands name different ways out, because the ways out differ:
+	// login creates the context it is missing, and logout has nothing to end
+	// until a login has created something.
+	for _, testCase := range []struct {
+		command string
+		names   []string
+	}{
+		{"login", []string{"wso2 context use", "wso2 login --url"}},
+		{"logout", []string{"wso2 context use", "wso2 context list"}},
+	} {
+		t.Run(testCase.command, func(t *testing.T) {
+			shell, _, errOut := newLoginShell(t)
+
+			if code := shell.Run([]string{testCase.command}); code != exit.AuthPolicy {
+				t.Fatalf("exit code = %d, want %d (auth policy); stderr: %s",
+					code, exit.AuthPolicy, errOut)
+			}
+			requireRefusal(t, errOut.String(), "auth.context_not_selected")
+			if strings.Contains(errOut.String(), "Author a context document") {
+				t.Errorf("the refusal still sends the user to an editor:\n%s", errOut)
+			}
+			for _, named := range testCase.names {
+				if !strings.Contains(errOut.String(), named) {
+					t.Errorf("the refusal does not name %s:\n%s", named, errOut)
+				}
+			}
+		})
+	}
+}
+
+// TestLoginRefusesAnIssuerCarryingUserinfoBeforeTheBrowserOpens is the
+// stranded-session case again, from the other end. Userinfo in an issuer URL is
+// refused by the document, which is only consulted after the login, so without
+// this the shell would mint a session and then refuse to record it. What was in
+// the userinfo may well be a password, so nothing echoes it.
+func TestLoginRefusesAnIssuerCarryingUserinfoBeforeTheBrowserOpens(t *testing.T) {
+	shell, out, errOut, issuer := newCreatingLogin(t)
+	shell.OpenBrowser = func(string) error {
+		t.Error("the shell opened a browser for a login whose issuer was already refused")
+		return nil
+	}
+	secret := "hunter2"
+	withUserinfo := strings.Replace(issuer.URL, "http://", "http://admin:"+secret+"@", 1)
+
+	code := shell.Run([]string{"login", "--url", withUserinfo,
+		"--client-id", "wso2-cli", "--context", "customer"})
+	if code != exit.Usage {
+		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
+	}
+	requireRefusal(t, errOut.String(), "shell.invalid_argument")
+	if strings.Contains(errOut.String(), secret) {
+		t.Errorf("the refusal echoed what was in the URL's userinfo:\n%s", errOut)
+	}
+	if _, err := (session.Store{StateRoot: shell.StateRoot}).Load("customer"); err == nil {
+		t.Error("a refused login left a session in the secure store")
+	}
+	if _, err := os.Stat(contexts.Path(shell.StateRoot)); !os.IsNotExist(err) {
+		t.Error("a refused login wrote a context document")
+	}
+	if out.String() != "" {
+		t.Errorf("a refused login wrote to standard output:\n%s", out)
+	}
+}
+
+// TestARefusedIssuerURLIsNotEchoed keeps the refusal in step with the rule
+// internal/contexts follows for the same reason: a value pasted where a URL
+// belongs may be a credential, so a refusal names the flag and not the value.
+func TestARefusedIssuerURLIsNotEchoed(t *testing.T) {
+	shell, _, errOut := newLoginShell(t)
+	pasted := "eyJhbGciOiJIUzI1NiJ9.pasted-where-a-url-belongs"
+
+	if code := shell.Run([]string{"login", "--url", pasted, "--client-id", "x",
+		"--context", "customer"}); code != exit.Usage {
+		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
+	}
+	if strings.Contains(errOut.String(), pasted) {
+		t.Errorf("the refusal echoed the rejected value:\n%s", errOut)
+	}
+	if !strings.Contains(errOut.String(), "--url") {
+		t.Errorf("the refusal does not name --url:\n%s", errOut)
+	}
+}
