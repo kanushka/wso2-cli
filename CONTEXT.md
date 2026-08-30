@@ -50,6 +50,12 @@ product namespace, whose size is bounded by namespaces and channels rather than
 by release history.
 _Avoid_: Manifest, listing
 
+**Development origin**:
+A catalog origin serving locally built module archives, from which a developer
+installs a module that has never been published. It is read by the same client,
+and produces the same installation, as the published origin.
+_Avoid_: Local registry, fake catalog
+
 **Module version**:
 A module's own release version, moving independently of the shell version, the
 protocol version, and the SDK version. A module tag carries it, and the catalog
