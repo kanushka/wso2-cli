@@ -69,6 +69,12 @@ func run() error {
 	shellVersion := flag.String("shell-version", "",
 		"The version of the wso2 shell that will launch the module. "+
 			"Defaults to what a shell built from this checkout reports.")
+	// Only the closing message uses this. A caller that has just built the
+	// shell it is installing for knows where that shell is, and naming "wso2"
+	// there instead would send the developer to whichever one is on PATH,
+	// which is the one this install was not made for.
+	shellPath := flag.String("shell-path", "wso2",
+		"How to name the shell that will launch the module, in the closing message.")
 	flag.Parse()
 
 	if *namespace == "" {
@@ -111,8 +117,8 @@ func run() error {
 	fmt.Printf("It was installed by the ordinary installer from a catalog served at %s for the length of this run.\n",
 		result.Origin)
 	fmt.Printf("The version is pinned, so wso2 module update leaves this build alone.\n")
-	fmt.Printf("\nRun it:\n  wso2 %s --help\nTake it off again:\n  wso2 module remove %s\n",
-		result.Namespace, result.Namespace)
+	fmt.Printf("\nRun it:\n  %s %s --help\nTake it off again:\n  %s module remove %s\n",
+		*shellPath, result.Namespace, *shellPath, result.Namespace)
 	return nil
 }
 

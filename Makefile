@@ -96,7 +96,7 @@ help:
 	@echo '  make build-module NAMESPACE=<namespace>  Compile that module and nothing else.'
 	@echo '  make test-module NAMESPACE=<namespace>   Run that one namespace, with the race detector.'
 	@echo '  make install-module NAMESPACE=<namespace> [SHELL_VERSION=<version>]'
-	@echo '                                           Install it from this checkout and run it under wso2.'
+	@echo '                                           Build a shell, install the module for it, ready to run.'
 	@echo '  make build-shell [SHELL_VERSION=<version>]'
 	@echo '                                           Build a wso2 that can launch a module, into bin/.'
 	@echo '  make gate-module NAMESPACE=<namespace> VERSION=<version>'
@@ -178,7 +178,6 @@ build-shell:
 		"-X github.com/wso2/wso2-cli/internal/version.shellVersion=$(or $(SHELL_VERSION),$(DEFAULT_SHELL_VERSION))" \
 		-o bin/wso2 ./cmd/wso2
 	@echo "Built bin/wso2 reporting version $(or $(SHELL_VERSION),$(DEFAULT_SHELL_VERSION))."
-	@echo "Install a module for it with: make install-module NAMESPACE=<namespace> SHELL_VERSION=$(or $(SHELL_VERSION),$(DEFAULT_SHELL_VERSION))"
 
 # Installs a module from this checkout, unpublished, so its author can run it
 # under the real shell before tagging anything. The module is built, packed, and
@@ -192,19 +191,22 @@ build-shell:
 # <namespace>` takes it off again. VERSION names another one, for rehearsing
 # what a specific release will look like installed.
 #
-# SHELL_VERSION names the version of the wso2 that will launch the module, and
-# is needed when that is a released shell rather than one built from this
-# checkout: a module's declared shell range does not contain the development
-# version an uninjected build reports, and installing for a shell that cannot
-# launch it is refused rather than discovered at the first command.
+# The shell is built first, and the module is installed for exactly the version
+# that build reports, so the two cannot drift into the refusal below. A module's
+# declared shell range does not contain the 0.0.0-dev an uninjected build
+# reports, so a shell built the ordinary way installs a module and then refuses
+# to launch it. SHELL_VERSION names another version, for a released wso2 you
+# intend to run instead; the install is still refused up front when that version
+# could not launch the module.
 .PHONY: install-module
-install-module:
+install-module: build-shell
 ifndef NAMESPACE
 	$(error NAMESPACE is required: make install-module NAMESPACE=mycloud)
 endif
 	$(GO) run ./cmd/wso2-module-dev -namespace '$(NAMESPACE)' \
 		$(if $(VERSION),-version '$(VERSION)') \
-		$(if $(SHELL_VERSION),-shell-version '$(SHELL_VERSION)')
+		-shell-version '$(or $(SHELL_VERSION),$(DEFAULT_SHELL_VERSION))' \
+		-shell-path ./bin/wso2
 
 # Answers the one question a tag cannot take back: whether any shell a user
 # already has can launch the module about to be published. The decision is the

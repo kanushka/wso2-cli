@@ -4,8 +4,9 @@
 **Related:** [Architecture](../architecture.md),
 [module catalog](../reference/module-catalog.md),
 [release artifacts](../reference/release-artifacts.md),
+[ADR 0011](../adr/0011-local-module-install-through-a-development-origin.md),
 [contributing](../../CONTRIBUTING.md)  
-**Last reviewed:** 2026-08-20
+**Last reviewed:** 2026-08-30
 
 The single-repository layout this guide describes is
 [ADR 0006](../adr/0006-monorepo-modules-and-generated-catalog.md). A product
@@ -465,7 +466,10 @@ channel to release a first module on.
 ## 7. Install, update, and remove it
 
 The other end of the lifecycle is what a user does, and it is worth running
-once against your own module rather than reading about.
+once against your own module rather than reading about. Installing your own
+build needs no tag: `make install-module` above already did this, from a
+catalog generated in the checkout. What follows is the published path, which is
+the same commands reading the real catalog origin.
 
 ```sh
 # What the catalog publishes, and what is installed here.

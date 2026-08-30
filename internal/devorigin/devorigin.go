@@ -36,14 +36,11 @@
 package devorigin
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
 	"net"
 	"net/http"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -260,50 +257,9 @@ func pack(repositoryRoot string, declaration catalog.Declaration, version string
 	platform modules.Platform) ([]byte, error) {
 	moduleDir := filepath.Join(repositoryRoot, filepath.FromSlash(declaration.Directory))
 
-	// The module announces its own version at the handshake and the shell
-	// compares it against the receipt, so a build without this injected would
-	// install and then refuse to launch on the placeholder. The SDK version is
-	// injected for the same reason a release injects it: it describes the build
-	// rather than a development placeholder.
-	sdkVersion, err := release.SDKVersion(moduleDir)
+	executable, err := release.Build(moduleDir, declaration.Namespace, version, platform)
 	if err != nil {
 		return nil, err
-	}
-
-	// A private directory rather than a predictable name under os.TempDir(),
-	// so two runs on one machine cannot build over each other and no
-	// pre-existing file or symlink at that path is followed.
-	workDir, err := os.MkdirTemp("", "wso2-module-dev-")
-	if err != nil {
-		return nil, fmt.Errorf("devorigin: creating a build directory failed: %w", err)
-	}
-	defer func() {
-		_ = os.RemoveAll(workDir)
-	}()
-
-	output := filepath.Join(workDir, install.ExecutableName(declaration.Namespace, platform))
-	var failure bytes.Buffer
-	command := exec.Command("go", "build", "-trimpath",
-		"-ldflags", release.BuildFlags(version, sdkVersion), "-o", output,
-		release.MainPackage(declaration.Namespace))
-	command.Dir = moduleDir
-	command.Env = append(os.Environ(),
-		"CGO_ENABLED=0",
-		"GOOS="+platform.OS,
-		"GOARCH="+platform.Arch,
-		"GOARM=6",
-	)
-	// The compiler's own output is what says which line failed, so it is
-	// carried into the error rather than left on a stream the caller may not be
-	// showing.
-	command.Stderr = &failure
-	if err := command.Run(); err != nil {
-		return nil, fmt.Errorf("devorigin: building the %s module for %s failed: %w\n%s",
-			declaration.Namespace, platform, err, failure.String())
-	}
-	executable, err := os.ReadFile(output)
-	if err != nil {
-		return nil, fmt.Errorf("devorigin: reading the built %s module failed: %w", declaration.Namespace, err)
 	}
 
 	// The licence and notice travel with the binary in a published archive, so

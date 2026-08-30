@@ -12,12 +12,20 @@ first time a developer sees their own module answer through the shell, they
 have already published a tag. This decision closes that gap.
 
 **A local install goes through the real catalog, not around it.** A contributor
-command builds the module, packages the archives, and runs the real catalog
-generator over them into a local directory. A short-lived static server then
-serves that directory while the ordinary `wso2 module install` runs against it,
-pointed there by `WSO2_CLI_CATALOG_ORIGIN`. The developer installs their
-unpublished module with the same command, and through the same code, as a user
-installing a published one.
+command builds the module with the same `release.Build` a release uses,
+packages the archive, and runs the real catalog generator over it. A server on
+loopback answers the catalog and archive paths for the length of the run, and
+the ordinary installer resolves, downloads, verifies, and activates from it.
+
+What the developer gets is the installation a user gets, produced by the same
+code. Two things are worth stating precisely, because a reader will otherwise
+assume more than is true. The command drives `internal/install` directly with
+the origin set on its catalog client, rather than executing the `wso2` binary
+with `WSO2_CLI_CATALOG_ORIGIN` in its environment; the installer and everything
+below it are the real ones, but the shell's own argument parsing and policy
+defaulting are not exercised. And the generated documents and the archive are
+held in memory and served from there, rather than written to a directory on
+disk. Neither changes what lands in the module store.
 
 **The obvious alternative is a trap.** Writing the store entry directly is far
 simpler: build the executable, write `receipt.json` and `active.json`, and the
