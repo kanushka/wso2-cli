@@ -216,27 +216,14 @@ func (s Shell) enableDiagnostics(command *cobra.Command, mode output.Mode) {
 //
 // There is one of these rather than one scanner per command on purpose.
 // --context is scanned separately by each of the three, and those three
-// scanners have already drifted apart from one another. This is the one place
-// --verbose is read out of an argument list, and the one place to delete when
-// each command declares its flags directly.
+// scanners have already drifted apart from one another. It is the one place to
+// delete when each command declares its flags directly. The scanning itself
+// lives in takeVerbose, which is the one place --verbose is read out of an
+// argument list — the product namespace path reads it from there too.
 func (s Shell) takeVerboseFlag(command *cobra.Command, args []string) ([]string, error) {
-	remaining := make([]string, 0, len(args))
-	asked := false
-	for _, argument := range args {
-		switch {
-		case argument == "--"+verboseFlag:
-			asked = true
-		case strings.HasPrefix(argument, "--"+verboseFlag+"="):
-			value := strings.TrimPrefix(argument, "--"+verboseFlag+"=")
-			enabled, err := strconv.ParseBool(value)
-			if err != nil {
-				return nil, usageProblem(fmt.Errorf("invalid argument %q for %q flag: %w",
-					value, "--"+verboseFlag, err))
-			}
-			asked = asked || enabled
-		default:
-			remaining = append(remaining, argument)
-		}
+	remaining, asked, err := takeVerbose(args)
+	if err != nil {
+		return nil, err
 	}
 	if !asked {
 		return remaining, nil
@@ -248,12 +235,83 @@ func (s Shell) takeVerboseFlag(command *cobra.Command, args []string) ([]string,
 		_ = flag.Value.Set("true")
 		flag.Changed = true
 	}
-	mode, err := shellOutputMode(command)
+	mode, err := diagnosticMode(command, remaining)
 	if err != nil {
 		return nil, err
 	}
 	s.enableDiagnostics(command, mode)
 	return remaining, nil
+}
+
+// takeVerbose removes every spelling of --verbose from an argument list and
+// reports whether the list asked for diagnostics.
+//
+// The last occurrence wins, because that is what pflag does with the same
+// argument list before a command name. A spelling that means one thing written
+// before the command and another written after it would be a worse answer than
+// refusing the flag was: the user would be reading a log they had switched off.
+func takeVerbose(args []string) (remaining []string, asked bool, err error) {
+	remaining = make([]string, 0, len(args))
+	for _, argument := range args {
+		switch {
+		case argument == "--"+verboseFlag:
+			asked = true
+		case strings.HasPrefix(argument, "--"+verboseFlag+"="):
+			value := strings.TrimPrefix(argument, "--"+verboseFlag+"=")
+			enabled, parseErr := strconv.ParseBool(value)
+			if parseErr != nil {
+				return nil, false, usageProblem(fmt.Errorf("invalid argument %q for %q flag: %w",
+					value, "--"+verboseFlag, parseErr))
+			}
+			asked = enabled
+		default:
+			remaining = append(remaining, argument)
+		}
+	}
+	return remaining, asked, nil
+}
+
+// diagnosticMode reports the rendering the diagnostics must follow.
+//
+// The arguments are read before the parsed flag because the commands that reach
+// here have disabled Cobra's flag parsing: for "wso2 logout --output json" the
+// root's flag is still at its default while the command's own parser renders
+// JSON, and diagnostics interleaved with a machine-readable result have to be
+// machine-readable too. An unusable value is left in place rather than refused
+// here, so that the parser that owns the flag is the one that explains it.
+func diagnosticMode(command *cobra.Command, args []string) (output.Mode, error) {
+	if mode, found := argumentOutputMode(args); found {
+		return mode, nil
+	}
+	return shellOutputMode(command)
+}
+
+// argumentOutputMode reports the rendering an argument list names, in every
+// spelling parseProductArgs accepts, and whether it named one at all. The last
+// occurrence wins, as it does for every other flag pflag parses.
+func argumentOutputMode(args []string) (output.Mode, bool) {
+	var (
+		mode  output.Mode
+		found bool
+	)
+	for index, argument := range args {
+		var value string
+		switch {
+		case argument == "--"+outputFlag || argument == "-o":
+			if index+1 >= len(args) {
+				continue
+			}
+			value = args[index+1]
+		case attachedOutput(argument):
+			value, _ = outputFlagValue(argument)
+		default:
+			continue
+		}
+		if parsed, ok := output.ParseMode(value); ok {
+			mode, found = parsed, true
+		}
+	}
+	return mode, found
 }
 
 // shellFlag finds a shell-owned flag whether or not the command it is asked

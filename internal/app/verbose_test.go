@@ -17,8 +17,11 @@
 package app_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -33,6 +36,8 @@ import (
 	contextfixture "github.com/wso2/wso2-cli/internal/contexts/fixture"
 	"github.com/wso2/wso2-cli/internal/exit"
 	"github.com/wso2/wso2-cli/internal/modules/fixture"
+	"github.com/wso2/wso2-cli/sdk/protocol"
+	"github.com/wso2/wso2-cli/sdk/protocol/contractv1"
 )
 
 // TestWithoutVerboseNothingIsWritten pins the default. A command that renders
@@ -399,5 +404,159 @@ func followAuthorizationURL() func(string) error {
 			}
 		}()
 		return nil
+	}
+}
+
+// TestVerboseTakesItsLastOccurrence pins the spelling against the parser that
+// reads the same flag on the other side of the command name. pflag lets the
+// last value win, so a hand-rolled scanner that treated the flag as cumulative
+// would leave "--verbose --verbose=false" meaning one thing before a command
+// name and the opposite after it — and the user reading a log they had just
+// switched off is the worse half of that.
+func TestVerboseTakesItsLastOccurrence(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "bare then off", args: []string{"module", "list", "--verbose", "--verbose=false"}},
+		{name: "off then bare", args: []string{"module", "list", "--verbose=false", "--verbose"}, want: true},
+		{name: "off then on", args: []string{"module", "list", "--verbose=false", "--verbose=true"}, want: true},
+		{name: "on then off", args: []string{"module", "list", "--verbose=true", "--verbose=false"}},
+		// The same spelling on the root's own parser, which is what the three
+		// arms above are pinned to rather than to a rule stated twice.
+		{name: "bare then off, before the command name", args: []string{"--verbose", "--verbose=false", "version"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			shell, _, errOut := newShell(t)
+			if code := shell.Run(test.args); code != exit.OK {
+				t.Fatalf("%v failed: exit %d, stderr %s", test.args, code, errOut)
+			}
+			if got := strings.Contains(errOut.String(), "the shell started"); got != test.want {
+				t.Fatalf("%v wrote diagnostics = %t, want %t:\n%s", test.args, got, test.want, errOut)
+			}
+		})
+	}
+}
+
+// TestVerboseFollowsAnOutputModeWrittenAfterTheCommandName covers the mode the
+// root never parsed. logout disables Cobra's flag parsing, so for
+// "wso2 logout --output json --verbose" the root's flag is still table while
+// the command's own parser renders JSON. Diagnostics interleaved with a
+// machine-readable result have to be machine-readable too, or the caller
+// parsing stderr hits prose.
+func TestVerboseFollowsAnOutputModeWrittenAfterTheCommandName(t *testing.T) {
+	// Every spelling the command's own parser accepts, because a spelling that
+	// selected the result's format and not the diagnostics' would be the same
+	// split under a different name.
+	for _, spelling := range [][]string{
+		{"--output", "json"},
+		{"-o", "json"},
+		{"--output=json"},
+		{"-ojson"},
+	} {
+		t.Run(strings.Join(spelling, " "), func(t *testing.T) {
+			keyring.MockInit()
+			issuer := fakeissuer.New(t, fakeissuer.Options{Audience: "reference-status"})
+			shell, _, errOut := newLoginShell(t)
+			installLogin(t, shell, browserDoc(issuer.URL))
+			shell.OpenBrowser = followAuthorizationURL()
+			if code := shell.Run([]string{"login"}); code != exit.OK {
+				t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
+			}
+			errOut.Reset()
+
+			args := append([]string{"logout"}, spelling...)
+			if code := shell.Run(append(args, "--verbose")); code != exit.OK {
+				t.Fatalf("verbose logout failed: exit %d, stderr %s", code, errOut)
+			}
+			if errOut.Len() == 0 {
+				t.Fatal("--verbose wrote no diagnostics")
+			}
+			for _, line := range strings.Split(strings.TrimSpace(errOut.String()), "\n") {
+				var record map[string]any
+				if err := json.Unmarshal([]byte(line), &record); err != nil {
+					t.Fatalf("the diagnostic line %q is not JSON under %v: %v", line, spelling, err)
+				}
+			}
+		})
+	}
+}
+
+// TestVerboseIsHonoredAfterAProductNamespace covers the path that never reaches
+// Cobra at all: a product namespace is routed straight to the module store, so
+// a flag written after it is taken there or nowhere.
+func TestVerboseIsHonoredAfterAProductNamespace(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+
+	// The fixture executable says nothing the contract recognizes, so the run
+	// fails after the module is resolved. What it wrote on the way there is the
+	// subject, so the exit code is not asserted.
+	shell.Run([]string{"reference", "status", "--verbose"})
+
+	for _, expected := range []string{"the shell started", "resolved a product namespace"} {
+		if !strings.Contains(errOut.String(), expected) {
+			t.Fatalf("wso2 reference status --verbose is missing %q in:\n%s", expected, errOut)
+		}
+	}
+}
+
+// TestVerboseIsNotForwardedToAModule is the other half. Until a module declares
+// its command tree the shell cannot tell a flag it should pass on from one the
+// module owns, so a module that does not know --verbose would refuse the whole
+// command. The flag is taken and forwarded to nothing; see forwardShellFlags.
+func TestVerboseIsNotForwardedToAModule(t *testing.T) {
+	directory := t.TempDir()
+	hello := filepath.Join(directory, "hello.bin")
+	invocation := filepath.Join(directory, "invocation.bin")
+	var handshake bytes.Buffer
+	if err := protocol.NewWriter(&handshake).WriteEnvelope(&contractv1.Envelope{
+		Message: &contractv1.Envelope_Hello{Hello: &contractv1.Hello{
+			Module:           &contractv1.ModuleIdentity{Namespace: "reference", Version: "0.1.0"},
+			ProtocolVersions: []uint32{1},
+		}},
+	}); err != nil {
+		t.Fatalf("encoding the fixture handshake: %v", err)
+	}
+	if err := os.WriteFile(hello, handshake.Bytes(), 0o600); err != nil {
+		t.Fatalf("writing the fixture handshake: %v", err)
+	}
+
+	shell, _, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{
+		Namespace: "reference",
+		Version:   "0.1.0",
+		// The invocation reaches a module on its standard input and nowhere
+		// else, so answering the handshake and keeping a copy of what arrives
+		// next is the only way to see what the module was actually told. The
+		// wait ends the moment the copy lands rather than after a fixed pause,
+		// and is bounded so a shell that sends nothing fails the test instead
+		// of hanging it.
+		// The copy runs in the background off an explicitly duplicated
+		// descriptor: a shell redirects a background job's standard input from
+		// /dev/null otherwise, and the copy would record nothing.
+		Contents: []byte("#!/bin/sh\ncat " + hello + "\nexec 3<&0\ncat <&3 > " + invocation + " &\n" +
+			"attempts=0\nwhile [ ! -s " + invocation + " ] && [ $attempts -lt 200 ]; do\n" +
+			"attempts=$((attempts+1))\nsleep 0.05\ndone\nexit 0\n"),
+	})
+
+	// The fixture answers the handshake and then says nothing the contract
+	// recognizes, so the run fails. What the module was sent is the subject,
+	// so the exit code is not asserted.
+	shell.Run([]string{"reference", "status", "--verbose"})
+
+	sent, err := os.ReadFile(invocation)
+	if err != nil {
+		t.Fatalf("the module recorded no invocation: %v; stderr: %s", err, errOut)
+	}
+	// The command the user did ask for has to be in there, or the check below
+	// is reading an empty page.
+	if !strings.Contains(string(sent), "status") {
+		t.Fatalf("the recorded invocation does not name the command:\n%q", sent)
+	}
+	if strings.Contains(string(sent), "--verbose") {
+		t.Fatalf("--verbose reached the module:\n%q", sent)
 	}
 }

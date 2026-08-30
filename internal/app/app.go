@@ -146,6 +146,26 @@ func isShellCommand(root *cobra.Command, name string) bool {
 // product code runs, and the executable digest is recomputed as part of it, so
 // nothing is launched that the receipt does not still describe.
 func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []string) error {
+	// A product namespace never enters the command tree, so nothing has parsed
+	// its arguments: --verbose written after the namespace is taken here or not
+	// at all. It is taken and not forwarded, because until a module declares
+	// its command tree the shell cannot tell a flag it should pass on from one
+	// the module owns, and a module that does not know the flag would refuse
+	// the whole command. See forwardShellFlags.
+	args, verbose, err := takeVerbose(args)
+	if err != nil {
+		return err
+	}
+	if verbose {
+		// The module's own --output governs, because these diagnostics
+		// interleave with the result the module renders under it.
+		mode, err := diagnosticMode(root, args)
+		if err != nil {
+			return err
+		}
+		s.enableDiagnostics(root, mode)
+	}
+
 	store, err := s.store()
 	if err != nil {
 		return err
