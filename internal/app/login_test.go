@@ -373,13 +373,16 @@ func TestLoginRecordsNoSessionExpiryWhenTheIssuerDisclosesNone(t *testing.T) {
 	}
 }
 
-// TestLoginRecordsAStringShapedDisclosedSessionExpiry pins finding 10 (round
-// 1 fixes for #120): before this fix, login.go's Extra("refresh_token_expires_in")
-// type-asserted only to float64, so an issuer disclosing the lifetime as a
-// JSON string was silently treated as not stated — inconsistent with the
-// rotation path, which used to fail outright on the same shape (finding 1).
-// Now both paths call the same auth.RefreshLifetimeSeconds, so a string
-// disclosed at login is recorded exactly as a number would be.
+// TestLoginRecordsAStringShapedDisclosedSessionExpiry proves login.go reads
+// a string-shaped refresh_token_expires_in the same way the rotation path
+// does. login.go used to type-assert Extra("refresh_token_expires_in")
+// directly to float64, which silently treated a JSON-string-shaped value as
+// not stated; internal/auth/narrowing.go's tokenResponse used to fail its
+// whole json.Unmarshal on the identical shape instead (see
+// TestTokenResponseUnmarshalNeverFailsOnRefreshTokenExpiresIn in
+// internal/auth). Both paths now call the shared auth.RefreshLifetimeSeconds,
+// so a string disclosed at login is recorded exactly as a number would be,
+// agreeing with what a rotation does with the same shape.
 func TestLoginRecordsAStringShapedDisclosedSessionExpiry(t *testing.T) {
 	keyring.MockInit()
 	const disclosedLifetimeSeconds = 86400

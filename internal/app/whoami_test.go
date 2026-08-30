@@ -92,6 +92,13 @@ func TestWhoamiOnAnUnconfiguredMachineReportsPlainly(t *testing.T) {
 	if report.Session != "none" {
 		t.Errorf("session = %q, want \"none\" on an unconfigured machine", report.Session)
 	}
+	// Recovery is present exactly when Session is not "present" (whoami.go's
+	// own claim about whoamiReport.Recovery): an unconfigured machine is one
+	// of the two whoamiSessionNone causes, and it must not be the one case
+	// that comment's biconditional silently excepts.
+	if report.Recovery == "" {
+		t.Errorf("recovery = \"\", want a way back for an unconfigured machine: %+v", report)
+	}
 }
 
 // TestWhoamiWithNoSessionNamesLogin proves a selected context with nothing
@@ -483,13 +490,19 @@ func TestWhoamiOpensNoNetworkConnection(t *testing.T) {
 	http.DefaultTransport = failingTransport{t: t}
 	keyring.MockInit()
 
+	// No "unsupported flag" case: unlike wso2 context's subcommands, whoami's
+	// own shellFlagsFor entry grants both contextFlag and outputFlag, so there
+	// is no shell-owned flag this command actually refuses (--verbose is
+	// exempt from every command's shellFlagsFor list — see command.go's own
+	// comment on shellFlagsFor — so {"--verbose", "whoami"} is a supported
+	// invocation that exits 0, not a refusal; doctor_test.go's equivalent
+	// guard carries no such case either, for the same reason).
 	invocations := map[string][]string{
 		"unconfigured":        {"whoami"},
 		"unconfigured, json":  {"whoami", "--output", "json"},
 		"configured, session": {"whoami", "--output", "json"},
 		"unknown context":     {"whoami", "--context", "nosuch"},
 		"stray argument":      {"whoami", "extra"},
-		"unsupported flag":    {"--verbose", "whoami"},
 	}
 	for name, args := range invocations {
 		t.Run(name, func(t *testing.T) {

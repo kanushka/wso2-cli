@@ -46,8 +46,10 @@ const (
 	// been disclosed to have lapsed: either the issuer named no lifetime for
 	// it, or it named one still in the future. A session in this state may
 	// still renew on the next command that needs it, whether or not its much
-	// shorter-lived access token has itself expired — see Session.ExpiresAt's
-	// own doc comment for why that quantity plays no part here.
+	// shorter-lived access token has itself expired — R7 (#112) is why that
+	// quantity (session.Session.ExpiresAt) plays no part here: it carries no
+	// doc comment of its own, and this package is where the reasoning is
+	// recorded.
 	whoamiSessionPresent = "present"
 	// whoamiSessionExpired is a stored session whose issuer-disclosed
 	// refresh-token lifetime has passed. Unlike whoamiSessionPresent, this
@@ -57,15 +59,26 @@ const (
 
 // unknownSubject is what wso2 whoami reports for a session predating R6
 // (#112), whose Subject field decodes to the empty string. It renders as this
-// word in both table and JSON, never as a blank field: TestWhoamiRendersAPreR6SessionSubjectAsUnknown
-// pins both renderings against a session written as raw JSON that never
-// carries a subject member at all.
+// word in both table and JSON, never as a blank field:
+// TestWhoamiRendersAPreR6SessionAsUnknownAndNotStated pins both renderings
+// against a session written as raw JSON that never carries a subject member
+// at all.
 const unknownSubject = "unknown"
 
 // sessionExpiryNotStated is what wso2 whoami reports when a stored session
 // carries no SessionExpiresAt: the expected case per R7 (#112), not an error,
 // and not a reason to substitute the access token's own, much shorter, expiry.
 const sessionExpiryNotStated = "not stated by the issuer"
+
+// unconfiguredRecovery is the way back from a machine with no context
+// configured at all — the second half of the sentence table mode prints for
+// that state below — used as whoamiReport.Recovery's initial value so a JSON
+// caller reading Session == whoamiSessionNone always finds a Recovery,
+// whichever of "nothing is configured" or "a context is configured but has no
+// session" produced it. TestWhoamiOnAnUnconfiguredMachineReportsPlainly pins
+// this for the unconfigured case specifically.
+const unconfiguredRecovery = "Run wso2 login to create an identity and a context, " +
+	"or wso2 context create <name> --identity <identity> if you already have one."
 
 func (s Shell) whoamiCommand() *cobra.Command {
 	return &cobra.Command{
@@ -94,11 +107,17 @@ func (s Shell) whoami(command *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	// Precedence duplicated from doctor.go rather than shared with it, for the
-	// same reason doctor.go gives for duplicating it from
-	// Shell.selectionAndDocument: this command needs to tell "no context
-	// configured" apart from "an unresolvable --context name", and a combined
-	// selection error cannot be told apart after the fact.
+	// Precedence duplicated from doctor.go rather than shared with it, for
+	// whoami's own reason, distinct from doctor's: whoami needs to tell "no
+	// context configured" (a state to report, exit 0) apart from "an
+	// unresolvable --context name" (the caller's argument mistake, refused as
+	// usage), and Shell.selectionAndDocument (internal/app/invoke.go:152)
+	// returns only a combined error that cannot be told apart after the fact.
+	// doctor.go duplicates the identical precedence for a different reason of
+	// its own — it needs the document even when selection fails, to run its
+	// context and secure-store checks against it (see doctor.go's doc
+	// comment on doctor) — so the two commands share the code, not the
+	// justification.
 	contextName := ""
 	if flag := shellFlag(command, contextFlag); flag != nil {
 		contextName = flag.Value.String()
@@ -112,7 +131,7 @@ func (s Shell) whoami(command *cobra.Command) error {
 		return err
 	}
 
-	report := whoamiReport{Session: whoamiSessionNone}
+	report := whoamiReport{Session: whoamiSessionNone, Recovery: unconfiguredRecovery}
 	if len(document.Contexts) > 0 {
 		selected, selErr := document.Select(contextName)
 		if selErr != nil {
@@ -216,7 +235,15 @@ type whoamiReport struct {
 	// whoamiSessionNone.
 	SessionExpiry string `json:"sessionExpiry"`
 	// Recovery is the way back, present exactly when Session is not
-	// whoamiSessionPresent.
+	// whoamiSessionPresent: whoamiSessionNone always sets it (to
+	// unconfiguredRecovery when nothing is configured, or to the store's own
+	// auth.login_required recovery via sessionRecovery when a context is
+	// configured but has no session), and whoamiSessionExpired always sets it
+	// via sessionExpiryState. TestWhoamiOnAnUnconfiguredMachineReportsPlainly
+	// and TestWhoamiWithNoSessionNamesLogin each pin one of the two
+	// whoamiSessionNone causes; TestWhoamiReportsAnExpiredSession pins the
+	// expired case; TestWhoamiReportsAPresentSessionWithUndisclosedExpiry
+	// pins the one case where it must be empty.
 	Recovery string `json:"recovery,omitempty"`
 }
 
