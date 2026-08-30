@@ -119,6 +119,31 @@ func TestKeyringUnavailableOnSaveIsTyped(t *testing.T) {
 	assertProblemCode(t, err, "auth.keyring_unavailable")
 }
 
+func TestProbeReportsReachableWhenTheKeyIsSimplyAbsent(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := store.Probe(); err != nil {
+		t.Fatalf("Probe: %v, want nil: a not-found answer is a reachable store", err)
+	}
+}
+
+func TestProbeReportsReachableEvenIfSomethingIsStoredUnderItsKey(t *testing.T) {
+	keyring.MockInit()
+	if err := keyring.Set(session.Service, session.ProbeCredentialRef, "unrelated"); err != nil {
+		t.Fatalf("seed the probe key: %v", err)
+	}
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := store.Probe(); err != nil {
+		t.Fatalf("Probe: %v, want nil: any answer from the backend means it is reachable", err)
+	}
+}
+
+func TestProbeIsTypedWhenTheKeyringIsUnavailable(t *testing.T) {
+	keyring.MockInitWithError(errors.New("no secret service"))
+	store := session.Store{StateRoot: t.TempDir()}
+	assertProblemCode(t, store.Probe(), "auth.keyring_unavailable")
+}
+
 func TestWithLockSerializesWriters(t *testing.T) {
 	keyring.MockInit()
 	store := session.Store{StateRoot: t.TempDir()}

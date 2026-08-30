@@ -73,6 +73,30 @@ func (s Store) Load(ref string) (Session, error) {
 	return stored, nil
 }
 
+// ProbeCredentialRef is the reserved reference Probe reads under.
+//
+// It contains a period, a character the credentialRef pattern
+// (^[a-z][a-z0-9-]{0,63}$) never allows, so no identity a document declares can
+// ever be assigned this reference. That is what lets Probe read the secure
+// store without risking a collision with, or a read of, a real session.
+const ProbeCredentialRef = "probe.reachability"
+
+// Probe reports whether the OS secure store answers a read at all, without
+// touching any identity's session.
+//
+// It asks for the reserved reference above, which nothing ever stores a
+// session under. A "not found" answer means the backend was reached and had an
+// opinion about the key, which is what "reachable" means here: there is
+// nothing to probe with, only whether the backend can be asked. Any other
+// error means the backend itself, not the key, could not be reached.
+func (s Store) Probe() error {
+	_, err := keyring.Get(Service, ProbeCredentialRef)
+	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
+		return keyringUnavailable()
+	}
+	return nil
+}
+
 // Save writes the session, replacing any previous entry.
 func (s Store) Save(ref string, value Session) error {
 	data, err := json.Marshal(value)
