@@ -25,6 +25,7 @@ import (
 
 	keyring "github.com/zalando/go-keyring"
 
+	"github.com/wso2/wso2-cli/internal/app"
 	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/exit"
@@ -298,9 +299,15 @@ func TestWhoamiRefusesAnUnknownContextAsUsage(t *testing.T) {
 	requireRefusal(t, errOut.String(), "contexts.unknown_context")
 }
 
-// TestWhoamiHonorsTheContextFlag proves --context selects which context
-// whoami reports on, rather than always reporting the document default.
-func TestWhoamiHonorsTheContextFlag(t *testing.T) {
+// TestWhoamiHonorsContextPrecedence pins whoami.go's duplicated copy of
+// selection()'s precedence (internal/app/invoke.go:152), mirroring
+// doctor_test.go's TestDoctorHonorsContextPrecedence: --context wins over
+// WSO2_CONTEXT, which wins over the document's default context. Two contexts
+// with distinct identities, and a session stored for only one of them, turn
+// "which context got selected" into an observable fact: reporting "present"
+// is only possible when the context whoami actually resolved is the one the
+// session was seeded under.
+func TestWhoamiHonorsContextPrecedence(t *testing.T) {
 	keyring.MockInit()
 	seeded := whoamiSeededDocument()
 	seeded.Identities = append(seeded.Identities, contexts.Identity{
@@ -314,37 +321,82 @@ func TestWhoamiHonorsTheContextFlag(t *testing.T) {
 		},
 	})
 	seeded.Contexts = append(seeded.Contexts, contexts.Context{Name: "beta", Identity: "beta-cloud"})
-	shell, out, errOut := newShell(t)
-	installLogin(t, shell, seeded)
-	// A session exists only for beta's identity, so reporting "present" is
-	// only possible when beta is the context whoami actually resolved.
-	if err := (session.Store{StateRoot: shell.StateRoot}).Save("beta-cloud", session.Session{
-		Issuer: "https://idp.example", RefreshToken: "rt-1",
-	}); err != nil {
-		t.Fatalf("seed a session: %v", err)
+	seedBetaSession := func(t *testing.T, shell app.Shell) {
+		t.Helper()
+		installLogin(t, shell, seeded)
+		if err := (session.Store{StateRoot: shell.StateRoot}).Save("beta-cloud", session.Session{
+			Issuer: "https://idp.example", RefreshToken: "rt-1",
+		}); err != nil {
+			t.Fatalf("seed a session: %v", err)
+		}
 	}
 
-	if code := shell.Run([]string{"whoami", "--context", "beta", "--output", "json"}); code != exit.OK {
-		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
-	}
-	report := decodeWhoamiReport(t, out.Bytes())
-	if report.Context != "beta" || report.Session != "present" {
-		t.Errorf("report = %+v, want context beta with a present session", report)
-	}
+	t.Run("the document default, with neither flag nor variable set", func(t *testing.T) {
+		shell, out, errOut := newShell(t)
+		seedBetaSession(t, shell)
+
+		if code := shell.Run([]string{"whoami", "--output", "json"}); code != exit.OK {
+			t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+		}
+		report := decodeWhoamiReport(t, out.Bytes())
+		if report.Context != "acme" || report.Session != "none" {
+			t.Errorf("report = %+v, want context acme with no session: acme has none seeded", report)
+		}
+	})
+
+	t.Run("WSO2_CONTEXT overrides the document default", func(t *testing.T) {
+		shell, out, errOut := newShell(t)
+		seedBetaSession(t, shell)
+		t.Setenv("WSO2_CONTEXT", "beta")
+
+		if code := shell.Run([]string{"whoami", "--output", "json"}); code != exit.OK {
+			t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+		}
+		report := decodeWhoamiReport(t, out.Bytes())
+		if report.Context != "beta" || report.Session != "present" {
+			t.Errorf("report = %+v, want context beta with a present session: WSO2_CONTEXT=beta "+
+				"should have been reported on", report)
+		}
+	})
+
+	t.Run("--context overrides WSO2_CONTEXT", func(t *testing.T) {
+		shell, out, errOut := newShell(t)
+		seedBetaSession(t, shell)
+		t.Setenv("WSO2_CONTEXT", "beta")
+
+		if code := shell.Run([]string{"whoami", "--context", "acme", "--output", "json"}); code != exit.OK {
+			t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+		}
+		report := decodeWhoamiReport(t, out.Bytes())
+		if report.Context != "acme" || report.Session != "none" {
+			t.Errorf("report = %+v, want context acme with no session: --context acme must win "+
+				"over WSO2_CONTEXT=beta", report)
+		}
+	})
 }
 
 // TestWhoamiBothRenderingsAgree proves table and JSON agree on the facts, and
 // that no schema discriminator is published, per constraint 6.
 func TestWhoamiBothRenderingsAgree(t *testing.T) {
 	keyring.MockInit()
-	shell, out, errOut := newShell(t)
-	installLogin(t, shell, whoamiSeededDocument())
-	if err := (session.Store{StateRoot: shell.StateRoot}).Save("acme-cloud", session.Session{
-		Issuer: "https://idp.example", RefreshToken: "rt-1", Subject: "user-1",
-	}); err != nil {
-		t.Fatalf("seed a session: %v", err)
+	// An expired session, deliberately, rather than a merely present one:
+	// SessionExpiry and Recovery are both non-empty only in this state, and
+	// constraint 6 must hold for every field this command reports, not only
+	// the ones a present session happens to populate.
+	past := time.Now().Add(-30 * 24 * time.Hour).UTC().Truncate(time.Second)
+	seedExpiredSession := func(t *testing.T, shell app.Shell) {
+		t.Helper()
+		installLogin(t, shell, whoamiSeededDocument())
+		if err := (session.Store{StateRoot: shell.StateRoot}).Save("acme-cloud", session.Session{
+			Issuer: "https://idp.example", RefreshToken: "rt-1", Subject: "user-1",
+			SessionExpiresAt: past,
+		}); err != nil {
+			t.Fatalf("seed a session: %v", err)
+		}
 	}
 
+	shell, out, errOut := newShell(t)
+	seedExpiredSession(t, shell)
 	if code := shell.Run([]string{"whoami", "--output", "json"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
@@ -356,18 +408,24 @@ func TestWhoamiBothRenderingsAgree(t *testing.T) {
 		t.Errorf("the result publishes a schema key the rest of the shell suppresses:\n%s", out)
 	}
 	report := decodeWhoamiReport(t, out.Bytes())
+	if report.SessionExpiry == "" || report.Recovery == "" {
+		t.Fatalf("report = %+v, want both SessionExpiry and Recovery populated for an expired session", report)
+	}
 
 	tableShell, tableOut, tableErrOut := newShell(t)
-	installLogin(t, tableShell, whoamiSeededDocument())
-	if err := (session.Store{StateRoot: tableShell.StateRoot}).Save("acme-cloud", session.Session{
-		Issuer: "https://idp.example", RefreshToken: "rt-1", Subject: "user-1",
-	}); err != nil {
-		t.Fatalf("seed a session: %v", err)
-	}
+	seedExpiredSession(t, tableShell)
 	if code := tableShell.Run([]string{"whoami"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, tableErrOut)
 	}
-	for _, want := range []string{report.Context, report.Identity, report.Organization, report.Subject, report.Session} {
+	// Every field the JSON rendering carries, SessionExpiry and Recovery
+	// included: a fact present in one rendering and not checked in the other
+	// is exactly the gap constraint 6 exists to close. Mutation-checked:
+	// deleting the {"Session expiry", ...} row from whoamiReport.fields()
+	// left this test green before this fix; it now fails that mutation.
+	for _, want := range []string{
+		report.Context, report.Identity, report.Organization, report.Subject,
+		report.Session, report.SessionExpiry, report.Recovery,
+	} {
 		if !strings.Contains(tableOut.String(), want) {
 			t.Errorf("the table rendering is missing %q, present in JSON:\n%s", want, tableOut)
 		}
