@@ -130,7 +130,7 @@ func (s Shell) rootCommand() *cobra.Command {
 	root.PersistentFlags().Bool(verboseFlag, false, "Write diagnostics about what the shell attempted to stderr.")
 
 	root.AddCommand(s.contextCommand(), s.doctorCommand(), s.loginCommand(), s.logoutCommand(),
-		s.moduleCommand(), s.versionCommand())
+		s.moduleCommand(), s.versionCommand(), s.whoamiCommand())
 
 	// Cobra's generated help command describes itself generically. The shell
 	// published its own summary for it, and that wording is kept.
@@ -303,6 +303,11 @@ func shellFlagsFor(name string) []string {
 		// result, because it is the only one whose result a script has to read:
 		// what the issuer was told about the ended session is not observable
 		// any other way.
+		return []string{contextFlag, outputFlag}
+	case "whoami":
+		// whoami reports ON a selected context exactly as doctor does (R5,
+		// #112), so naming one with --context is meaningful for the same
+		// reason.
 		return []string{contextFlag, outputFlag}
 	default:
 		return nil
