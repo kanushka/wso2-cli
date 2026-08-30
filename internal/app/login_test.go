@@ -213,16 +213,30 @@ func TestLoginRefusesUnknownArguments(t *testing.T) {
 	// --non-interactive is the spelling wso2 login shipped before #122 renamed
 	// it. It is listed here so the rename cannot be half-applied: a build that
 	// still answered to it would fail this test rather than quietly accept both.
-	for _, argument := range []string{"--nope", "extra", "--non-interactive"} {
-		t.Run(argument, func(t *testing.T) {
+	//
+	// A flag and an argument are refused by different parts now that login
+	// declares its flags: an unknown flag by the root's flag-error hook, which
+	// names the flag and points at wso2 help exactly as it does for every other
+	// declared-flag command, and a stray argument by login's own Args
+	// validator, whose recovery is login's usage line. Both are usage
+	// refusals, which is the part a caller branches on.
+	for _, testCase := range []struct {
+		argument string
+		names    string
+	}{
+		{"--nope", "--nope"},
+		{"extra", "wso2 login"},
+		{"--non-interactive", "--non-interactive"},
+	} {
+		t.Run(testCase.argument, func(t *testing.T) {
 			shell, _, errOut := newLoginShell(t)
 			installLogin(t, shell, browserDoc("https://issuer.example.test"))
 
-			if code := shell.Run([]string{"login", argument}); code != exit.Usage {
+			if code := shell.Run([]string{"login", testCase.argument}); code != exit.Usage {
 				t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
 			}
-			if !strings.Contains(errOut.String(), "wso2 login") {
-				t.Fatalf("the refusal does not say how to run login:\n%s", errOut)
+			if !strings.Contains(errOut.String(), testCase.names) {
+				t.Fatalf("the refusal does not name %s:\n%s", testCase.names, errOut)
 			}
 		})
 	}
