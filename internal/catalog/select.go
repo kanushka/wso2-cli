@@ -18,6 +18,7 @@ package catalog
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -122,11 +123,45 @@ func permittedVersions(file NamespaceFile, policy Policy) ([]Version, error) {
 		}
 	}
 	if len(permitted) == 0 {
+		published := publishedChannels(ordered)
+		if len(published) == 0 {
+			return nil, problem.New(problem.CategoryUsage, "catalog.empty_channel",
+				fmt.Sprintf("the %q module publishes no versions at all", file.Namespace)).
+				WithRecovery("The module is in the catalog but has published nothing. " +
+					"Report this to the module's maintainers.")
+		}
+		choose := fmt.Sprintf("This module publishes on %s. Choose one with --channel.",
+			strings.Join(published, " and "))
+		if !slices.Contains(Channels, channel) {
+			// A name that is not a channel at all is a typo, and no module will
+			// ever publish on it. Saying so separates it from a real channel
+			// that is merely empty for this module today, where waiting for a
+			// release is the right response. The one shared refusal said
+			// neither.
+			return nil, problem.New(problem.CategoryUsage, "catalog.unknown_channel",
+				fmt.Sprintf("there is no release channel named %q", channel)).
+				WithRecovery(choose)
+		}
 		return nil, problem.New(problem.CategoryUsage, "catalog.empty_channel",
 			fmt.Sprintf("the %q module publishes no version on the %s channel", file.Namespace, channel)).
-			WithRecovery("Choose a channel the module publishes on.")
+			WithRecovery(choose)
 	}
 	return permitted, nil
+}
+
+// publishedChannels names every channel the history publishes on, sorted, so a
+// refusal can tell the user what to choose instead of telling them to choose.
+// The published file already carries the answer the user would otherwise go
+// looking for with wso2 module available.
+func publishedChannels(versions []Version) []string {
+	var channels []string
+	for _, version := range versions {
+		if !slices.Contains(channels, version.Channel) {
+			channels = append(channels, version.Channel)
+		}
+	}
+	slices.Sort(channels)
+	return channels
 }
 
 // orderedVersions copies a history into selection order, newest first.
