@@ -396,3 +396,71 @@ func TestOnlyABadRequestReadsAsARefusalToNarrow(t *testing.T) {
 		})
 	}
 }
+
+// TestAccessIsGrantedWhenTheDeploymentBindsTheRegisteredAudience models
+// Asgardeo, where an access token's aud is the client ID and never the API
+// resource the module names.
+//
+// The module asks by the logical name its API is known by, compiled in and the
+// same against every deployment. The identity registers the concrete string
+// this deployment stamps into aud. The two differ here, which is the case the
+// broker used to refuse outright as auth.product_not_configured — making the
+// reference module installable only where its constant happened to match a
+// deployment value. What has to hold instead is that the grant succeeds and the
+// token really is bound to what the identity registered.
+func TestAccessIsGrantedWhenTheDeploymentBindsTheRegisteredAudience(t *testing.T) {
+	const clientIDAudience = "M0Hkzofj2ZoTEKuEJEPS75EfW8ga"
+
+	deployment := seedBrowserSession(t, fakeissuer.Options{
+		Audience:         clientIDAudience,
+		RefreshScopeMode: "honor",
+	})
+	broker := deployment.broker(t)
+	withProduct(broker, contexts.Product{
+		Endpoint: "https://reference.example.test",
+		Audience: clientIDAudience,
+		Scopes:   []string{readScope, writeScope},
+	})
+
+	// declaredRequest asks for "reference-status": the module's own name for the
+	// API, which this deployment will never put in a token.
+	grant, err := broker.Acquire(declaredRequest())
+	if err != nil {
+		t.Fatalf("Acquire returned %v, want a grant: a module's logical audience differing from "+
+			"the registered one is not a misconfiguration", err)
+	}
+
+	active, scopes, audiences := deployment.issuer.Introspect(t, grant.Token)
+	if !active {
+		t.Fatal("the module was granted a token the issuer did not mint")
+	}
+	if len(audiences) != 1 || audiences[0] != clientIDAudience {
+		t.Errorf("token audience = %v, want [%s]: the binding proved must be the registered one",
+			audiences, clientIDAudience)
+	}
+	if len(scopes) != 1 || scopes[0] != readScope {
+		t.Errorf("token scopes = %v, want exactly [%s]", scopes, readScope)
+	}
+}
+
+// A token bound to something other than what the identity registered is still
+// refused. This is the check that carries the weight now that the module's
+// logical name is not compared against the registration.
+func TestAccessIsRefusedWhenTheDeploymentBindsAnotherAudience(t *testing.T) {
+	deployment := seedBrowserSession(t, fakeissuer.Options{
+		Audience:         "some-other-api",
+		RefreshScopeMode: "honor",
+	})
+	broker := deployment.broker(t)
+	withProduct(broker, contexts.Product{
+		Endpoint: "https://reference.example.test",
+		Audience: "M0Hkzofj2ZoTEKuEJEPS75EfW8ga",
+		Scopes:   []string{readScope, writeScope},
+	})
+
+	refusal := denied(t, broker, declaredRequest())
+
+	if refusal.Problem.Code != "auth.narrowing_unavailable" {
+		t.Fatalf("code = %q, want auth.narrowing_unavailable", refusal.Problem.Code)
+	}
+}

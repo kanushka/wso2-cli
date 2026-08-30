@@ -169,7 +169,7 @@ func experimentRefreshNarrowing(t *testing.T, config smoke.Config) {
 		StateRoot:    stateRoot,
 	}
 
-	_, err = broker.Acquire(auth.Request{Audience: config.Audience, Scopes: []string{target}})
+	_, err = broker.Acquire(auth.Request{Audience: smoke.ModuleAudience, Scopes: []string{target}})
 	// The classification lives in the untagged half of this package so that it
 	// is unit-tested against the shell's real refusal wording. It decides a
 	// finding that outlives the run, and it must not be decided by code that
