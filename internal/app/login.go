@@ -145,12 +145,23 @@ func (s Shell) login(args []string) error {
 
 	reference := selected.Identity.Auth.CredentialRef
 	store := session.Store{StateRoot: root}
+	// The refresh token's own lifetime, when the token response discloses one
+	// as refresh_token_expires_in. encoding/json decodes a JSON number into
+	// this field as float64, which is what result.Token.Extra retains it as;
+	// any other shape (including absent) leaves this at the zero value, which
+	// R7 (#112) treats as the expected case rather than a reason to invent one.
+	sessionExpiresAt := time.Time{}
+	if seconds, ok := result.Token.Extra("refresh_token_expires_in").(float64); ok && seconds > 0 {
+		sessionExpiresAt = time.Now().Add(time.Duration(seconds) * time.Second).UTC()
+	}
 	err = store.WithLock(reference, func() error {
 		return store.Save(reference, session.Session{
-			Issuer:       selected.Identity.Auth.Issuer,
-			RefreshToken: result.Token.RefreshToken,
-			AccessToken:  result.Token.AccessToken,
-			ExpiresAt:    result.Token.Expiry.UTC(),
+			Issuer:           selected.Identity.Auth.Issuer,
+			RefreshToken:     result.Token.RefreshToken,
+			AccessToken:      result.Token.AccessToken,
+			ExpiresAt:        result.Token.Expiry.UTC(),
+			Subject:          result.Subject,
+			SessionExpiresAt: sessionExpiresAt,
 		})
 	})
 	if err != nil {

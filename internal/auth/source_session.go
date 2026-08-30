@@ -125,6 +125,16 @@ func (s sessionSource) derive(request Request, now time.Time) (Grant, error) {
 	// command, so it is handed over and never stored.
 	if issued.RefreshToken != "" && issued.RefreshToken != stored.RefreshToken {
 		stored.RefreshToken = issued.RefreshToken
+		// The rotated token's own lifetime, when this rotation discloses one;
+		// the zero value otherwise (R7, #112). It is reassigned rather than
+		// left as whatever an earlier login or rotation happened to record,
+		// because that value described a refresh token this rotation has just
+		// replaced, and carrying it forward would misstate the new one's
+		// lifetime as known when it is not.
+		stored.SessionExpiresAt = time.Time{}
+		if issued.RefreshTokenExpiresIn > 0 {
+			stored.SessionExpiresAt = now.Add(time.Duration(issued.RefreshTokenExpiresIn) * time.Second).UTC()
+		}
 		if err := s.sessions.Save(s.identity.Auth.CredentialRef, stored); err != nil {
 			return Grant{}, err
 		}

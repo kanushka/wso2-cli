@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	keyring "github.com/zalando/go-keyring"
 
@@ -283,6 +284,92 @@ func TestLoginHappyPathStoresSessionAndReportsIdentity(t *testing.T) {
 		if strings.Contains(out.String(), secret) || strings.Contains(errOut.String(), secret) {
 			t.Fatal("token material leaked into the login output")
 		}
+	}
+}
+
+// TestLoginRecordsSubjectAndDisclosedSessionExpiry pins R6/R7 (#112): a login
+// records the verified subject and, when the token response discloses a
+// refresh_token_expires_in member, the session's own expiry derived from it —
+// stored inside the session record login already writes, not the access
+// token's much shorter ExpiresAt, which stays whatever the login flow's own
+// expiry recorded and is asserted here only as evidence it was left alone.
+func TestLoginRecordsSubjectAndDisclosedSessionExpiry(t *testing.T) {
+	keyring.MockInit()
+	const disclosedLifetimeSeconds = 86400
+	issuer := fakeissuer.New(t, fakeissuer.Options{
+		Audience: "reference-status", RefreshTokenExpiresIn: disclosedLifetimeSeconds,
+	})
+	shell, _, _ := newLoginShell(t)
+	installLogin(t, shell, browserDoc(issuer.URL))
+	shell.OpenBrowser = func(authURL string) error {
+		go func() {
+			response, err := http.Get(authURL)
+			if err == nil {
+				_ = response.Body.Close()
+			}
+		}()
+		return nil
+	}
+
+	before := time.Now()
+	if code := shell.Run([]string{"login"}); code != exit.OK {
+		t.Fatalf("login failed: exit %d", code)
+	}
+	after := time.Now()
+
+	stored, err := session.Store{StateRoot: shell.StateRoot}.Load(credentialRef)
+	if err != nil {
+		t.Fatalf("session not stored: %v", err)
+	}
+	if stored.Subject != "user-1" {
+		t.Errorf("stored session subject = %q, want %q (fakeissuer's own subject)", stored.Subject, "user-1")
+	}
+	if stored.SessionExpiresAt.IsZero() {
+		t.Fatal("the disclosed refresh-token lifetime was not recorded as SessionExpiresAt")
+	}
+	earliest := before.Add(disclosedLifetimeSeconds * time.Second)
+	latest := after.Add(disclosedLifetimeSeconds * time.Second)
+	if stored.SessionExpiresAt.Before(earliest) || stored.SessionExpiresAt.After(latest) {
+		t.Errorf("SessionExpiresAt = %v, want between %v and %v", stored.SessionExpiresAt, earliest, latest)
+	}
+	// The access token's own expiry is a different quantity (R7) and is left
+	// exactly as the login flow already computed it; this only proves the new
+	// field did not somehow overwrite or blank it out.
+	if stored.ExpiresAt.IsZero() {
+		t.Error("ExpiresAt (the access token's own expiry) was cleared by the SessionExpiresAt change")
+	}
+}
+
+// TestLoginRecordsNoSessionExpiryWhenTheIssuerDisclosesNone proves the
+// expected case per R7: an issuer that states no refresh_token_expires_in
+// leaves SessionExpiresAt at the zero value, rather than substituting the
+// access token's own expiry or inventing a default.
+func TestLoginRecordsNoSessionExpiryWhenTheIssuerDisclosesNone(t *testing.T) {
+	keyring.MockInit()
+	issuer := fakeissuer.New(t, fakeissuer.Options{Audience: "reference-status"})
+	shell, _, _ := newLoginShell(t)
+	installLogin(t, shell, browserDoc(issuer.URL))
+	shell.OpenBrowser = func(authURL string) error {
+		go func() {
+			response, err := http.Get(authURL)
+			if err == nil {
+				_ = response.Body.Close()
+			}
+		}()
+		return nil
+	}
+
+	if code := shell.Run([]string{"login"}); code != exit.OK {
+		t.Fatalf("login failed: exit %d", code)
+	}
+
+	stored, err := session.Store{StateRoot: shell.StateRoot}.Load(credentialRef)
+	if err != nil {
+		t.Fatalf("session not stored: %v", err)
+	}
+	if !stored.SessionExpiresAt.IsZero() {
+		t.Errorf("SessionExpiresAt = %v, want the zero value: this issuer disclosed no refresh-token lifetime",
+			stored.SessionExpiresAt)
 	}
 }
 

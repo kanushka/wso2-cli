@@ -103,6 +103,12 @@ type Options struct {
 	// OmitRefreshScopeField leaves the scope member out of refresh responses,
 	// modeling issuers that answer without stating the effective scopes.
 	OmitRefreshScopeField bool
+	// RefreshTokenExpiresIn states a refresh token's own lifetime, in seconds,
+	// on the authorization-code grant's response and on a rotated refresh
+	// token's response. Zero leaves the member out entirely, modeling the many
+	// issuers that disclose no refresh-token lifetime at all — the expected
+	// case R7 (#112) is written against, not the exceptional one.
+	RefreshTokenExpiresIn int
 	// AllowAnyLoopbackPort accepts a callback on any 127.0.0.1 port instead of
 	// only the four registered ones, so a test can bind an ephemeral port and
 	// run in parallel with anything else on the machine.
@@ -568,6 +574,9 @@ func (i *Issuer) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		i.refreshTokens[refreshToken] = refreshRecord{scopes: grant.scopes, resource: grant.resource}
 		i.mutex.Unlock()
 		response["refresh_token"] = refreshToken
+		if i.opts.RefreshTokenExpiresIn != 0 {
+			response["refresh_token_expires_in"] = i.opts.RefreshTokenExpiresIn
+		}
 	}
 	writeJSON(w, http.StatusOK, response)
 }
@@ -650,6 +659,9 @@ func (i *Issuer) refreshGrant(w http.ResponseWriter, r *http.Request) {
 	}
 	if rotated != "" {
 		response["refresh_token"] = rotated
+		if i.opts.RefreshTokenExpiresIn != 0 {
+			response["refresh_token_expires_in"] = i.opts.RefreshTokenExpiresIn
+		}
 	}
 	if !i.opts.OmitRefreshScopeField {
 		response["scope"] = strings.Join(issued, " ")

@@ -188,6 +188,71 @@ func TestSessionSourcePersistsTheRotatedRefreshTokenBeforeGranting(t *testing.T)
 	}
 }
 
+// TestSessionSourceRotationRecordsTheDisclosedRefreshTokenExpiry pins R7
+// (#112): a rotation that discloses the rotated refresh token's own lifetime
+// records it as SessionExpiresAt, inside the same save that already persists
+// the rotated token — no second write, no widened save condition.
+//
+// Mutation-proved: reverting the `stored.SessionExpiresAt = now.Add(...)`
+// assignment in source_session.go's derive (leaving only the reset to the
+// zero value above it) makes this test fail, because the recorded value would
+// stay zero instead of falling inside [before+lifetime, after+lifetime].
+func TestSessionSourceRotationRecordsTheDisclosedRefreshTokenExpiry(t *testing.T) {
+	const disclosedLifetimeSeconds = 3600
+	deployment := seedBrowserSession(t, fakeissuer.Options{
+		RefreshScopeMode: "honor", RotateRefreshTokens: true,
+		RefreshTokenExpiresIn: disclosedLifetimeSeconds,
+	})
+
+	before := time.Now()
+	if _, err := deployment.broker(t).Acquire(declaredRequest()); err != nil {
+		t.Fatalf("Acquire returned %v", err)
+	}
+	after := time.Now()
+
+	rotated := deployment.storedSession(t)
+	if rotated.SessionExpiresAt.IsZero() {
+		t.Fatal("the rotation did not record the disclosed refresh-token expiry")
+	}
+	earliest := before.Add(disclosedLifetimeSeconds * time.Second)
+	latest := after.Add(disclosedLifetimeSeconds * time.Second)
+	if rotated.SessionExpiresAt.Before(earliest) || rotated.SessionExpiresAt.After(latest) {
+		t.Errorf("SessionExpiresAt = %v, want between %v and %v", rotated.SessionExpiresAt, earliest, latest)
+	}
+}
+
+// TestSessionSourceRotationWithoutDisclosureLeavesExpiryAtTheZeroValue proves
+// the expected case per R7: an issuer that rotates without disclosing a new
+// refresh-token lifetime leaves SessionExpiresAt at the zero value, rather
+// than inventing one or carrying forward whatever an earlier login or
+// rotation happened to record about the refresh token this rotation just
+// replaced.
+func TestSessionSourceRotationWithoutDisclosureLeavesExpiryAtTheZeroValue(t *testing.T) {
+	deployment := seedBrowserSession(t, fakeissuer.Options{
+		RefreshScopeMode: "honor", RotateRefreshTokens: true,
+	})
+	// A stale expiry from an earlier login, seeded deliberately: if the
+	// rotation path merely left SessionExpiresAt untouched instead of
+	// resetting it, this stale value would still be here afterwards and the
+	// test below would pass for the wrong reason.
+	if err := (session.Store{StateRoot: deployment.stateRoot}).Save(sessionRef, session.Session{
+		Issuer: deployment.issuer.URL, RefreshToken: deployment.seeded,
+		SessionExpiresAt: time.Now().Add(999 * time.Hour),
+	}); err != nil {
+		t.Fatalf("seeding a stale expiry: %v", err)
+	}
+
+	if _, err := deployment.broker(t).Acquire(declaredRequest()); err != nil {
+		t.Fatalf("Acquire returned %v", err)
+	}
+
+	rotated := deployment.storedSession(t)
+	if !rotated.SessionExpiresAt.IsZero() {
+		t.Errorf("SessionExpiresAt = %v, want the zero value: this rotation disclosed no lifetime",
+			rotated.SessionExpiresAt)
+	}
+}
+
 func TestSessionSourceRefusesOnceTheRotatedTokenSupersedesTheStoredOne(t *testing.T) {
 	// The token the issuer replaced is dead. A session still holding it is a
 	// session to log in again for, not one to keep retrying.

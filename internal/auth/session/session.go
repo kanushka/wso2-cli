@@ -42,6 +42,20 @@ type Session struct {
 	RefreshToken string    `json:"refreshToken"`
 	AccessToken  string    `json:"accessToken,omitempty"`
 	ExpiresAt    time.Time `json:"expiresAt,omitempty"`
+	// Subject is the verified identity token's subject, recorded at login.
+	// omitempty so a keychain entry written before this field existed decodes
+	// with it empty rather than failing to decode: encoding/json leaves an
+	// absent JSON member as the Go zero value. wso2 whoami is the one place
+	// that reads this field, and it renders an empty Subject as unknown rather
+	// than as a blank field, rather than this type asserting a guarantee it
+	// cannot enforce.
+	Subject string `json:"subject,omitempty"`
+	// SessionExpiresAt is when the REFRESH token stops working, not the access
+	// token — see ExpiresAt above for that one. It is the zero value whenever
+	// the issuer has not disclosed a refresh-token lifetime, which most
+	// issuers today do not; nothing in this package treats that as an error,
+	// and nothing here invents a substitute for it.
+	SessionExpiresAt time.Time `json:"sessionExpiresAt,omitempty"`
 }
 
 // Store reads and writes sessions in the OS secure store.

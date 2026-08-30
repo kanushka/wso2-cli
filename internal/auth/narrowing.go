@@ -31,6 +31,12 @@ type tokenResponse struct {
 	RefreshToken string `json:"refresh_token"`
 	Scope        string `json:"scope"`
 	ExpiresIn    int64  `json:"expires_in"`
+	// RefreshTokenExpiresIn is the rotated refresh token's own lifetime, in
+	// seconds, when the issuer states one. Zero means it did not — R7 (#112)
+	// treats that as the expected case, and source_session.go's rotation path
+	// leaves session.Session.SessionExpiresAt at the zero value rather than
+	// inventing a substitute.
+	RefreshTokenExpiresIn int64 `json:"refresh_token_expires_in"`
 }
 
 // expiry is when the issued token stops working: what the response said, or
