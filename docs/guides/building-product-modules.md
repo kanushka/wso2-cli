@@ -4,6 +4,9 @@
 **Related:** [Architecture](../architecture.md),
 [module catalog](../reference/module-catalog.md),
 [release artifacts](../reference/release-artifacts.md),
+[module manifest](../reference/module-manifest.md),
+[module SDK](../reference/module-sdk.md),
+[troubleshooting](troubleshooting-modules.md),
 [ADR 0011](../adr/0011-local-module-install-through-a-development-origin.md),
 [contributing](../../CONTRIBUTING.md)  
 **Last reviewed:** 2026-08-30
@@ -136,6 +139,10 @@ that name.
   }
 }
 ```
+
+Every field here is stated in full, with what reads it and what refuses when it
+is wrong, in the [module manifest reference](../reference/module-manifest.md).
+The parts worth meeting now are these.
 
 `compatibility.protocolVersions` is the module contract versions this release
 supports, and it was read from the SDK in your checkout rather than chosen. Do
