@@ -503,8 +503,18 @@ first-time user meets most often. None of them reaches a browser.
   `cloud` or `onprem`, a missing `endpoint` on a product entry, or the
   `credentialRef` / `clientSecretVariable` rule: exactly one of them belongs on
   an identity, and which one is decided by `auth.kind`.
+- **`contexts.document_malformed` is about content, not about version.** If the
+  shell declined to overwrite your file because of its `schemaVersion`, the code
+  is `contexts.document_frozen` below, and the field reference will not help.
 - **`contexts.document_unreadable`.** The file exists but could not be read.
   Check its permissions, or delete it to run without a context.
+- **`contexts.document_frozen`.** The document on disk declares a schema
+  version this shell does not write, so a command that would have replaced it
+  refused instead. The message names the file and the version it found. Either
+  it is a version 1 document, which this shell still reads but will not rewrite
+  in place, or it is a version a newer WSO2 CLI on this machine wrote and still
+  manages, which this shell cannot read at all. Nothing is wrong with the file.
+  Move it aside to start a new one, or run the CLI version that manages it.
 - **`contexts.document_unwritable`.** The shell had something to write to the
   document and could not — the file itself is fine. Check that the state root,
   `~/.wso2/cli` or `$WSO2_HOME/cli`, is writable by you, then retry.

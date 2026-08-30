@@ -216,7 +216,7 @@ func TestUpdateRefusesACompatibilityReadDocument(t *testing.T) {
 	err := contexts.Update(root, func(d contexts.Document) (contexts.Document, error) {
 		return d, nil
 	})
-	assertProblemCode(t, err, "contexts.document_malformed")
+	assertProblemCode(t, err, "contexts.document_frozen")
 	assertUnchanged(t, root, before, "Update rewrote a version 1 document")
 }
 
@@ -227,7 +227,7 @@ func TestSaveRefusesToOverwriteACompatibilityReadDocument(t *testing.T) {
 	root, before := installV1(t)
 
 	err := contexts.Save(root, documentV2())
-	assertProblemCode(t, err, "contexts.document_malformed")
+	assertProblemCode(t, err, "contexts.document_frozen")
 	assertUnchanged(t, root, before, "Save overwrote a version 1 document")
 }
 
@@ -241,8 +241,64 @@ func TestUpdateRefusesToOverwriteAVersionOneDocumentWhenTheChangeDiscardsIt(t *t
 	err := contexts.Update(root, func(contexts.Document) (contexts.Document, error) {
 		return documentV2(), nil
 	})
-	assertProblemCode(t, err, "contexts.document_malformed")
+	assertProblemCode(t, err, "contexts.document_frozen")
 	assertUnchanged(t, root, before, "Update overwrote a version 1 document")
+}
+
+func TestSaveRefusesToOverwriteADocumentFromANewerShell(t *testing.T) {
+	// A different argument from the version 1 one, and the stronger of the two.
+	// A version this shell cannot even read is a document some newer CLI on
+	// this machine wrote and still manages. Decode refuses to read it; a writer
+	// that destroyed it would be doing something no reader is allowed to do.
+	root := t.TempDir()
+	seeded := `{"schemaVersion":3,"defaultContext":"acme-dev"}` + "\n"
+	seed(t, root, seeded)
+
+	err := contexts.Save(root, documentV2())
+	assertProblemCode(t, err, "contexts.document_frozen")
+	assertUnchanged(t, root, []byte(seeded), "Save destroyed a document a newer shell wrote")
+}
+
+func TestTheFrozenRefusalNamesTheVersionAndTheFile(t *testing.T) {
+	// The user has to be able to find the file. The refusal Encode makes for
+	// the same family of condition never names one.
+	root := t.TempDir()
+	seed(t, root, `{"schemaVersion":3}`+"\n")
+
+	err := contexts.Save(root, documentV2())
+	var typed problem.Problem
+	if !errors.As(err, &typed) {
+		t.Fatalf("expected a typed problem, got %v", err)
+	}
+	if !strings.Contains(typed.Message, contexts.Path(root)) {
+		t.Errorf("the message does not name the file: %q", typed.Message)
+	}
+	if !strings.Contains(typed.Message, "3") {
+		t.Errorf("the message does not name the version: %q", typed.Message)
+	}
+}
+
+func TestSaveRefusesADocumentItCannotReadForAReasonOtherThanAbsence(t *testing.T) {
+	// An absent file is a first write. A file that is there and unreadable is
+	// not: the shell cannot tell what it would be destroying, which is the one
+	// case where guessing is worst.
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("file permissions do not refuse a read here")
+	}
+	root, before := installV1(t)
+	if err := os.Chmod(contexts.Path(root), 0o000); err != nil {
+		t.Fatalf("Chmod returned %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(contexts.Path(root), 0o600) })
+
+	err := contexts.Save(root, documentV2())
+	if err == nil {
+		t.Fatal("Save replaced a document it could not read")
+	}
+	if err := os.Chmod(contexts.Path(root), 0o600); err != nil {
+		t.Fatalf("Chmod returned %v", err)
+	}
+	assertUnchanged(t, root, before, "Save destroyed a document it could not read")
 }
 
 func TestSaveReplacesADocumentTooBrokenToParse(t *testing.T) {

@@ -459,14 +459,28 @@ func safePath(destination, name string) (string, error) {
 // document written here is more secret than the receipts they sit next to.
 func writeAtomically(action, target string, content []byte) error {
 	if err := atomicfile.Write(target, content, 0o644); err != nil {
-		// atomicfile names itself and repeats the target path, neither of which
-		// a user can act on and both of which the store's own message already
-		// covers. One unwrap reaches the filesystem error underneath and leaves
-		// the failure the shape it had before the write moved out of here;
-		// unwrapping further would reach a bare errno and lose the path.
-		return storeFailure(action, errors.Unwrap(err))
+		return storeFailure(action, writeCause(err))
 	}
 	return nil
+}
+
+// writeCause strips the wrapper atomicfile puts around a filesystem error.
+//
+// atomicfile names itself and repeats the target path, neither of which a user
+// can act on and both of which the store's own message already covers. One
+// unwrap reaches the filesystem error underneath and leaves the failure the
+// shape it had before the write moved out of this package; unwrapping further
+// would reach a bare errno and lose the path.
+//
+// It never returns nil. storeFailure formats the cause with %v, so a nil would
+// reach a user as "<nil>". Both of atomicfile's return paths wrap today, so
+// this cannot fire; it is here so that an edit over there degrades this message
+// to a worse one rather than to a nonsense one.
+func writeCause(err error) error {
+	if inner := errors.Unwrap(err); inner != nil {
+		return inner
+	}
+	return err
 }
 
 func malformedArtifact(detail string) problem.Problem {

@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -142,13 +143,13 @@ func writeDocument(stateRoot string, data []byte) error {
 // withWritableDocument runs fn while holding the document lock, having first
 // proved that what is on disk may be overwritten at all.
 //
-// The version 1 refusal belongs here rather than on the way out. Encode refuses
-// a document that is itself a compatibility read, which catches an amend-shaped
+// The refusal belongs here rather than on the way out. Encode refuses a
+// document that is itself a compatibility read, which catches an amend-shaped
 // change only by accident: a caller that replaces the document rather than
-// amending it hands over a clean version 2 value with nothing left to object
-// to, and the hand-authored version 1 file underneath is destroyed. D13 is a
-// claim about the file, so the guard reads the file. Both writers inherit it
-// from one place.
+// amending it hands over a clean current-version value with nothing left to
+// object to, and the file underneath is destroyed. D13 is a claim about the
+// file, so the guard reads the file. Both writers inherit it from one place,
+// and so does every writer added after them.
 //
 // This is a second read of the document in Update, which Loads it again inside
 // fn. That is deliberate: the guard decodes one integer and never validates, so
@@ -181,19 +182,41 @@ func withWritableDocument(stateRoot string, fn func() error) error {
 	return err
 }
 
-// refuseFrozenDocument refuses to overwrite a document written in a schema
-// version this shell reads but does not write.
+// refuseFrozenDocument refuses to overwrite a document whose schema version
+// this shell does not write.
 //
-// Only the version is decoded. A file that is absent is a first write, not a
-// refusal; a file this cannot parse is left to the writer, because a document
-// too broken to read is one a create command should be able to replace, and
-// refusing here would strand the user with no way back. Everything a valid
-// document needs to be is Encode's business, checked against the value being
-// written rather than against the file being replaced.
+// The rule is an allowlist, and that is the point of it. A denylist naming
+// version 1 would let through a document written by a newer CLI on the same
+// machine — a document Decode refuses to even read, so a writer that destroyed
+// it would be doing something no reader in this package is allowed to do. The
+// version this shell writes is the only version it may replace.
+//
+// Three things are not refusals. An absent file is a first write. A file that
+// cannot be parsed at all has no version to honour, and a document too broken
+// to read is one a create command should be able to replace, so refusing it
+// would strand the user with no way back. And the current version is what this
+// shell is for.
+//
+// A read that fails for any reason other than absence is a refusal: the shell
+// cannot see what it would be destroying, which is the case where guessing
+// costs the most.
+//
+// Only the version is decoded. Whether a current-version document is otherwise
+// valid is Encode's business, checked against the value being written rather
+// than against the file being replaced.
 func refuseFrozenDocument(stateRoot string) error {
-	data, err := os.ReadFile(Path(stateRoot))
-	if err != nil {
+	path := Path(stateRoot)
+	data, err := os.ReadFile(path)
+	switch {
+	case os.IsNotExist(err):
 		return nil
+	case err != nil:
+		// The same code and recovery Load reports for the same condition: the
+		// file is there and the shell cannot see it, and neither the cause nor
+		// the remedy depends on which of the two was trying to read it.
+		return contextProblem("contexts.document_unreadable",
+			"the WSO2 CLI context document cannot be read",
+			"Check that the context document is readable, or remove it to run without a context.")
 	}
 	var probe struct {
 		SchemaVersion int `json:"schemaVersion"`
@@ -201,16 +224,31 @@ func refuseFrozenDocument(stateRoot string) error {
 	if err := json.NewDecoder(bytes.NewReader(data)).Decode(&probe); err != nil {
 		return nil
 	}
-	if probe.SchemaVersion != SchemaVersionLegacy {
+	if probe.SchemaVersion == SchemaVersion {
 		return nil
 	}
-	// The same code and recovery Encode uses for the same condition. One
-	// condition reported under two codes depending on which guard caught it
-	// would be worse for a user reading the troubleshooting table than a code
-	// whose name fits this case loosely.
-	return contextProblem("contexts.document_malformed",
-		"a compatibility-read context document cannot be written back",
-		"Author a schema version 2 document. The shell does not rewrite version 1 documents in place.")
+	return documentFrozen(path, probe.SchemaVersion)
+}
+
+// documentFrozen reports that the document on disk is in a format this shell
+// will not overwrite.
+//
+// It has its own code rather than sharing contexts.document_malformed, which
+// means the document was read and is not valid and sends the user to a
+// field-by-field reference. A version 1 file has nothing wrong with it, and a
+// version this shell has never heard of is not its to judge, so that advice
+// helps neither. The separate code is also what lets a command layer above
+// catch this one condition and offer the user something better than a refusal,
+// without matching on a message.
+//
+// The message names the version and the path, because a user being told their
+// file will not be written needs to know which file, and why.
+func documentFrozen(path string, version int) error {
+	return contextProblem("contexts.document_frozen",
+		fmt.Sprintf("the WSO2 CLI context document at %s is schema version %d, which this shell does not write",
+			path, version),
+		fmt.Sprintf("This shell writes schema version %d. Move the file aside to write a new document, "+
+			"or run the WSO2 CLI version that manages this one.", SchemaVersion))
 }
 
 // documentUnwritable reports that the shell could not write the document, for a

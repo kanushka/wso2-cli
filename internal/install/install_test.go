@@ -27,6 +27,7 @@
 package install
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,6 +77,17 @@ func TestWriteAtomicallyLeavesNoTemporaryFileBehind(t *testing.T) {
 			names = append(names, entry.Name())
 		}
 		t.Errorf("the store holds %v, want only the document", names)
+	}
+}
+
+func TestAnUnwrappedCauseIsStillReportedAsItself(t *testing.T) {
+	// storeFailure formats the cause with %v, so a nil would reach a user as
+	// "<nil>". atomicfile wraps both of its return paths today and this cannot
+	// fire; it is pinned so that an edit over there degrades the message rather
+	// than replacing it with nonsense.
+	bare := errors.New("something the write helper did not wrap")
+	if got := writeCause(bare); got != bare {
+		t.Errorf("writeCause(%v) = %v, want the error itself", bare, got)
 	}
 }
 
