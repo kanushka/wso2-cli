@@ -58,7 +58,8 @@ this one.
 write followed by an authentication refusal, not a refusal at write time; the
 document itself is never the thing that is wrong.
 
-**The documented `credentialRef` examples must match the schema.** A reference
-shown as `keychain://wso2/acme-cloud` is not the bare opaque word the validator
-accepts, and correcting the published examples is tracked separately in
-[#115](https://github.com/wso2/wso2-cli/issues/115).
+**The documented `credentialRef` examples must match the schema.** They once
+showed a reference like `keychain://wso2/acme-cloud`, not the bare opaque word
+the validator accepts; [#115](https://github.com/wso2/wso2-cli/issues/115)
+corrected the published examples to bare words and added a test that decodes
+them, so the two cannot drift apart again.
