@@ -64,10 +64,15 @@ const (
 	ChannelPrerelease = "prerelease"
 )
 
-// channels is every channel a version can fall on, in the order a refusal
-// names them. It is unexported because permittedVersions is its only reader
-// and a caller that reordered or truncated it would silently change which
-// refusal a user gets.
+// channels is every channel a version can fall on. Channel derives one of
+// exactly these two from a version, so the list is exhaustive by construction
+// rather than by maintenance.
+//
+// Its only reader is permittedVersions, which asks whether a name is a channel
+// at all. The membership is what matters and the order is not: the order a
+// refusal names channels in comes from publishedChannels, which sorts its own
+// list. Truncating this one would change which refusal a user gets, which is
+// why it is unexported rather than public surface with no consumer.
 var channels = []string{ChannelPrerelease, ChannelStable}
 
 // IndexPath and namespacePathFormat are the published locations of the two

@@ -210,8 +210,10 @@ unreachable origin and an unknown module are deliberately not the same problem:
 one is an outage and the other is a mistake. The two channel refusals are
 separated for the same reason: an unknown channel is a typo, while an empty one
 is a release that has not happened yet, and only the second is worth waiting
-for. Both name the channels the module does publish on, and the flag that
-chooses one.
+for. Where the module has published something, both name the channels it does
+publish on and the flag that chooses one. A module that has published nothing
+at all is told so instead, and is pointed at its maintainers rather than at a
+channel it could choose.
 
 Any failure leaves no executable and no receipt. The download is checked before
 anything is written into the store, extraction happens in a staging directory

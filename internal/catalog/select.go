@@ -156,14 +156,18 @@ func permittedVersions(file NamespaceFile, policy Policy) ([]Version, error) {
 // looking for with wso2 module available. Which of those names are channels at
 // all is the channels list in catalog.go.
 func publishedChannels(versions []Version) []string {
-	var channels []string
+	// Named for what it holds rather than "channels", which is the package's
+	// vocabulary list. Shadowing that here would make a later
+	// slices.Contains(channels, ...) inside this function silently ask the
+	// wrong question.
+	var published []string
 	for _, version := range versions {
-		if !slices.Contains(channels, version.Channel) {
-			channels = append(channels, version.Channel)
+		if !slices.Contains(published, version.Channel) {
+			published = append(published, version.Channel)
 		}
 	}
-	slices.Sort(channels)
-	return channels
+	slices.Sort(published)
+	return published
 }
 
 // orderedVersions copies a history into selection order, newest first.

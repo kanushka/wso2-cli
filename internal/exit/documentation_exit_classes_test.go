@@ -73,23 +73,57 @@ func TestTheDocumentedExitClassesAreTheOnesThisPackageDefines(t *testing.T) {
 }
 
 // definedExitClasses reads the constants out of this package's own source
-// rather than listing them here, so a class added to exit.go is compared
+// rather than listing them here, so a class added to the package is compared
 // against the document without anyone remembering to add it twice.
+//
+// It reads every non-test file in the package directory, not exit.go alone, so
+// that a class declared in a file this test has never heard of is still
+// compared. It counts only constants declared of type Code: an unrelated
+// untyped integer constant added beside them is not an exit class, and
+// admitting one would fail this test for a status no process ever returns.
 func definedExitClasses(t *testing.T) map[string]int {
 	t.Helper()
-	file, err := parser.ParseFile(token.NewFileSet(), "exit.go", nil, 0)
+	packages, err := parser.ParseDir(token.NewFileSet(), ".", func(file os.FileInfo) bool {
+		return !strings.HasSuffix(file.Name(), "_test.go")
+	}, 0)
 	if err != nil {
-		t.Fatalf("parse exit.go: %v", err)
+		t.Fatalf("parse the exit package: %v", err)
 	}
 	classes := map[string]int{}
+	for _, parsed := range packages {
+		for _, file := range parsed.Files {
+			collectExitClasses(t, file, classes)
+		}
+	}
+	if len(classes) == 0 {
+		t.Fatal("found no constants of type Code; has the package been restructured?")
+	}
+	return classes
+}
+
+// collectExitClasses adds one file's Code constants to classes.
+//
+// The declared type is tracked across the specs of a const block rather than
+// read from each one, because Go lets a block state the type once and leave the
+// following lines to repeat it implicitly. Reading each spec alone would see
+// the first constant and miss every one after it.
+func collectExitClasses(t *testing.T, file *ast.File, classes map[string]int) {
+	t.Helper()
 	for _, declaration := range file.Decls {
 		general, ok := declaration.(*ast.GenDecl)
 		if !ok || general.Tok != token.CONST {
 			continue
 		}
+		declaredType := ""
 		for _, specification := range general.Specs {
 			value, ok := specification.(*ast.ValueSpec)
-			if !ok || len(value.Names) != 1 || len(value.Values) != 1 {
+			if !ok {
+				continue
+			}
+			if identifier, named := value.Type.(*ast.Ident); named {
+				declaredType = identifier.Name
+			}
+			if declaredType != "Code" || len(value.Names) != 1 || len(value.Values) != 1 {
 				continue
 			}
 			literal, ok := value.Values[0].(*ast.BasicLit)
@@ -103,10 +137,6 @@ func definedExitClasses(t *testing.T) map[string]int {
 			classes[value.Names[0].Name] = status
 		}
 	}
-	if len(classes) == 0 {
-		t.Fatal("found no exit class constants; has exit.go been restructured?")
-	}
-	return classes
 }
 
 // documentedExitClasses counts the rows the table gives each status, so a

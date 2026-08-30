@@ -683,10 +683,10 @@ browser that will never open:
 
 ```console
 $ wso2 login --no-input                                         # decided
-Error: interactive login is not available in non-interactive mode
+Error: browser login cannot run in non-interactive mode, which --no-input asked for
 
-  Identity "acme-cloud" authenticates through a browser. Configure client
-  credentials for automation.
+  Use a client-credentials identity for automation; it acquires access inline
+  without a login step.
 ```
 
 **The configuration this runs against.** Authored once, no login ever:
