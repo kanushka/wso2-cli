@@ -46,6 +46,9 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/wso2/wso2-cli/internal/devorigin"
 	"github.com/wso2/wso2-cli/internal/modules"
@@ -75,6 +78,9 @@ func run() error {
 	// which is the one this install was not made for.
 	shellPath := flag.String("shell-path", "wso2",
 		"How to name the shell that will launch the module, in the closing message.")
+	shellProtocols := flag.String("shell-protocols", "",
+		"The module-contract protocol versions the launching shell speaks, such as \"2,1\", "+
+			"or \"checkout\" when that shell was built from this checkout.")
 	flag.Parse()
 
 	if *namespace == "" {
@@ -93,7 +99,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	shell, err := shellIdentity(*shellVersion)
+	shell, err := shellIdentity(*shellVersion, *shellProtocols)
 	if err != nil {
 		return err
 	}
@@ -130,7 +136,7 @@ func run() error {
 // -shell-version rather than being refused on the strength of what the checkout
 // would have built, because the range is checked against the shell that
 // launches the module and not against the one that installed it.
-func shellIdentity(declared string) (modules.ShellIdentity, error) {
+func shellIdentity(declared, protocols string) (modules.ShellIdentity, error) {
 	shellSemver, err := version.ShellSemver()
 	if err != nil {
 		return modules.ShellIdentity{}, err
@@ -142,9 +148,53 @@ func shellIdentity(declared string) (modules.ShellIdentity, error) {
 				declared, err)
 		}
 	}
+
+	// Naming another shell's version says nothing about the protocol window it
+	// speaks, and selection decides over that window. Taking this checkout's
+	// window on trust is the combination that installs a module a released
+	// shell then refuses to launch, which is the failure this whole command
+	// exists to bring forward, so it is refused rather than assumed.
+	if declared != "" && protocols == "" {
+		return modules.ShellIdentity{}, fmt.Errorf(
+			"-shell-version names a shell other than this checkout, so its module-contract protocol " +
+				"window is unknown and a module could be installed that it refuses to launch; pass " +
+				"-shell-protocols with the versions it speaks, which wso2 version prints, or " +
+				"-shell-protocols checkout when that shell was built from this checkout")
+	}
+
+	window, err := shellWindow(protocols)
+	if err != nil {
+		return modules.ShellIdentity{}, err
+	}
 	return modules.ShellIdentity{
 		Version:          shellSemver,
-		ProtocolVersions: version.ProtocolVersions(),
+		ProtocolVersions: window,
 		Platform:         modules.Platform{OS: runtime.GOOS, Arch: runtime.GOARCH},
 	}, nil
+}
+
+// shellWindow reads the protocol versions the launching shell speaks.
+//
+// An empty value and the word "checkout" both mean this checkout's window,
+// which is the truth when the shell was built here. Anything else is the
+// caller stating what another shell speaks.
+func shellWindow(protocols string) ([]int, error) {
+	if protocols == "" || protocols == "checkout" {
+		return version.ProtocolVersions(), nil
+	}
+	var window []int
+	for _, field := range strings.Split(protocols, ",") {
+		field = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(field), "v"))
+		parsed, err := strconv.Atoi(field)
+		if err != nil || parsed <= 0 {
+			return nil, fmt.Errorf(
+				"-shell-protocols %q is not a comma-separated list of protocol versions such as \"2,1\"",
+				protocols)
+		}
+		window = append(window, parsed)
+	}
+	// Newest first, which is the order negotiation walks.
+	slices.Sort(window)
+	slices.Reverse(window)
+	return window, nil
 }
