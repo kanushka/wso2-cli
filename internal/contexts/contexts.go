@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Package contexts reads the shell-owned invocation contexts.
+// Package contexts reads and writes the shell-owned invocation contexts.
 //
 // A document separates identities — how the shell authenticates and what it
 // can reach — from contexts, which say what a command runs against. Neither
@@ -22,9 +22,13 @@
 // have nowhere to put a value even if a writer tried. See
 // docs/examples/authentication-contexts.md.
 //
-// The shell reads contexts and never writes them. Creating one is a test
-// fixture's job, so no shell command can write a context that grants itself
-// access.
+// The shell both reads and writes this document; Save and Update in save.go are
+// the only production writers. Nothing about that grants access: as above, the
+// artifact cannot carry a credential, so which command writes one is not a
+// security question. The guarantee is a property of what gets written rather
+// than of who writes it, which is what lets wso2 login both write a document
+// and authenticate against it. See
+// docs/adr/0011-writing-a-context-or-identity-grants-nothing.md.
 package contexts
 
 import (

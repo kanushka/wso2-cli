@@ -17,9 +17,13 @@
 // Package fixture writes context documents into an isolated state root for
 // tests and the acceptance harness.
 //
-// The shell reads contexts and never writes them, so this is the only writer in
-// the repository. It is deliberately test infrastructure: it requires an
-// explicit state root and refuses to write into a developer's real WSO2 state.
+// The shell writes its own documents through contexts.Save and contexts.Update,
+// so this is not the repository's only writer. What it still holds alone is the
+// version 1 shape, which the shell reads and refuses to write, so Install is
+// what keeps the compatibility read exercised. It remains test infrastructure:
+// it requires an explicit state root and refuses to write into a developer's
+// real WSO2 state, which is the guard contexts.Save does not carry because
+// production writing into the real state root is its job.
 package fixture
 
 import (

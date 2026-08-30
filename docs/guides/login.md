@@ -75,8 +75,7 @@ walkthrough states its product's answer and shows the measurement behind it.
 
 ## 2. Write the context document
 
-The shell reads contexts and never writes them, so this file is authored by
-hand.
+This file is authored by hand: no shell command writes one yet.
 
 ### 2.1 Where it goes
 
@@ -506,6 +505,13 @@ first-time user meets most often. None of them reaches a browser.
   an identity, and which one is decided by `auth.kind`.
 - **`contexts.document_unreadable`.** The file exists but could not be read.
   Check its permissions, or delete it to run without a context.
+- **`contexts.document_unwritable`.** The shell had something to write to the
+  document and could not — the file itself is fine. Check that the state root,
+  `~/.wso2/cli` or `$WSO2_HOME/cli`, is writable by you, then retry.
+- **`contexts.document_busy`.** Another `wso2` invocation held the document's
+  update lock for longer than the shell waits. Writing the document takes no
+  network call, so a holder that slow is stuck rather than working; retry, and
+  if it repeats, check for a `wso2` process that is not making progress.
 - **`contexts.schema_unsupported`.** `schemaVersion` is not one this shell
   reads. It must be `2`.
 - **`contexts.unknown_context`.** You named a context, with `--context` or
