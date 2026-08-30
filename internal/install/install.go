@@ -459,7 +459,12 @@ func safePath(destination, name string) (string, error) {
 // document written here is more secret than the receipts they sit next to.
 func writeAtomically(action, target string, content []byte) error {
 	if err := atomicfile.Write(target, content, 0o644); err != nil {
-		return storeFailure(action, err)
+		// atomicfile names itself and repeats the target path, neither of which
+		// a user can act on and both of which the store's own message already
+		// covers. One unwrap reaches the filesystem error underneath and leaves
+		// the failure the shape it had before the write moved out of here;
+		// unwrapping further would reach a bare errno and lose the path.
+		return storeFailure(action, errors.Unwrap(err))
 	}
 	return nil
 }
