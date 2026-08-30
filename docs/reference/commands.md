@@ -77,11 +77,11 @@ parsing any output.
 | Status | Class | What produces it |
 | --- | --- | --- |
 | `0` | Success | The command completed. |
-| `64` | Usage | Invalid arguments, flags, or configuration, including a malformed or unselected context. |
+| `64` | Usage | Invalid arguments, flags, or configuration, including a malformed context document. |
 | `69` | Module trust | A module integrity, signature, platform, or compatibility failure. |
 | `70` | Module process | A protocol violation, or a module process that failed to launch or crashed. |
 | `75` | Product service | A failure the product service itself reported. |
-| `77` | Authentication policy | An authentication or broker policy failure, including a missing or expired session. |
+| `77` | Authentication policy | An authentication or broker policy failure, including no context selected, and a missing or expired session. |
 
 An unrecognized problem category is reported as a module process failure, `70`,
 rather than as success.

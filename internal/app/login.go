@@ -36,8 +36,10 @@ import (
 // human. A job that sets it wants to fail fast on a misconfigured identity
 // rather than hang until its own timeout.
 //
-// It is one control rather than two: the architecture names --no-input, and two
-// adjacent spellings for one idea is worse than one broader flag. See #112 D12.
+// It is named for the flag it stands in for. #112 D12 renamed --non-interactive
+// to --no-input, the spelling the architecture already used, on the grounds
+// that one flag carrying both meanings beats two adjacent spellings for one
+// idea; the variable follows so a reader who knows one knows the other.
 const NoInputEnvVar = "WSO2_NO_INPUT"
 
 // loginDeadline bounds how long a browser login waits for the user to come
@@ -87,8 +89,18 @@ func (s Shell) login(args []string) error {
 		if selected.Identity.Auth.Kind == contexts.KindOAuthDevice {
 			mode = "device login"
 		}
+		// Which of the two controls fired, because the flag is on the command
+		// line in front of the reader and the environment variable is not: one
+		// set in a shell profile months ago is otherwise a refusal with nothing
+		// in it to search for. The flag is named first when both are present,
+		// since it is the one the caller can drop without touching their
+		// environment.
+		control := NoInputEnvVar
+		if flags.noInput {
+			control = "--no-input"
+		}
 		return problem.New(problem.CategoryAuthPolicy, "auth.non_interactive",
-			mode+" cannot run in non-interactive mode").
+			mode+" cannot run in non-interactive mode, which "+control+" asked for").
 			WithRecovery("Use a client-credentials identity for automation; it acquires access " +
 				"inline without a login step.")
 	}

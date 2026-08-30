@@ -172,6 +172,43 @@ func TestLoginRefusesADevelopmentCredentialContext(t *testing.T) {
 	requireRefusal(t, errOut.String(), "auth.login_not_required")
 }
 
+// TestTheNoInputRefusalNamesTheControlThatFired covers the hint a developer
+// needs most: the environment variable can have been set in a shell profile
+// months ago, and a refusal that named neither control left them nothing to
+// search for.
+func TestTheNoInputRefusalNamesTheControlThatFired(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		args []string
+		env  string
+		want string
+	}{
+		{"the flag", []string{"--no-input"}, "", "--no-input"},
+		{"the environment variable", nil, "1", "WSO2_NO_INPUT"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			shell, _, errOut := newLoginShell(t)
+			if testCase.env != "" {
+				t.Setenv("WSO2_NO_INPUT", testCase.env)
+			}
+			installLogin(t, shell, browserDoc("https://issuer.example.test"))
+
+			if code := shell.Run(append([]string{"login"}, testCase.args...)); code != exit.AuthPolicy {
+				t.Fatalf("exit code = %d, want %d (auth policy); stderr: %s", code, exit.AuthPolicy, errOut)
+			}
+			requireRefusal(t, errOut.String(), "auth.non_interactive")
+			if !strings.Contains(errOut.String(), testCase.want) {
+				t.Errorf("the refusal does not name %s:\n%s", testCase.want, errOut)
+			}
+			// The phrase that ties the message to auth.non_interactive and to
+			// the command reference survives either way.
+			if !strings.Contains(errOut.String(), "non-interactive mode") {
+				t.Errorf("the refusal no longer names non-interactive mode:\n%s", errOut)
+			}
+		})
+	}
+}
+
 func TestLoginRefusesUnknownArguments(t *testing.T) {
 	// --non-interactive is the spelling wso2 login shipped before #122 renamed
 	// it. It is listed here so the rename cannot be half-applied: a build that
