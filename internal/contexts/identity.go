@@ -110,7 +110,7 @@ func Providers() []string {
 //
 // That is what makes the invariant checkable: a document holds a name for a
 // credential and never a credential, so writing one grants the writer nothing.
-// See docs/adr/0011-writing-a-context-or-identity-grants-nothing.md, which
+// See docs/adr/0012-writing-a-context-or-identity-grants-nothing.md, which
 // this pattern is the enforcement of.
 var refPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 

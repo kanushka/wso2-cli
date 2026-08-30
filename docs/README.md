@@ -45,6 +45,13 @@ requirements or architecture.
   tags a product module is released under and the two generated files a shell
   reads to discover, select, and verify a module version. It too describes what
   is generated rather than a proposed interface.
+- [Module manifest](reference/module-manifest.md) states every field of the
+  `module.json` a product module declares itself with, what reads each one, and
+  what refuses when it is wrong.
+- [Module SDK](reference/module-sdk.md) states what a command handler receives
+  and what it may return: the options a module serves, the request a handler is
+  given, results, the five problem categories and the exit codes they map to,
+  and the test kit.
 - [Authentication context examples](examples/authentication-contexts.md)
 
 These documents illustrate proposed interfaces. They are not evidence that the
@@ -70,6 +77,10 @@ described commands or schemas are currently available.
   product team how to add an independently released module, use the SDK and
   authentication broker, test it, and release it through the generated catalog.
   Its reader is a product team, not a first-time user.
+- [Troubleshooting a product module](guides/troubleshooting-modules.md) maps
+  what a module author sees to what is wrong. Nearly everything the shell checks
+  about a module it checks without executing it, so a mistake in a declaration
+  survives every test the module has.
 
 ## Research
 

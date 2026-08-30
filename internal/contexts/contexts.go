@@ -28,7 +28,7 @@
 // security question. The guarantee is a property of what gets written rather
 // than of who writes it, which is what lets wso2 login both write a document
 // and authenticate against it. See
-// docs/adr/0011-writing-a-context-or-identity-grants-nothing.md.
+// docs/adr/0012-writing-a-context-or-identity-grants-nothing.md.
 package contexts
 
 import (

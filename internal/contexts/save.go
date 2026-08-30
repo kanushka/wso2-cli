@@ -68,7 +68,7 @@ func LockPath(stateRoot string) string { return Path(stateRoot) + ".lock" }
 // Writing grants nothing. A context and an identity hold target metadata and
 // opaque credential references, and the types have nowhere to put a credential
 // even if a writer tried, so this function needs no authority check. See
-// docs/adr/0011-writing-a-context-or-identity-grants-nothing.md.
+// docs/adr/0012-writing-a-context-or-identity-grants-nothing.md.
 func Save(stateRoot string, document Document) error {
 	data, err := encodeReadable(document)
 	if err != nil {
