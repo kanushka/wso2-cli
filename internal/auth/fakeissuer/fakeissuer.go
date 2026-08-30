@@ -74,6 +74,15 @@ type Options struct {
 	// secret, so only a test whose subject is a wrong credential has to state
 	// one.
 	ClientSecret string
+	// Host replaces the host of the issuer identifier, keeping the port the
+	// test server listens on. It exists because 127.0.0.1 is not a name: a
+	// caller that derives a name from the issuer host has nothing to derive
+	// from, and a test of that derivation needs an issuer identifier with a
+	// hostname in it. The substitute must resolve to the loopback interface,
+	// so "localhost" is the only value worth passing. The substitution is
+	// textual and looks for 127.0.0.1, so it does nothing for a test server
+	// bound to an IPv6 loopback address.
+	Host string
 	// Audience is the aud claim minted into access tokens. A request carrying a
 	// resource indicator overrides it, exactly as a deployment that binds tokens
 	// to a named resource server does.
@@ -314,6 +323,13 @@ func New(t *testing.T, opts Options) *Issuer {
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 	issuer.URL = server.URL
+	if opts.Host != "" {
+		// Rewritten everywhere at once: the discovery document, the id_token
+		// iss claim and the endpoints are all built from this field, and an
+		// issuer identifier that disagreed with any of them would be refused
+		// by the client rather than serving the test.
+		issuer.URL = strings.Replace(server.URL, "127.0.0.1", opts.Host, 1)
+	}
 	issuer.client = server.Client()
 	return issuer
 }

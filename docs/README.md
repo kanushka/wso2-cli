@@ -45,6 +45,13 @@ requirements or architecture.
   tags a product module is released under and the two generated files a shell
   reads to discover, select, and verify a module version. It too describes what
   is generated rather than a proposed interface.
+- [Module manifest](reference/module-manifest.md) states every field of the
+  `module.json` a product module declares itself with, what reads each one, and
+  what refuses when it is wrong.
+- [Module SDK](reference/module-sdk.md) states what a command handler receives
+  and what it may return: the options a module serves, the request a handler is
+  given, results, the five problem categories and the exit codes they map to,
+  and the test kit.
 - [Authentication context examples](examples/authentication-contexts.md)
 
 These documents illustrate proposed interfaces. They are not evidence that the
@@ -56,9 +63,11 @@ described commands or schemas are currently available.
   to a working `wso2`, by one command or by hand from the release page, and
   covers pinning a version, release candidates, where files go, and uninstalling.
 - [Logging in](guides/login.md) takes a first-time user from a registered
-  OAuth application, through authoring the context document and the first
-  `wso2 login`, to a CI job that authenticates without one. Everything in it is
-  the same whichever product backs the deployment.
+  OAuth application, through the first `wso2 login`, which creates the identity
+  and context it authenticates, to a CI job that authenticates without one. It
+  also describes the context document itself, for reading what a login wrote or
+  writing one by hand. Everything in it is the same whichever product backs the
+  deployment.
 - Registering the application is product-specific, and each product has its own
   walkthrough: [Asgardeo](guides/login-asgardeo.md),
   [Identity Server 7.x](guides/login-identity-server.md), and
@@ -68,6 +77,10 @@ described commands or schemas are currently available.
   product team how to add an independently released module, use the SDK and
   authentication broker, test it, and release it through the generated catalog.
   Its reader is a product team, not a first-time user.
+- [Troubleshooting a product module](guides/troubleshooting-modules.md) maps
+  what a module author sees to what is wrong. Nearly everything the shell checks
+  about a module it checks without executing it, so a mistake in a declaration
+  survives every test the module has.
 
 ## Research
 

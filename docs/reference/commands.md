@@ -13,7 +13,9 @@ The distinction between catalog refresh and module binary update remains an
 open decision. The lifecycle command names below are therefore provisional.
 
 These are built: `wso2 context create <name>`, `wso2 context use <context>`,
-`wso2 context list`, `wso2 context current`, `wso2 login`, `wso2 logout`,
+`wso2 context list`, `wso2 context current`,
+`wso2 identity add-product <identity> <namespace>`, `wso2 identity list`,
+`wso2 login`, `wso2 login --url <issuer> --client-id <id>`, `wso2 logout`,
 `wso2 whoami`, `wso2 doctor`, `wso2 module available`, `wso2 module list`,
 `wso2 module install <module>`, `wso2 module install <module>@<version>`,
 `wso2 module install <module> --channel <channel>`,
@@ -30,6 +32,7 @@ refusal is reported.
 | `wso2 help` | Shows the root command tree and help for a command. |
 | `wso2 version` | Shows the shell, protocol, and installed module versions. |
 | `wso2 login` | Authenticates the selected context using its configured method. |
+| `wso2 login --url <issuer> --client-id <id>` | Logs in against a named issuer and creates the identity and the context it authenticated, reporting both names. `--context <name>` names them; without it the identity name is derived from the issuer host, and an issuer whose host cannot make a legal name is refused with `contexts.identity_name_underivable`. An identity of that name whose issuer and client ID both match is reused; one that differs in either is refused with `contexts.identity_exists` and never replaced. The first context created becomes the selected one. Nothing is written unless the login succeeded. Omitting `--client-id` prompts in an interactive terminal and is refused with `shell.missing_required_flag` under `--no-input`. |
 | `wso2 logout` | Ends the session of the identity the selected context names: asks the identity provider to revoke its refresh token, and removes the shell-owned session that every context sharing that credential reference reaches. |
 | `wso2 whoami` | Built today: shows the selected context, the identity it authenticates as, the organization, the session's subject, and the session's own state, all read from local state with no network call. With no context selected it says so and exits 0. With a context selected but no stored session it says so and names `wso2 login`. A stored session is reported present with its expiry either as the issuer's disclosed refresh-token lifetime or, when the issuer disclosed none, as not stated — never as the shorter-lived access token's own expiry. A disclosed lifetime that has passed is reported expired. A session stored before this field existed reports its subject as unknown rather than blank. |
 | `wso2 org list` | Lists organizations available to the signed-in user. |
@@ -39,6 +42,8 @@ refusal is reported.
 | `wso2 context list` | Lists saved cloud and on-premises contexts, marking the selected one. |
 | `wso2 context use <context>` | Selects the context used by default for later commands. |
 | `wso2 context current` | Shows the active context. |
+| `wso2 identity add-product <identity> <namespace>` | Records a product the identity reaches, with `--endpoint`, and optionally `--audience` and a comma-separated `--scopes`. It modifies an identity `wso2 login` wrote and creates no identity and no context: logging in is the only thing that creates an identity. Nothing is written to the secure store and no network call is made, so the record is an assertion that the login's session reaches the product, checked by the first command that needs it. A namespace the identity already records is refused with `contexts.product_exists`; `--replace` overwrites it, replacing the whole record rather than merging with it. An endpoint embedding user information is refused, and the rejected value is not echoed. |
+| `wso2 identity list` | Lists the identities and, for each, the products it reaches. It names no credential and reads nothing from the secure store. |
 | `wso2 config list` | Shows non-secret shell preferences. |
 | `wso2 config get <key>` | Shows one non-secret shell preference. |
 | `wso2 config set <key> <value>` | Changes one non-secret shell preference. |
@@ -135,6 +140,31 @@ error; it is never the access token's own, much shorter, expiry. With no
 context selected, `wso2 whoami` says so and exits 0. With a context selected
 but no stored session, it names `wso2 login` instead of a `Session expiry`
 row. `--output json` renders the same facts as a JSON object.
+
+### First login against a self-hosted issuer
+
+```text
+$ wso2 login --url https://idp.customer.example --client-id wso2-cli \
+    --context customer
+
+Logged in to the "customer" context.
+Subject    ops
+Email      ops@customer.example
+Products   none configured
+
+Created identity "customer" and context "customer".
+It is the first context, so it is now the selected one.
+
+No products are configured for this identity. A self-hosted deployment is not
+discoverable, so each product's endpoint has to be recorded:
+
+  wso2 identity add-product customer <namespace> \
+      --endpoint <url> --audience <resource-id> --scopes <list>
+```
+
+The authorization URL is written to the diagnostic stream, not to this one: it
+is an instruction to act on rather than the command's result, so a caller
+redirecting standard output still sees it.
 
 ### Ending a session
 

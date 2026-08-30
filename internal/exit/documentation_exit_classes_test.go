@@ -81,19 +81,29 @@ func TestTheDocumentedExitClassesAreTheOnesThisPackageDefines(t *testing.T) {
 // compared. It counts only constants declared of type Code: an unrelated
 // untyped integer constant added beside them is not an exit class, and
 // admitting one would fail this test for a status no process ever returns.
+// The directory is walked and each file parsed individually rather than through
+// parser.ParseDir, which is deprecated for not honouring build tags. This
+// package has none, so the two would agree — but the deprecated call fails the
+// repository's lint gate, and reading the directory is no harder than being
+// handed it.
 func definedExitClasses(t *testing.T) map[string]int {
 	t.Helper()
-	packages, err := parser.ParseDir(token.NewFileSet(), ".", func(file os.FileInfo) bool {
-		return !strings.HasSuffix(file.Name(), "_test.go")
-	}, 0)
+	entries, err := os.ReadDir(".")
 	if err != nil {
-		t.Fatalf("parse the exit package: %v", err)
+		t.Fatalf("read the exit package directory: %v", err)
 	}
+	fileSet := token.NewFileSet()
 	classes := map[string]int{}
-	for _, parsed := range packages {
-		for _, file := range parsed.Files {
-			collectExitClasses(t, file, classes)
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
 		}
+		file, err := parser.ParseFile(fileSet, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		collectExitClasses(t, file, classes)
 	}
 	if len(classes) == 0 {
 		t.Fatal("found no constants of type Code; has the package been restructured?")

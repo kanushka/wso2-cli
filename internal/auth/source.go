@@ -52,7 +52,9 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 	case "":
 		return nil, denial("auth.context_not_selected",
 			fmt.Sprintf("the %q module needs access, and no WSO2 CLI context is selected", b.namespace()),
-			"Select a context that names the organization and credential source to use.")
+			"Run wso2 context use <name> to select a configured context, or wso2 login "+
+				"--url <issuer> --client-id <id> to create an identity and a context. "+
+				"wso2 context list shows what is configured.")
 	case contexts.MethodDevelopmentCredential:
 		return b.developmentSource()
 	case contexts.KindOAuthBrowser, contexts.KindOAuthDevice, contexts.KindClientCredentials:

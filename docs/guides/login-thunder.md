@@ -6,7 +6,7 @@ deployments `wso2 login` supports. Asgardeo and WSO2 Identity Server have
 everything after registration is the same document for all three products:
 writing the context document, logging in, CI, troubleshooting. Read this one for
 the registration, then return to
-[section 2 of the login guide](login.md#2-write-the-context-document).
+[section 2 of the login guide](login.md#2-the-context-document).
 
 **Written against ThunderID `v1.0.0-beta`.** Console layouts move in an alpha
 and beta product; if a control named here is not where this says, the version
@@ -316,10 +316,25 @@ which is the same for all three products.
 
 ---
 
-## 9. Write the context document
+## 9. Log in, and check what it wrote
 
-Everything from here is [the main login guide](login.md), from section 2. Two
-members are Thunder-specific:
+With the issuer and client ID from the section above, one command creates
+the identity and the context and signs you in:
+
+```console
+$ wso2 login --url https://thunder.example.com \
+    --client-id <client-id> --context thunder-local
+```
+
+It reports the names it assigned, and `wso2 context list` shows them.
+What it writes is deliberately spare: the issuer and client ID you passed,
+`"type": "onprem"`, a `credentialRef` equal to the identity name, and no
+products. Everything from here is [the main login guide](login.md), from
+section 2.
+
+The record below is the fuller shape, not what login leaves: add the product
+with `wso2 identity add-product`, and set the two Thunder-specific members by
+hand. Login writes neither, and a Thunder deployment needs both:
 
 ```json
 {

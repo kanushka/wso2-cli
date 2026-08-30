@@ -33,13 +33,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/wso2/wso2-cli/internal/catalog"
-	"github.com/wso2/wso2-cli/internal/install"
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/release"
 	"github.com/wso2/wso2-cli/sdk/protocol"
@@ -157,48 +155,14 @@ func declarationFor(repositoryRoot, namespace string) (catalog.Declaration, erro
 // convention is one name rather than three.
 func build(repositoryRoot string, declaration catalog.Declaration, version string,
 	platform modules.Platform) ([]byte, error) {
-	// A private directory rather than a predictable name under os.TempDir():
-	// two release runs on one machine would otherwise build over each other,
-	// and a pre-existing file or symlink at that path would be followed.
-	workDir, err := os.MkdirTemp("", "wso2-module-release-")
-	if err != nil {
-		return nil, fmt.Errorf("creating a build directory for %s failed: %w", platform, err)
-	}
-	defer func() { _ = os.RemoveAll(workDir) }()
-	output := filepath.Join(workDir, install.ExecutableName(declaration.Namespace, platform))
-	packagePath := release.MainPackage(declaration.Namespace)
-
-	moduleDir := filepath.Join(repositoryRoot, filepath.FromSlash(declaration.Directory))
-
-	// The module reports its own version and the SDK it was built against at
-	// the handshake. The shell checks the first against the receipt, so a build
-	// that left that placeholder in would install and refuse to launch; the
-	// second is what a published module tells the shell about its own build, so
-	// a release that left it out would announce a development SDK that was
-	// never published.
-	sdkVersion, err := release.SDKVersion(moduleDir)
-	if err != nil {
-		return nil, err
-	}
-	ldflags := release.BuildFlags(version, sdkVersion)
-	command := exec.Command("go", "build", "-trimpath", "-ldflags", ldflags, "-o", output, packagePath)
-	command.Dir = moduleDir
-	command.Env = append(os.Environ(),
-		"CGO_ENABLED=0",
-		"GOOS="+platform.OS,
-		"GOARCH="+platform.Arch,
-		"GOARM=6",
-	)
-	command.Stderr = os.Stderr
-	if err := command.Run(); err != nil {
-		return nil, fmt.Errorf("building the %s module for %s failed: %w",
-			declaration.Namespace, platform, err)
-	}
-	built, err := os.ReadFile(output)
-	if err != nil {
-		return nil, fmt.Errorf("reading the built %s module failed: %w", platform, err)
-	}
-	return built, nil
+	// The build itself is release.Build, shared with the developer loop that
+	// installs an unpublished module. A release and a local install that
+	// compiled a module differently would differ in the ways hardest to
+	// notice, and the whole point of that loop is to meet a problem here
+	// rather than after a tag.
+	return release.Build(
+		filepath.Join(repositoryRoot, filepath.FromSlash(declaration.Directory)),
+		declaration.Namespace, version, platform)
 }
 
 // writeChecksums publishes one file covering every archive, in the format

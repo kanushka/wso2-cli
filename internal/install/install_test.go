@@ -30,6 +30,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -41,7 +42,7 @@ func TestWriteAtomicallyLeavesStoreDocumentsReadable(t *testing.T) {
 	// tooling that is not the installing user. os.CreateTemp opens at 0600, so
 	// a mode that is not carried through to the target makes every receipt
 	// private without failing anything.
-	if os.Getuid() == 0 {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("file modes are not meaningful here")
 	}
 	target := filepath.Join(t.TempDir(), "receipt.json")
@@ -95,7 +96,7 @@ func TestAFailedWriteNamesWhatFailedAndNotHowItIsImplemented(t *testing.T) {
 	// action is in the message so the store's documents are told apart when one
 	// cannot be written. The helper package that performs the rename is not:
 	// a user cannot act on it, and it repeats the path the store already named.
-	if os.Getuid() == 0 {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("directory permissions do not refuse a write here")
 	}
 	directory := t.TempDir()

@@ -13,10 +13,12 @@ a correct configuration look like". This document answers the question a
 developer asks first: **"what do I type, and what happens?"**
 
 > **These walkthroughs describe the intended end state, not what the first
-> implementation slice delivers.** Slice 1 requires a hand-authored context and
-> implements browser PKCE plus inline client credentials only. Login-created
-> contexts, fresh-machine cloud tenant resolution, a WSO2-published CLI client,
-> and organization switch are all deferred or are backend asks. [Gaps](#gaps-these-walkthroughs-depend-on)
+> implementation slice delivers.** A login that names an issuer now creates the
+> identity and context it authenticated, and `wso2 context create` writes one
+> directly, so a hand-authored context is no longer required to get started;
+> browser PKCE and inline client credentials remain the only methods, and
+> fresh-machine cloud tenant resolution, a WSO2-published CLI client, and
+> organization switch are still deferred or are backend asks. [Gaps](#gaps-these-walkthroughs-depend-on)
 > lists each one. See the
 > [login first slice plan](../plans/login-first-slice.md)
 > for what is in scope now.
@@ -334,7 +336,7 @@ $ wso2 login --url https://thunder.acme.wso2.cloud \            # decided
   Issuer: https://thunder.acme.wso2.cloud
 Created identity "acme-agent" and context "acme-agent".
 
-$ wso2 identity add-product acme-agent agent \                  # proposed
+$ wso2 identity add-product acme-agent agent \                  # decided
     --endpoint https://agent.acme.wso2.cloud \
     --audience https://agent.acme.wso2.cloud \
     --scopes agent:read,agent:write
@@ -351,7 +353,7 @@ identities:
       credentialRef: acme-cloud
 
   - name: acme-agent
-    type: cloud
+    type: onprem                              # see the note below
     auth:
       kind: oauth-browser
       issuer: https://thunder.acme.wso2.cloud   # from --url
@@ -372,6 +374,14 @@ contexts:
 
 defaultContext: acme
 ```
+
+`type` says `onprem` even though this deployment is hosted in WSO2 Cloud, and
+that is what the shell writes rather than a mistake in the example: a login
+given `--url` records `onprem`, because the flag is what a self-hosted or
+separately provisioned deployment needs and the bare cloud login that would
+record `cloud` depends on [gap 7](#gaps-these-walkthroughs-depend-on). The
+field is descriptive — no shell logic reads it — so it costs nothing here, and
+it will be worth revisiting when a bare login exists to disagree with it.
 
 ```console
 $ wso2 api list                                                 # acme, default
@@ -407,42 +417,78 @@ must never assume a self-hosted deployment supports cloud SSO.
 ```console
 $ wso2 login --url https://idp.customer.example \               # decided
     --client-id wso2-cli
-Opening your browser to sign in.
-If it does not open, visit:
-  https://idp.customer.example/oauth2/authorize?response_type=code&...
+Open this URL to log in:
+https://idp.customer.example/oauth2/authorize?response_type=code&...
 
-✓ Signed in as ops@customer.example
-  Issuer: https://idp.customer.example
+Logged in to the "idp-customer-example" context.
+Subject    ops
+Email      ops@customer.example
+Products   none configured
 
-Created identity "customer-idp" and context "customer".
-Set as the default context.
+Created identity "idp-customer-example" and context "idp-customer-example".
+It is the first context, so it is now the selected one.
 
-No products are configured for this identity. Self-hosted deployments are not
-discoverable, so each product's endpoint must be recorded:
+No products are configured for this identity. A self-hosted deployment is not
+discoverable, so each product's endpoint has to be recorded:
 
-  wso2 identity add-product customer-idp <namespace> \
+  wso2 identity add-product idp-customer-example <namespace> \
       --endpoint <url> --audience <resource-id> --scopes <list>
 ```
+
+The names are the issuer host with each dot replaced by a hyphen, which is the
+whole rule: the name is written into a document the operator later reads and
+types, and a rule they cannot predict is worse than a name they would not have
+chosen. `--context <name>` names the identity and the context directly, and is
+the only way through for an issuer whose host cannot make a legal name — one
+at a bare IP address, or a host whose first label starts with a digit.
+
+The name is yours to shorten. The context name is what you type on every
+`--context` and every `wso2 context use`, so pass `--context <short-name>` at
+login if the derived one is longer than you want to live with, or add a shorter
+handle to the same identity later with
+`wso2 context create <name> --identity <identity>`.
 
 `--client-id` is required. No WSO2-published client exists for self-hosted
 deployments, so the operator registers an application and supplies its ID; the
 shell does not invent one. Omitting the flag prompts for it in an interactive
 terminal and is a typed error under `--no-input`.
 
+Nothing is written unless the login succeeded. A mistyped issuer therefore
+leaves no half-written context to delete before the corrected command can run.
+
 ### B.2 Recording what the login reaches
 
 ```console
-$ wso2 identity add-product customer-idp api \                  # proposed
+$ wso2 identity add-product idp-customer-example api \                  # decided
     --endpoint https://api.customer.example \
     --audience https://api.customer.example \
     --scopes api:read,api:write
-Added product "api" to identity "customer-idp".
 
-$ wso2 identity add-product customer-idp integration \          # proposed
+Added product "api" to identity "idp-customer-example".
+Identity   idp-customer-example
+Product    api
+Endpoint   https://api.customer.example
+Audience   https://api.customer.example
+Scopes     api:read,api:write
+Replaced   no
+
+$ wso2 identity add-product idp-customer-example integration \          # decided
     --endpoint https://esb.customer.example \
     --audience https://esb.customer.example \
     --scopes integration:read
-Added product "integration" to identity "customer-idp".
+
+Added product "integration" to identity "idp-customer-example".
+Identity   idp-customer-example
+Product    integration
+Endpoint   https://esb.customer.example
+Audience   https://esb.customer.example
+Scopes     integration:read
+Replaced   no
+
+$ wso2 identity list                                            # decided
+IDENTITY               TYPE     ISSUER                         PRODUCT       ENDPOINT                       SCOPES
+idp-customer-example   onprem   https://idp.customer.example   api           https://api.customer.example   api:read,api:write
+idp-customer-example   onprem   https://idp.customer.example   integration   https://esb.customer.example   integration:read
 
 $ wso2 api list                                                 # decided
 NAME                VERSION   STATUS
@@ -453,13 +499,13 @@ orders              3.1.0     published
 
 ```yaml
 identities:
-  - name: customer-idp
+  - name: idp-customer-example
     type: onprem
     auth:
       kind: oauth-browser
       issuer: https://idp.customer.example      # from --url
       clientId: wso2-cli                        # from --client-id
-      credentialRef: customer-idp
+      credentialRef: idp-customer-example
     products:
       api:
         endpoint: https://api.customer.example
@@ -471,11 +517,17 @@ identities:
         scopes: [integration:read]
 
 contexts:
-  - name: customer
-    identity: customer-idp
+  - name: idp-customer-example
+    identity: idp-customer-example
 
-defaultContext: customer
+defaultContext: idp-customer-example
 ```
+
+Recording a namespace the identity already carries is refused rather than
+overwritten: the endpoint, audience and scopes it held are written down nowhere
+else, and the ordinary way to reach that refusal is a second run from shell
+history with one flag corrected. `--replace` is how an operator says they meant
+it, and it replaces the whole record rather than merging with it.
 
 The context carries no `organization`. Nothing in the login response supplied
 one, and this deployment's identity provider was not asked for an organization
@@ -494,7 +546,7 @@ $ wso2 integration deploy ./flow.xml                            # decided
 Error: authentication failed for product "integration"
 
   The integration service did not accept access derived from the
-  "customer-idp" login. It may validate a different issuer.
+  "idp-customer-example" login. It may validate a different issuer.
 
   If this product requires its own login, it belongs to a separate identity
   and context. See: wso2 login --url <its issuer> --context <name>
@@ -524,21 +576,22 @@ $ wso2 login --url https://thunder.own.example \                # decided
     --client-id wso2-cli --context own-agent
 ✓ Signed in as ops@own.example
   Issuer: https://thunder.own.example
-Created identity "onprem-agent" and context "own-agent".
+Created identity "own-agent" and context "own-agent".
 
 No products are configured for this identity.
 
-$ wso2 identity add-product onprem-agent agent \                # proposed
+$ wso2 identity add-product own-agent agent \                # decided
     --endpoint https://agent.own.example \
     --audience https://agent.own.example \
     --scopes agent:read,agent:write
-Added product "agent" to identity "onprem-agent".
+Added product "agent" to identity "own-agent".
 ```
 
 The third product refuses interactive login:
 
 ```console
-$ wso2 login --url https://api.own.example --context own-api    # decided
+$ wso2 login --url https://api.own.example \
+    --client-id wso2-cli --context own-api                      # decided
 Error: this deployment advertises no interactive login method the CLI supports
 
   The API Manager management API at https://api.own.example authenticates
@@ -586,13 +639,13 @@ identities:
       tenant: acme
       credentialRef: acme-cloud
 
-  - name: onprem-agent
+  - name: own-agent
     type: onprem
     auth:
       kind: oauth-browser
       issuer: https://thunder.own.example
       clientId: wso2-cli
-      credentialRef: onprem-agent
+      credentialRef: own-agent
     products:
       agent:
         endpoint: https://agent.own.example
@@ -613,7 +666,7 @@ contexts:
     identity: acme-cloud
     organization: acme
   - name: own-agent
-    identity: onprem-agent
+    identity: own-agent
   - name: own-api
     identity: own-api
 
@@ -768,9 +821,11 @@ Stated plainly, because several of these flows do not work today.
    it cannot be enumerated at login: on a fresh machine no product module is
    installed to ask. `--project` persists a value the user supplies; discovering
    valid values is per-product work with no agreed command surface.
-6. **Login-created contexts and identities are deferred.** Slice 1 requires a
-   hand-authored context, so every "Created identity / Created context" line
-   above is target behavior.
+6. **Login-created contexts and identities are built.** `wso2 login --url
+   <issuer> --client-id <id>` creates the identity and the context it
+   authenticated and reports both names, so B.1 no longer needs a hand-authored
+   context. The zero-flag `wso2 login` in A.1 still does: it depends on gap 1
+   and gap 7 rather than on anything in this repository. **Closed.**
 7. **Whether WSO2 Cloud can enumerate a subscribed product set is unverified.**
    A.1 omits `products` for `type: cloud`. That is only tenable if either the
    control plane can report which products an organization has, or the CLI
@@ -786,8 +841,8 @@ Stated plainly, because several of these flows do not work today.
    `amctl`'s and redirect URIs match exactly. **Backend ask, owner: Agent
    Manager / Thunder.**
 
-Items 1, 2, 4, and 7 gate the flagship path in A.1. Items 3, 5, 6, 8, and 9
-shape later slices.
+Items 1, 2, 4, and 7 gate the flagship path in A.1. Items 3, 5, 8, and 9 shape
+later slices. Item 6 is closed.
 
 ## Open questions for review
 

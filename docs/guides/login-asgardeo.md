@@ -6,7 +6,7 @@ deployments `wso2 login` supports. WSO2 Identity Server and ThunderID have
 everything after registration is the same document for all three products:
 writing the context document, logging in, CI, troubleshooting. Read this one for
 the registration, then return to
-[section 2 of the login guide](login.md#2-write-the-context-document).
+[section 2 of the login guide](login.md#2-the-context-document).
 
 **Measured against a live tenant on 2026-08-06.** The audience behaviour in
 section 1 is the reason this guide exists as its own file rather than as a
@@ -243,10 +243,26 @@ the context document and the job wiring.
 
 ---
 
-## 10. Write the context document
+## 10. Log in, and check what it wrote
 
-Everything from here is [the main login guide](login.md), from section 2. An
-Asgardeo identity is `"type": "cloud"`, and its `audience` is the client ID:
+With the issuer and client ID from section 9, one command creates the identity
+and the context and signs you in:
+
+```console
+$ wso2 login --url https://api.asgardeo.io/t/acme/oauth2/token \
+    --client-id <client-id> --context acme
+```
+
+It reports the names it assigned, and `wso2 context list` shows them.
+What it writes is deliberately spare: the issuer and client ID you passed,
+`"type": "onprem"`, a `credentialRef` equal to the identity name, and no
+products. Everything from here is [the main login guide](login.md), from
+section 2.
+
+The record below is the fuller shape, not what login leaves: add products with
+`wso2 identity add-product`, and set `tenant` and `"type": "cloud"` by hand if
+you want them — an Asgardeo identity is conceptually cloud, and no shell logic
+reads the field. Its `audience` is the client ID:
 
 ```json
 {

@@ -55,11 +55,23 @@ var loginDeadline = 5 * time.Minute
 // usually shorter.
 var deviceLoginDeadline = 15 * time.Minute
 
-// loginFlags are the flags wso2 login owns. It owns all of them: unlike a
-// product command, there is no module to pass an unrecognized argument on to.
+// loginFlags are the flags wso2 login acts on. --context is the shell's own,
+// read off the root's flag set; the other three are declared by loginCommand.
 type loginFlags struct {
+	// contextName selects the context to log in to, and on the creating path
+	// names both the identity and the context that login creates. One flag
+	// answers both because it answers one question — which context this login
+	// is about — and #112 D6 decides it that way.
 	contextName string
-	noInput     bool
+	// issuer is --url, and its presence is what turns the creating path on. A
+	// login without it selects a configured context and behaves exactly as it
+	// did before this command could write anything (#112 D5).
+	issuer string
+	// clientID is --client-id: the OAuth application the operator registered.
+	// No WSO2-published client exists for a self-hosted deployment, so the
+	// shell cannot invent one.
+	clientID string
+	noInput  bool
 }
 
 // login establishes the selected context's interactive session.
@@ -67,20 +79,43 @@ type loginFlags struct {
 // What it stores is a session, not a credential the user ever sees: the refresh
 // token goes straight into the OS secure store, and what reaches the terminal
 // is who the login proved you are and which products that identity reaches.
-func (s Shell) login(args []string) error {
-	flags, err := parseLoginArgs(args)
-	if err != nil {
-		return err
+func (s Shell) login(flags loginFlags) error {
+	if flags.issuer != "" {
+		return s.loginCreating(flags)
+	}
+	if flags.clientID != "" {
+		// Without --url there is no issuer for this client to be registered
+		// with, so the flag has nothing to act on. Refused rather than ignored:
+		// the selection that follows reports a missing context document and
+		// tells the user to author one, which is advice about the wrong problem
+		// and the instruction #112 exists to delete.
+		return problem.New(problem.CategoryUsage, "shell.missing_required_flag",
+			"wso2 login takes --client-id only with --url, which names the issuer the client is registered with").
+			WithRecovery(loginUsageRecovery)
 	}
 	selected, err := s.selection(flags.contextName)
 	if err != nil {
 		return err
 	}
+	result, err := s.establishAndStore(selected, flags)
+	if err != nil {
+		return err
+	}
+	return s.reportLogin(selected, result)
+}
 
+// establishAndStore runs the login the selection describes and stores the
+// session it produced.
+//
+// Both login paths share it. A login that created its identity and a login
+// against a configured one differ in what reaches the context document and in
+// nothing else, and a second copy of these gates would be a second place for
+// them to drift.
+func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) (oauthflow.Result, error) {
 	// The kind decides before the mode does, so a context that has no login
 	// step is told so whether or not the caller asked for one interactively.
 	if err := loginKindGate.check(selected); err != nil {
-		return err
+		return oauthflow.Result{}, err
 	}
 	if flags.noInput || os.Getenv(NoInputEnvVar) != "" {
 		// Named for the mode actually refused. Both are interactive and both
@@ -100,7 +135,7 @@ func (s Shell) login(args []string) error {
 		if flags.noInput {
 			control = "--no-input"
 		}
-		return problem.New(problem.CategoryAuthPolicy, "auth.non_interactive",
+		return oauthflow.Result{}, problem.New(problem.CategoryAuthPolicy, "auth.non_interactive",
 			mode+" cannot run in non-interactive mode, which "+control+" asked for").
 			WithRecovery("Use a client-credentials identity for automation; it acquires access " +
 				"inline without a login step.")
@@ -108,7 +143,7 @@ func (s Shell) login(args []string) error {
 
 	root, err := s.stateRoot()
 	if err != nil {
-		return err
+		return oauthflow.Result{}, err
 	}
 	// Recorded before the flow starts, because the commonest login failure is a
 	// deployment that answers a request the user cannot see. Who the issuer is,
@@ -125,13 +160,13 @@ func (s Shell) login(args []string) error {
 		"resource", productResource(selected.Identity))
 	result, err := s.establishSession(selected)
 	if err != nil {
-		return err
+		return oauthflow.Result{}, err
 	}
 	// A session is a refresh token. A login that produced none cannot be stored
 	// as one, and storing the access token alone would leave a session that
 	// expires in minutes and cannot renew itself.
 	if result.Token.RefreshToken == "" {
-		return problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable",
+		return oauthflow.Result{}, problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable",
 			"the login completed without a refresh token, so no session can be stored").
 			WithRecovery("Grant the registered OAuth application the offline_access scope, " +
 				"then run wso2 login again.")
@@ -168,9 +203,9 @@ func (s Shell) login(args []string) error {
 		})
 	})
 	if err != nil {
-		return err
+		return oauthflow.Result{}, err
 	}
-	return s.reportLogin(selected, result)
+	return result, nil
 }
 
 // establishSession runs the login mode the selected identity's kind names.
@@ -295,37 +330,6 @@ func productResource(identity contexts.Identity) string {
 	return ""
 }
 
-// parseLoginArgs reads the flags wso2 login owns and refuses everything else.
-func parseLoginArgs(args []string) (loginFlags, error) {
-	var flags loginFlags
-	remaining := args
-	for len(remaining) > 0 {
-		argument := remaining[0]
-		switch {
-		case argument == "--context" || strings.HasPrefix(argument, "--context="):
-			name, consumed := contextFlagValue(remaining)
-			if name == "" {
-				return loginFlags{}, missingContextValue(loginUsageRecovery)
-			}
-			flags.contextName = name
-			remaining = remaining[consumed:]
-		case argument == "--no-input":
-			flags.noInput = true
-			remaining = remaining[1:]
-		case strings.HasPrefix(argument, "-"):
-			return loginFlags{}, loginUsage("shell.unknown_flag",
-				fmt.Sprintf("wso2 login does not take the flag %q", argument))
-		default:
-			return loginFlags{}, loginUsage("shell.unexpected_argument",
-				fmt.Sprintf("wso2 login does not take the argument %q", argument))
-		}
-	}
-	return flags, nil
-}
-
 // loginUsageRecovery is the way back from every wso2 login usage refusal.
-const loginUsageRecovery = "Run wso2 login [--context <name>] [--no-input]."
-
-func loginUsage(code, message string) problem.Problem {
-	return problem.New(problem.CategoryUsage, code, message).WithRecovery(loginUsageRecovery)
-}
+const loginUsageRecovery = "Run wso2 login [--url <issuer> --client-id <id>] " +
+	"[--context <name>] [--no-input]."
