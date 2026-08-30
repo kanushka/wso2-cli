@@ -34,7 +34,7 @@ import (
 )
 
 // doctorUsage is the way back from a refused wso2 doctor invocation.
-const doctorUsage = "Run wso2 doctor [--online] [--output table|json]."
+const doctorUsage = "Run wso2 doctor [--context <name>] [--online] [--output table|json]."
 
 // doctorOnlineFlag is wso2 doctor's own flag, declared on the command rather
 // than a shell-owned one: no other command has a reason to gate a network
@@ -64,15 +64,18 @@ const (
 // checks carry, and reading it off that order would be wrong: secure-store and
 // session both carry exit.AuthPolicy while context carries exit.Usage, so two
 // of the three share a class and the third has a smaller number despite
-// ranking in the middle. TestDoctorRanksTheDocumentAboveAnAbsentSession pins
-// this against a case where the numeric class of the lower-ranked failure is
-// larger.
+// ranking in the middle. TestDoctorRanksTheDocumentAboveAnAbsentSession and
+// TestMostSevereFailure (doctor_internal_test.go) pin this against cases where
+// the numeric class of a lower-ranked failure is larger.
 //
-// catalog is deliberately absent: it exists only under --online, and Global
-// Constraint 2 restricts this command to the three exit classes the three
-// unconditional checks already carry. A catalog failure is still reported as a
-// finding; it is just never the one this command's exit status blames.
-var severityRank = []string{checkSecureStore, checkContext, checkSession}
+// catalog is ranked last, below every unconditional check: it is the only
+// optional check (--online) and the only one whose failure may be the
+// network's rather than the machine's, so a real machine problem always
+// outranks it. Its own exit class, exit.ModuleProcess (70), is already
+// defined and already documented in docs/reference/commands.md's exit-class
+// table — Global Constraint 2's "no new exit class" bars minting a class that
+// table does not already carry, not reusing one that it does.
+var severityRank = []string{checkSecureStore, checkContext, checkSession, checkCatalog}
 
 // catalogProbeTimeout bounds the --online catalog check, so a doctor run
 // cannot hang on an unreachable origin.
@@ -115,10 +118,16 @@ func (s Shell) doctorCommand() *cobra.Command {
 // doctor runs every check, reports every finding, and reports the exit status
 // of the most severe failing one.
 //
-// The report is always written before this returns, on a failing run as much
-// as a passing one: a caller reading --output json must be able to read the
-// findings off a failing run, and the write happens before the failure is
-// decided rather than being skipped by it.
+// The report is written before every check outcome is known to be final, but
+// not before every return in this function: shellOutputMode and s.stateRoot
+// failing (nothing to check against yet) and an unresolvable --context
+// (`return selErr` below, the caller's argument mistake rather than a health
+// fact — see contextUse and contextCurrent, which refuse the same way) all
+// return before a single finding exists, so `wso2 doctor --context nosuch
+// --output json` exits 64 with no JSON at all. Once the checks start running,
+// every one of them completes and is rendered before this returns, on a
+// failing run as much as a passing one, so a caller reading --output json can
+// always read the findings off a run that got that far.
 func (s Shell) doctor(command *cobra.Command, online bool) error {
 	mode, err := shellOutputMode(command)
 	if err != nil {
@@ -129,9 +138,14 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 		return err
 	}
 	// --context wins over WSO2_CONTEXT, which wins over the document's default
-	// context, mirroring the precedence selection() applies for wso2 login and
-	// wso2 logout (internal/app/invoke.go): a user who sets WSO2_CONTEXT to
-	// drive those commands expects wso2 doctor to report on the same context.
+	// context — the same precedence Shell.selectionAndDocument applies for
+	// wso2 login and wso2 logout (internal/app/invoke.go:152). It is
+	// duplicated rather than reused because this command needs the document
+	// even when selection fails (to run the context and secure-store checks
+	// against it), while selectionAndDocument returns only a combined error
+	// that cannot be told apart from a load failure.
+	// TestDoctorHonorsContextPrecedence pins that this stays in step with
+	// selectionAndDocument's own precedence.
 	contextName := ""
 	if flag := shellFlag(command, contextFlag); flag != nil {
 		contextName = flag.Value.String()
@@ -141,13 +155,6 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 	}
 
 	document, loadErr := contexts.Load(root)
-	// "Configured" is deliberately broader than "has a readable document with
-	// contexts": a document that exists but fails to decode or validate is a
-	// machine someone tried to configure, not the fresh machine R2 exempts, so
-	// the other checks still run for it rather than being waved through as
-	// not-applicable. Only a document that reads clean and names no context is
-	// the state R2 describes.
-	configured := loadErr != nil || len(document.Contexts) > 0
 
 	failures := make(map[string]problem.Problem, len(severityRank))
 	var findings []doctorFinding
@@ -157,7 +164,7 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 		typed := doctorProblem(loadErr)
 		failures[checkContext] = typed
 		findings = append(findings, failFinding(checkContext, typed))
-	case !configured:
+	case len(document.Contexts) == 0:
 		findings = append(findings, notApplicableFinding(checkContext,
 			"no context document is configured"))
 	default:
@@ -165,7 +172,12 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 	}
 
 	store := session.Store{StateRoot: root}
-	if !configured {
+	// The secure-store probe never reads the context document, so its answer
+	// is a real fact about the machine whether or not the document is
+	// readable. It only becomes not-applicable on the fresh machine R2
+	// exempts: no document, or one with no contexts declared.
+	secureStoreApplicable := loadErr != nil || len(document.Contexts) > 0
+	if !secureStoreApplicable {
 		findings = append(findings, notApplicableFinding(checkSecureStore,
 			"no context is configured, so the secure store was not probed"))
 	} else if probeErr := store.Probe(); probeErr != nil {
@@ -176,29 +188,31 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 		findings = append(findings, passFinding(checkSecureStore, "the OS secure store is reachable"))
 	}
 
-	if !configured {
+	switch {
+	case loadErr != nil:
+		// No identity can be read from a document that failed to decode or
+		// validate, so there is no credential reference to ask the store
+		// about. That is a fact this command cannot establish, not a fact
+		// that it is absent: Store.Load("") would always report "no session",
+		// regardless of the actual machine, because nothing is ever stored
+		// under an empty reference. Reporting that fixed answer as a failure
+		// would tell a user with a perfectly good session to log in again
+		// over an unrelated document typo, so this is not-applicable instead.
+		findings = append(findings, notApplicableFinding(checkSession,
+			"the context document could not be read, so no credential reference could be resolved"))
+	case len(document.Contexts) == 0:
 		findings = append(findings, notApplicableFinding(checkSession,
 			"no context is configured, so there is no session to check"))
-	} else {
-		// A document that failed to load leaves no identity to read a
-		// credential reference from. The store is still asked, under an empty
-		// reference: nothing is ever stored under one, so the answer is the
-		// same "no session" a genuinely absent session would report, which is
-		// the honest answer here too — this command cannot tell whether a
-		// session exists for a context it could not resolve.
-		ref := ""
-		if loadErr == nil {
-			selected, selErr := document.Select(contextName)
-			if selErr != nil {
-				// An unresolvable --context name is the caller's argument
-				// mistake, not a health finding: it is refused the way every
-				// other context-selecting command refuses it, rather than
-				// folded into the report.
-				return selErr
-			}
-			ref = selected.Identity.Auth.CredentialRef
+	default:
+		selected, selErr := document.Select(contextName)
+		if selErr != nil {
+			// An unresolvable --context name is the caller's argument
+			// mistake, not a health finding: it is refused the way every
+			// other context-selecting command refuses it, rather than
+			// folded into the report. See this function's doc comment.
+			return selErr
 		}
-		if _, sessionErr := store.Load(ref); sessionErr != nil {
+		if _, sessionErr := store.Load(selected.Identity.Auth.CredentialRef); sessionErr != nil {
 			typed := doctorProblem(sessionErr)
 			failures[checkSession] = typed
 			findings = append(findings, failFinding(checkSession, typed))
@@ -208,7 +222,11 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 	}
 
 	if online {
-		findings = append(findings, catalogFinding())
+		finding, catalogErr := catalogCheck()
+		findings = append(findings, finding)
+		if catalogErr != nil {
+			failures[checkCatalog] = *catalogErr
+		}
 	}
 
 	if writeErr := renderDoctorReport(s.Streams.Out, mode, findings); writeErr != nil {
@@ -229,18 +247,19 @@ func renderDoctorReport(w io.Writer, mode output.Mode, findings []doctorFinding)
 	return table.Render(w)
 }
 
-// catalogFinding is the fourth check, reachable only with --online.
-//
-// Its failure is never what decides the exit status: see severityRank.
-func catalogFinding() doctorFinding {
+// catalogCheck is the fourth check, reachable only with --online. The second
+// return value is non-nil exactly when the finding is a failure, so the
+// caller can add it to doctor's failures map without re-deriving the outcome
+// from the finding's Status string.
+func catalogCheck() (doctorFinding, *problem.Problem) {
 	ctx, cancel := context.WithTimeout(context.Background(), catalogProbeTimeout)
 	defer cancel()
 	client := catalog.Client{Origin: catalog.Origin()}
 	if _, err := client.Index(ctx); err != nil {
 		typed := doctorProblem(err)
-		return failFinding(checkCatalog, typed)
+		return failFinding(checkCatalog, typed), &typed
 	}
-	return passFinding(checkCatalog, fmt.Sprintf("the module catalog at %s is reachable", catalog.Origin()))
+	return passFinding(checkCatalog, fmt.Sprintf("the module catalog at %s is reachable", catalog.Origin())), nil
 }
 
 // mostSevereFailure reports the exit-deciding problem, per R1's rank. A check
@@ -257,11 +276,13 @@ func mostSevereFailure(failures map[string]problem.Problem) error {
 
 // doctorProblem recovers the typed problem a doctor check's error always carries.
 //
-// contexts.Load and every session.Store method return a problem.Problem on
-// every error path they define, so the fallback below is unreached by any
-// call site in this file today. It exists so a future check that forgets to
-// type its failure fails safely, as a module-process error, rather than by
-// panicking this command.
+// contexts.Load, every session.Store method, and catalog.Client.Index
+// (internal/catalog/client.go:203-220, every one of originUnreachable,
+// unreadable, and schemaUnsupported) return a problem.Problem on every error
+// path they define, so the fallback below is unreached by any call site in
+// this file today. It exists so a future check that forgets to type its
+// failure fails safely, as a module-process error, rather than by panicking
+// this command.
 func doctorProblem(err error) problem.Problem {
 	var typed problem.Problem
 	if errors.As(err, &typed) {

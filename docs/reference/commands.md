@@ -57,7 +57,7 @@ refusal is reported.
 | `wso2 bundle create` | Creates a platform-specific, self-installing offline bundle from catalog releases. |
 | `wso2 bundle inspect <file>` | Shows bundle contents without installing it. |
 | `wso2 bundle install <file>` | Imports a bundle when the WSO2 CLI is already installed. |
-| `wso2 doctor` | Built today: checks that the context document is valid, that the OS secure store is reachable, and that the selected context has a stored session. `--online` adds a fourth check, module catalog reachability; without it, `wso2 doctor` makes no network call. On an unconfigured machine, the secure-store and session checks report not-applicable rather than failure. Exits 0 when every check passes or is not-applicable, otherwise the exit class of the most severe failing check (secure-store, then the document, then the session, ranked in that order regardless of their numeric exit classes). Receipt, module integrity, compatibility, and protocol status are not built yet; see [architecture](../architecture.md#14-operational-behavior-and-recovery). |
+| `wso2 doctor` | Built today: checks that the context document is valid, that the OS secure store is reachable, and that the selected context has a stored session. `--online` adds a fourth check, module catalog reachability; without it, `wso2 doctor` makes no network call. On an unconfigured machine, the secure-store and session checks report not-applicable rather than failure; on a context document that fails to decode or validate, the session check reports not-applicable too, because no credential reference can be resolved from it, while the secure-store check still runs since it never reads the document. Exits 0 when every check passes or is not-applicable, otherwise the exit class of the most severe failing check, in this rank: secure-store, then the document, then the session, then (only under `--online`) the catalog — a rank this command defines and not the numeric order of the exit classes those checks carry. Receipt, module integrity, compatibility, and protocol status are not built yet; see [architecture](../architecture.md#14-operational-behavior-and-recovery). |
 
 `project` commands are intentionally not included yet. Product-specific
 projects, deployment, and runtime operations remain within their product
@@ -81,7 +81,7 @@ parsing any output.
 | `0` | Success | The command completed. |
 | `64` | Usage | Invalid arguments, flags, or configuration, including a malformed context document. |
 | `69` | Module trust | A module integrity, signature, platform, or compatibility failure. |
-| `70` | Module process | A protocol violation, or a module process that failed to launch or crashed. |
+| `70` | Module process | A protocol violation, a module process that failed to launch or crashed, or an unreachable module catalog origin (including `wso2 doctor --online`'s catalog check). |
 | `75` | Product service | A failure the product service itself reported. |
 | `77` | Authentication policy | An authentication or broker policy failure, including no context selected, and a missing or expired session. |
 

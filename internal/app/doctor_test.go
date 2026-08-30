@@ -88,6 +88,23 @@ func installMalformedDocument(t *testing.T, shell app.Shell) {
 	}
 }
 
+// tableStatus reads the status cell of one check's row out of a rendered
+// table, so a test can pin what the table says about a specific check rather
+// than merely that the word appears somewhere in the output. Fields, not a
+// fixed column width, because output.Table pads with spaces and the gap
+// varies with the widest cell in each column.
+func tableStatus(t *testing.T, rendered, check string) string {
+	t.Helper()
+	for _, line := range strings.Split(rendered, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == check {
+			return fields[1]
+		}
+	}
+	t.Fatalf("no row for the %q check in the table:\n%s", check, rendered)
+	panic("unreached")
+}
+
 // TestDoctorOnAnUnconfiguredMachineExitsCleanly is #121's core requirement: a
 // machine nobody has configured yet is reported as unconfigured, not as
 // broken.
@@ -110,7 +127,9 @@ func TestDoctorOnAnUnconfiguredMachineExitsCleanly(t *testing.T) {
 }
 
 // TestDoctorOnAnUnconfiguredMachineTableModeSaysSo proves the table rendering
-// carries the same fact as the JSON rendering, per constraint 6.
+// carries the same fact as the JSON rendering, per constraint 6: not just that
+// each check is named, but that each row's own status cell agrees with what
+// JSON reports for that check.
 func TestDoctorOnAnUnconfiguredMachineTableModeSaysSo(t *testing.T) {
 	shell, out, errOut := newShell(t)
 
@@ -118,12 +137,9 @@ func TestDoctorOnAnUnconfiguredMachineTableModeSaysSo(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	for _, check := range []string{"context", "secure-store", "session"} {
-		if !strings.Contains(out.String(), check) {
-			t.Errorf("table output does not mention the %q check:\n%s", check, out)
+		if status := tableStatus(t, out.String(), check); status != "not-applicable" {
+			t.Errorf("%s row status = %q, want not-applicable on an unconfigured machine:\n%s", check, status, out)
 		}
-	}
-	if !strings.Contains(out.String(), "not-applicable") {
-		t.Errorf("table output does not report not-applicable:\n%s", out)
 	}
 }
 
@@ -143,20 +159,30 @@ func TestDoctorReportsAMalformedDocumentAsAFailingContextCheck(t *testing.T) {
 		t.Errorf("context check = %q, want fail for a malformed document", finding.Status)
 	}
 	requireRefusal(t, errOut.String(), "contexts.document_malformed")
+
+	tableShell, tableOut, tableErrOut := newShell(t)
+	installMalformedDocument(t, tableShell)
+	if code := tableShell.Run([]string{"doctor"}); code != exit.Usage {
+		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, tableErrOut)
+	}
+	if status := tableStatus(t, tableOut.String(), "context"); status != "fail" {
+		t.Errorf("context row status = %q, want fail for a malformed document:\n%s", status, tableOut)
+	}
 }
 
 // TestDoctorRanksTheDocumentAboveAnAbsentSession pins R1: when the document is
-// invalid (exit.Usage, 64) and the session is absent (exit.AuthPolicy, 77) both
-// fail in the same run, the document's class decides the exit status because
-// R1 ranks it above session, not because 64 is the smaller number. Reversing
-// the rank, or picking the largest class, both make this test fail: it is
-// the test that pins the ranking rather than leaving it a comment.
+// invalid (exit.Usage, 64) and no session can be established (not-applicable,
+// since a broken document leaves no credential reference to ask the store
+// about — see doctor.go), the document's own class is what the shell exits
+// with. This is a weaker end-to-end pin than the rank's top position, which
+// TestDoctorRanksSecureStoreAboveTheDocument covers instead: a malformed
+// document is the only failing thing here, so the interesting fact this test
+// pins is that session's inapplicability does not somehow suppress or alter
+// the document's own failure.
 func TestDoctorRanksTheDocumentAboveAnAbsentSession(t *testing.T) {
 	keyring.MockInit()
 	shell, out, errOut := newShell(t)
 	installMalformedDocument(t, shell)
-	// No session is seeded anywhere in the keyring, so whatever reference the
-	// session check resolves to, Store.Load reports it absent.
 
 	if code := shell.Run([]string{"doctor", "--output", "json"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want %d (usage, the document's own class); stderr: %s",
@@ -166,18 +192,45 @@ func TestDoctorRanksTheDocumentAboveAnAbsentSession(t *testing.T) {
 	if finding := report.findingFor(t, "context"); finding.Status != "fail" {
 		t.Errorf("context check = %q, want fail", finding.Status)
 	}
-	if finding := report.findingFor(t, "session"); finding.Status != "fail" {
-		t.Errorf("session check = %q, want fail: both checks must genuinely fail for this test to prove anything", finding.Status)
+	if finding := report.findingFor(t, "session"); finding.Status != "not-applicable" {
+		t.Errorf("session check = %q, want not-applicable: a broken document leaves no "+
+			"credential reference to check a session against", finding.Status)
 	}
 	if finding := report.findingFor(t, "secure-store"); finding.Status != "pass" {
 		t.Errorf("secure-store check = %q, want pass", finding.Status)
 	}
-	// The rendered problem is the document's, not the session's: proof that the
-	// exit status followed R1's rank and not the session failure that also
-	// occurred.
 	requireRefusal(t, errOut.String(), "contexts.document_malformed")
-	if strings.Contains(errOut.String(), "auth.login_required") {
-		t.Errorf("stderr names the session failure instead of the higher-ranked document failure:\n%s", errOut)
+}
+
+// TestDoctorRanksSecureStoreAboveTheDocument pins the top of R1's rank end to
+// end: when the document is invalid (exit.Usage, 64) and the secure store is
+// unreachable (exit.AuthPolicy, 77) both fail in the same run, secure-store's
+// class decides the exit status because R1 ranks it above the document — not
+// because 77 is the larger class, which a naive "pick the biggest number"
+// implementation would also get right here for the wrong reason. Reversing
+// the rank's first two entries, or picking the smallest class, both make this
+// test fail.
+func TestDoctorRanksSecureStoreAboveTheDocument(t *testing.T) {
+	keyring.MockInitWithError(errors.New("no secret service"))
+	shell, out, errOut := newShell(t)
+	installMalformedDocument(t, shell)
+
+	if code := shell.Run([]string{"doctor", "--output", "json"}); code != exit.AuthPolicy {
+		t.Fatalf("exit code = %d, want %d (auth policy, secure-store's own class); stderr: %s",
+			code, exit.AuthPolicy, errOut)
+	}
+	report := decodeDoctorReport(t, out.Bytes())
+	if finding := report.findingFor(t, "context"); finding.Status != "fail" {
+		t.Errorf("context check = %q, want fail: both checks must genuinely fail for this test to prove anything", finding.Status)
+	}
+	if finding := report.findingFor(t, "secure-store"); finding.Status != "fail" {
+		t.Errorf("secure-store check = %q, want fail", finding.Status)
+	}
+	// The rendered problem is secure-store's, not the document's: proof that
+	// the exit status followed R1's rank and not the smaller exit class.
+	requireRefusal(t, errOut.String(), "auth.keyring_unavailable")
+	if strings.Contains(errOut.String(), "contexts.document_malformed") {
+		t.Errorf("stderr names the document failure instead of the higher-ranked secure-store failure:\n%s", errOut)
 	}
 }
 
@@ -224,8 +277,8 @@ func TestDoctorHappyPathPassesEveryCheck(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, tableErrOut)
 	}
 	for check := range jsonChecks {
-		if !strings.Contains(tableOut.String(), check) {
-			t.Errorf("table rendering omits the %q check that JSON reported:\n%s", check, tableOut)
+		if status := tableStatus(t, tableOut.String(), check); status != "pass" {
+			t.Errorf("%s row status = %q, want pass to agree with the JSON rendering:\n%s", check, status, tableOut)
 		}
 	}
 }
@@ -285,9 +338,11 @@ func TestDoctorOpensNoNetworkConnectionWithoutOnline(t *testing.T) {
 
 // TestDoctorOnlineChecksCatalogReachability proves --online is wired to a real
 // reachability probe rather than being a flag nothing reads: pointed at a
-// local origin serving a valid index, the catalog check passes; pointed at one
-// that answers nothing, it fails. Neither outcome changes the exit status,
-// because catalog never decides it (see doctor.go's severityRank).
+// local origin serving a valid index, the catalog check passes and the run
+// exits 0; pointed at one that answers nothing, it fails, and — because
+// catalog is ranked in severityRank same as any other check, just last — that
+// failure's own class, exit.ModuleProcess (70), decides the exit status on an
+// otherwise healthy, unconfigured machine.
 func TestDoctorOnlineChecksCatalogReachability(t *testing.T) {
 	keyring.MockInit()
 
@@ -321,10 +376,12 @@ func TestDoctorOnlineChecksCatalogReachability(t *testing.T) {
 		t.Setenv(catalog.OriginEnvVar, server.URL)
 
 		shell, out, errOut := newShell(t)
-		// The catalog check never decides the exit status, so a healthy
-		// unconfigured machine with an unreachable catalog still exits 0.
-		if code := shell.Run([]string{"doctor", "--online", "--output", "json"}); code != exit.OK {
-			t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+		// An otherwise healthy, unconfigured machine still exits nonzero once
+		// --online adds a failing catalog check: catalog decides the exit
+		// status like any other check when it is the only one that failed.
+		if code := shell.Run([]string{"doctor", "--online", "--output", "json"}); code != exit.ModuleProcess {
+			t.Fatalf("exit code = %d, want %d (module process, the catalog client's own class); stderr: %s",
+				code, exit.ModuleProcess, errOut)
 		}
 		report := decodeDoctorReport(t, out.Bytes())
 		if finding := report.findingFor(t, "catalog"); finding.Status != "fail" {
@@ -366,6 +423,85 @@ func TestDoctorRefusesAnUnknownContextAsUsage(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
 	}
 	requireRefusal(t, errOut.String(), "contexts.unknown_context")
+}
+
+// TestDoctorHonorsContextPrecedence pins doctor.go's duplicated copy of
+// selection()'s precedence (internal/app/invoke.go:152): --context wins over
+// WSO2_CONTEXT, which wins over the document's default context. Two contexts
+// with distinct identities, and a session stored for only one of them, turn
+// "which context got selected" into an observable fact: the session check's
+// own status names which context doctor actually reported on.
+func TestDoctorHonorsContextPrecedence(t *testing.T) {
+	keyring.MockInit()
+	seeded := identityOnlyDocument()
+	seeded.Identities = append(seeded.Identities, contexts.Identity{
+		Name: "beta-cloud",
+		Type: "cloud",
+		Auth: contexts.IdentityAuth{
+			Kind:          contexts.KindOAuthBrowser,
+			Issuer:        "https://idp.example",
+			ClientID:      "wso2-cli",
+			CredentialRef: "beta-cloud",
+		},
+	})
+	seeded.DefaultContext = "acme"
+	seeded.Contexts = []contexts.Context{
+		{Name: "acme", Identity: "acme-cloud"},
+		{Name: "beta", Identity: "beta-cloud"},
+	}
+	// A session exists only for beta's identity, so "session: pass" is only
+	// possible when beta is the context doctor actually resolved.
+	seedBetaSession := func(t *testing.T, shell app.Shell) {
+		t.Helper()
+		installLogin(t, shell, seeded)
+		store := session.Store{StateRoot: shell.StateRoot}
+		if err := store.Save("beta-cloud", session.Session{
+			Issuer: "https://idp.example", RefreshToken: "rt-1",
+		}); err != nil {
+			t.Fatalf("seed a session: %v", err)
+		}
+	}
+
+	t.Run("the document default, with neither flag nor variable set", func(t *testing.T) {
+		shell, out, errOut := newShell(t)
+		seedBetaSession(t, shell)
+
+		if code := shell.Run([]string{"doctor", "--output", "json"}); code != exit.AuthPolicy {
+			t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.AuthPolicy, errOut)
+		}
+		report := decodeDoctorReport(t, out.Bytes())
+		if finding := report.findingFor(t, "session"); finding.Status != "fail" {
+			t.Errorf("session check = %q, want fail: the default context is acme, which has no session", finding.Status)
+		}
+	})
+
+	t.Run("WSO2_CONTEXT overrides the document default", func(t *testing.T) {
+		shell, out, errOut := newShell(t)
+		seedBetaSession(t, shell)
+		t.Setenv("WSO2_CONTEXT", "beta")
+
+		if code := shell.Run([]string{"doctor", "--output", "json"}); code != exit.OK {
+			t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+		}
+		report := decodeDoctorReport(t, out.Bytes())
+		if finding := report.findingFor(t, "session"); finding.Status != "pass" {
+			t.Errorf("session check = %q, want pass: WSO2_CONTEXT=beta should have been reported on", finding.Status)
+		}
+	})
+
+	t.Run("--context overrides WSO2_CONTEXT", func(t *testing.T) {
+		shell, out, errOut := newShell(t)
+		seedBetaSession(t, shell)
+		t.Setenv("WSO2_CONTEXT", "beta")
+
+		if code := shell.Run([]string{"doctor", "--context", "acme", "--output", "json"}); code != exit.AuthPolicy {
+			t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.AuthPolicy, errOut)
+		}
+		report := decodeDoctorReport(t, out.Bytes())
+		if finding := report.findingFor(t, "session"); finding.Status != "fail" {
+			t.Errorf("session check = %q, want fail: --context acme must win over WSO2_CONTEXT=beta", finding.Status)
+		}
+	})
 }
 
 // TestDoctorProbeReferenceCannotNameARealIdentity pins R3: the reference
