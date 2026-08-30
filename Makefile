@@ -91,8 +91,16 @@ help:
 	@echo '  make release-check        Validate the release configuration.'
 	@echo '  make release-snapshot     Build every release artifact into dist/, publishing nothing.'
 	@echo ''
-	@echo 'Starting a new product module:'
-	@echo '  make new-module NAMESPACE=<namespace>   Create modules/<namespace>, ready to build.'
+	@echo 'Working on one product module:'
+	@echo '  make new-module NAMESPACE=<namespace>    Create modules/<namespace>, ready to build.'
+	@echo '  make build-module NAMESPACE=<namespace>  Compile that module and nothing else.'
+	@echo '  make test-module NAMESPACE=<namespace>   Run that one namespace, with the race detector.'
+	@echo '  make install-module NAMESPACE=<namespace> [SHELL_VERSION=<version>]'
+	@echo '                                           Build a shell, install the module for it, ready to run.'
+	@echo '  make build-shell [SHELL_VERSION=<version>]'
+	@echo '                                           Build a wso2 that can launch a module, into bin/.'
+	@echo '  make gate-module NAMESPACE=<namespace> VERSION=<version>'
+	@echo '                                           Ask whether a released shell could launch it.'
 	@echo ''
 	@echo 'Against a real deployment (Asgardeo, Identity Server 7.x, or ThunderID):'
 	@echo '  make smoke-login          Log in and broker one acquisition. Opens a browser.'
@@ -118,6 +126,108 @@ ifndef NAMESPACE
 	$(error NAMESPACE is required: make new-module NAMESPACE=mycloud)
 endif
 	$(GO) run ./cmd/wso2-module-new -namespace '$(NAMESPACE)'
+
+# Compiles one module and stops there, which is the fastest way to find out
+# whether an edit still builds. Every module is its own Go module inside the
+# workspace, so the default gate never compiles one, and a module that stopped
+# building stays quiet until somebody builds it by hand.
+#
+# The executable is discarded because the question here is whether the module
+# compiles, not what it compiles to. Writing it would drop a binary named after
+# the module into whatever directory make was run from, which for every module
+# but the reference one is an untracked file in the developer's next git status.
+.PHONY: build-module
+build-module:
+ifndef NAMESPACE
+	$(error NAMESPACE is required: make build-module NAMESPACE=mycloud)
+endif
+	$(GO) build -o /dev/null ./modules/$(NAMESPACE)/...
+
+# Runs one module's tests, with the race detector the default gate uses. The
+# workspace keeps each module out of `go test ./...`, so without this a module
+# author either types the package pattern every time or, more often, stops
+# running the tests at all.
+.PHONY: test-module
+test-module:
+ifndef NAMESPACE
+	$(error NAMESPACE is required: make test-module NAMESPACE=mycloud)
+endif
+	$(GO) test ./modules/$(NAMESPACE)/... -race -count=1
+
+# The shell version build-shell injects, and the version install-module installs
+# for, when SHELL_VERSION does not name another. The two share it so that a
+# module installed by install-module is always installed for the shell that same
+# run built, which is what makes the bare command work.
+DEFAULT_SHELL_VERSION := 1.0.0-dev
+
+# Builds a shell that can actually launch a module, into bin/.
+#
+# An uninjected build reports 0.0.0-dev, and a module's declared shell range
+# does not contain it: a prerelease sorts below its own release, so the
+# ">=0.1.0" a scaffolded module declares excludes the very shell a contributor
+# builds by hand. Such a shell installs a module and then refuses to launch it,
+# which is the confusion this target exists to remove. The default names a
+# development build in the 1.x line, which every scaffolded module's range
+# contains. SHELL_VERSION names another one.
+#
+# This is a development build and says so in its version. It is not how a
+# release is built; see .goreleaser.yaml for that.
+.PHONY: build-shell
+build-shell:
+	@mkdir -p bin
+	$(GO) build -ldflags \
+		"-X github.com/wso2/wso2-cli/internal/version.shellVersion=$(or $(SHELL_VERSION),$(DEFAULT_SHELL_VERSION))" \
+		-o bin/wso2 ./cmd/wso2
+	@echo "Built bin/wso2 reporting version $(or $(SHELL_VERSION),$(DEFAULT_SHELL_VERSION))."
+
+# Installs a module from this checkout, unpublished, so its author can run it
+# under the real shell before tagging anything. The module is built, packed, and
+# installed by the ordinary installer from a catalog served on loopback for the
+# length of the run, so what lands in the module store is a real installation
+# rather than a shortcut around one. See
+# docs/adr/0011-local-module-install-through-a-development-origin.md.
+#
+# The version is a pinned prerelease, so nothing following stable is ever
+# offered it and `wso2 module update` leaves it alone. `wso2 module remove
+# <namespace>` takes it off again. VERSION names another one, for rehearsing
+# what a specific release will look like installed.
+#
+# The shell is built first, and the module is installed for exactly the version
+# that build reports, so the two cannot drift into the refusal below. A module's
+# declared shell range does not contain the 0.0.0-dev an uninjected build
+# reports, so a shell built the ordinary way installs a module and then refuses
+# to launch it. SHELL_VERSION names another version, for a released wso2 you
+# intend to run instead; the install is still refused up front when that version
+# could not launch the module.
+.PHONY: install-module
+install-module: build-shell
+ifndef NAMESPACE
+	$(error NAMESPACE is required: make install-module NAMESPACE=mycloud)
+endif
+	$(GO) run ./cmd/wso2-module-dev -namespace '$(NAMESPACE)' \
+		$(if $(VERSION),-version '$(VERSION)') \
+		-shell-version '$(or $(SHELL_VERSION),$(DEFAULT_SHELL_VERSION))' \
+		-shell-path ./bin/wso2
+
+# Answers the one question a tag cannot take back: whether any shell a user
+# already has can launch the module about to be published. The decision is the
+# module's declared protocol versions against the released shell's, so it is
+# knowable before tagging and worthless after. Nothing is built and nothing is
+# published. Two variables rather than one tag because NAMESPACE is already the
+# word this file uses for a module, and the tool wants the two joined:
+#
+#   make gate-module NAMESPACE=reference VERSION=v4.5.0-rc.1
+#
+# See docs/guides/building-product-modules.md section 6.
+.PHONY: gate-module
+gate-module:
+ifndef NAMESPACE
+	$(error NAMESPACE is required: make gate-module NAMESPACE=mycloud VERSION=v1.2.0-rc.1)
+endif
+ifndef VERSION
+	$(error VERSION is required: make gate-module NAMESPACE=$(NAMESPACE) VERSION=v1.2.0-rc.1)
+endif
+	$(GO) run ./cmd/wso2-module-release -tag '$(NAMESPACE)/$(VERSION)' -gate-only
 
 .PHONY: test
 test:
