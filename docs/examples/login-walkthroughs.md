@@ -450,17 +450,36 @@ leaves no half-written context to delete before the corrected command can run.
 ### B.2 Recording what the login reaches
 
 ```console
-$ wso2 identity add-product idp-customer-example api \                  # proposed
+$ wso2 identity add-product idp-customer-example api \                  # decided
     --endpoint https://api.customer.example \
     --audience https://api.customer.example \
     --scopes api:read,api:write
-Added product "api" to identity "idp-customer-example".
 
-$ wso2 identity add-product idp-customer-example integration \          # proposed
+Added product "api" to identity "idp-customer-example".
+Identity   idp-customer-example
+Product    api
+Endpoint   https://api.customer.example
+Audience   https://api.customer.example
+Scopes     api:read,api:write
+Replaced   no
+
+$ wso2 identity add-product idp-customer-example integration \          # decided
     --endpoint https://esb.customer.example \
     --audience https://esb.customer.example \
     --scopes integration:read
+
 Added product "integration" to identity "idp-customer-example".
+Identity   idp-customer-example
+Product    integration
+Endpoint   https://esb.customer.example
+Audience   https://esb.customer.example
+Scopes     integration:read
+Replaced   no
+
+$ wso2 identity list                                            # decided
+IDENTITY               TYPE     ISSUER                         PRODUCT       ENDPOINT                       SCOPES
+idp-customer-example   onprem   https://idp.customer.example   api           https://api.customer.example   api:read,api:write
+idp-customer-example   onprem   https://idp.customer.example   integration   https://esb.customer.example   integration:read
 
 $ wso2 api list                                                 # decided
 NAME                VERSION   STATUS
@@ -494,6 +513,12 @@ contexts:
 
 defaultContext: idp-customer-example
 ```
+
+Recording a namespace the identity already carries is refused rather than
+overwritten: the endpoint, audience and scopes it held are written down nowhere
+else, and the ordinary way to reach that refusal is a second run from shell
+history with one flag corrected. `--replace` is how an operator says they meant
+it, and it replaces the whole record rather than merging with it.
 
 The context carries no `organization`. Nothing in the login response supplied
 one, and this deployment's identity provider was not asked for an organization

@@ -13,8 +13,9 @@ The distinction between catalog refresh and module binary update remains an
 open decision. The lifecycle command names below are therefore provisional.
 
 These are built: `wso2 context create <name>`, `wso2 context use <context>`,
-`wso2 context list`, `wso2 context current`, `wso2 login`,
-`wso2 login --url <issuer> --client-id <id>`, `wso2 logout`,
+`wso2 context list`, `wso2 context current`,
+`wso2 identity add-product <identity> <namespace>`, `wso2 identity list`,
+`wso2 login`, `wso2 login --url <issuer> --client-id <id>`, `wso2 logout`,
 `wso2 module available`, `wso2 module list`,
 `wso2 module install <module>`, `wso2 module install <module>@<version>`,
 `wso2 module install <module> --channel <channel>`,
@@ -41,6 +42,8 @@ refusal is reported.
 | `wso2 context list` | Lists saved cloud and on-premises contexts, marking the selected one. |
 | `wso2 context use <context>` | Selects the context used by default for later commands. |
 | `wso2 context current` | Shows the active context. |
+| `wso2 identity add-product <identity> <namespace>` | Records a product the identity reaches, with `--endpoint`, and optionally `--audience` and a comma-separated `--scopes`. It modifies an identity `wso2 login` wrote and creates no identity and no context: logging in is the only thing that creates an identity. Nothing is written to the secure store and no network call is made, so the record is an assertion that the login's session reaches the product, checked by the first command that needs it. A namespace the identity already records is refused with `contexts.product_exists`; `--replace` overwrites it, replacing the whole record rather than merging with it. An endpoint embedding user information is refused, and the rejected value is not echoed. |
+| `wso2 identity list` | Lists the identities and, for each, the products it reaches. It names no credential and reads nothing from the secure store. |
 | `wso2 config list` | Shows non-secret shell preferences. |
 | `wso2 config get <key>` | Shows one non-secret shell preference. |
 | `wso2 config set <key> <value>` | Changes one non-secret shell preference. |

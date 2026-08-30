@@ -585,6 +585,13 @@ first-time user meets most often. None of them reaches a browser.
   document already declares. Creating a context never replaces one, because the
   organization, project and identity it recorded are not written down anywhere
   else. Choose another name.
+- **`contexts.product_exists`.** `wso2 identity add-product` named a product
+  namespace the identity already records. Recording one never overwrites
+  another on its own, because the endpoint, audience and scopes it held are not
+  written down anywhere else; the ordinary way to reach this is a second run
+  from shell history with one flag corrected. `wso2 identity list` shows what
+  is recorded, and `--replace` overwrites it, replacing the whole record rather
+  than merging with it.
 
 ### The context commands: `shell.*`
 
@@ -597,7 +604,9 @@ of them is reported.
   login --url` reports it for `--client-id`, which it asks for at a terminal
   and refuses to guess anywhere else — there is no WSO2-published client for a
   self-hosted deployment, so the value can only come from the application you
-  registered. The message says why nothing was asked: `--no-input`,
+  registered. `wso2 identity add-product` reports it for `--endpoint`, which
+  nothing can discover: a self-hosted deployment publishes no catalogue of what
+  it serves. The message says why nothing was asked: `--no-input`,
   `WSO2_NO_INPUT`, or standard input that is not a terminal. Not to be confused
   with `shell.missing_flag_value`, which means a flag was given without the
   value it needs.
@@ -606,7 +615,13 @@ of them is reported.
   context may not have: names are lower-case letters, digits and hyphens,
   starting with a letter, at most 64 characters. For `wso2 login --url` it is a
   value that is not an issuer URL, and a missing `https://` is the usual cause.
-  Nothing was written, so retyping the command is the whole fix.
+  `wso2 identity add-product` reports it for a product namespace, which follows
+  the same name rule, and for a product the context document will not hold: an
+  endpoint that embeds user information, an endpoint no URL parser reads, and a
+  product an identity bound to one protected resource cannot carry. The
+  endpoint is never repeated back, because a rejected one is the likeliest
+  place for a credential to have been typed by mistake. Nothing was written, so
+  retyping the command is the whole fix.
 - **`shell.missing_argument`, `shell.unexpected_argument`.** The command was
   given too few or too many arguments. The recovery shows the shape it expects.
 
