@@ -373,6 +373,9 @@ The architecture proof holds the invariant that no shell command can write a
 context, so no shell command can grant itself access. A production
 `wso2 context create` ends that invariant, and replaces it with one that
 survives a writable store: **writing a context or an identity grants nothing.**
+Why the invariant is stated this way, rather than as a rule about which
+command is allowed to write, is recorded in
+[ADR 0011](adr/0011-writing-a-context-or-identity-grants-nothing.md).
 
 It holds through five properties, each of which is testable:
 
