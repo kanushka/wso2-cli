@@ -17,6 +17,8 @@
 package contexts
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -71,7 +73,7 @@ func Save(stateRoot string, document Document) error {
 	if err != nil {
 		return err
 	}
-	return withDocumentLock(stateRoot, func() error { return writeDocument(stateRoot, data) })
+	return withWritableDocument(stateRoot, func() error { return writeDocument(stateRoot, data) })
 }
 
 // Update reads the document, applies change, and writes the result back,
@@ -85,7 +87,7 @@ func Save(stateRoot string, document Document) error {
 // a fresh machine is not a special case in every caller. A change that fails
 // writes nothing: the document on disk is left exactly as it was found.
 func Update(stateRoot string, change func(Document) (Document, error)) error {
-	return withDocumentLock(stateRoot, func() error {
+	return withWritableDocument(stateRoot, func() error {
 		current, err := Load(stateRoot)
 		if err != nil {
 			return err
@@ -125,22 +127,46 @@ func encodeReadable(document Document) ([]byte, error) {
 func writeDocument(stateRoot string, data []byte) error {
 	path := Path(stateRoot)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return documentUnwritable()
+		// MkdirAll already reports a path and an operation; nothing wraps it.
+		return documentUnwritable(err)
 	}
 	if err := atomicfile.Write(path, data, documentMode); err != nil {
-		return documentUnwritable()
+		// atomicfile names itself and repeats the target path. One unwrap
+		// reaches the filesystem error underneath, which is the part a user can
+		// act on; unwrapping further would reach a bare errno and lose the path.
+		return documentUnwritable(errors.Unwrap(err))
 	}
 	return nil
 }
 
-// withDocumentLock runs fn while holding the document lock, translating the two
-// failures internal/lockfile reports into this package's voice.
+// withWritableDocument runs fn while holding the document lock, having first
+// proved that what is on disk may be overwritten at all.
 //
-// A failure inside fn is neither of them and passes through untouched, which is
-// why the conditions are matched by type rather than by "err != nil": a refused
-// change must reach the user as the refusal it is, not as a broken lock.
-func withDocumentLock(stateRoot string, fn func() error) error {
-	err := lockfile.With(LockPath(stateRoot), lockDeadline, fn)
+// The version 1 refusal belongs here rather than on the way out. Encode refuses
+// a document that is itself a compatibility read, which catches an amend-shaped
+// change only by accident: a caller that replaces the document rather than
+// amending it hands over a clean version 2 value with nothing left to object
+// to, and the hand-authored version 1 file underneath is destroyed. D13 is a
+// claim about the file, so the guard reads the file. Both writers inherit it
+// from one place.
+//
+// This is a second read of the document in Update, which Loads it again inside
+// fn. That is deliberate: the guard decodes one integer and never validates, so
+// it cannot refuse a merely corrupt document that a writer ought to be able to
+// repair, which a Load-shaped guard would. Both reads happen under the lock, so
+// they cannot disagree.
+//
+// A failure inside fn is neither of the lock's own failures and passes through
+// untouched, which is why the conditions are matched by type rather than by
+// "err != nil": a refused change must reach the user as the refusal it is, not
+// as a broken lock.
+func withWritableDocument(stateRoot string, fn func() error) error {
+	err := lockfile.With(LockPath(stateRoot), lockDeadline, func() error {
+		if err := refuseFrozenDocument(stateRoot); err != nil {
+			return err
+		}
+		return fn()
+	})
 	if errors.Is(err, lockfile.ErrBusy) {
 		return contextProblem("contexts.document_busy",
 			"another WSO2 CLI invocation is updating the context document",
@@ -148,22 +174,62 @@ func withDocumentLock(stateRoot string, fn func() error) error {
 	}
 	var lockErr lockfile.Error
 	if errors.As(err, &lockErr) {
-		return documentUnwritable()
+		return contextProblem("contexts.document_unwritable",
+			"the shell could not take the context document update lock",
+			"Check that the WSO2 CLI state directory is writable, then retry the command.")
 	}
 	return err
+}
+
+// refuseFrozenDocument refuses to overwrite a document written in a schema
+// version this shell reads but does not write.
+//
+// Only the version is decoded. A file that is absent is a first write, not a
+// refusal; a file this cannot parse is left to the writer, because a document
+// too broken to read is one a create command should be able to replace, and
+// refusing here would strand the user with no way back. Everything a valid
+// document needs to be is Encode's business, checked against the value being
+// written rather than against the file being replaced.
+func refuseFrozenDocument(stateRoot string) error {
+	data, err := os.ReadFile(Path(stateRoot))
+	if err != nil {
+		return nil
+	}
+	var probe struct {
+		SchemaVersion int `json:"schemaVersion"`
+	}
+	if err := json.NewDecoder(bytes.NewReader(data)).Decode(&probe); err != nil {
+		return nil
+	}
+	if probe.SchemaVersion != SchemaVersionLegacy {
+		return nil
+	}
+	// The same code and recovery Encode uses for the same condition. One
+	// condition reported under two codes depending on which guard caught it
+	// would be worse for a user reading the troubleshooting table than a code
+	// whose name fits this case loosely.
+	return contextProblem("contexts.document_malformed",
+		"a compatibility-read context document cannot be written back",
+		"Author a schema version 2 document. The shell does not rewrite version 1 documents in place.")
 }
 
 // documentUnwritable reports that the shell could not write the document, for a
 // filesystem reason rather than because the document was wrong.
 //
-// Unlike the session lock, which reuses auth.login_required because a busy
-// session recovers exactly as an expired one does, neither of these conditions
-// recovers the way an existing contexts.* code does: the document here is
-// readable and well formed, so contexts.document_malformed and
-// contexts.document_unreadable would both send the user to correct a file that
-// has nothing wrong with it.
-func documentUnwritable() error {
-	return contextProblem("contexts.document_unwritable",
-		"the WSO2 CLI context document could not be written",
+// The cause is carried into the message rather than dropped. This package is a
+// leaf with no diagnostic log to fall back on, so a cause discarded here is
+// discarded for good: no command above can report what it was never handed, and
+// a user left with "could not be written" cannot tell a full disk from a
+// read-only mount from a permission they can fix. The session lock drops its
+// cause, but its one realistic cause is the one its recovery already names.
+//
+// Nothing here is credential material: a filesystem error carries a path inside
+// the user's own state root and an operating system message.
+func documentUnwritable(cause error) error {
+	message := "the WSO2 CLI context document could not be written"
+	if cause != nil {
+		message += ": " + cause.Error()
+	}
+	return contextProblem("contexts.document_unwritable", message,
 		"Check that the WSO2 CLI state directory is writable, then retry the command.")
 }

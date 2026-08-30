@@ -28,6 +28,7 @@ import (
 
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/contexts/fixture"
+	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
 func TestSaveWritesADocumentTheShellReadsBack(t *testing.T) {
@@ -87,8 +88,12 @@ func TestSaveWritesTheDocumentPrivately(t *testing.T) {
 }
 
 func TestSaveDoesNotPreserveFieldsTheSchemaDoesNotKnow(t *testing.T) {
-	// D13: a strict read is already the design's position on unknown members,
-	// and a round trip through the shell's own types cannot carry one.
+	// The reader tolerates an unknown member on purpose, so that a newer shell
+	// can add a non-secret context fact within one schema version without the
+	// older one failing closed on it. It is the round trip that drops it: the
+	// Go types have nowhere to put a member they do not declare, so a document
+	// this package rewrites is reduced to what this schema knows. A caller must
+	// not treat Update as a way to preserve a field it cannot name.
 	root := t.TempDir()
 	seeded := addMember(`"unknownMember": "kept?"`)(validV2())
 	seed(t, root, seeded)
@@ -206,7 +211,95 @@ func TestUpdateRefusesACompatibilityReadDocument(t *testing.T) {
 	// The shell never rewrites a version 1 document into version 2 behind its
 	// author's back. Encode already refuses one; Update has to surface that
 	// refusal rather than write something else.
-	root := filepath.Join(t.TempDir(), "state")
+	root, before := installV1(t)
+
+	err := contexts.Update(root, func(d contexts.Document) (contexts.Document, error) {
+		return d, nil
+	})
+	assertProblemCode(t, err, "contexts.document_malformed")
+	assertUnchanged(t, root, before, "Update rewrote a version 1 document")
+}
+
+func TestSaveRefusesToOverwriteACompatibilityReadDocument(t *testing.T) {
+	// Save encodes what it was handed and never looked at what was already
+	// there, so a clean v2 document had nothing left to refuse and destroyed a
+	// hand-authored version 1 document that the shell reads but will not write.
+	root, before := installV1(t)
+
+	err := contexts.Save(root, documentV2())
+	assertProblemCode(t, err, "contexts.document_malformed")
+	assertUnchanged(t, root, before, "Save overwrote a version 1 document")
+}
+
+func TestUpdateRefusesToOverwriteAVersionOneDocumentWhenTheChangeDiscardsIt(t *testing.T) {
+	// The refusal must not depend on the outgoing document still carrying the
+	// synthetic identity a compatibility read leaves behind. A change function
+	// that replaces rather than amends — the shape a create command writes —
+	// returns a clean v2 document with nothing left for Encode to object to.
+	root, before := installV1(t)
+
+	err := contexts.Update(root, func(contexts.Document) (contexts.Document, error) {
+		return documentV2(), nil
+	})
+	assertProblemCode(t, err, "contexts.document_malformed")
+	assertUnchanged(t, root, before, "Update overwrote a version 1 document")
+}
+
+func TestSaveReplacesADocumentTooBrokenToParse(t *testing.T) {
+	// The version guard decodes one integer and refuses only a version this
+	// shell will not write. A file that is not JSON at all has no version to
+	// honour, and refusing it would strand a user with a corrupt document and
+	// no command that can replace it.
+	root := t.TempDir()
+	seed(t, root, "{ this is not json")
+
+	if err := contexts.Save(root, documentV2()); err != nil {
+		t.Fatalf("Save over a corrupt document returned %v", err)
+	}
+	if _, err := contexts.Load(root); err != nil {
+		t.Fatalf("Load after Save returned %v", err)
+	}
+}
+
+func TestAnUnwritableDocumentReportsWhyItCouldNotBeWritten(t *testing.T) {
+	// A leaf package has no diagnostic log, so a cause dropped here is dropped
+	// for good and the user cannot tell a permission they can fix from a full
+	// disk.
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("directory permissions do not refuse a write here")
+	}
+	root := t.TempDir()
+	if err := contexts.Save(root, documentV2()); err != nil {
+		t.Fatalf("Save returned %v", err)
+	}
+	directory := filepath.Dir(contexts.Path(root))
+	if err := os.Chmod(directory, 0o500); err != nil {
+		t.Fatalf("Chmod returned %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(directory, 0o700) })
+
+	err := contexts.Save(root, documentV2())
+	assertProblemCode(t, err, "contexts.document_unwritable")
+	var typed problem.Problem
+	if !errors.As(err, &typed) {
+		t.Fatalf("expected a typed problem, got %v", err)
+	}
+	if !strings.Contains(typed.Message, "permission denied") {
+		t.Errorf("the message does not say why: %q", typed.Message)
+	}
+	// The shell's own layering is not the user's problem, and the message
+	// already names the document.
+	if strings.Contains(typed.Message, "atomicfile") {
+		t.Errorf("the message leaks an internal package name: %q", typed.Message)
+	}
+}
+
+// installV1 writes a schema version 1 document into an isolated state root and
+// reports the root together with the bytes on disk, so a caller can prove a
+// refusal left them alone.
+func installV1(t *testing.T) (root string, written []byte) {
+	t.Helper()
+	root = filepath.Join(t.TempDir(), "state")
 	if err := fixture.Install(root, fixture.LegacyDocument{
 		SchemaVersion:  contexts.SchemaVersionLegacy,
 		DefaultContext: "reference-local",
@@ -222,22 +315,21 @@ func TestUpdateRefusesACompatibilityReadDocument(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("fixture.Install returned %v", err)
 	}
-	before, err := os.ReadFile(contexts.Path(root))
+	written, err := os.ReadFile(contexts.Path(root))
 	if err != nil {
 		t.Fatalf("ReadFile returned %v", err)
 	}
+	return root, written
+}
 
-	err = contexts.Update(root, func(d contexts.Document) (contexts.Document, error) {
-		return d, nil
-	})
-	assertProblemCode(t, err, "contexts.document_malformed")
-
+func assertUnchanged(t *testing.T, root string, before []byte, complaint string) {
+	t.Helper()
 	after, err := os.ReadFile(contexts.Path(root))
 	if err != nil {
 		t.Fatalf("ReadFile returned %v", err)
 	}
 	if !bytes.Equal(before, after) {
-		t.Error("Update rewrote a version 1 document")
+		t.Error(complaint)
 	}
 }
 
