@@ -29,9 +29,16 @@ import (
 
 // docCredentialRefFiles are the published examples that show credentialRef
 // values to a reader who is expected to copy them.
+// The login guides are here beside the examples because they are the first-run
+// path: a reader who never opens docs/examples still copies a credentialRef out
+// of the guide for their own product.
 var docCredentialRefFiles = []string{
 	"../../docs/examples/authentication-contexts.md",
 	"../../docs/examples/login-walkthroughs.md",
+	"../../docs/guides/login.md",
+	"../../docs/guides/login-asgardeo.md",
+	"../../docs/guides/login-identity-server.md",
+	"../../docs/guides/login-thunder.md",
 }
 
 // docCredentialRefAssignment matches a credentialRef field's value as either

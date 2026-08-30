@@ -29,6 +29,16 @@ import (
 // diagnostic. A second package writing to Streams.Err would be a second owner
 // of the same stream, with its own idea of when a byte may be written there,
 // which is exactly what docs/adr/0003-shell-owned-output.md rules out.
+//
+// Redaction here is attribute-key-based and nothing else. It reads the key of
+// every attribute, wherever in a record that attribute sits, and it reads
+// neither the record's message nor the text of an error handed over as a value
+// — slog.Any("error", err) reaches the stream whole, whatever the error's own
+// Error() decided to say. So a call site logging a failure owns what that
+// failure's text carries: an issuer response body or a request URL pasted into
+// an error message is logged as written. No call site does that today; the
+// boundary is named here because the writers that log failures are the ones
+// most likely to try.
 
 // redactedValue replaces a sensitive attribute value. It is written rather than
 // dropped so that a reader can tell "the shell had a token here and hid it"

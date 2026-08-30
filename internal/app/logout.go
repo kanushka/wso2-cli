@@ -78,6 +78,15 @@ func (s Shell) logout(args []string) error {
 	shared := document.ContextsUsingCredential(selected.Identity.Auth.CredentialRef)
 
 	reference := selected.Identity.Auth.CredentialRef
+	// Recorded before the lock is taken, so a logout that then blocks on a
+	// concurrent rotation still names what it was ending and against which
+	// issuer the retraction was about to be attempted.
+	s.log.Debug("ending a session",
+		"context", selected.Context.Name,
+		"issuer", selected.Identity.Auth.Issuer,
+		"client_id", selected.Identity.Auth.ClientID,
+		"credential_ref", reference,
+		"shared_contexts", len(shared))
 	store := session.Store{StateRoot: root}
 	// The whole of it runs inside one lock: the refresh token has to be read
 	// before it can be revoked and before the entry can go, and releasing the
@@ -126,6 +135,18 @@ func (s Shell) logout(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Revocation is best effort by design, so which of its three outcomes a run
+	// got is the fact a user reports and the one nothing else records: the
+	// issuer's own copy of the session is not observable from this machine, and
+	// "confirmed", "not attempted", and "failed" are three different states of
+	// the deployment. See docs/adr/0010-best-effort-revocation-on-session-end.md.
+	// The refresh token that was revoked is never logged; whether one was found
+	// is.
+	s.log.Debug("the session ended",
+		"credential_ref", reference,
+		"revocation", string(ended.revocation),
+		"session_removed", ended.sessionEnded,
+		"refresh_token_found", refreshToken != "")
 	return s.reportLogout(flags.mode, selected, ended)
 }
 

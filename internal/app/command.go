@@ -273,25 +273,27 @@ func shellFlag(command *cobra.Command, name string) *pflag.Flag {
 // fixed output and select no context. Naming what each command honors keeps a
 // flag it cannot act on a refusal rather than a value silently ignored.
 func shellFlagsFor(name string) []string {
-	// Every built-in honors --verbose, because every one of them can fail in a
-	// way worth explaining: a login against an unreachable issuer, an install
-	// against a catalog that answered something unexpected, a version listing
-	// over a store that will not open.
+	// --verbose is deliberately absent from every list. This set answers one
+	// question — which flags forwardShellFlags may re-attach to a command's own
+	// parser, and which it must refuse — and --verbose is outside that question
+	// entirely: takeVerboseFlag enables the log directly off the root's flag
+	// set, whoever the command is, and the flag is forwarded to nothing. Naming
+	// it here would be a claim no reader of this set ever checks.
 	switch name {
 	case "wso2":
 		// The root routes a product namespace, and a module command may act on
-		// every shell flag.
-		return []string{contextFlag, outputFlag, verboseFlag}
+		// every forwarded shell flag.
+		return []string{contextFlag, outputFlag}
 	case "login":
-		return []string{contextFlag, verboseFlag}
+		return []string{contextFlag}
 	case "logout":
 		// The only interactive-auth command that renders a machine-readable
 		// result, because it is the only one whose result a script has to read:
 		// what the issuer was told about the ended session is not observable
 		// any other way.
-		return []string{contextFlag, outputFlag, verboseFlag}
+		return []string{contextFlag, outputFlag}
 	default:
-		return []string{verboseFlag}
+		return nil
 	}
 }
 
