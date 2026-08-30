@@ -142,7 +142,7 @@ identities:
     type: cloud
     auth:
       kind: oauth-browser
-      credentialRef: keychain://wso2/acme-cloud
+      credentialRef: acme-cloud
 
 contexts:
   - name: acme
@@ -182,7 +182,7 @@ identities:
       kind: oauth-browser
       issuer: https://idp.customer.example
       clientId: wso2-cli
-      credentialRef: keychain://wso2/customer-idp
+      credentialRef: customer-idp
     products:
       agent:
         endpoint: https://agent.customer.example
@@ -235,7 +235,7 @@ identities:
       kind: oauth-browser
       issuer: https://thunder.own.example
       clientId: wso2-cli
-      credentialRef: keychain://wso2/onprem-agent
+      credentialRef: onprem-agent
     products:
       agent:
         endpoint: https://agent.own.example
@@ -246,7 +246,7 @@ identities:
     type: onprem
     auth:
       kind: pat                       # compatibility adapter; see §10
-      credentialRef: keychain://wso2/onprem-api
+      credentialRef: onprem-api
     products:
       api:
         endpoint: https://api.own.example
@@ -255,7 +255,7 @@ identities:
     type: cloud
     auth:
       kind: oauth-browser
-      credentialRef: keychain://wso2/acme-cloud
+      credentialRef: acme-cloud
 
 contexts:
   - name: own-agent
@@ -308,7 +308,7 @@ identities:
     type: cloud
     auth:
       kind: oauth-browser
-      credentialRef: keychain://wso2/acme-cloud
+      credentialRef: acme-cloud
 
 contexts:
   - name: retail-dev

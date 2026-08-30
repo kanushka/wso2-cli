@@ -36,7 +36,7 @@ Two rules hold in every walkthrough:
 
 - **Every YAML block below is non-secret in full.** Refresh tokens, access
   tokens, personal access tokens, and client secrets live *only* in the OS
-  secure store, never in these files. `credentialRef: keychain://wso2/<name>` is
+  secure store, never in these files. `credentialRef: <name>` is
   an opaque lookup key. It is not the credential, and not a capability;
   naming an entry the invoking OS user cannot read fails as an authentication
   problem.
@@ -65,15 +65,15 @@ same three targets look like this:
 contexts:
   - name: retail-dev
     issuer: https://api.asgardeo.io/t/acme/oauth2/token
-    credentialRef: keychain://wso2/acme-cloud
+    credentialRef: acme-cloud
     organization: acme
   - name: retail-prod
     issuer: https://api.asgardeo.io/t/acme/oauth2/token    # repeated
-    credentialRef: keychain://wso2/acme-cloud              # repeated
+    credentialRef: acme-cloud    # repeated
     organization: acme
   - name: partner
     issuer: https://api.asgardeo.io/t/acme/oauth2/token    # repeated
-    credentialRef: keychain://wso2/acme-cloud              # repeated
+    credentialRef: acme-cloud    # repeated
     organization: acme-partner
 ```
 
@@ -148,7 +148,7 @@ identities:
     auth:
       kind: oauth-browser
       tenant: acme                        # learned from the login response
-      credentialRef: keychain://wso2/acme-cloud
+      credentialRef: acme-cloud
 
 contexts:
   - name: acme
@@ -246,7 +246,7 @@ identities:
     auth:
       kind: oauth-browser
       tenant: acme
-      credentialRef: keychain://wso2/acme-cloud
+      credentialRef: acme-cloud
 
 contexts:
   - name: acme
@@ -348,7 +348,7 @@ identities:
     auth:
       kind: oauth-browser
       tenant: acme
-      credentialRef: keychain://wso2/acme-cloud
+      credentialRef: acme-cloud
 
   - name: acme-agent
     type: cloud
@@ -356,7 +356,7 @@ identities:
       kind: oauth-browser
       issuer: https://thunder.acme.wso2.cloud   # from --url
       clientId: wso2-cli                        # from --client-id
-      credentialRef: keychain://wso2/acme-agent
+      credentialRef: acme-agent
     products:
       agent:
         endpoint: https://agent.acme.wso2.cloud
@@ -459,7 +459,7 @@ identities:
       kind: oauth-browser
       issuer: https://idp.customer.example      # from --url
       clientId: wso2-cli                        # from --client-id
-      credentialRef: keychain://wso2/customer-idp
+      credentialRef: customer-idp
     products:
       api:
         endpoint: https://api.customer.example
@@ -571,7 +571,7 @@ Store the product-issued token:
 
 $ wso2 identity set-credential own-api                          # proposed
 Paste the token (read from stdin, not echoed, never stored in configuration):
-✓ Stored in the OS secure store as keychain://wso2/own-api
+✓ Stored in the OS secure store as own-api
 ```
 
 Read from stdin, never from a flag, matching Choreo's shipping `--with-token`
@@ -584,7 +584,7 @@ identities:
     auth:
       kind: oauth-browser
       tenant: acme
-      credentialRef: keychain://wso2/acme-cloud
+      credentialRef: acme-cloud
 
   - name: onprem-agent
     type: onprem
@@ -592,7 +592,7 @@ identities:
       kind: oauth-browser
       issuer: https://thunder.own.example
       clientId: wso2-cli
-      credentialRef: keychain://wso2/onprem-agent
+      credentialRef: onprem-agent
     products:
       agent:
         endpoint: https://agent.own.example
@@ -603,7 +603,7 @@ identities:
     type: onprem
     auth:
       kind: pat                           # compatibility adapter; no session
-      credentialRef: keychain://wso2/own-api
+      credentialRef: own-api
     products:
       api:
         endpoint: https://api.own.example

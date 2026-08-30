@@ -52,6 +52,15 @@ type Shell struct {
 	// it to drive a login without a display. It can only change how the URL is
 	// opened, never what is authorized.
 	OpenBrowser func(url string) error
+
+	// log is this invocation's diagnostic log. It is a pointer because the
+	// flag that turns it on is parsed after the command tree that the call
+	// sites hang off has been built, and because every Shell method takes its
+	// receiver by value: the copies have to share one log, not one each. It is
+	// unexported so that nothing outside the shell can decide what the user
+	// sees, and it is safe to use while nil, which is what a Shell built
+	// directly in a test is.
+	log *output.Logger
 }
 
 // CommandNames reports the shell's own command names, sorted.
@@ -88,6 +97,10 @@ func (s Shell) Run(args []string) exit.Code {
 }
 
 func (s Shell) dispatch(args []string) error {
+	// Created before the command tree so that every closure the tree captures
+	// shares this log, and turned on later by --verbose. Until then it writes
+	// nothing, which is what an invocation without the flag must produce.
+	s.log = output.NewLogger()
 	root := s.rootCommand()
 
 	if len(args) == 0 {
@@ -96,6 +109,8 @@ func (s Shell) dispatch(args []string) error {
 
 	name := args[0]
 	if name == "--version" {
+		// --version answers before Cobra parses anything, so no other shell
+		// flag has been read and there is nothing to log about.
 		return s.version(nil)
 	}
 	// A shell-owned command, or any leading flag, is Cobra's to route. Anything
@@ -131,6 +146,26 @@ func isShellCommand(root *cobra.Command, name string) bool {
 // product code runs, and the executable digest is recomputed as part of it, so
 // nothing is launched that the receipt does not still describe.
 func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []string) error {
+	// A product namespace never enters the command tree, so nothing has parsed
+	// its arguments: --verbose written after the namespace is taken here or not
+	// at all. It is taken and not forwarded, because until a module declares
+	// its command tree the shell cannot tell a flag it should pass on from one
+	// the module owns, and a module that does not know the flag would refuse
+	// the whole command. See forwardShellFlags.
+	args, verbose, err := takeVerbose(args)
+	if err != nil {
+		return err
+	}
+	if verbose {
+		// The module's own --output governs, because these diagnostics
+		// interleave with the result the module renders under it.
+		mode, err := diagnosticMode(root, args)
+		if err != nil {
+			return err
+		}
+		s.enableDiagnostics(root, mode)
+	}
+
 	store, err := s.store()
 	if err != nil {
 		return err
@@ -157,6 +192,14 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 	if err != nil {
 		return err
 	}
+	// What the shell decided to launch, recorded before it is launched: a
+	// module that crashes or hangs leaves this line behind, and the path names
+	// which installed version was actually chosen.
+	s.log.Debug("resolved a product namespace",
+		"namespace", namespace,
+		"executable", resolved.ExecutablePath,
+		"module_version", resolved.Receipt.ModuleVersion,
+		"protocol_version", resolved.ProtocolVersion)
 	return s.invokeModule(namespace, resolved, args)
 }
 

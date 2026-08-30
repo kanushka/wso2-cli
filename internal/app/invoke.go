@@ -65,6 +65,25 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 			WithRecovery("Retry the command. Report the failure if it persists.")
 	}
 
+	// The broker below performs the whole of this invocation's authentication —
+	// it narrows the session to an audience and exchanges it — and refuses in
+	// terms a module is allowed to hear, which is deliberately less than a
+	// maintainer needs. This is where that missing half is written: the
+	// invocation the access will be bound to, the ceiling the receipt declares,
+	// and the derivation the selected identity will be narrowed by. Everything
+	// here is public — a namespace, an audience list, a scheme name — and the
+	// credential the broker reads is named nowhere, in keeping with a denial
+	// never naming it either.
+	s.log.Debug("brokering module access",
+		"namespace", namespace,
+		"invocation_id", invocationID,
+		"context", selection.Context.Name,
+		"organization", selection.Context.Organization,
+		"grant_kind", selection.Identity.Auth.Kind,
+		"declared_audiences", strings.Join(resolved.Receipt.Capabilities.AuthAudiences, " "),
+		"declared_scopes", strings.Join(resolved.Receipt.Capabilities.AuthScopes, " "),
+		"narrowing", selection.Identity.Auth.Derivation())
+
 	launcher := rpc.Launcher{
 		Resolved: resolved,
 		Shell: rpc.ShellIdentity{
