@@ -340,12 +340,15 @@ func TestTheIdentityKindDecidesWhichPolicyTheBrokerApplies(t *testing.T) {
 			mutate: func(b *auth.Broker) { b.Selection.Identity.Products = nil },
 			code:   "auth.product_not_configured",
 		},
-		"a browser identity registered for another audience": {
+		// A registration naming an audience this module does not name is not
+		// refused here. The two vocabularies are not comparable, and the
+		// binding is proved against the issued token instead; see
+		// TestAccessIsGrantedWhenTheDeploymentBindsTheRegisteredAudience.
+		"a browser identity that registers no audience": {
 			kind: contexts.KindOAuthBrowser,
 			mutate: func(b *auth.Broker) {
 				withProduct(b, contexts.Product{
 					Endpoint: "https://reference.example.test",
-					Audience: "other-api",
 					Scopes:   []string{readScope},
 				})
 			},

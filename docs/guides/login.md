@@ -168,7 +168,7 @@ for that product, including `type` and any product-specific member.
 | `auth.credentialRef` | The name the session is stored under in the OS secure store. **Required** for `oauth-browser` and `oauth-device`; **not allowed** for `client-credentials`. Same character rules as an identity name. |
 | `products.<namespace>` | What this identity may reach for one module. The namespace is the module's own name, and follows the same character rules as an identity name. |
 | `products.<namespace>.endpoint` | The product's base URL. **Required** on every product entry, and must be an absolute `http` or `https` URL with a host. |
-| `products.<namespace>.audience` | What the issued token's `aud` claim must carry. A module asking for any other audience is refused. Which value that is differs by product; section 2.2 has the rule. |
+| `products.<namespace>.audience` | What the issued token's `aud` claim must carry. A grant whose `aud` does not carry it is refused. It is **not** compared against the audience the module asks for: a module names its API by a logical name compiled into it, while this is the concrete string *this* deployment stamps into `aud`. Which value that is differs by product; section 2.2 has the rule. |
 | `products.<namespace>.scopes` | The permissions this identity carries. A module asking for one that is not listed is refused. |
 | `contexts[].organization` | The organization to act within. Either leave it out, or set it to the identity's `auth.tenant`. This release cannot switch a session out of its home tenant, and any other value is refused. See `auth.organization_switch_unsupported` in section 6. |
 
@@ -623,8 +623,14 @@ the organization you are targeting and log in as it.
 
 The module asked for something this identity does not register. The message
 names both sides. Either the module's namespace is missing from `products`, or
-its `audience` differs from the one the module asked for, or a scope it asked
-for is not in the `scopes` list. Fix the context document.
+its entry sets no `audience`, or a scope it asked for is not in the `scopes`
+list. Fix the context document.
+
+An `audience` that differs from the one the module asks for is *not* this
+refusal, and is normal: the values come from different vocabularies. What must
+hold is that the deployment binds the token to the `audience` recorded here,
+which is proved when the token arrives and reported as
+`auth.narrowing_unavailable` when it fails.
 
 ### `auth.audience_not_declared` / `auth.scope_not_declared`
 

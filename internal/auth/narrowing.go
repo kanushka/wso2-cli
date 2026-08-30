@@ -79,7 +79,7 @@ const unknownResourceRecovery = "Register that resource server on the deployment
 // for has been handed authority nobody decided to give it, and a module that
 // receives a token its audience will reject fails later for a reason no one can
 // diagnose from where it fails.
-func (r tokenResponse) verify(request Request, namespace string) (bearerFacts, error) {
+func (r tokenResponse) verify(request Request, namespace, audience string) (bearerFacts, error) {
 	facts, err := bearerClaims(r.AccessToken)
 	if err != nil {
 		// Without readable claims the shell cannot prove the audience binding,
@@ -110,10 +110,15 @@ func (r tokenResponse) verify(request Request, namespace string) (bearerFacts, e
 				namespace, scopeList(request.Scopes), scopeList(effective)),
 			narrowingRecovery)
 	}
-	if !slices.Contains(facts.Audiences, request.Audience) {
+	// The binding is proved against the audience the identity registers for
+	// this product, not against the logical name the module asked by. The
+	// module's name is a constant compiled into it and says nothing about any
+	// deployment; the registered value is what this deployment stamps into aud,
+	// and it is what a person authorized against a real tenant.
+	if !slices.Contains(facts.Audiences, audience) {
 		return bearerFacts{}, denial("auth.narrowing_unavailable",
-			fmt.Sprintf("the deployment issued access that is not bound to the %q audience the %q "+
-				"module needs", request.Audience, namespace),
+			fmt.Sprintf("the deployment issued access for the %q module that is not bound to the %q "+
+				"audience this identity registers for it", namespace, audience),
 			narrowingRecovery)
 	}
 	// Both sources of a lifetime silent at once leaves nothing to expire, and

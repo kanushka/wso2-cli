@@ -51,6 +51,9 @@ type sessionSource struct {
 	// identity is the logged-in identity: issuer, client, and the secure-store
 	// reference its session lives under. It holds no credential.
 	identity contexts.Identity
+	// audience is the concrete audience the identity registers for this
+	// namespace, and the one an issued token is proved to be bound to.
+	audience string
 	// sessions reads and rotates the stored session.
 	sessions session.Store
 	// client serves the issuer traffic.
@@ -108,7 +111,7 @@ func (s sessionSource) derive(request Request, now time.Time) (Grant, error) {
 	if err != nil {
 		return Grant{}, err
 	}
-	facts, err := issued.verify(request, s.namespace)
+	facts, err := issued.verify(request, s.namespace, s.audience)
 	if err != nil {
 		return Grant{}, err
 	}

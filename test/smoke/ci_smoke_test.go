@@ -74,7 +74,7 @@ func TestCISmoke(t *testing.T) {
 	// rather than proving that asking for everything returns everything. #35
 	// fixed exactly that defect in the browser run; this one is written not to
 	// have it.
-	request := auth.Request{Audience: config.Audience, Scopes: []string{target}}
+	request := auth.Request{Audience: smoke.ModuleAudience, Scopes: []string{target}}
 
 	grant, err := broker.Acquire(request)
 	if err != nil {

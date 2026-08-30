@@ -51,7 +51,12 @@ const (
 	// ClientIDVar names the public client registered against that issuer with
 	// the four loopback callbacks and PKCE made mandatory.
 	ClientIDVar = "WSO2_SMOKE_CLIENT_ID"
-	// AudienceVar names the API resource the brokered access must be bound to.
+	// AudienceVar names the value this deployment stamps into an access
+	// token's aud claim, which is what brokered access must be bound to. It is
+	// the client ID on Asgardeo, the API resource identifier on Identity
+	// Server, and the resource server's URI on Thunder.
+	//
+	// It is deliberately not what the module asks by; see ModuleAudience.
 	AudienceVar = "WSO2_SMOKE_AUDIENCE"
 	// ScopeVar lists the permissions the registered application may consent
 	// to, separated by whitespace or commas. The narrowing experiment needs at
@@ -93,6 +98,17 @@ const (
 	// is the only one this repository ships, and the broker's product checks
 	// are keyed by namespace.
 	Namespace = "reference"
+	// ModuleAudience is the logical name the reference module asks for access
+	// by, matching the constant compiled into it. It is deliberately not the
+	// deployment's own audience from AudienceVar.
+	//
+	// A module names its API by a constant identical against every deployment;
+	// a deployment stamps its own value into aud. Holding both to one value
+	// here would model a coincidence no real module has — and would leave the
+	// live gate unable to fail on a broker that compared the two, which is a
+	// bug this suite has already had to catch once. The run asks by this name
+	// and proves the grant is bound to AudienceVar.
+	ModuleAudience = "reference-status"
 	// ContextName is the smoke context's name.
 	ContextName = "smoke"
 	// IdentityName is the smoke identity's name.
@@ -393,10 +409,11 @@ func (c Config) CIDocument() contexts.Document {
 //
 // The broker checks a request against the receipt before it checks anything
 // else, so a live run declares exactly the audience and permissions it intends
-// to ask for and nothing wider.
+// to ask for and nothing wider. The audience declared is the module's own
+// logical name, which is what a receipt built from a real module.json carries.
 func (c Config) Capabilities() modules.Capabilities {
 	return modules.Capabilities{
-		AuthAudiences: []string{c.Audience},
+		AuthAudiences: []string{ModuleAudience},
 		AuthScopes:    slices.Clone(c.Scopes),
 	}
 }

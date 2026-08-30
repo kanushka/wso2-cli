@@ -264,7 +264,7 @@ func (s Shell) moduleCommand() *cobra.Command {
 		// module still routes its own subcommands, so they are named here
 		// rather than walked from the tree. They move into the tree when the
 		// command declares its flags directly.
-		Long:                  "Subcommands: available, install, list, update.",
+		Long:                  "Subcommands: available, install, list, remove, update.",
 		DisableFlagsInUseLine: true,
 		DisableFlagParsing:    true,
 		RunE: func(command *cobra.Command, args []string) error {

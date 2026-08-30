@@ -157,6 +157,26 @@ records them in the local receipt, and the broker refuses an access request the
 receipt did not authorize, so an audience you add in one place and not the
 other is refused at runtime rather than at build time.
 
+#### Declare a logical audience, never a deployment value
+
+The audience your module declares is **the stable name your API is known by**,
+compiled in and identical against every deployment your module will ever run
+against. It is not the string any particular identity provider puts in a token's
+`aud` claim, and it must never be a client ID, a tenant URL, or anything else
+that differs between one customer and the next.
+
+That is not a style preference; the three deployments the shell supports each
+bind `aud` differently — to the client ID on Asgardeo, to the API resource
+identifier on Identity Server, and to a resource-server URI on Thunder. A module
+that compiled any one of those in would be installable only against the single
+tenant it was built for.
+
+The operator records the concrete value in `products.<namespace>.audience` in
+their context document, and the shell proves the issued token is bound to *that*
+before handing anything over. So the deployment-specific half of the problem
+belongs to the person who registered the application, and never to you. Ask for
+your logical name and let the shell do the rest.
+
 ### The versions your module depends on
 
 ```text
@@ -197,8 +217,13 @@ import (
 
 const (
 	namespace = "api"
-	audience  = "api.example.com"
-	scope     = "api:read"
+	// The logical name this API is known by, the same against every
+	// deployment. The concrete string a deployment stamps into a token's aud
+	// claim is the operator's to record in their context document, not yours
+	// to compile in. See "Declare a logical audience, never a deployment
+	// value" above.
+	audience = "api.example.com"
+	scope    = "api:read"
 )
 
 var moduleVersion = "0.0.0-dev"

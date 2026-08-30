@@ -175,7 +175,7 @@ func experimentResourceNarrowing(t *testing.T, config smoke.Config) {
 		StateRoot:    stateRoot,
 	}
 
-	_, err = broker.Acquire(auth.Request{Audience: config.Audience, Scopes: []string{target}})
+	_, err = broker.Acquire(auth.Request{Audience: smoke.ModuleAudience, Scopes: []string{target}})
 	verdict := smoke.NarrowingVerdict(refusalCode(err), refusalMessage(err), []string{target})
 	if err != nil {
 		t.Logf("the broker reported %s: %s", refusalCode(err), refusalMessage(err))
