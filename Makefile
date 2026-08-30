@@ -154,9 +154,10 @@ ifndef NAMESPACE
 endif
 	$(GO) test ./modules/$(NAMESPACE)/... -race -count=1
 
-# The version a development shell reports when SHELL_VERSION does not name one.
-# It is not a default for install-module, which must keep refusing when nobody
-# has said which shell will launch the module.
+# The shell version build-shell injects, and the version install-module installs
+# for, when SHELL_VERSION does not name another. The two share it so that a
+# module installed by install-module is always installed for the shell that same
+# run built, which is what makes the bare command work.
 DEFAULT_SHELL_VERSION := 1.0.0-dev
 
 # Builds a shell that can actually launch a module, into bin/.

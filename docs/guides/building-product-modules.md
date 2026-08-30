@@ -365,8 +365,7 @@ satisfies it is not thereby proven to satisfy the shell. Install your
 unpublished module and find out:
 
 ```sh
-make build-shell
-make install-module NAMESPACE=api SHELL_VERSION=1.0.0-dev
+make install-module NAMESPACE=api
 ./bin/wso2 api --help
 ./bin/wso2 module remove api
 ```
@@ -380,19 +379,19 @@ prerelease `0.0.0-dev`, pinned, so no one following the stable channel is ever
 offered your build and a published release will not replace it behind your
 back. Name another version with `VERSION=`.
 
-`SHELL_VERSION` is the version of the `wso2` that will launch the module, and
-it is the one part of this that is not automatic. A shell built the ordinary
+`install-module` builds the shell as well, which is why one command is enough
+and why it prints `./bin/wso2` rather than `wso2`. A shell built the ordinary
 way reports `0.0.0-dev`, and the shell range your `module.json` declares does
 not contain it, because a prerelease sorts below its own release and the range
 starts at `>=0.1.0`. Such a shell installs a module and then refuses to launch
-it, so installing for one is refused up front instead.
+it, so the module is installed for the version that same run built, and
+installing for a shell that could not launch it is refused up front.
 
-`make build-shell` is why the two commands above agree: it builds `bin/wso2`
-reporting `1.0.0-dev`, which every scaffolded module's range contains, and
-prints the `SHELL_VERSION` to install for. Pass `SHELL_VERSION` to both if you
-want another. If you are running a released `wso2` rather than one you built,
-give its version instead and skip `make build-shell`; any version inside your
-module's declared range works, and it does not have to match exactly.
+`SHELL_VERSION` overrides that version and is only needed when you intend to
+run a different `wso2`, such as one installed from a release. Give its version
+and run that binary instead of `./bin/wso2`. Any version inside your module's
+declared range works; it does not have to match exactly. `make build-shell`
+builds the shell on its own, if you want it without installing anything.
 
 See
 [ADR 0011](../adr/0011-local-module-install-through-a-development-origin.md)

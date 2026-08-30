@@ -215,6 +215,15 @@ func isOptionsType(expression ast.Expr, local string) bool {
 	if star, isPointer := expression.(*ast.StarExpr); isPointer {
 		expression = star.X
 	}
+	// A dot import puts Options in the file's own scope, so the literal is a
+	// bare identifier with no qualifier to match. Without this the literal is
+	// not recognised, no site is found, and the module is reported as
+	// constructing its options somewhere unreadable, which sends the developer
+	// looking for a problem they do not have.
+	if local == "." {
+		identifier, isIdentifier := expression.(*ast.Ident)
+		return isIdentifier && identifier.Name == "Options"
+	}
 	selector, isSelector := expression.(*ast.SelectorExpr)
 	if !isSelector || selector.Sel.Name != "Options" {
 		return false
