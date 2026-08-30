@@ -14,7 +14,7 @@ open decision. The lifecycle command names below are therefore provisional.
 
 These are built: `wso2 context create <name>`, `wso2 context use <context>`,
 `wso2 context list`, `wso2 context current`, `wso2 login`, `wso2 logout`,
-`wso2 module available`, `wso2 module list`,
+`wso2 doctor`, `wso2 module available`, `wso2 module list`,
 `wso2 module install <module>`, `wso2 module install <module>@<version>`,
 `wso2 module install <module> --channel <channel>`,
 `wso2 module update <module>`, `wso2 module update --all`, and
@@ -57,7 +57,7 @@ refusal is reported.
 | `wso2 bundle create` | Creates a platform-specific, self-installing offline bundle from catalog releases. |
 | `wso2 bundle inspect <file>` | Shows bundle contents without installing it. |
 | `wso2 bundle install <file>` | Imports a bundle when the WSO2 CLI is already installed. |
-| `wso2 doctor` | Checks shell, context, secure-store, catalog, and module health. |
+| `wso2 doctor` | Built today: checks that the context document is valid, that the OS secure store is reachable, and that the selected context has a stored session. `--online` adds a fourth check, module catalog reachability; without it, `wso2 doctor` makes no network call. On an unconfigured machine, the secure-store and session checks report not-applicable rather than failure. Exits 0 when every check passes or is not-applicable, otherwise the exit class of the most severe failing check (secure-store, then the document, then the session, ranked in that order regardless of their numeric exit classes). Receipt, module integrity, compatibility, and protocol status are not built yet; see [architecture](../architecture.md#14-operational-behavior-and-recovery). |
 
 `project` commands are intentionally not included yet. Product-specific
 projects, deployment, and runtime operations remain within their product

@@ -1197,7 +1197,11 @@ work with network access disabled.
 - Incompatible modules are not launched; the error reports compatible
   alternatives from local receipt metadata.
 - `wso2 doctor` reports context, secure-store, catalog, receipt, module
-  integrity, compatibility, and protocol status without printing secrets.
+  integrity, compatibility, and protocol status without printing secrets. Built
+  today: a context-document check, a secure-store reachability check, a
+  session-presence check, and a catalog reachability check under `--online`.
+  Receipt, module integrity, compatibility, and protocol status remain future
+  checks. See [the command reference](reference/commands.md).
 
 ## 15. Decisions and remaining design work
 
