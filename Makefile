@@ -91,8 +91,12 @@ help:
 	@echo '  make release-check        Validate the release configuration.'
 	@echo '  make release-snapshot     Build every release artifact into dist/, publishing nothing.'
 	@echo ''
-	@echo 'Starting a new product module:'
-	@echo '  make new-module NAMESPACE=<namespace>   Create modules/<namespace>, ready to build.'
+	@echo 'Working on one product module:'
+	@echo '  make new-module NAMESPACE=<namespace>    Create modules/<namespace>, ready to build.'
+	@echo '  make build-module NAMESPACE=<namespace>  Compile that module and nothing else.'
+	@echo '  make test-module NAMESPACE=<namespace>   Run that one namespace, with the race detector.'
+	@echo '  make gate-module NAMESPACE=<namespace> VERSION=<version>'
+	@echo '                                           Ask whether a released shell could launch it.'
 	@echo ''
 	@echo 'Against a real deployment (Asgardeo, Identity Server 7.x, or ThunderID):'
 	@echo '  make smoke-login          Log in and broker one acquisition. Opens a browser.'
@@ -118,6 +122,53 @@ ifndef NAMESPACE
 	$(error NAMESPACE is required: make new-module NAMESPACE=mycloud)
 endif
 	$(GO) run ./cmd/wso2-module-new -namespace '$(NAMESPACE)'
+
+# Compiles one module and stops there, which is the fastest way to find out
+# whether an edit still builds. Every module is its own Go module inside the
+# workspace, so the default gate never compiles one, and a module that stopped
+# building stays quiet until somebody builds it by hand.
+#
+# The executable is discarded because the question here is whether the module
+# compiles, not what it compiles to. Writing it would drop a binary named after
+# the module into whatever directory make was run from, which for every module
+# but the reference one is an untracked file in the developer's next git status.
+.PHONY: build-module
+build-module:
+ifndef NAMESPACE
+	$(error NAMESPACE is required: make build-module NAMESPACE=mycloud)
+endif
+	$(GO) build -o /dev/null ./modules/$(NAMESPACE)/...
+
+# Runs one module's tests, with the race detector the default gate uses. The
+# workspace keeps each module out of `go test ./...`, so without this a module
+# author either types the package pattern every time or, more often, stops
+# running the tests at all.
+.PHONY: test-module
+test-module:
+ifndef NAMESPACE
+	$(error NAMESPACE is required: make test-module NAMESPACE=mycloud)
+endif
+	$(GO) test ./modules/$(NAMESPACE)/... -race -count=1
+
+# Answers the one question a tag cannot take back: whether any shell a user
+# already has can launch the module about to be published. The decision is the
+# module's declared protocol versions against the released shell's, so it is
+# knowable before tagging and worthless after. Nothing is built and nothing is
+# published. Two variables rather than one tag because NAMESPACE is already the
+# word this file uses for a module, and the tool wants the two joined:
+#
+#   make gate-module NAMESPACE=reference VERSION=v4.5.0-rc.1
+#
+# See docs/guides/building-product-modules.md section 6.
+.PHONY: gate-module
+gate-module:
+ifndef NAMESPACE
+	$(error NAMESPACE is required: make gate-module NAMESPACE=mycloud VERSION=v1.2.0-rc.1)
+endif
+ifndef VERSION
+	$(error VERSION is required: make gate-module NAMESPACE=$(NAMESPACE) VERSION=v1.2.0-rc.1)
+endif
+	$(GO) run ./cmd/wso2-module-release -tag '$(NAMESPACE)/$(VERSION)' -gate-only
 
 .PHONY: test
 test:
