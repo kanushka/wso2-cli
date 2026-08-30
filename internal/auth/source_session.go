@@ -131,6 +131,15 @@ func (s sessionSource) derive(request Request, now time.Time) (Grant, error) {
 		// because that value described a refresh token this rotation has just
 		// replaced, and carrying it forward would misstate the new one's
 		// lifetime as known when it is not.
+		//
+		// One consequence of this, worth knowing rather than fixing: an
+		// issuer that discloses a lifetime at login but falls silent about it
+		// on every later rotation will make wso2 whoami's Session expiry
+		// silently downgrade from a timestamp to "not stated by the issuer"
+		// the first time this session rotates, with nothing actually wrong.
+		// That is the honest answer under R7 — this package cannot tell "the
+		// issuer forgot to say" apart from "the issuer changed its mind" —
+		// but it is a visible behavior change with no visible cause.
 		stored.SessionExpiresAt = time.Time{}
 		if issued.RefreshTokenExpiresIn > 0 {
 			stored.SessionExpiresAt = now.Add(time.Duration(issued.RefreshTokenExpiresIn) * time.Second).UTC()

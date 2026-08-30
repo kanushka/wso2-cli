@@ -42,6 +42,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -109,6 +110,13 @@ type Options struct {
 	// issuers that disclose no refresh-token lifetime at all — the expected
 	// case R7 (#112) is written against, not the exceptional one.
 	RefreshTokenExpiresIn int
+	// RefreshTokenExpiresInAsString sends RefreshTokenExpiresIn as a JSON
+	// string instead of a JSON number, modeling the non-standard issuers that
+	// spell this extension member as text — the shape that used to fail the
+	// whole token exchange before internal/auth/narrowing.go's tokenResponse
+	// learned to read it leniently. Ignored when RefreshTokenExpiresIn is
+	// zero.
+	RefreshTokenExpiresInAsString bool
 	// AllowAnyLoopbackPort accepts a callback on any 127.0.0.1 port instead of
 	// only the four registered ones, so a test can bind an ephemeral port and
 	// run in parallel with anything else on the machine.
@@ -574,11 +582,26 @@ func (i *Issuer) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		i.refreshTokens[refreshToken] = refreshRecord{scopes: grant.scopes, resource: grant.resource}
 		i.mutex.Unlock()
 		response["refresh_token"] = refreshToken
-		if i.opts.RefreshTokenExpiresIn != 0 {
-			response["refresh_token_expires_in"] = i.opts.RefreshTokenExpiresIn
+		if value, stated := i.refreshTokenExpiresInValue(); stated {
+			response["refresh_token_expires_in"] = value
 		}
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+// refreshTokenExpiresInValue reports the refresh_token_expires_in value this
+// issuer states, and whether it states one at all, in whichever shape
+// RefreshTokenExpiresInAsString asks for. It exists so the authorization-code
+// exchange and a rotated refresh grant — the two call sites that may send
+// this member — cannot disagree about the shape a single test configured.
+func (i *Issuer) refreshTokenExpiresInValue() (any, bool) {
+	if i.opts.RefreshTokenExpiresIn == 0 {
+		return nil, false
+	}
+	if i.opts.RefreshTokenExpiresInAsString {
+		return strconv.Itoa(i.opts.RefreshTokenExpiresIn), true
+	}
+	return i.opts.RefreshTokenExpiresIn, true
 }
 
 // presentedClientID reads the client identifier a token request identifies
@@ -659,8 +682,8 @@ func (i *Issuer) refreshGrant(w http.ResponseWriter, r *http.Request) {
 	}
 	if rotated != "" {
 		response["refresh_token"] = rotated
-		if i.opts.RefreshTokenExpiresIn != 0 {
-			response["refresh_token_expires_in"] = i.opts.RefreshTokenExpiresIn
+		if value, stated := i.refreshTokenExpiresInValue(); stated {
+			response["refresh_token_expires_in"] = value
 		}
 	}
 	if !i.opts.OmitRefreshScopeField {

@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wso2/wso2-cli/internal/auth"
 	"github.com/wso2/wso2-cli/internal/auth/oauthflow"
 	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
@@ -146,12 +147,14 @@ func (s Shell) login(args []string) error {
 	reference := selected.Identity.Auth.CredentialRef
 	store := session.Store{StateRoot: root}
 	// The refresh token's own lifetime, when the token response discloses one
-	// as refresh_token_expires_in. encoding/json decodes a JSON number into
-	// this field as float64, which is what result.Token.Extra retains it as;
-	// any other shape (including absent) leaves this at the zero value, which
-	// R7 (#112) treats as the expected case rather than a reason to invent one.
+	// as refresh_token_expires_in, read through the same rule
+	// internal/auth/narrowing.go's tokenResponse applies to the identical
+	// member on the rotation path, so the two paths cannot drift apart on
+	// what counts as stated. Any other shape (including absent) leaves this
+	// at the zero value, which R7 (#112) treats as the expected case rather
+	// than a reason to invent one.
 	sessionExpiresAt := time.Time{}
-	if seconds, ok := result.Token.Extra("refresh_token_expires_in").(float64); ok && seconds > 0 {
+	if seconds, ok := auth.RefreshLifetimeSeconds(result.Token.Extra("refresh_token_expires_in")); ok {
 		sessionExpiresAt = time.Now().Add(time.Duration(seconds) * time.Second).UTC()
 	}
 	err = store.WithLock(reference, func() error {
