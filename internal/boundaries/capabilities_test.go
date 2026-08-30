@@ -17,6 +17,7 @@
 package boundaries_test
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -160,7 +161,12 @@ func servedCapabilities(t *testing.T, moduleDirectory string) servedOptions {
 	}
 
 	var served servedOptions
-	sites := 0
+	// Where each literal was found, so more than one can be named rather than
+	// merged. Merging is the failure worth preventing: a second literal that
+	// the executable never serves would top up the union until it matched the
+	// declaration, and the check would pass while the running module declared
+	// less than module.json publishes and the receipt authorizes.
+	var sites []string
 	for _, path := range sources {
 		file := files[path]
 		local, imported := sdkModuleName(file)
@@ -179,7 +185,7 @@ func servedCapabilities(t *testing.T, moduleDirectory string) servedOptions {
 			if !isComposite || !isOptionsType(literal.Type, local) {
 				return true
 			}
-			sites++
+			sites = append(sites, fmt.Sprintf("%s:%d", relative, fileSet.Position(literal.Pos()).Line))
 			served.audiences = append(served.audiences,
 				stringsFrom(t, relative, "AuthAudiences", literal, scope)...)
 			served.scopes = append(served.scopes,
@@ -187,9 +193,15 @@ func servedCapabilities(t *testing.T, moduleDirectory string) servedOptions {
 			return true
 		})
 	}
-	if sites == 0 {
+	if len(sites) == 0 {
 		t.Fatalf("no module.Options literal was found in %s; the check that its declared capabilities match "+
-			"what it serves cannot run, so construct the options where they can be read", moduleDirectory)
+			"what it serves cannot run, so construct the options where they can be read",
+			relativeTo(t, moduleDirectory))
+	}
+	if len(sites) > 1 {
+		t.Fatalf("%s builds module.Options in more than one place (%s); which one the executable serves "+
+			"cannot be told apart here, so declare the capabilities once and pass that value to module.Serve",
+			relativeTo(t, moduleDirectory), strings.Join(sites, ", "))
 	}
 	return served
 }
@@ -328,4 +340,14 @@ func stringValue(t *testing.T, path, field string, expression ast.Expr, scope ma
 		"declare the capability as a string literal or a package constant so it can be compared with %s",
 		path, field, catalog.DeclarationFileName)
 	return ""
+}
+
+// relativeTo names a path from the repository root, which is how every other
+// message in these boundaries names one.
+func relativeTo(t *testing.T, path string) string {
+	t.Helper()
+	if shortened, err := filepath.Rel(repoRoot(t), path); err == nil {
+		return shortened
+	}
+	return path
 }
