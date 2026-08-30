@@ -433,6 +433,12 @@ chosen. `--context <name>` names the identity and the context directly, and is
 the only way through for an issuer whose host cannot make a legal name — one
 at a bare IP address, or a host whose first label starts with a digit.
 
+The name is yours to shorten. The context name is what you type on every
+`--context` and every `wso2 context use`, so pass `--context <short-name>` at
+login if the derived one is longer than you want to live with, or add a shorter
+handle to the same identity later with
+`wso2 context create <name> --identity <identity>`.
+
 `--client-id` is required. No WSO2-published client exists for self-hosted
 deployments, so the operator registers an application and supplies its ID; the
 shell does not invent one. Omitting the flag prompts for it in an interactive
@@ -800,8 +806,8 @@ Stated plainly, because several of these flows do not work today.
    `amctl`'s and redirect URIs match exactly. **Backend ask, owner: Agent
    Manager / Thunder.**
 
-Items 1, 2, 4, and 7 gate the flagship path in A.1. Items 3, 5, 6, 8, and 9
-shape later slices.
+Items 1, 2, 4, and 7 gate the flagship path in A.1. Items 3, 5, 8, and 9 shape
+later slices. Item 6 is closed.
 
 ## Open questions for review
 

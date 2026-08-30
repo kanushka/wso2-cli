@@ -271,3 +271,19 @@ func documentUnwritable(cause error) error {
 	return contextProblem("contexts.document_unwritable", message,
 		"Check that the WSO2 CLI state directory is writable, then retry the command.")
 }
+
+// Writable reports whether this shell would be allowed to write the document
+// that is on disk now.
+//
+// It exists for a command that does something irreversible before it writes.
+// wso2 login mints a session in the secure store and only then records the
+// identity that names it, so a document it was never going to be allowed to
+// overwrite has to be refused before the login rather than after it: the
+// alternative leaves a refresh token in the store that no identity names and no
+// command reaches, and that every retry duplicates.
+//
+// It is an early answer, not a promise. Nothing is locked here, so a document
+// frozen between this call and the write is still refused at the write — which
+// is where the answer that decides anything is given. What this rules out is
+// the deterministic case, which is the one that costs the user a credential.
+func Writable(stateRoot string) error { return refuseFrozenDocument(stateRoot) }

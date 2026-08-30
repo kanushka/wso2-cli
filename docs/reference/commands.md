@@ -135,7 +135,7 @@ $ wso2 login --url https://idp.customer.example --client-id wso2-cli \
     --context customer
 
 Logged in to the "customer" context.
-Subject    user-1
+Subject    ops
 Email      ops@customer.example
 Products   none configured
 

@@ -78,7 +78,9 @@ type Options struct {
 	// caller that derives a name from the issuer host has nothing to derive
 	// from, and a test of that derivation needs an issuer identifier with a
 	// hostname in it. The substitute must resolve to the loopback interface,
-	// so "localhost" is the only value worth passing.
+	// so "localhost" is the only value worth passing. The substitution is
+	// textual and looks for 127.0.0.1, so it does nothing for a test server
+	// bound to an IPv6 loopback address.
 	Host string
 	// Audience is the aud claim minted into access tokens. A request carrying a
 	// resource indicator overrides it, exactly as a deployment that binds tokens

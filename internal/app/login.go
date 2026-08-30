@@ -82,6 +82,16 @@ func (s Shell) login(flags loginFlags) error {
 	if flags.issuer != "" {
 		return s.loginCreating(flags)
 	}
+	if flags.clientID != "" {
+		// Without --url there is no issuer for this client to be registered
+		// with, so the flag has nothing to act on. Refused rather than ignored:
+		// the selection that follows reports a missing context document and
+		// tells the user to author one, which is advice about the wrong problem
+		// and the instruction #112 exists to delete.
+		return problem.New(problem.CategoryUsage, "shell.missing_required_flag",
+			"wso2 login takes --client-id only with --url, which names the issuer the client is registered with").
+			WithRecovery(loginUsageRecovery)
+	}
 	selected, err := s.selection(flags.contextName)
 	if err != nil {
 		return err

@@ -29,6 +29,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/auth/fakeissuer"
 	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
+	"github.com/wso2/wso2-cli/internal/contexts/fixture"
 	"github.com/wso2/wso2-cli/internal/exit"
 )
 
@@ -350,5 +351,95 @@ func TestLoginWithoutTheURLFlagStillLogsInToTheSelectedContext(t *testing.T) {
 	}
 	if len(document.Identities) != 1 || len(document.Contexts) != 1 {
 		t.Errorf("a login without --url changed the document: %+v", document)
+	}
+}
+
+// TestAFrozenDocumentIsRefusedBeforeTheBrowserOpens is the ordering ruling's
+// missing half. Authenticating first is right, but a document the shell will
+// not write is a refusal it can make before a session exists: minting one
+// against a deterministic write failure leaves a refresh token in the secure
+// store that no identity names, that no command reaches, and that a retry only
+// duplicates.
+func TestAFrozenDocumentIsRefusedBeforeTheBrowserOpens(t *testing.T) {
+	shell, out, errOut, issuer := newCreatingLogin(t)
+	shell.OpenBrowser = func(string) error {
+		t.Error("the shell opened a browser for a login whose write was already refused")
+		return nil
+	}
+	if err := fixture.Install(shell.StateRoot, fixture.LegacyDocument{
+		SchemaVersion:  1,
+		DefaultContext: "proof",
+		Contexts: []fixture.LegacyContext{{
+			Name:           "proof",
+			OrganizationID: "acme",
+			Endpoint:       "https://reference.example.test",
+			Auth: fixture.LegacyAuth{
+				Method:             contexts.MethodDevelopmentCredential,
+				CredentialVariable: "WSO2_DEV_CREDENTIAL",
+			},
+		}},
+	}); err != nil {
+		t.Fatalf("install legacy document: %v", err)
+	}
+
+	code := shell.Run([]string{"login", "--url", issuer.URL,
+		"--client-id", "wso2-cli", "--context", "customer"})
+	if code != exit.Usage {
+		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
+	}
+	requireRefusal(t, errOut.String(), "contexts.document_frozen")
+	// The point of refusing early: no session was minted, so there is nothing
+	// orphaned in the secure store for the user to be unable to reach.
+	if _, err := (session.Store{StateRoot: shell.StateRoot}).Load("customer"); err == nil {
+		t.Error("a refused login left a session in the secure store")
+	}
+	if out.String() != "" {
+		t.Errorf("a refused login wrote to standard output:\n%s", out)
+	}
+}
+
+// TestLoginRefusesAnIssuerThatIsNotAURL covers one of the two commonest
+// first-run typos. Left to the name derivation, a missing scheme is reported as
+// a name that cannot be derived, and following that advice produces a second
+// wrong message from the OIDC client.
+func TestLoginRefusesAnIssuerThatIsNotAURL(t *testing.T) {
+	for _, issuer := range []string{"idp.customer.example", "ftp://idp.customer.example", "https://"} {
+		t.Run(issuer, func(t *testing.T) {
+			shell, out, errOut := newLoginShell(t)
+
+			// --context is given, so nothing else in the command would look at
+			// the URL: without this refusal it reaches the OIDC client.
+			code := shell.Run([]string{"login", "--url", issuer,
+				"--client-id", "wso2-cli", "--context", "customer"})
+			if code != exit.Usage {
+				t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
+			}
+			requireRefusal(t, errOut.String(), "shell.invalid_argument")
+			if !strings.Contains(errOut.String(), "--url") {
+				t.Errorf("the refusal does not name --url:\n%s", errOut)
+			}
+			if out.String() != "" {
+				t.Errorf("a refused login wrote to standard output:\n%s", out)
+			}
+		})
+	}
+}
+
+// TestTheClientIdFlagWithoutTheURLFlagIsRefused covers a plain usage mistake
+// that was reported as a missing context document: the advice was to write one
+// by hand, which is the instruction #112 exists to delete.
+func TestTheClientIdFlagWithoutTheURLFlagIsRefused(t *testing.T) {
+	shell, out, errOut := newLoginShell(t)
+
+	code := shell.Run([]string{"login", "--client-id", "wso2-cli"})
+	if code != exit.Usage {
+		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
+	}
+	requireRefusal(t, errOut.String(), "shell.missing_required_flag")
+	if !strings.Contains(errOut.String(), "--url") {
+		t.Errorf("the refusal does not name --url:\n%s", errOut)
+	}
+	if out.String() != "" {
+		t.Errorf("a refused login wrote to standard output:\n%s", out)
 	}
 }

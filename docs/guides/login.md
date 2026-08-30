@@ -209,14 +209,24 @@ wso2 login --url https://idp.customer.example --client-id wso2-cli
 It reports the names it assigned. Without `--context` the identity and the
 context are both named after the issuer host with each dot replaced by a hyphen
 — `idp.customer.example` becomes `idp-customer-example` — and `--context
-<name>` names them both directly. An issuer with no host to name, such as one
-at a bare IP address, is refused rather than given a name you could not have
-predicted; `--context` is the way through.
+<name>` names them both directly. The context name is what you type on every
+`--context` and every `wso2 context use` afterwards, so pass a short one if the
+derived name is longer than you want to live with; `wso2 context create <name>
+--identity <identity>` adds a shorter handle to the same identity later.
+
+An issuer with no host to name, such as one at a bare IP address, is refused
+rather than given a name you could not have predicted; `--context` is the way
+through. A `--url` that is not an absolute `http` or `https` URL is refused
+where you typed it, so a missing `https://` is reported as the typo it is.
 
 Nothing is written unless the login succeeded, so an issuer you mistyped costs
-you the corrected command and nothing else. Running the same login again reuses
-the identity it created; a login that would change the issuer or the client ID
-of an identity already configured is refused rather than allowed to replace it.
+you the corrected command and nothing else. Nor is a session: a document this
+shell may not overwrite, such as a schema version 1 one, is refused before the
+browser opens rather than after a login it could not record.
+
+Running the same login again reuses the identity it created; a login that would
+change the issuer or the client ID of an identity already configured is refused
+rather than allowed to replace it.
 
 The created identity reaches no product yet. A self-hosted deployment publishes
 no catalogue of what it serves, so `wso2 identity add-product` records each
@@ -591,10 +601,12 @@ of them is reported.
   `WSO2_NO_INPUT`, or standard input that is not a terminal. Not to be confused
   with `shell.missing_flag_value`, which means a flag was given without the
   value it needs.
-- **`shell.invalid_argument`.** The name you gave `wso2 context create` is not
-  one a context may have: lower-case letters, digits and hyphens, starting with
-  a letter, at most 64 characters. Nothing was written, so retyping the command
-  is the whole fix.
+- **`shell.invalid_argument`.** A value you typed is not one the command can
+  use. For `wso2 context create`, and for `wso2 login --context`, it is a name a
+  context may not have: names are lower-case letters, digits and hyphens,
+  starting with a letter, at most 64 characters. For `wso2 login --url` it is a
+  value that is not an issuer URL, and a missing `https://` is the usual cause.
+  Nothing was written, so retyping the command is the whole fix.
 - **`shell.missing_argument`, `shell.unexpected_argument`.** The command was
   given too few or too many arguments. The recovery shows the shape it expects.
 

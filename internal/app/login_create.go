@@ -19,6 +19,7 @@ package app
 import (
 	"bufio"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -43,13 +44,23 @@ const identityType = "onprem"
 // than the ticket's. A login that fails leaves no identity and no context
 // behind, so a user who mistyped an issuer re-runs the corrected command
 // without first deleting a half-written context — the editor round trip #112
-// exists to remove. The cost is the other order's mirror image: a successful
-// authentication whose write then fails leaves a session in the secure store
-// that no identity names. That is recovered by running the command again,
-// where a half-written context is not.
+// exists to remove.
+//
+// The cost is that a session is minted before the document that names it. That
+// is why everything this command can answer without the network is answered
+// before the login: the issuer's shape, the name, whether an identity of that
+// name is something else, and whether this shell may write the document that is
+// there. What remains after those is a write that fails transiently — a lock
+// held too long, a full disk — and re-running the command is the way through
+// one of those. A deterministic write refusal must never get this far, because
+// what it strands is a refresh token in the secure store that no identity
+// names, that no command reaches, and that every retry duplicates.
 func (s Shell) loginCreating(flags loginFlags) error {
 	root, err := s.stateRoot()
 	if err != nil {
+		return err
+	}
+	if err := refuseNonIssuerURL(flags.issuer); err != nil {
 		return err
 	}
 	name, err := loginIdentityName(flags)
@@ -71,6 +82,14 @@ func (s Shell) loginCreating(flags loginFlags) error {
 	selected, err := planLogin(document, name, flags.issuer, clientID)
 	if err != nil {
 		return err
+	}
+	// Asked for the same reason, and with more at stake: a document this shell
+	// is not allowed to overwrite refuses the same way however long the user
+	// waits, so finding out after the login would cost them a session nothing
+	// can reach. Load above does not answer this — it reads a version 1
+	// document quite happily, and it is the write that refuses.
+	if err := contexts.Writable(root); err != nil {
+		return s.explainWriteRefusal(root, err)
 	}
 
 	result, err := s.establishAndStore(selected, flags)
@@ -166,6 +185,27 @@ func loginIdentityName(flags loginFlags) (string, error) {
 			WithRecovery(fmt.Sprintf("A context name is %s. %s", contexts.NameRule, loginUsageRecovery))
 	}
 	return flags.contextName, nil
+}
+
+// refuseNonIssuerURL refuses a --url that is not one.
+//
+// A missing scheme is one of the two commonest first-run mistakes, and nothing
+// downstream reports it as one: url.Parse accepts "idp.customer.example" with
+// an empty host, so the derivation refuses a name it cannot make and never
+// mentions --url, and a --context that supplies the name sends the malformed
+// issuer to the OIDC client, which reports a discovery failure against the
+// issuer "of the selected context" when no context is selected. Two wrong
+// messages in a row for one typo, so it is caught where the value arrives.
+func refuseNonIssuerURL(issuer string) error {
+	parsed, err := url.Parse(issuer)
+	if err != nil || parsed.Host == "" ||
+		(parsed.Scheme != "https" && parsed.Scheme != "http") {
+		return problem.New(problem.CategoryUsage, "shell.invalid_argument",
+			fmt.Sprintf("%q is not an issuer URL", issuer)).
+			WithRecovery("Pass the issuer as an absolute URL, as in " +
+				"--url https://idp.example. A missing https:// is the usual cause.")
+	}
+	return nil
 }
 
 // planLogin resolves what this login authenticates as, and refuses a name that
@@ -270,13 +310,19 @@ func (s Shell) resolveClientID(flags loginFlags) (string, error) {
 	return clientID, nil
 }
 
-// stdinIsTerminal reports whether a person could answer a prompt.
+// stdinIsTerminal reports whether standard input is a character device, which
+// is as close to "a person could answer a prompt" as the standard library gets.
 //
-// It asks the one question this command has, in the one way the standard
-// library answers it, rather than pulling in terminal handling the shell does
-// not otherwise have: a character device on standard input is a terminal, and
-// a pipe, a file, or a closed descriptor is not. It decides only whether to
-// prompt; nothing about how anything is rendered depends on it.
+// It is not the same question. /dev/null and /dev/zero are character devices
+// too, so a login run with standard input redirected from one of them prompts
+// and then refuses with "nothing was entered at the prompt" — the right code,
+// the right recovery, and no wait for input that is not coming. What this does
+// rule out is the case that matters, a pipe or a file, where prompting would
+// consume a line of somebody's data and call it a client ID.
+//
+// The shell has no terminal handling by decision, so this asks the one question
+// this command has rather than taking a dependency on a terminal package to
+// answer it more precisely than the outcome needs.
 func stdinIsTerminal() bool {
 	info, err := os.Stdin.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
@@ -308,6 +354,11 @@ func (s Shell) reportLoginWrite(written loginWrite, identity contexts.Identity) 
 			written.Identity, written.Context); err != nil {
 			return err
 		}
+	// Reached only if an identity of this name exists and a context of it does
+	// not. The document cannot be in that state today — validation refuses a
+	// context naming an undeclared identity, and this command creates the two
+	// together — but a hand-authored document that declares an identity and no
+	// context for it is legal, and this is what that user is told.
 	case written.CreatedContext:
 		if _, err := fmt.Fprintf(s.Streams.Out,
 			"\nCreated context %q for the existing identity %q.\n",
