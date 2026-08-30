@@ -75,7 +75,13 @@ walkthrough states its product's answer and shows the measurement behind it.
 
 ## 2. Write the context document
 
-This file is authored by hand: no shell command writes one yet.
+You do not have to write this file by hand. `wso2 login --url <issuer>
+--client-id <id>` creates the identity and the context it authenticates, and
+`wso2 context create` adds further contexts over the same identity; section 3
+takes that route, and no editor is involved in it. This section stays because
+the file is what those commands write, and reading it is how you check what
+they wrote — and because a context that names an organization, a project, or
+more than one product is still quicker to write than to assemble from flags.
 
 ### 2.1 Where it goes
 
@@ -192,6 +198,29 @@ or, to name a context other than the default:
 ```sh
 wso2 login --context acme-dev
 ```
+
+On a machine with nothing configured yet, name the issuer and the application
+you registered in section 1, and login creates what it authenticated:
+
+```sh
+wso2 login --url https://idp.customer.example --client-id wso2-cli
+```
+
+It reports the names it assigned. Without `--context` the identity and the
+context are both named after the issuer host with each dot replaced by a hyphen
+— `idp.customer.example` becomes `idp-customer-example` — and `--context
+<name>` names them both directly. An issuer with no host to name, such as one
+at a bare IP address, is refused rather than given a name you could not have
+predicted; `--context` is the way through.
+
+Nothing is written unless the login succeeded, so an issuer you mistyped costs
+you the corrected command and nothing else. Running the same login again reuses
+the identity it created; a login that would change the issuer or the client ID
+of an identity already configured is refused rather than allowed to replace it.
+
+The created identity reaches no product yet. A self-hosted deployment publishes
+no catalogue of what it serves, so `wso2 identity add-product` records each
+product's endpoint, audience and scopes, and the login output names it.
 
 What happens, in order:
 
@@ -531,6 +560,17 @@ first-time user meets most often. None of them reaches a browser.
   identity the document does not declare. Logging in is the only thing that
   creates one, so run `wso2 login` first, or check the name against the
   `identities` array.
+- **`contexts.identity_exists`.** `wso2 login --url` named a context whose
+  identity is already configured against a different issuer or a different
+  client ID. The message names both the value on file and the one you asked
+  for. Logging in never replaces an identity, because the issuer and client it
+  records are not written down anywhere else; log in under another name with
+  `--context`, or correct the flag you mistyped.
+- **`contexts.identity_name_underivable`.** `wso2 login --url` was given an
+  issuer with no host a name can be made from — a bare IP address, or a host
+  whose first label starts with a digit — and no `--context` to name the
+  identity instead. A name is lower-case letters, digits and hyphens, starting
+  with a letter. Pass `--context <name>`; nothing was written.
 - **`contexts.context_exists`.** `wso2 context create` was given a name the
   document already declares. Creating a context never replaces one, because the
   organization, project and identity it recorded are not written down anywhere
@@ -541,10 +581,16 @@ first-time user meets most often. None of them reaches a browser.
 These are about what you typed, not about the file. Nothing is written when one
 of them is reported.
 
-- **`shell.missing_required_flag`.** `wso2 context create` was run without
-  `--identity`. A context authenticates as an identity, and `wso2 login` is what
-  creates one. Not to be confused with `shell.missing_flag_value`, which means a
-  flag was given without the value it needs.
+- **`shell.missing_required_flag`.** A flag the command cannot proceed without
+  was not given. `wso2 context create` reports it for `--identity`: a context
+  authenticates as an identity, and `wso2 login` is what creates one. `wso2
+  login --url` reports it for `--client-id`, which it asks for at a terminal
+  and refuses to guess anywhere else — there is no WSO2-published client for a
+  self-hosted deployment, so the value can only come from the application you
+  registered. The message says why nothing was asked: `--no-input`,
+  `WSO2_NO_INPUT`, or standard input that is not a terminal. Not to be confused
+  with `shell.missing_flag_value`, which means a flag was given without the
+  value it needs.
 - **`shell.invalid_argument`.** The name you gave `wso2 context create` is not
   one a context may have: lower-case letters, digits and hyphens, starting with
   a letter, at most 64 characters. Nothing was written, so retyping the command

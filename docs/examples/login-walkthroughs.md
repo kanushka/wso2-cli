@@ -14,9 +14,10 @@ developer asks first: **"what do I type, and what happens?"**
 
 > **These walkthroughs describe the intended end state, not what the first
 > implementation slice delivers.** Slice 1 requires a hand-authored context and
-> implements browser PKCE plus inline client credentials only. Login-created
-> contexts, fresh-machine cloud tenant resolution, a WSO2-published CLI client,
-> and organization switch are all deferred or are backend asks. [Gaps](#gaps-these-walkthroughs-depend-on)
+> implements browser PKCE plus inline client credentials only. A login that
+> names an issuer now creates the identity and context it authenticated;
+> fresh-machine cloud tenant resolution, a WSO2-published CLI client, and
+> organization switch are still deferred or are backend asks. [Gaps](#gaps-these-walkthroughs-depend-on)
 > lists each one. See the
 > [login first slice plan](../plans/login-first-slice.md)
 > for what is in scope now.
@@ -407,42 +408,53 @@ must never assume a self-hosted deployment supports cloud SSO.
 ```console
 $ wso2 login --url https://idp.customer.example \               # decided
     --client-id wso2-cli
-Opening your browser to sign in.
-If it does not open, visit:
-  https://idp.customer.example/oauth2/authorize?response_type=code&...
+Open this URL to log in:
+https://idp.customer.example/oauth2/authorize?response_type=code&...
 
-✓ Signed in as ops@customer.example
-  Issuer: https://idp.customer.example
+Logged in to the "idp-customer-example" context.
+Subject    ops
+Email      ops@customer.example
+Products   none configured
 
-Created identity "customer-idp" and context "customer".
-Set as the default context.
+Created identity "idp-customer-example" and context "idp-customer-example".
+It is the first context, so it is now the selected one.
 
-No products are configured for this identity. Self-hosted deployments are not
-discoverable, so each product's endpoint must be recorded:
+No products are configured for this identity. A self-hosted deployment is not
+discoverable, so each product's endpoint has to be recorded:
 
-  wso2 identity add-product customer-idp <namespace> \
+  wso2 identity add-product idp-customer-example <namespace> \
       --endpoint <url> --audience <resource-id> --scopes <list>
 ```
+
+The names are the issuer host with each dot replaced by a hyphen, which is the
+whole rule: the name is written into a document the operator later reads and
+types, and a rule they cannot predict is worse than a name they would not have
+chosen. `--context <name>` names the identity and the context directly, and is
+the only way through for an issuer whose host cannot make a legal name — one
+at a bare IP address, or a host whose first label starts with a digit.
 
 `--client-id` is required. No WSO2-published client exists for self-hosted
 deployments, so the operator registers an application and supplies its ID; the
 shell does not invent one. Omitting the flag prompts for it in an interactive
 terminal and is a typed error under `--no-input`.
 
+Nothing is written unless the login succeeded. A mistyped issuer therefore
+leaves no half-written context to delete before the corrected command can run.
+
 ### B.2 Recording what the login reaches
 
 ```console
-$ wso2 identity add-product customer-idp api \                  # proposed
+$ wso2 identity add-product idp-customer-example api \                  # proposed
     --endpoint https://api.customer.example \
     --audience https://api.customer.example \
     --scopes api:read,api:write
-Added product "api" to identity "customer-idp".
+Added product "api" to identity "idp-customer-example".
 
-$ wso2 identity add-product customer-idp integration \          # proposed
+$ wso2 identity add-product idp-customer-example integration \          # proposed
     --endpoint https://esb.customer.example \
     --audience https://esb.customer.example \
     --scopes integration:read
-Added product "integration" to identity "customer-idp".
+Added product "integration" to identity "idp-customer-example".
 
 $ wso2 api list                                                 # decided
 NAME                VERSION   STATUS
@@ -453,13 +465,13 @@ orders              3.1.0     published
 
 ```yaml
 identities:
-  - name: customer-idp
+  - name: idp-customer-example
     type: onprem
     auth:
       kind: oauth-browser
       issuer: https://idp.customer.example      # from --url
       clientId: wso2-cli                        # from --client-id
-      credentialRef: customer-idp
+      credentialRef: idp-customer-example
     products:
       api:
         endpoint: https://api.customer.example
@@ -471,10 +483,10 @@ identities:
         scopes: [integration:read]
 
 contexts:
-  - name: customer
-    identity: customer-idp
+  - name: idp-customer-example
+    identity: idp-customer-example
 
-defaultContext: customer
+defaultContext: idp-customer-example
 ```
 
 The context carries no `organization`. Nothing in the login response supplied
@@ -494,7 +506,7 @@ $ wso2 integration deploy ./flow.xml                            # decided
 Error: authentication failed for product "integration"
 
   The integration service did not accept access derived from the
-  "customer-idp" login. It may validate a different issuer.
+  "idp-customer-example" login. It may validate a different issuer.
 
   If this product requires its own login, it belongs to a separate identity
   and context. See: wso2 login --url <its issuer> --context <name>
@@ -768,9 +780,11 @@ Stated plainly, because several of these flows do not work today.
    it cannot be enumerated at login: on a fresh machine no product module is
    installed to ask. `--project` persists a value the user supplies; discovering
    valid values is per-product work with no agreed command surface.
-6. **Login-created contexts and identities are deferred.** Slice 1 requires a
-   hand-authored context, so every "Created identity / Created context" line
-   above is target behavior.
+6. **Login-created contexts and identities are built.** `wso2 login --url
+   <issuer> --client-id <id>` creates the identity and the context it
+   authenticated and reports both names, so B.1 no longer needs a hand-authored
+   context. The zero-flag `wso2 login` in A.1 still does: it depends on gap 1
+   and gap 7 rather than on anything in this repository. **Closed.**
 7. **Whether WSO2 Cloud can enumerate a subscribed product set is unverified.**
    A.1 omits `products` for `type: cloud`. That is only tenable if either the
    control plane can report which products an organization has, or the CLI

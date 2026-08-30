@@ -13,7 +13,8 @@ The distinction between catalog refresh and module binary update remains an
 open decision. The lifecycle command names below are therefore provisional.
 
 These are built: `wso2 context create <name>`, `wso2 context use <context>`,
-`wso2 context list`, `wso2 context current`, `wso2 login`, `wso2 logout`,
+`wso2 context list`, `wso2 context current`, `wso2 login`,
+`wso2 login --url <issuer> --client-id <id>`, `wso2 logout`,
 `wso2 module available`, `wso2 module list`,
 `wso2 module install <module>`, `wso2 module install <module>@<version>`,
 `wso2 module install <module> --channel <channel>`,
@@ -30,6 +31,7 @@ refusal is reported.
 | `wso2 help` | Shows the root command tree and help for a command. |
 | `wso2 version` | Shows the shell, protocol, and installed module versions. |
 | `wso2 login` | Authenticates the selected context using its configured method. |
+| `wso2 login --url <issuer> --client-id <id>` | Logs in against a named issuer and creates the identity and the context it authenticated, reporting both names. `--context <name>` names them; without it the identity name is derived from the issuer host, and an issuer whose host cannot make a legal name is refused with `contexts.identity_name_underivable`. An identity of that name whose issuer and client ID both match is reused; one that differs in either is refused with `contexts.identity_exists` and never replaced. The first context created becomes the selected one. Nothing is written unless the login succeeded. Omitting `--client-id` prompts in an interactive terminal and is refused with `shell.missing_required_flag` under `--no-input`. |
 | `wso2 logout` | Ends the session of the identity the selected context names: asks the identity provider to revoke its refresh token, and removes the shell-owned session that every context sharing that credential reference reaches. |
 | `wso2 whoami` | Shows the signed-in user and active organization. |
 | `wso2 org list` | Lists organizations available to the signed-in user. |
@@ -125,6 +127,31 @@ User           jane@example.com
 Organization   acme
 Context        cloud-us
 ```
+
+### First login against a self-hosted issuer
+
+```text
+$ wso2 login --url https://idp.customer.example --client-id wso2-cli \
+    --context customer
+
+Logged in to the "customer" context.
+Subject    user-1
+Email      ops@customer.example
+Products   none configured
+
+Created identity "customer" and context "customer".
+It is the first context, so it is now the selected one.
+
+No products are configured for this identity. A self-hosted deployment is not
+discoverable, so each product's endpoint has to be recorded:
+
+  wso2 identity add-product customer <namespace> \
+      --endpoint <url> --audience <resource-id> --scopes <list>
+```
+
+The authorization URL is written to the diagnostic stream, not to this one: it
+is an instruction to act on rather than the command's result, so a caller
+redirecting standard output still sees it.
 
 ### Ending a session
 
