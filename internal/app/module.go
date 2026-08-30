@@ -124,12 +124,26 @@ func (s Shell) moduleInstall(args []string) error {
 	if err != nil {
 		return err
 	}
+	// A failed install turns on which catalog was asked, and the origin is read
+	// from an environment variable, so a user pointed at the wrong one has no
+	// other way to see it. The policy is logged beside it because "no version
+	// matched" means nothing without the constraint that failed to match.
+	s.log.Debug("installing a module from the catalog",
+		"namespace", namespace,
+		"catalog_origin", installer.Client.Origin,
+		"channel", policy.Channel,
+		"pinned_version", policy.Version)
+
 	ctx, cancel := context.WithTimeout(context.Background(), catalogTimeout)
 	defer cancel()
 	installed, err := installer.Run(ctx, install.Request{Namespace: namespace, Policy: policy})
 	if err != nil {
 		return err
 	}
+	s.log.Debug("the module was installed",
+		"namespace", installed.Namespace,
+		"selected_version", installed.Version,
+		"platform", installed.Platform.String())
 
 	_, err = fmt.Fprintf(s.Streams.Out,
 		"Installed %s v%s for %s.\nThe artifact was checked against the digest the catalog publishes. "+

@@ -25,6 +25,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/internal/version"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -32,6 +33,7 @@ import (
 const (
 	contextFlag = "context"
 	outputFlag  = "output"
+	verboseFlag = "verbose"
 )
 
 // helpTemplate preserves the help shape the shell published before Cobra routed
@@ -74,7 +76,7 @@ func (s Shell) rootCommand() *cobra.Command {
 		// SuggestionsFor is used directly, so the distance Cobra would default
 		// during Execute has to be set here.
 		SuggestionsMinimumDistance: 2,
-		PersistentPreRunE:          s.validateShellFlags,
+		PersistentPreRunE:          s.applyShellFlags,
 		// Arguments left after the root's own flags are a product namespace and
 		// its arguments. Reaching them here is how a shell flag written before
 		// the namespace is honored.
@@ -120,6 +122,10 @@ func (s Shell) rootCommand() *cobra.Command {
 	root.PersistentFlags().BoolP("help", "h", false, "Show help for a command.")
 	root.PersistentFlags().String(contextFlag, "", "Use the named context instead of the selected one.")
 	root.PersistentFlags().StringP(outputFlag, "o", string(output.ModeTable), "Render results as table or json.")
+	// Declared here rather than scanned out of the argument list by hand, so
+	// that it appears in help, is refused with a value, and is parsed by the
+	// same code that parses every other shell flag.
+	root.PersistentFlags().Bool(verboseFlag, false, "Write diagnostics about what the shell attempted to stderr.")
 
 	root.AddCommand(s.loginCommand(), s.logoutCommand(), s.moduleCommand(), s.versionCommand())
 
@@ -134,17 +140,41 @@ func (s Shell) rootCommand() *cobra.Command {
 	return root
 }
 
-// validateShellFlags refuses an unusable value for a shell-owned flag before any
-// command runs, so the refusal is one typed problem rather than one per command.
-func (s Shell) validateShellFlags(command *cobra.Command, _ []string) error {
-	flag := command.Flags().Lookup(outputFlag)
-	if flag == nil || !flag.Changed {
-		return nil
+// applyShellFlags refuses an unusable value for a shell-owned flag before any
+// command runs, so the refusal is one typed problem rather than one per command,
+// and turns on the diagnostic log when the user asked for it.
+//
+// The log is opened here because this is the first point at which the flags are
+// parsed and no command body has run yet: a failure inside the very first thing
+// a command does is still explained.
+func (s Shell) applyShellFlags(command *cobra.Command, _ []string) error {
+	mode := output.ModeTable
+	if flag := command.Flags().Lookup(outputFlag); flag != nil && flag.Changed {
+		parsed, ok := output.ParseMode(flag.Value.String())
+		if !ok {
+			return problem.New(problem.CategoryUsage, "shell.unknown_output_mode",
+				fmt.Sprintf("%q is not an output mode", flag.Value.String())).
+				WithRecovery("Use --output table or --output json.")
+		}
+		mode = parsed
 	}
-	if _, ok := output.ParseMode(flag.Value.String()); !ok {
-		return problem.New(problem.CategoryUsage, "shell.unknown_output_mode",
-			fmt.Sprintf("%q is not an output mode", flag.Value.String())).
-			WithRecovery("Use --output table or --output json.")
+	// Diagnostics go to the stream that carries diagnostics, never to the one
+	// that carries the result, so --verbose cannot break a caller parsing
+	// standard output. See docs/adr/0003-shell-owned-output.md.
+	// The error is discarded rather than reported: it can only mean the flag is
+	// absent or is not a boolean, and both are this file's own mistake to make,
+	// not a user's to be told about.
+	if verbose, _ := command.Flags().GetBool(verboseFlag); verbose {
+		s.log.Enable(s.Streams.Err, mode)
+		// The first line every verbose run writes, so that a bug report pasted
+		// from a terminal names the shell that produced it. The argument list
+		// is deliberately absent: a product command's arguments belong to the
+		// module, and a module is free to take a credential as one.
+		s.log.Debug("the shell started",
+			"command", command.Name(),
+			"shell_version", version.Shell(),
+			"platform", version.Platform(),
+			"output_mode", string(mode))
 	}
 	return nil
 }
@@ -156,21 +186,25 @@ func (s Shell) validateShellFlags(command *cobra.Command, _ []string) error {
 // fixed output and select no context. Naming what each command honors keeps a
 // flag it cannot act on a refusal rather than a value silently ignored.
 func shellFlagsFor(name string) []string {
+	// Every built-in honors --verbose, because every one of them can fail in a
+	// way worth explaining: a login against an unreachable issuer, an install
+	// against a catalog that answered something unexpected, a version listing
+	// over a store that will not open.
 	switch name {
 	case "wso2":
 		// The root routes a product namespace, and a module command may act on
 		// every shell flag.
-		return []string{contextFlag, outputFlag}
+		return []string{contextFlag, outputFlag, verboseFlag}
 	case "login":
-		return []string{contextFlag}
+		return []string{contextFlag, verboseFlag}
 	case "logout":
 		// The only interactive-auth command that renders a machine-readable
 		// result, because it is the only one whose result a script has to read:
 		// what the issuer was told about the ended session is not observable
 		// any other way.
-		return []string{contextFlag, outputFlag}
+		return []string{contextFlag, outputFlag, verboseFlag}
 	default:
-		return nil
+		return []string{verboseFlag}
 	}
 }
 
@@ -185,6 +219,11 @@ func shellFlagsFor(name string) []string {
 func forwardShellFlags(command *cobra.Command, args []string) ([]string, error) {
 	honored := shellFlagsFor(command.Name())
 	forwarded := make([]string, 0, len(args)+4)
+	// --verbose is honored by every command but forwarded to none of them. A
+	// built-in reads it off the root's own flag set, and the product namespace
+	// boundary cannot forward it yet: until a module declares its command tree,
+	// the shell cannot tell a flag it should pass on from one the module owns,
+	// and a module that does not know the flag would refuse the whole command.
 	for _, name := range []string{contextFlag, outputFlag} {
 		flag := command.Root().PersistentFlags().Lookup(name)
 		if flag == nil || !flag.Changed {

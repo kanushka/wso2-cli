@@ -94,6 +94,19 @@ func (s Shell) login(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Recorded before the flow starts, because the commonest login failure is a
+	// deployment that answers a request the user cannot see. Who the issuer is,
+	// which grant was chosen, and which application asked are the three facts
+	// that make a refusal from that issuer readable. The client identifier is
+	// public by definition and the scopes are the identity document's, so
+	// nothing here is credential material.
+	s.log.Debug("starting a login",
+		"context", selected.Context.Name,
+		"grant_kind", selected.Identity.Auth.Kind,
+		"issuer", selected.Identity.Auth.Issuer,
+		"client_id", selected.Identity.Auth.ClientID,
+		"scopes", strings.Join(productScopeUnion(selected.Identity), " "),
+		"resource", productResource(selected.Identity))
 	result, err := s.establishSession(selected)
 	if err != nil {
 		return err
@@ -107,6 +120,13 @@ func (s Shell) login(args []string) error {
 			WithRecovery("Grant the registered OAuth application the offline_access scope, " +
 				"then run wso2 login again.")
 	}
+
+	// The token itself is never logged, here or anywhere: what a reader needs
+	// is that the issuer answered and when the access it granted runs out.
+	s.log.Debug("the login completed",
+		"subject", result.Subject,
+		"access_expires_at", result.Token.Expiry.UTC().Format(time.RFC3339),
+		"credential_ref", selected.Identity.Auth.CredentialRef)
 
 	reference := selected.Identity.Auth.CredentialRef
 	store := session.Store{StateRoot: root}
