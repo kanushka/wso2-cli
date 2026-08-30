@@ -172,6 +172,99 @@ func TestVerboseLoggingNeverLeaksTokenMaterial(t *testing.T) {
 	}
 }
 
+// TestVerboseIsHonoredAfterTheCommandName covers the position users actually
+// type. login, logout, and module disable Cobra's flag parsing and read their
+// own arguments, so a flag written after the command name reaches their parsers
+// rather than the root's. Before takeVerboseFlag existed, all three refused it
+// as an unknown flag — which is the worst possible answer to a user who is
+// already trying to diagnose something else.
+func TestVerboseIsHonoredAfterTheCommandName(t *testing.T) {
+	t.Run("login", func(t *testing.T) {
+		keyring.MockInit()
+		issuer := fakeissuer.New(t, fakeissuer.Options{Audience: "reference-status"})
+		shell, _, errOut := newLoginShell(t)
+		installLogin(t, shell, browserDoc(issuer.URL))
+		shell.OpenBrowser = followAuthorizationURL()
+
+		if code := shell.Run([]string{"login", "--verbose"}); code != exit.OK {
+			t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
+		}
+		if !strings.Contains(errOut.String(), "starting a login") {
+			t.Fatalf("wso2 login --verbose wrote no diagnostics:\n%s", errOut)
+		}
+	})
+
+	t.Run("logout", func(t *testing.T) {
+		keyring.MockInit()
+		issuer := fakeissuer.New(t, fakeissuer.Options{Audience: "reference-status"})
+		shell, _, errOut := newLoginShell(t)
+		installLogin(t, shell, browserDoc(issuer.URL))
+		shell.OpenBrowser = followAuthorizationURL()
+		if code := shell.Run([]string{"login"}); code != exit.OK {
+			t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
+		}
+		errOut.Reset()
+
+		if code := shell.Run([]string{"logout", "--verbose"}); code != exit.OK {
+			t.Fatalf("logout failed: exit %d, stderr %s", code, errOut)
+		}
+		if !strings.Contains(errOut.String(), "the shell started") {
+			t.Fatalf("wso2 logout --verbose wrote no diagnostics:\n%s", errOut)
+		}
+	})
+
+	// wso2 module list takes no arguments, so before the strip this refused
+	// with shell.unexpected_argument — a message that describes the wrong
+	// mistake. Stripping the flag before the argument check settles both.
+	t.Run("module list", func(t *testing.T) {
+		shell, _, errOut := newShell(t)
+		if code := shell.Run([]string{"module", "list", "--verbose"}); code != exit.OK {
+			t.Fatalf("module list failed: exit %d, stderr %s", code, errOut)
+		}
+		if !strings.Contains(errOut.String(), "the shell started") {
+			t.Fatalf("wso2 module list --verbose wrote no diagnostics:\n%s", errOut)
+		}
+	})
+}
+
+// TestVerboseWrittenTwiceEnablesTheLogOnce proves the two doors into the log —
+// the root's parser and takeVerboseFlag — do not both open it.
+func TestVerboseWrittenTwiceEnablesTheLogOnce(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	if code := shell.Run([]string{"--verbose", "module", "list", "--verbose"}); code != exit.OK {
+		t.Fatalf("module list failed: exit %d, stderr %s", code, errOut)
+	}
+	if started := strings.Count(errOut.String(), "the shell started"); started != 1 {
+		t.Fatalf("the log announced itself %d times:\n%s", started, errOut)
+	}
+}
+
+// TestVerboseWithAnExplicitValueIsRead pins the --verbose=false spelling: it is
+// stripped like any other, and it does not turn the log on.
+func TestVerboseWithAnExplicitValueIsRead(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	if code := shell.Run([]string{"module", "list", "--verbose=false"}); code != exit.OK {
+		t.Fatalf("module list failed: exit %d, stderr %s", code, errOut)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("--verbose=false wrote diagnostics:\n%s", errOut)
+	}
+
+	shell, _, errOut = newShell(t)
+	if code := shell.Run([]string{"module", "list", "--verbose=true"}); code != exit.OK {
+		t.Fatalf("module list failed: exit %d, stderr %s", code, errOut)
+	}
+	if !strings.Contains(errOut.String(), "the shell started") {
+		t.Fatalf("--verbose=true wrote no diagnostics:\n%s", errOut)
+	}
+
+	shell, _, errOut = newShell(t)
+	if code := shell.Run([]string{"module", "list", "--verbose=maybe"}); code != exit.Usage {
+		t.Fatalf("--verbose=maybe exited %d, want the usage class %d; stderr: %s",
+			code, exit.Usage, errOut)
+	}
+}
+
 // followAuthorizationURL plays the user who lands on the authorization page and
 // is redirected back to the shell's callback.
 func followAuthorizationURL() func(string) error {

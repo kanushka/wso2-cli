@@ -20,9 +20,11 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/internal/version"
@@ -148,35 +150,120 @@ func (s Shell) rootCommand() *cobra.Command {
 // parsed and no command body has run yet: a failure inside the very first thing
 // a command does is still explained.
 func (s Shell) applyShellFlags(command *cobra.Command, _ []string) error {
-	mode := output.ModeTable
-	if flag := command.Flags().Lookup(outputFlag); flag != nil && flag.Changed {
-		parsed, ok := output.ParseMode(flag.Value.String())
-		if !ok {
-			return problem.New(problem.CategoryUsage, "shell.unknown_output_mode",
-				fmt.Sprintf("%q is not an output mode", flag.Value.String())).
-				WithRecovery("Use --output table or --output json.")
-		}
-		mode = parsed
+	mode, err := shellOutputMode(command)
+	if err != nil {
+		return err
 	}
-	// Diagnostics go to the stream that carries diagnostics, never to the one
-	// that carries the result, so --verbose cannot break a caller parsing
-	// standard output. See docs/adr/0003-shell-owned-output.md.
 	// The error is discarded rather than reported: it can only mean the flag is
 	// absent or is not a boolean, and both are this file's own mistake to make,
 	// not a user's to be told about.
 	if verbose, _ := command.Flags().GetBool(verboseFlag); verbose {
-		s.log.Enable(s.Streams.Err, mode)
-		// The first line every verbose run writes, so that a bug report pasted
-		// from a terminal names the shell that produced it. The argument list
-		// is deliberately absent: a product command's arguments belong to the
-		// module, and a module is free to take a credential as one.
-		s.log.Debug("the shell started",
-			"command", command.Name(),
-			"shell_version", version.Shell(),
-			"platform", version.Platform(),
-			"output_mode", string(mode))
+		s.enableDiagnostics(command, mode)
 	}
 	return nil
+}
+
+// shellOutputMode reports the rendering this invocation asked for, refusing an
+// unusable value before any command runs.
+func shellOutputMode(command *cobra.Command) (output.Mode, error) {
+	flag := shellFlag(command, outputFlag)
+	if flag == nil || !flag.Changed {
+		return output.ModeTable, nil
+	}
+	mode, ok := output.ParseMode(flag.Value.String())
+	if !ok {
+		return "", problem.New(problem.CategoryUsage, "shell.unknown_output_mode",
+			fmt.Sprintf("%q is not an output mode", flag.Value.String())).
+			WithRecovery("Use --output table or --output json.")
+	}
+	return mode, nil
+}
+
+// enableDiagnostics opens the diagnostic log, once.
+//
+// Diagnostics go to the stream that carries diagnostics, never to the one that
+// carries the result, so --verbose cannot break a caller parsing standard
+// output. See docs/adr/0003-shell-owned-output.md.
+//
+// It is idempotent because there are two doors into it: the root's flag parser
+// for a flag written before the command name, and takeVerboseFlag for one
+// written after it. A user who writes the flag in both places asked for
+// diagnostics once.
+func (s Shell) enableDiagnostics(command *cobra.Command, mode output.Mode) {
+	if s.log.Enabled() {
+		return
+	}
+	s.log.Enable(s.Streams.Err, mode)
+	// The first line every verbose run writes, so that a bug report pasted
+	// from a terminal names the shell that produced it. The argument list
+	// is deliberately absent: a product command's arguments belong to the
+	// module, and a module is free to take a credential as one.
+	s.log.Debug("the shell started",
+		"command", command.Name(),
+		"shell_version", version.Shell(),
+		"platform", version.Platform(),
+		"output_mode", string(mode))
+}
+
+// takeVerboseFlag removes --verbose from an argument list a built-in command
+// parses for itself, and turns the diagnostic log on when it was there.
+//
+// The three commands that disable Cobra's flag parsing — login, logout, and
+// module — never see the root's parse, so a flag written after the command name
+// arrives in their own argument list and their own parsers refuse it as
+// unknown. That refusal is worst for this flag in particular: it arrives while
+// the user is already trying to diagnose something else.
+//
+// There is one of these rather than one scanner per command on purpose.
+// --context is scanned separately by each of the three, and those three
+// scanners have already drifted apart from one another. This is the one place
+// --verbose is read out of an argument list, and the one place to delete when
+// each command declares its flags directly.
+func (s Shell) takeVerboseFlag(command *cobra.Command, args []string) ([]string, error) {
+	remaining := make([]string, 0, len(args))
+	asked := false
+	for _, argument := range args {
+		switch {
+		case argument == "--"+verboseFlag:
+			asked = true
+		case strings.HasPrefix(argument, "--"+verboseFlag+"="):
+			value := strings.TrimPrefix(argument, "--"+verboseFlag+"=")
+			enabled, err := strconv.ParseBool(value)
+			if err != nil {
+				return nil, usageProblem(fmt.Errorf("invalid argument %q for %q flag: %w",
+					value, "--"+verboseFlag, err))
+			}
+			asked = asked || enabled
+		default:
+			remaining = append(remaining, argument)
+		}
+	}
+	if !asked {
+		return remaining, nil
+	}
+	// Recorded on the root's own flag, so that the flag has one value however
+	// it was written and anything later asking whether diagnostics are on gets
+	// the same answer as the parser would have given.
+	if flag := shellFlag(command, verboseFlag); flag != nil {
+		_ = flag.Value.Set("true")
+		flag.Changed = true
+	}
+	mode, err := shellOutputMode(command)
+	if err != nil {
+		return nil, err
+	}
+	s.enableDiagnostics(command, mode)
+	return remaining, nil
+}
+
+// shellFlag finds a shell-owned flag whether or not the command it is asked
+// about parses flags. A command with parsing disabled still inherits the root's
+// persistent flag set, but does not always have it merged into its own.
+func shellFlag(command *cobra.Command, name string) *pflag.Flag {
+	if flag := command.Flags().Lookup(name); flag != nil {
+		return flag
+	}
+	return command.Root().PersistentFlags().Lookup(name)
 }
 
 // shellFlagsFor reports the shell-owned flags a built-in command honors.
@@ -268,6 +355,10 @@ func (s Shell) loginCommand() *cobra.Command {
 			if wantsHelp(args) {
 				return command.Help()
 			}
+			args, err := s.takeVerboseFlag(command, args)
+			if err != nil {
+				return err
+			}
 			forwarded, err := forwardShellFlags(command, args)
 			if err != nil {
 				return err
@@ -286,6 +377,10 @@ func (s Shell) logoutCommand() *cobra.Command {
 		RunE: func(command *cobra.Command, args []string) error {
 			if wantsHelp(args) {
 				return command.Help()
+			}
+			args, err := s.takeVerboseFlag(command, args)
+			if err != nil {
+				return err
 			}
 			forwarded, err := forwardShellFlags(command, args)
 			if err != nil {
@@ -309,6 +404,10 @@ func (s Shell) moduleCommand() *cobra.Command {
 		RunE: func(command *cobra.Command, args []string) error {
 			if wantsHelp(args) {
 				return command.Help()
+			}
+			args, err := s.takeVerboseFlag(command, args)
+			if err != nil {
+				return err
 			}
 			forwarded, err := forwardShellFlags(command, args)
 			if err != nil {

@@ -17,6 +17,7 @@
 package output
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"strings"
@@ -105,19 +106,18 @@ func (l *Logger) Enable(w io.Writer, mode Mode) {
 		// asked for diagnostics at all, so the handler filters nothing and the
 		// call sites carry the judgement instead.
 		Level: slog.LevelDebug,
-		// Redaction is done through ReplaceAttr rather than by wrapping the
-		// handler, because the built-in handlers apply it to attributes added
-		// through WithAttrs and inside groups as well. A wrapper would have to
-		// reimplement that reach, and a redaction that covers only some of the
-		// ways an attribute can arrive is worse than none, because it reads as
-		// though it covers all of them.
-		ReplaceAttr: redactAttr,
 	}
+	var handler slog.Handler = slog.NewTextHandler(w, options)
 	if mode == ModeJSON {
-		l.delegate = slog.New(slog.NewJSONHandler(w, options))
-		return
+		handler = slog.NewJSONHandler(w, options)
 	}
-	l.delegate = slog.New(slog.NewTextHandler(w, options))
+	// Redaction wraps the handler rather than riding on
+	// slog.HandlerOptions.ReplaceAttr, because ReplaceAttr does not reach every
+	// attribute: slog calls it for the leaves inside a group but never for the
+	// group attribute itself, so slog.Group("token", "value", secret) would
+	// reach the stream with the secret intact. A wrapper sees every attribute
+	// before the handler does, whichever way it arrived.
+	l.delegate = slog.New(redactingHandler{inner: handler})
 }
 
 // Enabled reports whether anything would be written. It exists for a call site
@@ -136,18 +136,77 @@ func (l *Logger) Debug(message string, attributes ...any) {
 	l.delegate.Debug(message, attributes...)
 }
 
-// redactAttr masks the value of an attribute whose key names something secret.
+// redactingHandler masks every attribute whose key names something secret,
+// wherever in a record that attribute sits.
+//
+// It wraps rather than replaces a handler because the rendering is not its
+// business: the same redaction has to hold for the text handler a human reads
+// and the JSON handler a program reads, and neither should be able to differ
+// from the other about what a secret is.
+type redactingHandler struct {
+	inner slog.Handler
+	// masked records that an enclosing group was itself named for something
+	// secret. Everything below such a group is masked whatever its own key is,
+	// because a group named "token" holding an attribute named "value" is still
+	// a token reaching the stream.
+	masked bool
+}
+
+func (h redactingHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.inner.Enabled(ctx, level)
+}
+
+func (h redactingHandler) Handle(ctx context.Context, record slog.Record) error {
+	// The record is rebuilt rather than edited: slog.Record shares its backing
+	// storage with copies of itself, so editing attributes in place would reach
+	// a record another handler is holding.
+	redacted := slog.NewRecord(record.Time, record.Level, record.Message, record.PC)
+	record.Attrs(func(attribute slog.Attr) bool {
+		redacted.AddAttrs(h.redact(attribute))
+		return true
+	})
+	return h.inner.Handle(ctx, redacted)
+}
+
+func (h redactingHandler) WithAttrs(attributes []slog.Attr) slog.Handler {
+	redacted := make([]slog.Attr, 0, len(attributes))
+	for _, attribute := range attributes {
+		redacted = append(redacted, h.redact(attribute))
+	}
+	return redactingHandler{inner: h.inner.WithAttrs(redacted), masked: h.masked}
+}
+
+func (h redactingHandler) WithGroup(name string) slog.Handler {
+	return redactingHandler{
+		inner:  h.inner.WithGroup(name),
+		masked: h.masked || sensitiveKeys[normalizeKey(name)],
+	}
+}
+
+// redact masks one attribute, recursing into a group whose own name is
+// innocent so that a secret nested inside it is still caught.
 //
 // It is deliberately key-based and therefore only as complete as
 // sensitiveKeys. That incompleteness is why the leak test greps real captured
 // output for real fixture token values rather than asserting this map's
 // contents: a value logged under a name nobody thought of is caught there, not
 // here.
-func redactAttr(_ []string, attribute slog.Attr) slog.Attr {
-	if sensitiveKeys[normalizeKey(attribute.Key)] {
+func (h redactingHandler) redact(attribute slog.Attr) slog.Attr {
+	// Resolved first, so that a value that computes itself is inspected as what
+	// it will actually print rather than as the promise to print it.
+	attribute.Value = attribute.Value.Resolve()
+	if h.masked || sensitiveKeys[normalizeKey(attribute.Key)] {
 		return slog.String(attribute.Key, redactedValue)
 	}
-	return attribute
+	if attribute.Value.Kind() != slog.KindGroup {
+		return attribute
+	}
+	group := attribute.Value.Group()
+	redacted := make([]slog.Attr, 0, len(group))
+	for _, nested := range group {
+		redacted = append(redacted, h.redact(nested))
+	}
+	return slog.Attr{Key: attribute.Key, Value: slog.GroupValue(redacted...)}
 }
 
 // normalizeKey reduces an attribute name to the spelling sensitiveKeys is

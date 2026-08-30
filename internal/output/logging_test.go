@@ -19,6 +19,7 @@ package output
 import (
 	"bytes"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"testing"
 )
@@ -102,20 +103,55 @@ func TestSensitiveAttributesAreMasked(t *testing.T) {
 	}
 }
 
-// TestRedactionReachesAttributesInsideGroups is why redaction rides on
-// ReplaceAttr rather than on a wrapping handler: a grouped or preformatted
-// attribute has to be covered too, and a hand-written wrapper would have to
-// reimplement that reach.
-func TestRedactionReachesAttributesInsideGroups(t *testing.T) {
+// TestRedactionReachesEveryWayAnAttributeCanArrive is why redaction wraps the
+// handler instead of riding on slog.HandlerOptions.ReplaceAttr. slog never
+// calls ReplaceAttr for a group attribute itself, only for the leaves inside
+// it, so a secret carried as slog.Group("token", ...) or nested under an
+// innocent group name would have reached the stream verbatim.
+func TestRedactionReachesEveryWayAnAttributeCanArrive(t *testing.T) {
 	const secret = "rt-must-never-appear"
-	var captured bytes.Buffer
-	logger := NewLogger()
-	logger.Enable(&captured, ModeJSON)
-	logger.delegate = logger.delegate.WithGroup("session").With("refresh_token", secret)
-	logger.Debug("a diagnostic", "nested", map[string]string{})
-
-	if strings.Contains(captured.String(), secret) {
-		t.Fatalf("a grouped attribute escaped redaction: %s", &captured)
+	cases := map[string]func(*Logger){
+		"a plain attribute": func(logger *Logger) {
+			logger.Debug("a diagnostic", "refresh_token", secret)
+		},
+		"an attribute inside an innocent group": func(logger *Logger) {
+			logger.Debug("a diagnostic", slog.Group("session", "refresh_token", secret))
+		},
+		"a group named for the secret itself": func(logger *Logger) {
+			logger.Debug("a diagnostic", slog.Group("token", "value", secret))
+		},
+		"a group nested two deep": func(logger *Logger) {
+			logger.Debug("a diagnostic",
+				slog.Group("outer", slog.Group("inner", "access_token", secret)))
+		},
+		"an attribute preformatted through WithAttrs": func(logger *Logger) {
+			logger.delegate = logger.delegate.With("refresh_token", secret)
+			logger.Debug("a diagnostic")
+		},
+		"an attribute under a group opened by WithGroup": func(logger *Logger) {
+			logger.delegate = logger.delegate.WithGroup("session").With("refresh_token", secret)
+			logger.Debug("a diagnostic")
+		},
+		// The group name is the only thing naming a secret here, so nothing
+		// key-based below it would catch the leaf on its own.
+		"a leaf under a group named for the secret": func(logger *Logger) {
+			logger.delegate = logger.delegate.WithGroup("client_secret")
+			logger.Debug("a diagnostic", "value", secret)
+		},
+	}
+	for name, log := range cases {
+		t.Run(name, func(t *testing.T) {
+			var captured bytes.Buffer
+			logger := NewLogger()
+			logger.Enable(&captured, ModeJSON)
+			log(logger)
+			if strings.Contains(captured.String(), secret) {
+				t.Fatalf("the secret escaped redaction: %s", &captured)
+			}
+			if !strings.Contains(captured.String(), redactedValue) {
+				t.Fatalf("the secret was dropped rather than masked: %s", &captured)
+			}
+		})
 	}
 }
 
