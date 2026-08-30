@@ -193,7 +193,10 @@ build-shell:
 # what a specific release will look like installed.
 #
 # The shell is built first, and the module is installed for exactly the version
-# that build reports, so the two cannot drift into the refusal below. A module's
+# that build reports, so the two cannot drift into the refusal below. The
+# protocol window is this checkout's, stated rather than assumed, and it is the
+# truth because build-shell above compiled that shell from this checkout. A
+# released wso2 is a different shell and has to say what it speaks. A module's
 # declared shell range does not contain the 0.0.0-dev an uninjected build
 # reports, so a shell built the ordinary way installs a module and then refuses
 # to launch it. SHELL_VERSION names another version, for a released wso2 you
@@ -207,6 +210,7 @@ endif
 	$(GO) run ./cmd/wso2-module-dev -namespace '$(NAMESPACE)' \
 		$(if $(VERSION),-version '$(VERSION)') \
 		-shell-version '$(or $(SHELL_VERSION),$(DEFAULT_SHELL_VERSION))' \
+		-shell-protocols checkout \
 		-shell-path ./bin/wso2
 
 # Answers the one question a tag cannot take back: whether any shell a user

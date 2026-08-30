@@ -4,6 +4,9 @@
 **Related:** [Architecture](../architecture.md),
 [module catalog](../reference/module-catalog.md),
 [release artifacts](../reference/release-artifacts.md),
+[module manifest](../reference/module-manifest.md),
+[module SDK](../reference/module-sdk.md),
+[troubleshooting](troubleshooting-modules.md),
 [ADR 0011](../adr/0011-local-module-install-through-a-development-origin.md),
 [contributing](../../CONTRIBUTING.md)  
 **Last reviewed:** 2026-08-30
@@ -136,6 +139,10 @@ that name.
   }
 }
 ```
+
+Every field here is stated in full, with what reads it and what refuses when it
+is wrong, in the [module manifest reference](../reference/module-manifest.md).
+The parts worth meeting now are these.
 
 `compatibility.protocolVersions` is the module contract versions this release
 supports, and it was read from the SDK in your checkout rather than chosen. Do
@@ -413,10 +420,25 @@ it, so the module is installed for the version that same run built, and
 installing for a shell that could not launch it is refused up front.
 
 `SHELL_VERSION` overrides that version and is only needed when you intend to
-run a different `wso2`, such as one installed from a release. Give its version
-and run that binary instead of `./bin/wso2`. Any version inside your module's
-declared range works; it does not have to match exactly. `make build-shell`
-builds the shell on its own, if you want it without installing anything.
+run a different `wso2`, such as one installed from a release. Any version inside
+your module's declared range works; it does not have to match exactly. `make
+build-shell` builds the shell on its own, if you want it without installing
+anything.
+
+Installing for a released `wso2` takes one more fact, because its version says
+nothing about the module-contract protocol it speaks, and that is what selection
+decides over. Run the command directly and tell it, using what `wso2 version`
+prints:
+
+```sh
+go run ./cmd/wso2-module-dev -namespace api \
+  -shell-version 1.2.0 -shell-protocols 2,1 -shell-path /usr/local/bin/wso2
+```
+
+Naming another shell's version without its protocol window is refused rather
+than assumed. Assuming this checkout's window is what would install a module
+that the released shell then refuses to launch, which is the failure this whole
+step exists to bring forward.
 
 See
 [ADR 0011](../adr/0011-local-module-install-through-a-development-origin.md)
