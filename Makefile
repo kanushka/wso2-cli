@@ -95,6 +95,10 @@ help:
 	@echo '  make new-module NAMESPACE=<namespace>    Create modules/<namespace>, ready to build.'
 	@echo '  make build-module NAMESPACE=<namespace>  Compile that module and nothing else.'
 	@echo '  make test-module NAMESPACE=<namespace>   Run that one namespace, with the race detector.'
+	@echo '  make install-module NAMESPACE=<namespace> [SHELL_VERSION=<version>]'
+	@echo '                                           Install it from this checkout and run it under wso2.'
+	@echo '  make build-shell [SHELL_VERSION=<version>]'
+	@echo '                                           Build a wso2 that can launch a module, into bin/.'
 	@echo '  make gate-module NAMESPACE=<namespace> VERSION=<version>'
 	@echo '                                           Ask whether a released shell could launch it.'
 	@echo ''
@@ -149,6 +153,58 @@ ifndef NAMESPACE
 	$(error NAMESPACE is required: make test-module NAMESPACE=mycloud)
 endif
 	$(GO) test ./modules/$(NAMESPACE)/... -race -count=1
+
+# The version a development shell reports when SHELL_VERSION does not name one.
+# It is not a default for install-module, which must keep refusing when nobody
+# has said which shell will launch the module.
+DEFAULT_SHELL_VERSION := 1.0.0-dev
+
+# Builds a shell that can actually launch a module, into bin/.
+#
+# An uninjected build reports 0.0.0-dev, and a module's declared shell range
+# does not contain it: a prerelease sorts below its own release, so the
+# ">=0.1.0" a scaffolded module declares excludes the very shell a contributor
+# builds by hand. Such a shell installs a module and then refuses to launch it,
+# which is the confusion this target exists to remove. The default names a
+# development build in the 1.x line, which every scaffolded module's range
+# contains. SHELL_VERSION names another one.
+#
+# This is a development build and says so in its version. It is not how a
+# release is built; see .goreleaser.yaml for that.
+.PHONY: build-shell
+build-shell:
+	@mkdir -p bin
+	$(GO) build -ldflags \
+		"-X github.com/wso2/wso2-cli/internal/version.shellVersion=$(or $(SHELL_VERSION),$(DEFAULT_SHELL_VERSION))" \
+		-o bin/wso2 ./cmd/wso2
+	@echo "Built bin/wso2 reporting version $(or $(SHELL_VERSION),$(DEFAULT_SHELL_VERSION))."
+	@echo "Install a module for it with: make install-module NAMESPACE=<namespace> SHELL_VERSION=$(or $(SHELL_VERSION),$(DEFAULT_SHELL_VERSION))"
+
+# Installs a module from this checkout, unpublished, so its author can run it
+# under the real shell before tagging anything. The module is built, packed, and
+# installed by the ordinary installer from a catalog served on loopback for the
+# length of the run, so what lands in the module store is a real installation
+# rather than a shortcut around one. See
+# docs/adr/0011-local-module-install-through-a-development-origin.md.
+#
+# The version is a pinned prerelease, so nothing following stable is ever
+# offered it and `wso2 module update` leaves it alone. `wso2 module remove
+# <namespace>` takes it off again. VERSION names another one, for rehearsing
+# what a specific release will look like installed.
+#
+# SHELL_VERSION names the version of the wso2 that will launch the module, and
+# is needed when that is a released shell rather than one built from this
+# checkout: a module's declared shell range does not contain the development
+# version an uninjected build reports, and installing for a shell that cannot
+# launch it is refused rather than discovered at the first command.
+.PHONY: install-module
+install-module:
+ifndef NAMESPACE
+	$(error NAMESPACE is required: make install-module NAMESPACE=mycloud)
+endif
+	$(GO) run ./cmd/wso2-module-dev -namespace '$(NAMESPACE)' \
+		$(if $(VERSION),-version '$(VERSION)') \
+		$(if $(SHELL_VERSION),-shell-version '$(SHELL_VERSION)')
 
 # Answers the one question a tag cannot take back: whether any shell a user
 # already has can launch the module about to be published. The decision is the
