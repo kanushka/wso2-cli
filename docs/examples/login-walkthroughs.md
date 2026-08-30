@@ -590,7 +590,8 @@ Added product "agent" to identity "own-agent".
 The third product refuses interactive login:
 
 ```console
-$ wso2 login --url https://api.own.example --context own-api    # decided
+$ wso2 login --url https://api.own.example \
+    --client-id wso2-cli --context own-api                      # decided
 Error: this deployment advertises no interactive login method the CLI supports
 
   The API Manager management API at https://api.own.example authenticates
