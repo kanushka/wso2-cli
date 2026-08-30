@@ -507,14 +507,15 @@ func TestWhoamiOpensNoNetworkConnection(t *testing.T) {
 	for name, args := range invocations {
 		t.Run(name, func(t *testing.T) {
 			shell, _, _ := newShell(t)
-			if name == "configured, session" {
+			switch name {
+			case "configured, session":
 				installLogin(t, shell, whoamiSeededDocument())
 				if err := (session.Store{StateRoot: shell.StateRoot}).Save("acme-cloud", session.Session{
 					Issuer: "https://idp.example", RefreshToken: "rt-1",
 				}); err != nil {
 					t.Fatalf("seed a session: %v", err)
 				}
-			} else if name == "unknown context" {
+			case "unknown context":
 				installLogin(t, shell, whoamiSeededDocument())
 			}
 			shell.Run(args)
