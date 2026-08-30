@@ -14,7 +14,7 @@ open decision. The lifecycle command names below are therefore provisional.
 
 These are built: `wso2 context create <name>`, `wso2 context use <context>`,
 `wso2 context list`, `wso2 context current`, `wso2 login`, `wso2 logout`,
-`wso2 doctor`, `wso2 module available`, `wso2 module list`,
+`wso2 whoami`, `wso2 doctor`, `wso2 module available`, `wso2 module list`,
 `wso2 module install <module>`, `wso2 module install <module>@<version>`,
 `wso2 module install <module> --channel <channel>`,
 `wso2 module update <module>`, `wso2 module update --all`, and
@@ -31,7 +31,7 @@ refusal is reported.
 | `wso2 version` | Shows the shell, protocol, and installed module versions. |
 | `wso2 login` | Authenticates the selected context using its configured method. |
 | `wso2 logout` | Ends the session of the identity the selected context names: asks the identity provider to revoke its refresh token, and removes the shell-owned session that every context sharing that credential reference reaches. |
-| `wso2 whoami` | Shows the signed-in user and active organization. |
+| `wso2 whoami` | Built today: shows the selected context, the identity it authenticates as, the organization, the session's subject, and the session's own state, all read from local state with no network call. With no context selected it says so and exits 0. With a context selected but no stored session it says so and names `wso2 login`. A stored session is reported present with its expiry either as the issuer's disclosed refresh-token lifetime or, when the issuer disclosed none, as not stated — never as the shorter-lived access token's own expiry. A disclosed lifetime that has passed is reported expired. A session stored before this field existed reports its subject as unknown rather than blank. |
 | `wso2 org list` | Lists organizations available to the signed-in user. |
 | `wso2 org use <organization>` | Selects an organization and activates its organization-bound session. |
 | `wso2 org current` | Shows the active organization. |
@@ -121,10 +121,20 @@ integration   v0.4.0
 
 ```text
 $ wso2 whoami
-User           jane@example.com
-Organization   acme
-Context        cloud-us
+Context          cloud-us
+Identity         acme-cloud
+Organization     acme
+Subject          jane@example.com
+Session          present
+Session expiry   2026-11-15T09:00:00Z
 ```
+
+`Session expiry` reads `not stated by the issuer` when the identity provider
+discloses no refresh-token lifetime, which is the common case and not an
+error; it is never the access token's own, much shorter, expiry. With no
+context selected, `wso2 whoami` says so and exits 0. With a context selected
+but no stored session, it names `wso2 login` instead of a `Session expiry`
+row. `--output json` renders the same facts as a JSON object.
 
 ### Ending a session
 
