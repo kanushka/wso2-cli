@@ -197,13 +197,18 @@ jobs:
       # request. It builds all three modules and runs every test layer
       # regardless of which one changed: the proof is an end-to-end claim, and
       # an SDK-only change is exactly the kind that breaks the shell.
+      #
+      # TMPDIR is set to an unclean path (a doubled trailing separator) rather
+      # than left to the runner default, so the normal gate exercises the
+      # cleaned path as a matter of course. t.TempDir() joins onto TMPDIR
+      # verbatim, so any test that hands that path onward uncleaned regresses
+      # the class of bug #124 fixed — most of which lived in this acceptance
+      # layer, in test/acceptance/install_fixture_test.go, not in
+      # internal/state alone.
       - name: Run the architecture-proof acceptance gate
-        run: ./scripts/acceptance.sh
-
-      - name: Prove the suite under an unclean TMPDIR
         run: |
           mkdir -p "${RUNNER_TEMP}/trailing"
-          TMPDIR="${RUNNER_TEMP}/trailing//" go test ./internal/state/ -count=1
+          TMPDIR="${RUNNER_TEMP}/trailing//" ./scripts/acceptance.sh
 
   previous-protocol:
     name: Previous Protocol
