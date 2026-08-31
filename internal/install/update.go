@@ -27,8 +27,9 @@ import (
 )
 
 // Status is what one installed module's own policy and the published index say
-// about it: the version installed, the channel it follows, whether it is held
-// at an exact version, and the newest version published on that channel.
+// about it: the version installed, the channel it follows and the channel its
+// policy actually records, whether it is held at an exact version, and the
+// newest version published on the followed channel.
 type Status struct {
 	Namespace string
 	Installed string

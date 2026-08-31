@@ -237,8 +237,8 @@ integration   v0.4.0      —         pinned to v0.4.0
 1 module(s) have an update available. Run wso2 module update --all to take them.
 ```
 
-CHANNEL names the channel a module follows for updates; it is empty (`—`) for
-a module installed at an exact version with no channel chosen, such as
+CHANNEL names the channel a module follows for updates; it shows `—` for a
+module installed at an exact version with no channel chosen, such as
 `integration` above. A pin overrides the channel — it is what makes a pinned
 prerelease installable without putting the module on that channel — so there
 is no channel to name while the pin holds, and the blank cell is not a
