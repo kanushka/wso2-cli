@@ -340,3 +340,32 @@ func TestAFailureInsideACommandIsNotReportedAsAUsageProblem(t *testing.T) {
 		t.Fatalf("exit code = %d, want the module process class %d", code, exit.ModuleProcess)
 	}
 }
+
+// TestEveryCommandFamilyRefusesAMissingSubcommand pins that a bare family name
+// is a usage error in all five families. Cobra validates a non-leaf command's
+// arguments only when it is Runnable, so a parent with a nil RunE prints help
+// and exits 0 — which reports a usage error to whatever script ran it as
+// everything having worked. org, config and module already refuse; context and
+// identity did not. #133.
+func TestEveryCommandFamilyRefusesAMissingSubcommand(t *testing.T) {
+	for _, family := range []string{"context", "identity", "module", "org", "config"} {
+		t.Run(family, func(t *testing.T) {
+			shell, _, errOut := newShell(t)
+
+			if code := shell.Run([]string{family}); code != exit.Usage {
+				t.Fatalf("wso2 %s exited %d, want the usage class %d: a missing "+
+					"subcommand is a usage error, and exit 0 tells a script the "+
+					"typo worked; stderr: %s", family, code, exit.Usage, errOut)
+			}
+			if !strings.Contains(errOut.String(), "shell.missing_argument") {
+				t.Errorf("wso2 %s does not report shell.missing_argument:\n%s", family, errOut)
+			}
+			// A typed problem renders its message and, below it, its recovery
+			// guidance. A refusal that does not name a subcommand to run
+			// leaves the user exactly where they started.
+			if len(strings.Split(strings.TrimSpace(errOut.String()), "\n")) < 2 {
+				t.Errorf("wso2 %s refuses without recovery guidance:\n%s", family, errOut)
+			}
+		})
+	}
+}

@@ -62,12 +62,18 @@ func (s Shell) orgCommand() *cobra.Command {
 		Short:                 "Show and change the organization the selected context runs within.",
 		Long:                  "Subcommands: current, use.",
 		DisableFlagsInUseLine: true,
-		// A RunE is declared here, unlike the context and config families,
-		// because Cobra only validates a non-leaf command's arguments when it
-		// is Runnable; leave this nil and typing wso2 org list would print
-		// help and exit 0 rather than refuse. This is that catch-all: Cobra
-		// only reaches it when args[0] matched none of the subcommands added
-		// below.
+		// A RunE is declared here, unlike the config family, because Cobra
+		// validates a non-leaf command's arguments only when the command is
+		// Runnable: leave it nil and a bare wso2 org prints help and exits 0,
+		// reporting a usage error as success.
+		//
+		// Its unknown-subcommand arm is currently unreachable: the root
+		// dispatcher refuses "org list" with the generic
+		// shell.unknown_command before Cobra descends this far, which is why
+		// no family's own message is ever seen. That generic message is a
+		// worse answer than this one and is tracked in #133; the arm stays so
+		// the family is right on its own terms when the dispatcher stops
+		// preempting it.
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := refuseUnusableShellFlags(command); err != nil {
 				return err

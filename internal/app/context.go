@@ -38,6 +38,12 @@ const (
 	contextCurrentUsage = "Run wso2 context current [--output table|json]."
 )
 
+// contextRecovery is what every refusal from the context command itself,
+// rather than one of its subcommands, points a user at.
+const contextRecovery = "Run wso2 context list to see the contexts on this machine, " +
+	"wso2 context current to show the selected one, wso2 context use <name> to select " +
+	"another, or wso2 context create <name> to add one."
+
 // contextCommand builds the wso2 context tree.
 //
 // It is the first shell command family whose flags are declared to Cobra rather
@@ -50,6 +56,24 @@ func (s Shell) contextCommand() *cobra.Command {
 		Short:                 "Create, select, and list the targets commands run against.",
 		Long:                  "Subcommands: create, current, list, use.",
 		DisableFlagsInUseLine: true,
+		// A RunE is declared because Cobra validates a non-leaf command's
+		// arguments only when it is Runnable: leave it nil and wso2 context
+		// prints help and exits 0, reporting a usage error as success to
+		// whatever ran it. Never cobra.NoArgs or cobra.ExactArgs for this —
+		// both bypass the flag-error hook and exit 70 instead of 64.
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := refuseUnusableShellFlags(command); err != nil {
+				return err
+			}
+			if len(args) == 0 {
+				return problem.New(problem.CategoryUsage, "shell.missing_argument",
+					"wso2 context needs a subcommand").
+					WithRecovery(contextRecovery)
+			}
+			return problem.New(problem.CategoryUsage, "shell.unknown_command",
+				fmt.Sprintf("%q is not a wso2 context subcommand", args[0])).
+				WithRecovery(contextRecovery)
+		},
 	}
 	command.AddCommand(s.contextCreateCommand(), s.contextUseCommand(),
 		s.contextListCommand(), s.contextCurrentCommand())
