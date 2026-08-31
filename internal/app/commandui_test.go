@@ -361,10 +361,12 @@ func TestEveryCommandFamilyRefusesAMissingSubcommand(t *testing.T) {
 				t.Errorf("wso2 %s does not report shell.missing_argument:\n%s", family, errOut)
 			}
 			// A typed problem renders its message and, below it, its recovery
-			// guidance. A refusal that does not name a subcommand to run
-			// leaves the user exactly where they started.
-			if len(strings.Split(strings.TrimSpace(errOut.String()), "\n")) < 2 {
-				t.Errorf("wso2 %s refuses without recovery guidance:\n%s", family, errOut)
+			// guidance. A refusal that does not name one of the family's own
+			// subcommands leaves the user exactly where they started; a stub
+			// like "Sorry." would satisfy a bare line-count check, so pin the
+			// documented promise instead (docs/reference/commands.md).
+			if !strings.Contains(errOut.String(), "wso2 "+family+" ") {
+				t.Errorf("wso2 %s does not point at one of its own subcommands:\n%s", family, errOut)
 			}
 		})
 	}
