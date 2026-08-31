@@ -24,10 +24,11 @@ import (
 )
 
 // TestTheThreeUpdateRenderingsAgreeOnAnUnpublishedModule pins that a dry run
-// predicts what the real run reports. #134 added dryRunUpdateLine mirroring
-// updateOne's branches deliberately, which is why #135 could not be fixed in
-// only one of them: correcting the dry run alone would make --dry-run
-// contradict the command it predicts. #135.
+// predicts what the real run reports, and that the table's update column
+// agrees with both. #134 added dryRunUpdateLine mirroring updateOne's branches
+// deliberately, which is why #135 could not be fixed in only one of them:
+// correcting the dry run alone would make --dry-run contradict the command it
+// predicts. #135.
 func TestTheThreeUpdateRenderingsAgreeOnAnUnpublishedModule(t *testing.T) {
 	status := install.Status{Namespace: "reference", Installed: "1.2.3", Channel: "stable"}
 	outcome := install.Outcome{
@@ -54,6 +55,10 @@ func TestTheThreeUpdateRenderingsAgreeOnAnUnpublishedModule(t *testing.T) {
 		if !strings.Contains(line, "wso2 module available") {
 			t.Errorf("the %s does not name a way to find out what is published: %q", name, line)
 		}
+	}
+
+	if column := updateColumn(status); column != "not published" {
+		t.Errorf("the update column reports %q for an unpublished module, want %q", column, "not published")
 	}
 }
 
