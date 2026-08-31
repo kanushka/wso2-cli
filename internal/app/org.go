@@ -54,8 +54,8 @@ const noContextRecovery = "Run wso2 login to create an identity and a context, "
 // would make an architecture decision — the first shell-side consumer of a
 // token, which ADR 0004 governs — as a side effect of a command. So this
 // family declares only current and use, and anything else typed under it,
-// including list, is refused as an unknown subcommand — today by the root
-// dispatcher, which preempts this family's own RunE.
+// including list, is refused by this family's own RunE as the unknown
+// subcommand it is.
 func (s Shell) orgCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:                   "org <subcommand>",
@@ -67,13 +67,8 @@ func (s Shell) orgCommand() *cobra.Command {
 		// Runnable: leave it nil and a bare wso2 org prints help and exits 0,
 		// reporting a usage error as success.
 		//
-		// Its unknown-subcommand arm is currently unreachable: the root
-		// dispatcher refuses "org list" with the generic
-		// shell.unknown_command before Cobra descends this far, which is why
-		// no family's own message is ever seen. That generic message is a
-		// worse answer than this one and is tracked in #133; the arm stays so
-		// the family is right on its own terms when the dispatcher stops
-		// preempting it.
+		// The arm below refuses an unrecognised subcommand with this
+		// family's own message.
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := refuseUnusableShellFlags(command); err != nil {
 				return err
