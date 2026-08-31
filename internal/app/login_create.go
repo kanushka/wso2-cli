@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/wso2/wso2-cli/internal/contexts"
+	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -308,7 +309,7 @@ func (s Shell) resolveClientID(flags loginFlags) (string, error) {
 	if os.Getenv(NoInputEnvVar) != "" {
 		return "", missingClientID(NoInputEnvVar + " asked that nothing prompt")
 	}
-	if !stdinIsTerminal() {
+	if !output.StdinIsTerminal() {
 		return "", missingClientID("standard input is not a terminal, so nothing can be asked")
 	}
 	if _, err := fmt.Fprint(s.Streams.Err, "Client ID of the registered OAuth application: "); err != nil {
@@ -327,24 +328,6 @@ func (s Shell) resolveClientID(flags loginFlags) (string, error) {
 		return "", missingClientID("nothing was entered at the prompt")
 	}
 	return clientID, nil
-}
-
-// stdinIsTerminal reports whether standard input is a character device, which
-// is as close to "a person could answer a prompt" as the standard library gets.
-//
-// It is not the same question. /dev/null and /dev/zero are character devices
-// too, so a login run with standard input redirected from one of them prompts
-// and then refuses with "nothing was entered at the prompt" — the right code,
-// the right recovery, and no wait for input that is not coming. What this does
-// rule out is the case that matters, a pipe or a file, where prompting would
-// consume a line of somebody's data and call it a client ID.
-//
-// The shell has no terminal handling by decision, so this asks the one question
-// this command has rather than taking a dependency on a terminal package to
-// answer it more precisely than the outcome needs.
-func stdinIsTerminal() bool {
-	info, err := os.Stdin.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 // missingClientID refuses a login that has no application to present.
