@@ -129,7 +129,7 @@ func (s Shell) doctorCommand() *cobra.Command {
 // failing run as much as a passing one, so a caller reading --output json can
 // always read the findings off a run that got that far.
 func (s Shell) doctor(command *cobra.Command, online bool) error {
-	mode, err := shellOutputMode(command)
+	mode, err := s.shellOutputMode(command)
 	if err != nil {
 		return err
 	}
@@ -222,7 +222,7 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 	}
 
 	if online {
-		finding, catalogErr := catalogCheck()
+		finding, catalogErr := catalogCheck(root)
 		findings = append(findings, finding)
 		if catalogErr != nil {
 			failures[checkCatalog] = *catalogErr
@@ -251,15 +251,16 @@ func renderDoctorReport(w io.Writer, mode output.Mode, findings []doctorFinding)
 // return value is non-nil exactly when the finding is a failure, so the
 // caller can add it to doctor's failures map without re-deriving the outcome
 // from the finding's Status string.
-func catalogCheck() (doctorFinding, *problem.Problem) {
+func catalogCheck(stateRoot string) (doctorFinding, *problem.Problem) {
 	ctx, cancel := context.WithTimeout(context.Background(), catalogProbeTimeout)
 	defer cancel()
-	client := catalog.Client{Origin: catalog.Origin()}
+	origin := catalog.Origin(stateRoot)
+	client := catalog.Client{Origin: origin}
 	if _, err := client.Index(ctx); err != nil {
 		typed := doctorProblem(err)
 		return failFinding(checkCatalog, typed), &typed
 	}
-	return passFinding(checkCatalog, fmt.Sprintf("the module catalog at %s is reachable", catalog.Origin())), nil
+	return passFinding(checkCatalog, fmt.Sprintf("the module catalog at %s is reachable", origin)), nil
 }
 
 // mostSevereFailure reports the exit-deciding problem, per R1's rank. A check

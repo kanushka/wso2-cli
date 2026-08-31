@@ -207,10 +207,35 @@ func conflictingConfirmationFlags(command string) problem.Problem {
 // confirmation and mayPrompt refused it, naming which control fired: subject
 // is what needed confirming, and reason is mayPrompt's own wording for why it
 // would not ask.
+//
+// The recovery is chosen from that same reason rather than fixed, because
+// only one of the three ways out is true at a time. mayPrompt consults
+// --no-input and WSO2_NO_INPUT before it looks at the terminal, so in CI —
+// where a non-interactive control is usually set deliberately — a recovery
+// saying "run this where standard input is a terminal" advises a change that
+// would not alter the outcome. A refusal that already knows which control
+// fired has no excuse for naming a different one.
+//
+// This carries CategoryUsage and shell.non_interactive where login.go's gate
+// on the same shared predicate carries CategoryAuthPolicy and
+// auth.non_interactive. The predicate is shared so the two cannot disagree
+// about whether anything may be asked; the reports differ because the
+// refusals are not the same refusal. Login's says access could not be
+// acquired and its documented exit class 77 tells a script to go and
+// authenticate; this one says the invocation was incomplete, and its exit
+// class 64 tells the same script to add --yes. One code for both would have
+// to lie about one of them.
 func nonInteractiveConfirmation(subject, reason string) problem.Problem {
+	recovery := "Pass --yes to proceed without a prompt, or run this where standard input is a terminal."
+	switch reason {
+	case reasonNoInputFlag:
+		recovery = "Pass --yes to proceed without a prompt, or drop --no-input to be asked."
+	case reasonNoInputEnv:
+		recovery = "Pass --yes to proceed without a prompt, or unset " + NoInputEnvVar + " to be asked."
+	}
 	return problem.New(problem.CategoryUsage, "shell.non_interactive",
 		fmt.Sprintf("%s needs to be confirmed, and %s", subject, reason)).
-		WithRecovery("Pass --yes to proceed without a prompt, or run this where standard input is a terminal.")
+		WithRecovery(recovery)
 }
 
 // moduleInstall installs one product module from the catalog.
@@ -309,9 +334,13 @@ func (s Shell) installer() (install.Installer, error) {
 	if err != nil {
 		return install.Installer{}, err
 	}
+	root, err := s.stateRoot()
+	if err != nil {
+		return install.Installer{}, err
+	}
 	return install.Installer{
 		Store:  store,
-		Client: catalog.Client{Origin: catalog.Origin(), HTTP: &http.Client{}},
+		Client: catalog.Client{Origin: catalog.Origin(root), HTTP: &http.Client{}},
 		Shell:  identity,
 		// The archive's size is known before Download starts (it comes from
 		// the catalog entry, not a response header), so the factory only

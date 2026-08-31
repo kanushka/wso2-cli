@@ -113,6 +113,12 @@ func TestModuleRemoveRefusesToPromptOnPipedStdin(t *testing.T) {
 	if !strings.Contains(errOut.String(), "standard input is not a terminal") {
 		t.Errorf("the refusal does not name standard input:\n%s", errOut)
 	}
+	// The terminal is the way out only here, where no control asked for
+	// non-interactive operation. See TestModuleRemoveRefusalNamesTheControl
+	// ThatFired for the cases where offering it would be unactionable advice.
+	if !strings.Contains(errOut.String(), "run this where standard input is a terminal") {
+		t.Errorf("the recovery does not offer the terminal, the way out that applies here:\n%s", errOut)
+	}
 	if !installedNamespace(t, shell, "reference") {
 		t.Error("the module was removed despite the refusal")
 	}
@@ -125,16 +131,25 @@ func TestModuleRemoveRefusesToPromptOnPipedStdin(t *testing.T) {
 // --no-input, and that the flag is named in preference to the variable when
 // both are set — the flag is on the command line in front of the reader, the
 // variable can have been set in a shell profile months ago.
+//
+// The recovery is asserted as well, in both directions. mayPrompt consults
+// these two controls before the terminal check, so telling a caller who set
+// one of them to "run this where standard input is a terminal" advises a
+// change that would not alter the outcome — and CI, where they are set
+// deliberately, is where this refusal is most often read. The negative
+// assertion is the load-bearing half: a recovery that lists every way out
+// would satisfy wantRecovery alone.
 func TestModuleRemoveRefusalNamesTheControlThatFired(t *testing.T) {
 	for _, testCase := range []struct {
-		name string
-		args []string
-		env  string
-		want string
+		name         string
+		args         []string
+		env          string
+		want         string
+		wantRecovery string
 	}{
-		{"the flag", []string{"--no-input"}, "", "--no-input"},
-		{"the environment variable", nil, "1", "WSO2_NO_INPUT"},
-		{"both set, the flag wins", []string{"--no-input"}, "1", "--no-input"},
+		{"the flag", []string{"--no-input"}, "", "--no-input", "drop --no-input"},
+		{"the environment variable", nil, "1", "WSO2_NO_INPUT", "unset WSO2_NO_INPUT"},
+		{"both set, the flag wins", []string{"--no-input"}, "1", "--no-input", "drop --no-input"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			shell, out, errOut := newModuleShell(t)
@@ -154,6 +169,14 @@ func TestModuleRemoveRefusalNamesTheControlThatFired(t *testing.T) {
 			requireRefusal(t, errOut.String(), "shell.non_interactive")
 			if !strings.Contains(errOut.String(), testCase.want) {
 				t.Errorf("the refusal does not name %s:\n%s", testCase.want, errOut)
+			}
+			if !strings.Contains(errOut.String(), testCase.wantRecovery) {
+				t.Errorf("the recovery does not offer %q, the one way out that applies:\n%s",
+					testCase.wantRecovery, errOut)
+			}
+			if strings.Contains(errOut.String(), "standard input is a terminal") {
+				t.Errorf("the recovery advises a terminal, which %s makes irrelevant:\n%s",
+					testCase.want, errOut)
 			}
 			if !installedNamespace(t, shell, "reference") {
 				t.Error("the module was removed despite the refusal")

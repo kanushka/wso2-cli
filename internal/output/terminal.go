@@ -65,6 +65,14 @@ func StdinIsTerminal() bool {
 // With NO_COLOR absent or empty, the answer falls back to whether w is a
 // terminal: a piped or redirected stream gets no escape codes even without
 // the variable set, because there is nothing there to render them.
+//
+// There is no configuration layer here (a "color" preference was in the
+// original wave 4 design and was cut before shipping — see
+// internal/preferences's package doc comment): this function has zero
+// production callers today, so a preference that claimed to govern it would
+// change nothing observable. This is what a future colour consumer calls;
+// that consumer, not this function, is where a "color" preference would earn
+// its place back into the closed key set.
 func ColorEnabled(w io.Writer) bool {
 	if os.Getenv("NO_COLOR") != "" {
 		return false

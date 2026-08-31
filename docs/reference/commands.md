@@ -19,8 +19,9 @@ These are built: `wso2 context create <name>`, `wso2 context use <context>`,
 `wso2 whoami`, `wso2 doctor`, `wso2 module available`, `wso2 module list`,
 `wso2 module install <module>`, `wso2 module install <module>@<version>`,
 `wso2 module install <module> --channel <channel>`,
-`wso2 module update <module>`, `wso2 module update --all`, and
-`wso2 module remove <module>`. The
+`wso2 module update <module>`, `wso2 module update --all`,
+`wso2 module remove <module>`, `wso2 config list`, `wso2 config get <key>`,
+and `wso2 config set <key> <value>`. The
 [module catalog](module-catalog.md) reference describes what they select, what
 they verify, how a channel and a pin are recorded per module, and how each
 refusal is reported.
@@ -44,9 +45,9 @@ refusal is reported.
 | `wso2 context current` | Shows the active context. |
 | `wso2 identity add-product <identity> <namespace>` | Records a product the identity reaches, with `--endpoint`, and optionally `--audience` and a comma-separated `--scopes`. It modifies an identity `wso2 login` wrote and creates no identity and no context: logging in is the only thing that creates an identity. Nothing is written to the secure store and no network call is made, so the record is an assertion that the login's session reaches the product, checked by the first command that needs it. A namespace the identity already records is refused with `contexts.product_exists`; `--replace` overwrites it, replacing the whole record rather than merging with it. An endpoint embedding user information is refused, and the rejected value is not echoed. |
 | `wso2 identity list` | Lists the identities and, for each, the products it reaches. It names no credential and reads nothing from the secure store. |
-| `wso2 config list` | Shows non-secret shell preferences. |
-| `wso2 config get <key>` | Shows one non-secret shell preference. |
-| `wso2 config set <key> <value>` | Changes one non-secret shell preference. |
+| `wso2 config list` | Built today: shows every key in the closed set of shell preferences — the default output mode and the catalog origin override — and whether each is currently configured. |
+| `wso2 config get <key>` | Built today: shows one shell preference. `key` must be one of `output`, `catalog-origin`; any other value is refused with `config.unknown_key`, naming the valid keys. |
+| `wso2 config set <key> <value>` | Built today: changes one shell preference. An unknown key is refused the same way `config get` refuses one; a value a key does not accept is refused with `config.invalid_value`, naming what is acceptable (`table` or `json` for `output`; an absolute http or https URL for `catalog-origin`). Each preference is the lowest-precedence source for what it governs: `--output` wins over a configured output mode, and `WSO2_CLI_CATALOG_ORIGIN` wins over a configured catalog origin — a saved preference can never override either. A colour preference is not in this set: `output.ColorEnabled` has no production caller yet, so a key that claimed to govern colour would change nothing observable; it is the obvious first key to add once something renders in colour. |
 | `wso2 update` | Applies the approved installation-channel policy for root shell updates. |
 | `wso2 module available` | Lists official modules the module catalog publishes. |
 | `wso2 module install <module>` | Installs the latest compatible stable release of a module. |

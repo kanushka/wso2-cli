@@ -26,6 +26,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/wso2/wso2-cli/internal/preferences"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -58,8 +59,22 @@ const (
 
 // Origin reports the catalog origin this invocation reads, with no trailing
 // slash so a published path always joins onto it the same way.
-func Origin() string {
+//
+// The precedence is three layers, outermost first: OriginEnvVar, which the
+// acceptance suite sets so no test ever reaches the real origin and which a
+// saved preference must never be able to override; the "catalog-origin"
+// preference (wso2 config set catalog-origin <url>); and DefaultOrigin. A
+// preferences document this shell cannot read falls back to no override
+// configured, silently as far as this function is concerned — see
+// preferences.Load and output.ColorEnabled's doc comment for why that
+// diagnostic belongs to the shell, once per invocation, and not here.
+func Origin(stateRoot string) string {
 	origin := os.Getenv(OriginEnvVar)
+	if origin == "" {
+		if document, _ := preferences.Load(stateRoot); document.CatalogOrigin != "" {
+			origin = document.CatalogOrigin
+		}
+	}
 	if origin == "" {
 		origin = DefaultOrigin
 	}
