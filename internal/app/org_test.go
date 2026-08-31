@@ -300,3 +300,23 @@ func TestTheOrgFamilyRefusesTheContextFlag(t *testing.T) {
 		t.Errorf("stderr does not carry shell.unsupported_flag:\n%s", errOut)
 	}
 }
+
+// TestOrgUseSaysNothingAboutASessionWhenNothingChanged proves the
+// session-mismatch warning is tied to an actual change rather than to the
+// command running: re-running org use with the organization a context already
+// names alters nothing, so a warning that a signed-in session no longer
+// matches would be false.
+func TestOrgUseSaysNothingAboutASessionWhenNothingChanged(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	seeded := identityOnlyDocument()
+	seeded.DefaultContext = "acme"
+	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud", Organization: "same-org"}}
+	installLogin(t, shell, seeded)
+
+	if code := shell.Run([]string{"org", "use", "same-org"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if strings.Contains(strings.ToLower(errOut.String()), "no longer match") {
+		t.Errorf("a no-op org use warned that a session no longer matches:\n%s", errOut)
+	}
+}

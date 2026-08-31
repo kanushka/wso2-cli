@@ -194,6 +194,7 @@ func (s Shell) orgUse(command *cobra.Command, organization string) error {
 		"organization", organization, "document", contexts.Path(root))
 
 	var edited string
+	var changed bool
 	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
 		if len(document.Contexts) == 0 {
 			return document, noContextToEdit()
@@ -205,6 +206,11 @@ func (s Shell) orgUse(command *cobra.Command, organization string) error {
 		edited = selected.Context.Name
 		for i := range document.Contexts {
 			if document.Contexts[i].Name == edited {
+				// Recorded before the write so the warning below can tell a
+				// real change from a no-op. Re-running org use with the
+				// organization a context already names changes nothing, and a
+				// warning that a session no longer matches would be false.
+				changed = document.Contexts[i].Organization != organization
 				document.Contexts[i].Organization = organization
 			}
 		}
@@ -222,6 +228,10 @@ func (s Shell) orgUse(command *cobra.Command, organization string) error {
 	} else if _, err := fmt.Fprintf(s.Streams.Out,
 		"\nSet the %q context's organization to %q.\n", edited, organization); err != nil {
 		return err
+	}
+
+	if !changed {
+		return nil
 	}
 
 	// This is the fact the whole command exists to surface (#112 task 5): the

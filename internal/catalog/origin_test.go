@@ -25,6 +25,11 @@ import (
 // TestOriginFallsBackToTheDefault pins the innermost layer: with nothing set
 // anywhere, Origin reports DefaultOrigin.
 func TestOriginFallsBackToTheDefault(t *testing.T) {
+	// Cleared explicitly: this variable is set by the acceptance harness and
+	// by anyone pointing the shell at a local origin, and Origin reads it
+	// first, so a test asserting a lower layer fails in that environment
+	// rather than in this code.
+	t.Setenv(OriginEnvVar, "")
 	if got := Origin(t.TempDir()); got != DefaultOrigin {
 		t.Errorf("Origin() = %q, want DefaultOrigin %q", got, DefaultOrigin)
 	}
@@ -34,6 +39,11 @@ func TestOriginFallsBackToTheDefault(t *testing.T) {
 // configured catalog-origin preference is used when the environment variable
 // is not set.
 func TestOriginConfigurationWinsOverTheDefault(t *testing.T) {
+	// Cleared explicitly: this variable is set by the acceptance harness and
+	// by anyone pointing the shell at a local origin, and Origin reads it
+	// first, so a test asserting a lower layer fails in that environment
+	// rather than in this code.
+	t.Setenv(OriginEnvVar, "")
 	root := t.TempDir()
 	setCatalogOrigin(t, root, "https://configured.example/catalog")
 
@@ -63,6 +73,9 @@ func TestOriginEnvVarWinsOverConfiguration(t *testing.T) {
 func TestOriginTrimsATrailingSlashFromEitherSource(t *testing.T) {
 	t.Run("from configuration", func(t *testing.T) {
 		root := t.TempDir()
+		// Cleared for the same reason as the tests above: this subtest asserts
+		// the configured layer, which the environment variable outranks.
+		t.Setenv(OriginEnvVar, "")
 		setCatalogOrigin(t, root, "https://configured.example/catalog/")
 		if got, want := Origin(root), "https://configured.example/catalog"; got != want {
 			t.Errorf("Origin() = %q, want %q", got, want)
