@@ -360,13 +360,23 @@ func TestEveryCommandFamilyRefusesAMissingSubcommand(t *testing.T) {
 			if !strings.Contains(errOut.String(), "shell.missing_argument") {
 				t.Errorf("wso2 %s does not report shell.missing_argument:\n%s", family, errOut)
 			}
-			// A typed problem renders its message and, below it, its recovery
-			// guidance. A refusal that does not name one of the family's own
+			// writeProblem (internal/output/output.go) renders the message on
+			// its own first line as "error: ... (code)" and, only when one is
+			// set, the recovery on the line below as "  <recovery>". Split on
+			// the first newline so the recovery assertion below cannot be
+			// satisfied by the message line, which already contains
+			// "wso2 <family> " as part of its own text.
+			lines := strings.SplitN(errOut.String(), "\n", 2)
+			if len(lines) < 2 || strings.TrimSpace(lines[1]) == "" {
+				t.Fatalf("wso2 %s did not print recovery guidance below its message:\n%s", family, errOut)
+			}
+			recovery := lines[1]
+			// A refusal that does not name one of the family's own
 			// subcommands leaves the user exactly where they started; a stub
 			// like "Sorry." would satisfy a bare line-count check, so pin the
 			// documented promise instead (docs/reference/commands.md).
-			if !strings.Contains(errOut.String(), "wso2 "+family+" ") {
-				t.Errorf("wso2 %s does not point at one of its own subcommands:\n%s", family, errOut)
+			if !strings.Contains(recovery, "wso2 "+family+" ") {
+				t.Errorf("wso2 %s recovery does not point at one of its own subcommands:\n%s", family, errOut)
 			}
 		})
 	}
