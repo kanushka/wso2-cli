@@ -16,7 +16,7 @@ These are built: `wso2 context create <name>`, `wso2 context use <context>`,
 `wso2 context list`, `wso2 context current`,
 `wso2 identity add-product <identity> <namespace>`, `wso2 identity list`,
 `wso2 login`, `wso2 login --url <issuer> --client-id <id>`, `wso2 logout`,
-`wso2 module available`, `wso2 module list`,
+`wso2 whoami`, `wso2 doctor`, `wso2 module available`, `wso2 module list`,
 `wso2 module install <module>`, `wso2 module install <module>@<version>`,
 `wso2 module install <module> --channel <channel>`,
 `wso2 module update <module>`, `wso2 module update --all`, and
@@ -34,7 +34,7 @@ refusal is reported.
 | `wso2 login` | Authenticates the selected context using its configured method. |
 | `wso2 login --url <issuer> --client-id <id>` | Logs in against a named issuer and creates the identity and the context it authenticated, reporting both names. `--context <name>` names them; without it the identity name is derived from the issuer host, and an issuer whose host cannot make a legal name is refused with `contexts.identity_name_underivable`. An identity of that name whose issuer and client ID both match is reused; one that differs in either is refused with `contexts.identity_exists` and never replaced. The first context created becomes the selected one. Nothing is written unless the login succeeded. Omitting `--client-id` prompts in an interactive terminal and is refused with `shell.missing_required_flag` under `--no-input`. |
 | `wso2 logout` | Ends the session of the identity the selected context names: asks the identity provider to revoke its refresh token, and removes the shell-owned session that every context sharing that credential reference reaches. |
-| `wso2 whoami` | Shows the signed-in user and active organization. |
+| `wso2 whoami` | Built today: shows the selected context, the identity it authenticates as, the organization, the session's subject, and the session's own state, all read from local state with no network call. With no context selected it says so and exits 0. With a context selected but no stored session it says so and names `wso2 login`. A stored session is reported present with its expiry either as the issuer's disclosed refresh-token lifetime or, when the issuer disclosed none, as not stated — never as the shorter-lived access token's own expiry. A disclosed lifetime that has passed is reported expired. A session stored before this field existed reports its subject as unknown rather than blank. |
 | `wso2 org list` | Lists organizations available to the signed-in user. |
 | `wso2 org use <organization>` | Selects an organization and activates its organization-bound session. |
 | `wso2 org current` | Shows the active organization. |
@@ -62,7 +62,7 @@ refusal is reported.
 | `wso2 bundle create` | Creates a platform-specific, self-installing offline bundle from catalog releases. |
 | `wso2 bundle inspect <file>` | Shows bundle contents without installing it. |
 | `wso2 bundle install <file>` | Imports a bundle when the WSO2 CLI is already installed. |
-| `wso2 doctor` | Checks shell, context, secure-store, catalog, and module health. |
+| `wso2 doctor` | Built today: checks that the context document is valid, that the OS secure store is reachable, and that the selected context has a stored session. `--online` adds a fourth check, module catalog reachability; without it, `wso2 doctor` makes no network call. On an unconfigured machine, the secure-store and session checks report not-applicable rather than failure; on a context document that fails to decode or validate, the session check reports not-applicable too, because no credential reference can be resolved from it, while the secure-store check still runs since it never reads the document. Exits 0 when every check passes or is not-applicable, otherwise the exit class of the most severe failing check, in this rank: secure-store, then the document, then the session, then (only under `--online`) the catalog — a rank this command defines and not the numeric order of the exit classes those checks carry. Receipt, module integrity, compatibility, and protocol status are not built yet; see [architecture](../architecture.md#14-operational-behavior-and-recovery). |
 
 `project` commands are intentionally not included yet. Product-specific
 projects, deployment, and runtime operations remain within their product
@@ -86,7 +86,7 @@ parsing any output.
 | `0` | Success | The command completed. |
 | `64` | Usage | Invalid arguments, flags, or configuration, including a malformed context document. |
 | `69` | Module trust | A module integrity, signature, platform, or compatibility failure. |
-| `70` | Module process | A protocol violation, or a module process that failed to launch or crashed. |
+| `70` | Module process | A protocol violation, a module process that failed to launch or crashed, or an unreachable module catalog origin (including `wso2 doctor --online`'s catalog check). |
 | `75` | Product service | A failure the product service itself reported. |
 | `77` | Authentication policy | An authentication or broker policy failure, including no context selected, and a missing or expired session. |
 
@@ -126,10 +126,20 @@ integration   v0.4.0
 
 ```text
 $ wso2 whoami
-User           jane@example.com
-Organization   acme
-Context        cloud-us
+Context          cloud-us
+Identity         acme-cloud
+Organization     acme
+Subject          jane@example.com
+Session          present
+Session expiry   2026-11-15T09:00:00Z
 ```
+
+`Session expiry` reads `not stated by the issuer` when the identity provider
+discloses no refresh-token lifetime, which is the common case and not an
+error; it is never the access token's own, much shorter, expiry. With no
+context selected, `wso2 whoami` says so and exits 0. With a context selected
+but no stored session, it names `wso2 login` instead of a `Session expiry`
+row. `--output json` renders the same facts as a JSON object.
 
 ### First login against a self-hosted issuer
 

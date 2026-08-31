@@ -129,8 +129,9 @@ func (s Shell) rootCommand() *cobra.Command {
 	// same code that parses every other shell flag.
 	root.PersistentFlags().Bool(verboseFlag, false, "Write diagnostics about what the shell attempted to stderr.")
 
-	root.AddCommand(s.contextCommand(), s.identityCommand(), s.loginCommand(),
-		s.logoutCommand(), s.moduleCommand(), s.versionCommand())
+	root.AddCommand(s.contextCommand(), s.doctorCommand(), s.identityCommand(),
+		s.loginCommand(), s.logoutCommand(), s.moduleCommand(), s.versionCommand(),
+		s.whoamiCommand())
 
 	// Cobra's generated help command describes itself generically. The shell
 	// published its own summary for it, and that wording is kept.
@@ -351,6 +352,11 @@ func shellFlagsFor(name string) []string {
 		// alongside "wso2 context use beta" would be two answers to one
 		// question.
 		return []string{outputFlag}
+	case "doctor":
+		// doctor reports ON a selected context, so naming one with --context is
+		// meaningful, and its findings are read by scripts as much as by a
+		// person.
+		return []string{contextFlag, outputFlag}
 	case "identity":
 		// The family renders a machine-readable result, and takes no
 		// --context: an identity is named by this family's own arguments, and
@@ -364,6 +370,11 @@ func shellFlagsFor(name string) []string {
 		// result, because it is the only one whose result a script has to read:
 		// what the issuer was told about the ended session is not observable
 		// any other way.
+		return []string{contextFlag, outputFlag}
+	case "whoami":
+		// whoami reports ON a selected context exactly as doctor does (R5,
+		// #112), so naming one with --context is meaningful for the same
+		// reason.
 		return []string{contextFlag, outputFlag}
 	default:
 		return nil

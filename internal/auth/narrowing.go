@@ -17,8 +17,11 @@
 package auth
 
 import (
+	"encoding/json"
 	"fmt"
+	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,7 +34,86 @@ type tokenResponse struct {
 	RefreshToken string `json:"refresh_token"`
 	Scope        string `json:"scope"`
 	ExpiresIn    int64  `json:"expires_in"`
+	// RefreshTokenExpiresIn is the rotated refresh token's own lifetime, in
+	// seconds, when the issuer states one, decoded through optionalSeconds so
+	// a string-shaped value — seen in the wild for this non-standard OAuth
+	// extension — narrows to "not stated" instead of failing the surrounding
+	// Unmarshal. Zero means the issuer stated none, or stated something this
+	// package cannot read as a positive number of seconds; R7 (#112) treats
+	// that as the expected case, and source_session.go's rotation path leaves
+	// session.Session.SessionExpiresAt at the zero value rather than
+	// inventing a substitute.
+	RefreshTokenExpiresIn optionalSeconds `json:"refresh_token_expires_in"`
 }
+
+// optionalSeconds decodes a token-response member that states a lifetime in
+// seconds, when an issuer sends one, as either a JSON number or a JSON
+// string, and treats every other shape — absent, a bool, an object, a
+// malformed or non-positive value — as not stated. It never returns an error
+// from UnmarshalJSON: see RefreshLifetimeSeconds for why a field that exists
+// only so wso2 whoami can print something must never be allowed to fail the
+// token exchange it decorates.
+type optionalSeconds int64
+
+// UnmarshalJSON implements json.Unmarshaler. It swallows every shape it
+// cannot read as a positive number of seconds, including malformed JSON at
+// this member's own position, rather than propagating an error: the
+// alternative would let a single non-standard field spelling fail a whole
+// refresh grant that would otherwise have succeeded, which is the defect this
+// type exists to close.
+func (o *optionalSeconds) UnmarshalJSON(data []byte) error {
+	var raw any
+	if err := json.Unmarshal(data, &raw); err == nil {
+		seconds, _ := RefreshLifetimeSeconds(raw)
+		*o = optionalSeconds(seconds)
+	} else {
+		*o = 0
+	}
+	return nil
+}
+
+// RefreshLifetimeSeconds interprets one already-decoded value as a
+// refresh-token lifetime in seconds, accepting either shape an issuer states
+// it as for the non-standard refresh_token_expires_in extension — a JSON
+// number or a JSON string — and reporting every other shape (absent, a bool,
+// an object, a malformed or non-positive number) as not stated rather than as
+// an error.
+//
+// It is exported, and takes the value rather than raw JSON bytes, so both
+// halves of this shell can apply the identical rule to the identical wire
+// shape without drifting from each other: optionalSeconds.UnmarshalJSON above
+// calls it after decoding the member into an any, and
+// internal/app/login.go's *oauth2.Token.Extra("refresh_token_expires_in")
+// already returns the same already-decoded shape — encoding/json.Unmarshal
+// into an any yields float64 for a JSON number and string for a JSON string,
+// regardless of which of the two call sites did the decoding.
+func RefreshLifetimeSeconds(value any) (int64, bool) {
+	switch v := value.(type) {
+	case float64:
+		// Compared before the conversion, not after: converting a float64
+		// larger than an int64 can hold is implementation-defined in Go, so a
+		// bound checked on the result would be reading a value that is already
+		// meaningless.
+		if v > 0 && v <= float64(maxLifetimeSeconds) {
+			return int64(v), true
+		}
+	case string:
+		if seconds, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil &&
+			seconds > 0 && seconds <= maxLifetimeSeconds {
+			return seconds, true
+		}
+	}
+	return 0, false
+}
+
+// maxLifetimeSeconds is the largest lifetime that survives conversion to a
+// time.Duration, which counts nanoseconds in an int64. A larger value wraps
+// when multiplied by time.Second and yields an expiry in the past, so a caller
+// would report a session that has just been issued as long expired. Anything
+// above it is treated as unstated, on the same principle as every other shape
+// this function refuses: a field that exists so wso2 whoami can print
+// something must never produce an answer worse than saying nothing.
+const maxLifetimeSeconds = int64(math.MaxInt64) / int64(time.Second)
 
 // expiry is when the issued token stops working: what the response said, or
 // what the token itself claims when the response said nothing.

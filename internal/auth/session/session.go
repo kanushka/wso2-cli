@@ -42,6 +42,20 @@ type Session struct {
 	RefreshToken string    `json:"refreshToken"`
 	AccessToken  string    `json:"accessToken,omitempty"`
 	ExpiresAt    time.Time `json:"expiresAt,omitempty"`
+	// Subject is the verified identity token's subject, recorded at login.
+	// omitempty so a keychain entry written before this field existed decodes
+	// with it empty rather than failing to decode: encoding/json leaves an
+	// absent JSON member as the Go zero value. wso2 whoami is the one place
+	// that reads this field, and it renders an empty Subject as unknown rather
+	// than as a blank field, rather than this type asserting a guarantee it
+	// cannot enforce.
+	Subject string `json:"subject,omitempty"`
+	// SessionExpiresAt is when the REFRESH token stops working, not the access
+	// token — see ExpiresAt above for that one. It is the zero value whenever
+	// the issuer has not disclosed a refresh-token lifetime, which most
+	// issuers today do not; nothing in this package treats that as an error,
+	// and nothing here invents a substitute for it.
+	SessionExpiresAt time.Time `json:"sessionExpiresAt,omitempty"`
 }
 
 // Store reads and writes sessions in the OS secure store.
@@ -71,6 +85,30 @@ func (s Store) Load(ref string) (Session, error) {
 			"Run wso2 login to establish a fresh session for this context.")
 	}
 	return stored, nil
+}
+
+// ProbeCredentialRef is the reserved reference Probe reads under.
+//
+// It contains a period, a character the credentialRef pattern
+// (^[a-z][a-z0-9-]{0,63}$) never allows, so no identity a document declares can
+// ever be assigned this reference. That is what lets Probe read the secure
+// store without risking a collision with, or a read of, a real session.
+const ProbeCredentialRef = "probe.reachability"
+
+// Probe reports whether the OS secure store answers a read at all, without
+// touching any identity's session.
+//
+// It asks for the reserved reference above, which nothing ever stores a
+// session under. A "not found" answer means the backend was reached and had an
+// opinion about the key, which is what "reachable" means here: there is
+// nothing to probe with, only whether the backend can be asked. Any other
+// error means the backend itself, not the key, could not be reached.
+func (s Store) Probe() error {
+	_, err := keyring.Get(Service, ProbeCredentialRef)
+	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
+		return keyringUnavailable()
+	}
+	return nil
 }
 
 // Save writes the session, replacing any previous entry.

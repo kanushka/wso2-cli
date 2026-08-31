@@ -125,6 +125,25 @@ func (s sessionSource) derive(request Request, now time.Time) (Grant, error) {
 	// command, so it is handed over and never stored.
 	if issued.RefreshToken != "" && issued.RefreshToken != stored.RefreshToken {
 		stored.RefreshToken = issued.RefreshToken
+		// The rotated token's own lifetime, when this rotation discloses one;
+		// the zero value otherwise (R7, #112). It is reassigned rather than
+		// left as whatever an earlier login or rotation happened to record,
+		// because that value described a refresh token this rotation has just
+		// replaced, and carrying it forward would misstate the new one's
+		// lifetime as known when it is not.
+		//
+		// One consequence of this, worth knowing rather than fixing: an
+		// issuer that discloses a lifetime at login but falls silent about it
+		// on every later rotation will make wso2 whoami's Session expiry
+		// silently downgrade from a timestamp to "not stated by the issuer"
+		// the first time this session rotates, with nothing actually wrong.
+		// That is the honest answer under R7 — this package cannot tell "the
+		// issuer forgot to say" apart from "the issuer changed its mind" —
+		// but it is a visible behavior change with no visible cause.
+		stored.SessionExpiresAt = time.Time{}
+		if issued.RefreshTokenExpiresIn > 0 {
+			stored.SessionExpiresAt = now.Add(time.Duration(issued.RefreshTokenExpiresIn) * time.Second).UTC()
+		}
 		if err := s.sessions.Save(s.identity.Auth.CredentialRef, stored); err != nil {
 			return Grant{}, err
 		}
