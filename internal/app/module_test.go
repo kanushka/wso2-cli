@@ -447,6 +447,27 @@ func TestModuleUpdateAllDryRunReportsWithoutChanging(t *testing.T) {
 	}
 }
 
+// TestModuleUpdateAllReportsAModuleTheCatalogDoesNotPublish is the
+// command-level regression guard for #135: an empty catalog is exactly what a
+// withdrawn, renamed, or channel-moved module looks like, and this asserts
+// both the report and, per D2, that the exit status stays exit.OK. Without
+// this, only the unit-level nil-error assertion in module_internal_test.go
+// protects that exit-status decision, which a future refactor of the caller
+// would not catch.
+func TestModuleUpdateAllReportsAModuleTheCatalogDoesNotPublish(t *testing.T) {
+	shell, out, errOut := newModuleShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+	shell.Reader = failIfReadReader{t}
+	catalogServing(t, `{"schemaVersion":1,"modules":[]}`)
+
+	if code := shell.Run([]string{"module", "update", "--all", "--yes"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "The catalog publishes no version of reference on the stable channel") {
+		t.Errorf("stdout does not report the unpublished module:\n%s", out)
+	}
+}
+
 // TestModuleUpdateAllDryRunReportsAPinnedModuleWithoutChanging exercises
 // dryRunUpdateLine's Pinned branch, which mirrors updateOne's own Pinned
 // branch: a held module is reported as held, never as a candidate to move.

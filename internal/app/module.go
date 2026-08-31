@@ -603,9 +603,10 @@ func (s Shell) reportUpdatePlan(installer install.Installer, namespaces []string
 }
 
 // dryRunUpdateLine renders what Update would do to one module, from the same
-// Status it would act on: the three branches mirror updateOne's exactly.
-// module_test.go exercises all three (TestModuleUpdateAllDryRunReports*),
-// so this claim is enforced rather than merely asserted in a comment.
+// Status it would act on: the four branches mirror updateOne's exactly.
+// module_test.go exercises the first three (TestModuleUpdateAllDryRunReports*)
+// and module_internal_test.go the fourth (the unpublished branch), so this
+// claim is enforced rather than merely asserted in a comment.
 func dryRunUpdateLine(status install.Status) string {
 	switch {
 	case status.Pinned:
