@@ -73,10 +73,15 @@ walkthrough states its product's answer and shows the measurement behind it.
 
 ---
 
-## 2. Write the context document
+## 2. The context document
 
-The shell reads contexts and never writes them, so this file is authored by
-hand.
+You do not have to write this file by hand. `wso2 login --url <issuer>
+--client-id <id>` creates the identity and the context it authenticates, and
+`wso2 context create` adds further contexts over the same identity; section 3
+takes that route, and no editor is involved in it. This section stays because
+the file is what those commands write, and reading it is how you check what
+they wrote — and because a context that names an organization, a project, or
+more than one product is still quicker to write than to assemble from flags.
 
 ### 2.1 Where it goes
 
@@ -164,7 +169,7 @@ for that product, including `type` and any product-specific member.
 | `auth.issuer` | The issuer, verbatim from its discovery document. |
 | `auth.clientId` | The registered public client. |
 | `auth.tenant` | The identity's home organization. |
-| `auth.provider` | Names the product when the shell must ask it for tokens in a product-specific shape. Required for Thunder; see [its walkthrough](login-thunder.md#9-write-the-context-document). |
+| `auth.provider` | Names the product when the shell must ask it for tokens in a product-specific shape. Required for Thunder; see [its walkthrough](login-thunder.md#9-log-in-and-check-what-it-wrote). |
 | `auth.credentialRef` | The name the session is stored under in the OS secure store. **Required** for `oauth-browser` and `oauth-device`; **not allowed** for `client-credentials`. Same character rules as an identity name. |
 | `products.<namespace>` | What this identity may reach for one module. The namespace is the module's own name, and follows the same character rules as an identity name. |
 | `products.<namespace>.endpoint` | The product's base URL. **Required** on every product entry, and must be an absolute `http` or `https` URL with a host. |
@@ -193,6 +198,39 @@ or, to name a context other than the default:
 ```sh
 wso2 login --context acme-dev
 ```
+
+On a machine with nothing configured yet, name the issuer and the application
+you registered in section 1, and login creates what it authenticated:
+
+```sh
+wso2 login --url https://idp.customer.example --client-id wso2-cli
+```
+
+It reports the names it assigned. Without `--context` the identity and the
+context are both named after the issuer host with each dot replaced by a hyphen
+— `idp.customer.example` becomes `idp-customer-example` — and `--context
+<name>` names them both directly. The context name is what you type on every
+`--context` and every `wso2 context use` afterwards, so pass a short one if the
+derived name is longer than you want to live with; `wso2 context create <name>
+--identity <identity>` adds a shorter handle to the same identity later.
+
+An issuer with no host to name, such as one at a bare IP address, is refused
+rather than given a name you could not have predicted; `--context` is the way
+through. A `--url` that is not an absolute `http` or `https` URL is refused
+where you typed it, so a missing `https://` is reported as the typo it is.
+
+Nothing is written unless the login succeeded, so an issuer you mistyped costs
+you the corrected command and nothing else. Nor is a session: a document this
+shell may not overwrite, such as a schema version 1 one, is refused before the
+browser opens rather than after a login it could not record.
+
+Running the same login again reuses the identity it created; a login that would
+change the issuer or the client ID of an identity already configured is refused
+rather than allowed to replace it.
+
+The created identity reaches no product yet. A self-hosted deployment publishes
+no catalogue of what it serves, so `wso2 identity add-product` records each
+product's endpoint, audience and scopes, and the login output names it.
 
 What happens, in order:
 
@@ -471,8 +509,12 @@ resolution without needing a module.
 
 `WSO2_HOME` must be absolute. `WSO2_CONTEXT` selects the context without a flag.
 
-Also set `WSO2_NON_INTERACTIVE=1` on any job where a stray `wso2 login` should
-fail loudly rather than sit waiting on a browser that will never open.
+Also set `WSO2_NO_INPUT=1` on any job where a stray `wso2 login` should fail
+loudly rather than sit waiting on a browser that will never open. The
+`--no-input` flag says the same thing for one invocation. Either way nothing
+prompts, opens a browser, or waits for a human, and a browser or device login
+is refused with `auth.non_interactive`. See [Non-interactive
+use](../reference/commands.md#non-interactive-use) in the command reference.
 
 Each command exchanges the client secret for an access token narrowed to what
 the module asked for. The secret is read into process memory for the length of
@@ -499,24 +541,110 @@ first-time user meets most often. None of them reaches a browser.
   digits and dashes, starting with a letter), a `type` that is not exactly
   `cloud` or `onprem`, a missing `endpoint` on a product entry, or the
   `credentialRef` / `clientSecretVariable` rule: exactly one of them belongs on
-  an identity, and which one is decided by `auth.kind`.
+  an identity, and which one is decided by `auth.kind`. `wso2 identity
+  add-product` reports it for an endpoint that embeds user information, with a
+  recovery of its own naming what to take out; the rejected endpoint is never
+  repeated back, because it is the likeliest place for a credential to have
+  been typed by mistake. Nothing is written when a command is refused this way.
+- **`contexts.document_malformed` is about content, not about version.** If the
+  shell declined to overwrite your file because of its `schemaVersion`, the code
+  is `contexts.document_frozen` below, and the field reference will not help.
 - **`contexts.document_unreadable`.** The file exists but could not be read.
   Check its permissions, or delete it to run without a context.
+- **`contexts.document_frozen`.** The document on disk declares a schema
+  version this shell does not write, so a command that would have replaced it
+  refused instead. The message names the file and the version it found. Either
+  it is a version 1 document, which this shell still reads but will not rewrite
+  in place, or it is a version a newer WSO2 CLI on this machine wrote and still
+  manages, which this shell cannot read at all. Nothing is wrong with the file.
+  Move it aside to start a new one, or run the CLI version that manages it.
+- **`contexts.document_unwritable`.** The shell had something to write to the
+  document and could not — the file itself is fine. Check that the state root,
+  `~/.wso2/cli` or `$WSO2_HOME/cli`, is writable by you, then retry.
+- **`contexts.document_busy`.** Another `wso2` invocation held the document's
+  update lock for longer than the shell waits. Writing the document takes no
+  network call, so a holder that slow is stuck rather than working; retry, and
+  if it repeats, check for a `wso2` process that is not making progress.
 - **`contexts.schema_unsupported`.** `schemaVersion` is not one this shell
   reads. It must be `2`.
 - **`contexts.unknown_context`.** You named a context, with `--context` or
   `WSO2_CONTEXT`, that the document does not declare. The message names the one
   you asked for. Check it against the `contexts` array and `defaultContext`.
+- **`contexts.unknown_identity`.** `wso2 context create --identity` named an
+  identity the document does not declare. Logging in is the only thing that
+  creates one, so run `wso2 login` first, or check the name against the
+  `identities` array.
+- **`contexts.identity_exists`.** `wso2 login --url` named a context whose
+  identity is already configured against a different issuer or a different
+  client ID. The message names both the value on file and the one you asked
+  for. Logging in never replaces an identity, because the issuer and client it
+  records are not written down anywhere else; log in under another name with
+  `--context`, or correct the flag you mistyped.
+- **`contexts.identity_name_underivable`.** `wso2 login --url` was given an
+  issuer with no host a name can be made from — a bare IP address, or a host
+  whose first label starts with a digit — and no `--context` to name the
+  identity instead. A name is lower-case letters, digits and hyphens, starting
+  with a letter. Pass `--context <name>`; nothing was written.
+- **`contexts.context_exists`.** `wso2 context create` was given a name the
+  document already declares. Creating a context never replaces one, because the
+  organization, project and identity it recorded are not written down anywhere
+  else. Choose another name.
+- **`contexts.product_exists`.** `wso2 identity add-product` named a product
+  namespace the identity already records. Recording one never overwrites
+  another on its own, because the endpoint, audience and scopes it held are not
+  written down anywhere else; the ordinary way to reach this is a second run
+  from shell history with one flag corrected. `wso2 identity list` shows what
+  is recorded, and `--replace` overwrites it, replacing the whole record rather
+  than merging with it.
+
+### The context commands: `shell.*`
+
+These are about what you typed, not about the file. Nothing is written when one
+of them is reported.
+
+- **`shell.missing_required_flag`.** A flag the command cannot proceed without
+  was not given. `wso2 context create` reports it for `--identity`: a context
+  authenticates as an identity, and `wso2 login` is what creates one. `wso2
+  login --url` reports it for `--client-id`, which it asks for at a terminal
+  and refuses to guess anywhere else — there is no WSO2-published client for a
+  self-hosted deployment, so the value can only come from the application you
+  registered. `wso2 identity add-product` reports it for `--endpoint`, which
+  nothing can discover: a self-hosted deployment publishes no catalogue of what
+  it serves. The message says why nothing was asked: `--no-input`,
+  `WSO2_NO_INPUT`, or standard input that is not a terminal. Not to be confused
+  with `shell.missing_flag_value`, which means a flag was given without the
+  value it needs.
+- **`shell.invalid_argument`.** A value you typed is not one the command can
+  use. For `wso2 context create`, and for `wso2 login --context`, it is a name a
+  context may not have: names are lower-case letters, digits and hyphens,
+  starting with a letter, at most 64 characters. For `wso2 login --url` it is a
+  value that is not an issuer URL, and a missing `https://` is the usual cause.
+  `wso2 identity add-product` reports it for a product namespace, which follows
+  the same name rule, and for a product the context document will not hold: an
+  endpoint no URL parser reads, or a product an identity bound to one protected
+  resource cannot carry. Nothing was written, so retyping the command is
+  usually the whole fix. The resource-bound case is the exception and says so:
+  no correction of the command succeeds, because the constraint is on the
+  identity rather than on a flag, so the recovery names `--replace` and a
+  second `wso2 login --context <name>` instead.
+- **`shell.missing_argument`, `shell.unexpected_argument`.** The command was
+  given too few or too many arguments. The recovery shows the shape it expects.
 
 ### `auth.context_not_selected`
 
 There is no context document at all, or it declares no context to select.
-Create `~/.wso2/cli/contexts.json` as in section 2.
+Run `wso2 login --url <issuer> --client-id <id>`, which creates the identity
+and the context it authenticates, or `wso2 context use <name>` to select one
+that already exists. `wso2 context list` shows what is configured. Writing
+`contexts.json` by hand, as section 2 describes, still works and is what that
+section documents, but it is no longer the way in.
 
 ### `shell.unknown_command`
 
-The first word was not `help`, `login` or `version`, and no installed module
-owns that namespace. See the caveat at the end of section 5.2.
+The first word was not a shell command — `context`, `help`, `identity`,
+`login`, `logout`, `module` or `version` — and no installed module owns that
+namespace. `wso2 help` lists the commands the shell owns. See the caveat at
+the end of section 5.2.
 
 ### `auth.discovery_failed`
 
@@ -703,10 +831,10 @@ There is no session to establish; just run the command (section 5).
 
 ### `auth.non_interactive`
 
-`wso2 login` was run with `--non-interactive`, or with `WSO2_NON_INTERACTIVE`
-set. This is the guard that stops a CI job from waiting forever on a browser,
-or, on a device context, from waiting forever on an approval no one is there to
-give. The message names which of the two it refused.
+`wso2 login` was run with `--no-input`, or with `WSO2_NO_INPUT` set. This is
+the guard that stops a CI job from waiting forever on a browser, or, on a
+device context, from waiting forever on an approval no one is there to give.
+The message names which of the two it refused.
 
 ### `auth.kind_not_implemented`
 

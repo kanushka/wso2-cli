@@ -17,14 +17,14 @@
 package session
 
 import (
-	"os"
+	"errors"
 	"path/filepath"
 	"time"
+
+	"github.com/wso2/wso2-cli/internal/lockfile"
 )
 
 const (
-	// lockRetryInterval is how often a waiting writer re-attempts the lock.
-	lockRetryInterval = 25 * time.Millisecond
 	// lockDeadline is how long a writer waits before giving up. The critical
 	// section spans a token refresh round trip to the issuer, so the wait has
 	// to outlast a slow deployment rather than a local file operation.
@@ -41,49 +41,21 @@ const (
 
 // WithLock runs fn while holding the per-reference advisory file lock.
 // It is how refresh-token rotation stays single-writer across processes.
+//
+// The lock itself lives in internal/lockfile, which classifies nothing; this is
+// where its two failure modes become the session package's typed problems. A
+// failure inside fn is neither of them and passes through untouched, which is
+// why the two conditions are matched by type rather than by "err != nil".
 func (s Store) WithLock(ref string, fn func() error) error {
-	path := lockPath(s.StateRoot, ref)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	err := lockfile.With(lockPath(s.StateRoot, ref), lockDeadline, fn)
+	if errors.Is(err, lockfile.ErrBusy) {
+		return lockBusy()
+	}
+	var lockErr lockfile.Error
+	if errors.As(err, &lockErr) {
 		return lockFailed()
 	}
-	release, err := acquireLock(path)
-	if err != nil {
-		return err
-	}
-	defer release()
-	return fn()
-}
-
-// acquireLock takes the kernel advisory lock on the file at path, retrying the
-// non-blocking attempt until the deadline.
-//
-// The lock is held by the kernel against the open file descriptor, not by the
-// existence of the file, so the file is created once and never unlinked:
-// release closes the descriptor and leaves the file in place. Removing it
-// would reintroduce the race it replaced — a waiter holding a descriptor to
-// the old inode and a newcomer creating a fresh one at the same path would
-// both lock successfully. See ADR 0007.
-func acquireLock(path string) (release func(), err error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return nil, lockFailed()
-	}
-	deadline := time.Now().Add(lockDeadline)
-	for {
-		locked, lockErr := tryLock(file)
-		if lockErr != nil {
-			_ = file.Close()
-			return nil, lockFailed()
-		}
-		if locked {
-			return func() { _ = file.Close() }, nil
-		}
-		if time.Now().After(deadline) {
-			_ = file.Close()
-			return nil, lockBusy()
-		}
-		time.Sleep(lockRetryInterval)
-	}
+	return err
 }
 
 // lockPath is where the advisory lock for a credential reference lives. The

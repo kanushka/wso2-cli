@@ -90,7 +90,7 @@ func installLogin(t *testing.T, shell app.Shell, document contexts.Document) {
 func newLoginShell(t *testing.T) (app.Shell, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
 	t.Setenv("WSO2_CONTEXT", "")
-	t.Setenv("WSO2_NON_INTERACTIVE", "")
+	t.Setenv("WSO2_NO_INPUT", "")
 	shell, out, errOut := newShell(t)
 	shell.OpenBrowser = func(string) error {
 		t.Error("the shell opened a browser for a login it should have refused")
@@ -108,20 +108,20 @@ func TestLoginRefusals(t *testing.T) {
 		code string
 	}{
 		{"no context", nil, nil, nil, "auth.context_not_selected"},
-		{"non-interactive flag", browserDoc, []string{"--non-interactive"}, nil, "auth.non_interactive"},
-		{"non-interactive environment", browserDoc, nil,
-			map[string]string{"WSO2_NON_INTERACTIVE": "1"}, "auth.non_interactive"},
+		{"no-input flag", browserDoc, []string{"--no-input"}, nil, "auth.non_interactive"},
+		{"no-input environment", browserDoc, nil,
+			map[string]string{"WSO2_NO_INPUT": "1"}, "auth.non_interactive"},
 		{"client credentials", identityDoc(contexts.KindClientCredentials), nil, nil, "auth.login_not_required"},
-		{"non-interactive with an inline identity", identityDoc(contexts.KindClientCredentials),
-			[]string{"--non-interactive"}, nil, "auth.login_not_required"},
+		{"no-input with an inline identity", identityDoc(contexts.KindClientCredentials),
+			[]string{"--no-input"}, nil, "auth.login_not_required"},
 		// A device login is interactive too, so it is refused in CI for the
 		// same reason a browser login is: nothing may wait on a human there.
 		// Both doors are checked, because a job that sets the variable rather
 		// than passing the flag is the commoner of the two.
-		{"non-interactive flag with a device identity", identityDoc(contexts.KindOAuthDevice),
-			[]string{"--non-interactive"}, nil, "auth.non_interactive"},
-		{"non-interactive environment with a device identity", identityDoc(contexts.KindOAuthDevice),
-			nil, map[string]string{"WSO2_NON_INTERACTIVE": "1"}, "auth.non_interactive"},
+		{"no-input flag with a device identity", identityDoc(contexts.KindOAuthDevice),
+			[]string{"--no-input"}, nil, "auth.non_interactive"},
+		{"no-input environment with a device identity", identityDoc(contexts.KindOAuthDevice),
+			nil, map[string]string{"WSO2_NO_INPUT": "1"}, "auth.non_interactive"},
 		{"personal access token kind", identityDoc(contexts.KindPAT), nil, nil, "auth.kind_not_implemented"},
 	}
 	for _, testCase := range cases {
@@ -172,17 +172,71 @@ func TestLoginRefusesADevelopmentCredentialContext(t *testing.T) {
 	requireRefusal(t, errOut.String(), "auth.login_not_required")
 }
 
+// TestTheNoInputRefusalNamesTheControlThatFired covers the hint a developer
+// needs most: the environment variable can have been set in a shell profile
+// months ago, and a refusal that named neither control left them nothing to
+// search for.
+func TestTheNoInputRefusalNamesTheControlThatFired(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		args []string
+		env  string
+		want string
+	}{
+		{"the flag", []string{"--no-input"}, "", "--no-input"},
+		{"the environment variable", nil, "1", "WSO2_NO_INPUT"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			shell, _, errOut := newLoginShell(t)
+			if testCase.env != "" {
+				t.Setenv("WSO2_NO_INPUT", testCase.env)
+			}
+			installLogin(t, shell, browserDoc("https://issuer.example.test"))
+
+			if code := shell.Run(append([]string{"login"}, testCase.args...)); code != exit.AuthPolicy {
+				t.Fatalf("exit code = %d, want %d (auth policy); stderr: %s", code, exit.AuthPolicy, errOut)
+			}
+			requireRefusal(t, errOut.String(), "auth.non_interactive")
+			if !strings.Contains(errOut.String(), testCase.want) {
+				t.Errorf("the refusal does not name %s:\n%s", testCase.want, errOut)
+			}
+			// The phrase that ties the message to auth.non_interactive and to
+			// the command reference survives either way.
+			if !strings.Contains(errOut.String(), "non-interactive mode") {
+				t.Errorf("the refusal no longer names non-interactive mode:\n%s", errOut)
+			}
+		})
+	}
+}
+
 func TestLoginRefusesUnknownArguments(t *testing.T) {
-	for _, argument := range []string{"--nope", "extra"} {
-		t.Run(argument, func(t *testing.T) {
+	// --non-interactive is the spelling wso2 login shipped before #122 renamed
+	// it. It is listed here so the rename cannot be half-applied: a build that
+	// still answered to it would fail this test rather than quietly accept both.
+	//
+	// A flag and an argument are refused by different parts now that login
+	// declares its flags: an unknown flag by the root's flag-error hook, which
+	// names the flag and points at wso2 help exactly as it does for every other
+	// declared-flag command, and a stray argument by login's own Args
+	// validator, whose recovery is login's usage line. Both are usage
+	// refusals, which is the part a caller branches on.
+	for _, testCase := range []struct {
+		argument string
+		names    string
+	}{
+		{"--nope", "--nope"},
+		{"extra", "wso2 login"},
+		{"--non-interactive", "--non-interactive"},
+	} {
+		t.Run(testCase.argument, func(t *testing.T) {
 			shell, _, errOut := newLoginShell(t)
 			installLogin(t, shell, browserDoc("https://issuer.example.test"))
 
-			if code := shell.Run([]string{"login", argument}); code != exit.Usage {
+			if code := shell.Run([]string{"login", testCase.argument}); code != exit.Usage {
 				t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
 			}
-			if !strings.Contains(errOut.String(), "wso2 login") {
-				t.Fatalf("the refusal does not say how to run login:\n%s", errOut)
+			if !strings.Contains(errOut.String(), testCase.names) {
+				t.Fatalf("the refusal does not name %s:\n%s", testCase.names, errOut)
 			}
 		})
 	}

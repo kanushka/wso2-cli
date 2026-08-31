@@ -129,7 +129,8 @@ func (s Shell) rootCommand() *cobra.Command {
 	// same code that parses every other shell flag.
 	root.PersistentFlags().Bool(verboseFlag, false, "Write diagnostics about what the shell attempted to stderr.")
 
-	root.AddCommand(s.loginCommand(), s.logoutCommand(), s.moduleCommand(), s.versionCommand())
+	root.AddCommand(s.contextCommand(), s.identityCommand(), s.loginCommand(),
+		s.logoutCommand(), s.moduleCommand(), s.versionCommand())
 
 	// Cobra's generated help command describes itself generically. The shell
 	// published its own summary for it, and that wording is kept.
@@ -208,18 +209,20 @@ func (s Shell) enableDiagnostics(command *cobra.Command, mode output.Mode) {
 // takeVerboseFlag removes --verbose from an argument list a built-in command
 // parses for itself, and turns the diagnostic log on when it was there.
 //
-// The three commands that disable Cobra's flag parsing — login, logout, and
-// module — never see the root's parse, so a flag written after the command name
+// The two commands that still disable Cobra's flag parsing — logout and module
+// — never see the root's parse, so a flag written after the command name
 // arrives in their own argument list and their own parsers refuse it as
 // unknown. That refusal is worst for this flag in particular: it arrives while
-// the user is already trying to diagnose something else.
+// the user is already trying to diagnose something else. login no longer needs
+// this: it declares its flags, so the root parses --verbose wherever it is
+// written (#118).
 //
 // There is one of these rather than one scanner per command on purpose.
-// --context is scanned separately by each of the three, and those three
-// scanners have already drifted apart from one another. It is the one place to
-// delete when each command declares its flags directly. The scanning itself
-// lives in takeVerbose, which is the one place --verbose is read out of an
-// argument list — the product namespace path reads it from there too.
+// --context is scanned separately by each of the two, and those scanners have
+// already drifted apart from one another. This is the one place to delete when
+// each command declares its flags directly. The scanning itself lives in
+// takeVerbose, which is the one place --verbose is read out of an argument
+// list — the product namespace path reads it from there too.
 func (s Shell) takeVerboseFlag(command *cobra.Command, args []string) ([]string, error) {
 	remaining, asked, err := takeVerbose(args)
 	if err != nil {
@@ -342,6 +345,18 @@ func shellFlagsFor(name string) []string {
 		// The root routes a product namespace, and a module command may act on
 		// every forwarded shell flag.
 		return []string{contextFlag, outputFlag}
+	case "context":
+		// The family renders a machine-readable result, and takes no --context:
+		// naming a context is what its own arguments do, and a selection flag
+		// alongside "wso2 context use beta" would be two answers to one
+		// question.
+		return []string{outputFlag}
+	case "identity":
+		// The family renders a machine-readable result, and takes no
+		// --context: an identity is named by this family's own arguments, and
+		// a selection flag alongside "wso2 identity list" would be a second
+		// answer to a question nothing asked.
+		return []string{outputFlag}
 	case "login":
 		return []string{contextFlag}
 	case "logout":
@@ -398,34 +413,48 @@ func wantsHelp(args []string) bool {
 	return false
 }
 
-// loginCommand and moduleCommand keep their own argument parsing for now, so
+// logoutCommand and moduleCommand keep their own argument parsing for now, so
 // flag parsing is disabled on them rather than allowed to fail on a flag the
 // root does not declare.
 //
 // Cobra's allowlist for unknown flags must not be used for this: it does not
 // forward an unknown flag, it discards it together with its value, so a command
 // would run without a flag the user gave and without any diagnostic.
+//
+// login no longer does: it declares its flags, so the root's parser refuses an
+// unknown one, recognizes --help, and reads --verbose and --context wherever
+// they are written. #89 moves the remaining two.
 func (s Shell) loginCommand() *cobra.Command {
-	return &cobra.Command{
+	var flags loginFlags
+	command := &cobra.Command{
 		Use:                   "login",
-		Short:                 "Log in to the selected context's identity.",
+		Short:                 "Log in, creating the identity and context when an issuer is named.",
 		DisableFlagsInUseLine: true,
-		DisableFlagParsing:    true,
+		Args:                  noArguments(loginUsageRecovery),
 		RunE: func(command *cobra.Command, args []string) error {
-			if wantsHelp(args) {
-				return command.Help()
-			}
-			args, err := s.takeVerboseFlag(command, args)
-			if err != nil {
+			// The returned list is discarded: login declares its own flags, so
+			// nothing is forwarded anywhere and what is wanted is the refusal
+			// of a shell flag this command cannot act on.
+			if _, err := forwardShellFlags(command, nil); err != nil {
 				return err
 			}
-			forwarded, err := forwardShellFlags(command, args)
-			if err != nil {
-				return err
+			// --context is the shell's own flag, declared once on the root, so
+			// it is read off the parsed flag set rather than declared a second
+			// time here. Declaring it again would shadow the root's and leave
+			// two flags of one name disagreeing about what was asked.
+			if flag := shellFlag(command, contextFlag); flag != nil {
+				flags.contextName = flag.Value.String()
 			}
-			return s.login(forwarded)
+			return s.login(flags)
 		},
 	}
+	command.Flags().StringVar(&flags.issuer, "url", "",
+		"Log in against this issuer, creating the identity and context it authenticates.")
+	command.Flags().StringVar(&flags.clientID, "client-id", "",
+		"Present this registered OAuth application. Required with --url.")
+	command.Flags().BoolVar(&flags.noInput, "no-input", false,
+		"Refuse rather than prompt, open a browser, or wait for a human.")
+	return command
 }
 
 func (s Shell) logoutCommand() *cobra.Command {

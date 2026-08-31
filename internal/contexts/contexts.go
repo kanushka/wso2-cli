@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Package contexts reads the shell-owned invocation contexts.
+// Package contexts reads and writes the shell-owned invocation contexts.
 //
 // A document separates identities — how the shell authenticates and what it
 // can reach — from contexts, which say what a command runs against. Neither
@@ -22,9 +22,13 @@
 // have nowhere to put a value even if a writer tried. See
 // docs/examples/authentication-contexts.md.
 //
-// The shell reads contexts and never writes them. Creating one is a test
-// fixture's job, so no shell command can write a context that grants itself
-// access.
+// The shell both reads and writes this document; Save and Update in save.go are
+// the only production writers. Nothing about that grants access: as above, the
+// artifact cannot carry a credential, so which command writes one is not a
+// security question. The guarantee is a property of what gets written rather
+// than of who writes it, which is what lets wso2 login both write a document
+// and authenticate against it. See
+// docs/adr/0012-writing-a-context-or-identity-grants-nothing.md.
 package contexts
 
 import (
@@ -65,6 +69,21 @@ const MethodDevelopmentCredential = "development-credential"
 
 // namePattern constrains a context name to one readable word.
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
+
+// NameRule states what namePattern requires, in the words a refusal uses. It
+// lives beside the pattern so that changing one without the other is visible.
+const NameRule = "lower-case letters, digits and hyphens, starting with a letter, " +
+	"at most 64 characters"
+
+// ValidName reports whether a name may be given to a context.
+//
+// It is exported so that a command can refuse a name a user typed before that
+// name reaches the document. The refusal then reads as a complaint about the
+// argument, which the user can retype, rather than as a complaint about the
+// file, which they did not write and must not be told to remove. Both sides ask
+// this one pattern, so a command and the document cannot disagree about what is
+// legal.
+func ValidName(name string) bool { return namePattern.MatchString(name) }
 
 // variablePattern constrains a credential source to something that is
 // recognizably an environment variable name. A credential value pasted where a
@@ -319,10 +338,34 @@ func (d Document) validate() error {
 	return nil
 }
 
+// DefaultDocumentRecovery is the way out of a document that is wrong as it sits
+// on disk. It is the right advice for a reader, which found the fault already
+// written, and the wrong advice for a writer, which was refused before writing
+// anything: following it there would destroy contexts the fault never reached.
+//
+// It is exported so a writer can tell this generic advice from a refusal that
+// carries specific advice of its own, which several do. See
+// CarriesDefaultDocumentRecovery.
+const DefaultDocumentRecovery = "Correct the context document, or remove it to run without a context."
+
+// CarriesDefaultDocumentRecovery reports whether err offers only the generic
+// document recovery above, rather than advice specific to what was wrong.
+//
+// A writer that rewords a refusal asks this first. Refusals raised through
+// contextProblem — an endpoint embedding user information is the one that
+// matters most — carry a sentence naming the exact thing to change, and
+// replacing that with anything generic makes the refusal worse. Gating on the
+// problem code alone cannot tell the two apart: both are
+// contexts.document_malformed.
+func CarriesDefaultDocumentRecovery(err error) bool {
+	var typed problem.Problem
+	return errors.As(err, &typed) && typed.Recovery == DefaultDocumentRecovery
+}
+
 func malformed(detail string) problem.Problem {
 	return contextProblem("contexts.document_malformed",
 		"the WSO2 CLI context document "+detail,
-		"Correct the context document, or remove it to run without a context.")
+		DefaultDocumentRecovery)
 }
 
 func contextProblem(code, message, recovery string) problem.Problem {

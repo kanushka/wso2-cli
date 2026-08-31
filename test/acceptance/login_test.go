@@ -168,7 +168,7 @@ func deployLoginInstallation(
 	keyring.MockInit()
 	// A developer's own environment must not decide what these tests prove.
 	t.Setenv("WSO2_CONTEXT", "")
-	t.Setenv("WSO2_NON_INTERACTIVE", "")
+	t.Setenv("WSO2_NO_INPUT", "")
 	if options.Audience == "" {
 		options.Audience = referenceAudience
 	}
@@ -458,7 +458,7 @@ func TestNonInteractiveRunsRefuseInsteadOfWaitingForABrowser(t *testing.T) {
 	// commands: the login it cannot complete, and the module run that has no
 	// session to derive from. Neither may wait for a human who is not there.
 	deployment := deployLogin(t, fakeissuer.Options{RefreshScopeMode: "honor"}, nil)
-	t.Setenv("WSO2_NON_INTERACTIVE", "1")
+	t.Setenv("WSO2_NO_INPUT", "1")
 	deployment.shell.OpenBrowser = func(string) error {
 		t.Error("a non-interactive run opened a browser")
 		return nil
@@ -666,7 +666,7 @@ func TestNonInteractiveCIRefusesLoginWhileTheInlinePathStillWorks(t *testing.T) 
 	// clears it — the point is that one environment produces all three answers.
 	interactive := deployLogin(t, fakeissuer.Options{}, nil)
 	inline := deployInline(t, fakeissuer.Options{}, inlineClientSecret)
-	t.Setenv("WSO2_NON_INTERACTIVE", "1")
+	t.Setenv("WSO2_NO_INPUT", "1")
 	for _, deployment := range []*loginDeployment{interactive, inline} {
 		deployment.shell.OpenBrowser = func(string) error {
 			t.Error("a non-interactive run opened a browser")

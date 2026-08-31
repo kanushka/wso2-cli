@@ -30,7 +30,7 @@ import (
 )
 
 func TestCommandNamesAreDerivedFromTheShellCommandTree(t *testing.T) {
-	if got, want := app.CommandNames(), []string{"help", "login", "logout", "module", "version"}; !slices.Equal(got, want) {
+	if got, want := app.CommandNames(), []string{"context", "help", "identity", "login", "logout", "module", "version"}; !slices.Equal(got, want) {
 		t.Errorf("CommandNames() = %v, want %v", got, want)
 	}
 }
@@ -44,7 +44,7 @@ func TestHelpListsEveryShellCommand(t *testing.T) {
 	if code := shell.Run([]string{"help"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	for _, command := range []string{"help", "login", "logout", "module", "version"} {
+	for _, command := range []string{"context", "help", "identity", "login", "logout", "module", "version"} {
 		if !strings.Contains(out.String(), command) {
 			t.Errorf("help does not list the %q command:\n%s", command, out)
 		}

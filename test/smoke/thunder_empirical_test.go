@@ -63,7 +63,7 @@ func TestThunderEmpirical(t *testing.T) {
 	}
 
 	t.Setenv("WSO2_CONTEXT", "")
-	t.Setenv("WSO2_NON_INTERACTIVE", "")
+	t.Setenv("WSO2_NO_INPUT", "")
 
 	t.Run("indicator-required", func(t *testing.T) { experimentIndicatorRequired(t, config) })
 	t.Run("resource-narrowing", func(t *testing.T) { experimentResourceNarrowing(t, config) })

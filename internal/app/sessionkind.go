@@ -38,6 +38,11 @@ type kindGate struct {
 	// purpose completes "no WSO2 CLI context is selected ...", because a
 	// context is selected to log in to and selected to log out of.
 	purpose string
+	// unselected is the way out of that refusal. It differs between the two
+	// commands because the way out does: for login, creating the context is
+	// the command itself, and for logout there is nothing to end until a login
+	// has created something.
+	unselected string
 	// inline refuses an identity that acquires access inline and so never holds
 	// a session. It is the one branch the two commands genuinely disagree
 	// about: there is nothing to establish, and there is nothing to end, and
@@ -52,10 +57,11 @@ func (g kindGate) check(selected contexts.Selection) error {
 	case "":
 		return problem.New(problem.CategoryAuthPolicy, "auth.context_not_selected",
 			"no WSO2 CLI context is selected "+g.purpose).
-			// The pointer names a document that exists today. Recovery text
-			// that sends a stuck user to a missing file helps nobody.
-			WithRecovery(fmt.Sprintf("Author a context document and select a context, then run "+
-				"wso2 %s. See docs/examples/authentication-contexts.md.", g.command))
+			// It names commands rather than a file. Telling a user to author a
+			// context document was the only advice available when nothing in
+			// the shell could write one; wso2 login and wso2 context now can,
+			// and this is the first refusal a user on a clean machine meets.
+			WithRecovery(g.unselected)
 	case contexts.KindClientCredentials, contexts.MethodDevelopmentCredential:
 		return g.inline(selected.Context.Name)
 	case contexts.KindPAT:
@@ -78,6 +84,9 @@ func (g kindGate) check(selected contexts.Selection) error {
 // loginKindGate refuses an identity wso2 login cannot establish a session for.
 var loginKindGate = kindGate{
 	command: "login",
+	unselected: "Run wso2 login --url <issuer> --client-id <id> to log in and create the " +
+		"identity and context it authenticates, or wso2 context use <name> to select a " +
+		"context that is already configured. wso2 context list shows what is configured.",
 	purpose: "to log in to",
 	inline: func(contextName string) problem.Problem {
 		return problem.New(problem.CategoryAuthPolicy, "auth.login_not_required",
@@ -89,6 +98,9 @@ var loginKindGate = kindGate{
 // logoutKindGate refuses an identity wso2 logout has no session to end for.
 var logoutKindGate = kindGate{
 	command: "logout",
+	unselected: "Run wso2 context use <name> to select a configured context, or wso2 context " +
+		"list to see what is configured. Nothing holds a session until wso2 login has " +
+		"established one.",
 	purpose: "to log out of",
 	inline: func(contextName string) problem.Problem {
 		return problem.New(problem.CategoryAuthPolicy, "auth.logout_not_required",

@@ -54,7 +54,7 @@ func TestAsgardeoEmpirical(t *testing.T) {
 	}
 
 	t.Setenv("WSO2_CONTEXT", "")
-	t.Setenv("WSO2_NON_INTERACTIVE", "")
+	t.Setenv("WSO2_NO_INPUT", "")
 
 	t.Run("any-port-loopback", func(t *testing.T) { experimentAnyPortLoopback(t, config) })
 	t.Run("refresh-narrowing", func(t *testing.T) { experimentRefreshNarrowing(t, config) })

@@ -16,7 +16,7 @@
 
 //go:build windows
 
-package session
+package lockfile
 
 import (
 	"errors"
