@@ -610,6 +610,10 @@ func dryRunUpdateLine(status install.Status) string {
 	switch {
 	case status.Pinned:
 		return fmt.Sprintf("%s is pinned to v%s and would not be updated.", status.Namespace, status.PinnedVersion)
+	case status.Available == "":
+		return fmt.Sprintf("The catalog publishes no version of %s on the %s channel, "+
+			"so whether v%s is up to date is unknown. Run wso2 module available to see what it publishes.",
+			status.Namespace, status.Channel, status.Installed)
 	case status.Update:
 		return fmt.Sprintf("%s would be updated from v%s to v%s.",
 			status.Namespace, status.Installed, status.Available)
@@ -628,6 +632,10 @@ func updateLine(outcome install.Outcome) (string, error) {
 	case install.ActionFailed:
 		return fmt.Sprintf("%s could not be updated. v%s is still active.",
 			outcome.Namespace, outcome.From), outcome.Err
+	case install.ActionNotPublished:
+		return fmt.Sprintf("The catalog publishes no version of %s on the %s channel, "+
+			"so whether v%s is up to date is unknown. Run wso2 module available to see what it publishes.",
+			outcome.Namespace, outcome.Channel, outcome.From), nil
 	default:
 		return fmt.Sprintf("%s is current at v%s.", outcome.Namespace, outcome.From), nil
 	}

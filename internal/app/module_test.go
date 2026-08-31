@@ -425,7 +425,12 @@ func TestModuleUpdateAllDryRunReportsWithoutChanging(t *testing.T) {
 	shell, out, errOut := newModuleShell(t)
 	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
 	shell.Reader = failIfReadReader{t}
-	catalogServing(t, `{"schemaVersion":1,"modules":[]}`)
+	// The channel publishes the version already installed, so this is a
+	// genuinely current module, not #135's unpublished one: an empty catalog
+	// here would say nothing about currency at all.
+	catalogServing(t, `{"schemaVersion":1,"modules":[`+
+		`{"namespace":"reference","path":"reference","channels":`+
+		`[{"channel":"stable","version":"0.1.0"}]}]}`)
 
 	if code := shell.Run([]string{"module", "update", "--all", "--dry-run"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
@@ -555,7 +560,12 @@ func TestModuleUpdateOfOneNamedModuleNeedsNoConfirmation(t *testing.T) {
 	shell, out, errOut := newModuleShell(t)
 	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
 	shell.Reader = failIfReadReader{t}
-	catalogServing(t, `{"schemaVersion":1,"modules":[]}`)
+	// The channel publishes the version already installed, so this is a
+	// genuinely current module, not #135's unpublished one: an empty catalog
+	// here would say nothing about currency at all.
+	catalogServing(t, `{"schemaVersion":1,"modules":[`+
+		`{"namespace":"reference","path":"reference","channels":`+
+		`[{"channel":"stable","version":"0.1.0"}]}]}`)
 
 	if code := shell.Run([]string{"module", "update", "reference"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)

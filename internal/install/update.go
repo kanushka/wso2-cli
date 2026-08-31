@@ -199,6 +199,12 @@ const (
 	// ActionFailed means the update was attempted and refused. The version that
 	// was active before it is still active.
 	ActionFailed Action = "failed"
+	// ActionNotPublished means the catalog publishes no version of the module
+	// on the channel it follows, so no statement about whether the installed
+	// version is current is available to make. A module that was withdrawn,
+	// renamed, or published only on a channel the install no longer follows
+	// looks exactly like this, and used to be reported as already current.
+	ActionNotPublished Action = "not_published"
 )
 
 // Outcome is what happened to one module in an update run.
@@ -211,6 +217,11 @@ type Outcome struct {
 	To   string
 	// Err is why an attempted update was refused.
 	Err error
+	// Channel is the channel the decision was made against. It is carried here
+	// rather than re-derived from policy at render time, because updateLine
+	// must name the channel that publishes nothing and a second derivation is
+	// a second chance to name a different one.
+	Channel string
 }
 
 // Update brings installed modules to the newest version their own channel
@@ -254,15 +265,35 @@ func (i Installer) Update(ctx context.Context, namespaces []string) ([]Outcome, 
 	return outcomes, nil
 }
 
-// updateOne moves one module, or reports why it was not moved.
-func (i Installer) updateOne(ctx context.Context, index catalog.Index, status Status) Outcome {
-	outcome := Outcome{Namespace: status.Namespace, From: status.Installed, To: status.Installed}
+// OutcomeFor reports what an update run would decide for one status, without
+// performing it. updateOne calls it and then acts; a test calls it to pin the
+// decision. The branches are the whole of what #135 turned on, and reaching
+// them through a live catalog proved nothing that this does not.
+func OutcomeFor(status Status) Outcome {
+	outcome := Outcome{
+		Namespace: status.Namespace,
+		From:      status.Installed,
+		To:        status.Installed,
+		Channel:   status.Channel,
+	}
 	switch {
 	case status.Pinned:
 		outcome.Action = ActionPinned
-		return outcome
+	case status.Available == "":
+		outcome.Action = ActionNotPublished
 	case !status.Update:
 		outcome.Action = ActionCurrent
+	default:
+		outcome.Action = ActionUpdated // provisional; updateOne performs it
+	}
+	return outcome
+}
+
+// updateOne moves one module, or reports why it was not moved.
+func (i Installer) updateOne(ctx context.Context, index catalog.Index, status Status) Outcome {
+	outcome := OutcomeFor(status)
+	switch outcome.Action {
+	case ActionPinned, ActionNotPublished, ActionCurrent:
 		return outcome
 	}
 
