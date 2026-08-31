@@ -46,6 +46,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/atomicfile"
 	"github.com/wso2/wso2-cli/internal/catalog"
 	"github.com/wso2/wso2-cli/internal/modules"
+	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -68,6 +69,30 @@ type Installer struct {
 	Store  modules.Store
 	Client catalog.Client
 	Shell  modules.ShellIdentity
+	// Progress builds what one archive download reports its progress to,
+	// given the archive's known size. A nil value reports nothing, which is
+	// what every caller that never sets this field up (every test, and every
+	// command this wave does not touch) gets.
+	Progress ProgressFactory
+}
+
+// ProgressFactory builds the progress reporter one download reports to, given
+// the module namespace being downloaded and the archive's size in bytes. The
+// namespace is threaded through so an update run moving several modules
+// draws a labelled line per module rather than an indistinguishable one. It
+// exists so the caller building an Installer — which is where Streams and
+// the diagnostic log live, not here — decides what a download reports to,
+// without this package importing internal/app or knowing that Streams.Err
+// exists.
+type ProgressFactory func(namespace string, total int64) output.Progress
+
+// newProgress builds this run's progress reporter, falling back to one that
+// renders nothing when the caller never set Progress up.
+func (i Installer) newProgress(namespace string, total int64) output.Progress {
+	if i.Progress == nil {
+		return output.NoProgress()
+	}
+	return i.Progress(namespace, total)
 }
 
 // Installed reports what an install activated.
@@ -114,7 +139,16 @@ func (i Installer) runWithIndex(ctx context.Context, index catalog.Index, reques
 		return Installed{}, err
 	}
 
-	archive, err := i.Client.Download(ctx, selection.Artifact.URL)
+	// The progress reporter is built after Select, which is the earliest point
+	// the archive's size is known (selection.Artifact.Size). Finish runs
+	// immediately after Download returns, on both the success and the error
+	// path, rather than being deferred to the end of this function: verify
+	// and activate that follow a successful download are local disk work, not
+	// part of the transfer, and a line reading "Downloading..." must not sit
+	// on screen claiming to still be in progress while they run.
+	progress := i.newProgress(request.Namespace, selection.Artifact.Size)
+	archive, err := i.Client.Download(ctx, selection.Artifact.URL, progress.Report)
+	progress.Finish()
 	if err != nil {
 		return Installed{}, err
 	}

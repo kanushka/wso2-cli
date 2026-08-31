@@ -208,6 +208,16 @@ func (s Shell) installer() (install.Installer, error) {
 		Store:  store,
 		Client: catalog.Client{Origin: catalog.Origin(), HTTP: &http.Client{}},
 		Shell:  identity,
+		// The archive's size is known before Download starts (it comes from
+		// the catalog entry, not a response header), so the factory only
+		// needs the namespace being downloaded (for the rendered label, so
+		// an update moving several modules draws which one) and that size;
+		// which of the three renderings comes back is decided by
+		// output.NewProgress from s.Streams.Err and whether --verbose has
+		// turned s.log on.
+		Progress: func(namespace string, total int64) output.Progress {
+			return output.NewProgress(s.Streams.Err, s.log, namespace, total, output.SystemClock{})
+		},
 	}, nil
 }
 

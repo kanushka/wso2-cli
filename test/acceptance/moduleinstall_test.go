@@ -449,3 +449,58 @@ func TestAChannelSelectionTakesTheNewestOnThatChannel(t *testing.T) {
 		})
 	}
 }
+
+// TestVerboseInstallKeepsProgressOffStdout proves ADR 0003 at the command
+// level for this wave's progress reporting, not only inside
+// internal/output's own unit tests: running module install non-interactively
+// (this harness always pipes both streams, so IsTerminal is false for
+// either) with --verbose must add the download's periodic progress lines to
+// stderr and must never change what stdout renders. wso2 module install does
+// not support --output at all — it is refused outright, confirmed by hand
+// (`wso2 module install <module> --output json` exits 64 with
+// shell.unknown_flag) because shellFlagsFor in internal/app/command.go does
+// not list "module" — so this is the applicable analogue of a "--output json
+// is unaffected" test for this command family: stdout is a fixed, non-JSON
+// message either way, and what matters is that --verbose cannot perturb it.
+//
+// What this test can and cannot catch, checked by hand: verboseProgress
+// (internal/output/progress.go) writes through the pre-existing Logger, which
+// module.go's factory never touches directly — it only hands NewProgress a
+// writer for the IsTerminal check and the (here unreached) terminal renderer.
+// So swapping which Streams field that writer argument is does NOT change
+// what this test observes, and I confirmed that: making the factory pass
+// s.Streams.Out instead of s.Streams.Err left this test green. What the test
+// DOES catch is the realistic failure mode — a stray direct write that
+// bypasses Streams altogether, such as an errant fmt.Println. I confirmed
+// that by adding one inside verboseProgress.Report and watching this test
+// fail with the leaked line inline in stdout, then reverting it.
+func TestVerboseInstallKeepsProgressOffStdout(t *testing.T) {
+	shell := buildShell(t)
+	origin := newCatalogOrigin(t, hostPlatformOptions(), catalogStable)
+
+	quietRoot := isolatedStateRoot(t)
+	quietStdout, _, err := installModuleFrom(shell, quietRoot, origin.server.URL, catalogNamespace)
+	if err != nil {
+		t.Fatalf("the quiet install failed: %v", err)
+	}
+
+	verboseRoot := isolatedStateRoot(t)
+	verboseStdout, verboseStderr, err := installModuleFrom(shell, verboseRoot, origin.server.URL,
+		catalogNamespace, "--verbose")
+	if err != nil {
+		t.Fatalf("the verbose install failed: %v", err)
+	}
+
+	if verboseStdout != quietStdout {
+		t.Errorf("--verbose changed stdout:\nwithout --verbose:\n%s\nwith --verbose:\n%s",
+			quietStdout, verboseStdout)
+	}
+	for _, leaked := range []string{"download progress", "Downloading"} {
+		if strings.Contains(verboseStdout, leaked) {
+			t.Errorf("stdout contains %q, which belongs on stderr as a diagnostic:\n%s", leaked, verboseStdout)
+		}
+	}
+	if !strings.Contains(verboseStderr, "download progress") {
+		t.Errorf("--verbose did not report download progress on stderr:\n%s", verboseStderr)
+	}
+}
