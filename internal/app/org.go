@@ -54,8 +54,8 @@ const noContextRecovery = "Run wso2 login to create an identity and a context, "
 // would make an architecture decision — the first shell-side consumer of a
 // token, which ADR 0004 governs — as a side effect of a command. So this
 // family declares only current and use, and anything else typed under it,
-// including list, is refused by the RunE below as the unknown subcommand it
-// is, exactly as wso2 module refuses one of its own.
+// including list, is refused as an unknown subcommand — today by the root
+// dispatcher, which preempts this family's own RunE.
 func (s Shell) orgCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:                   "org <subcommand>",

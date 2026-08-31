@@ -58,7 +58,10 @@ func (s Shell) identityCommand() *cobra.Command {
 		// arguments only when it is Runnable: leave it nil and wso2 identity
 		// prints help and exits 0, reporting a usage error as success to
 		// whatever ran it. Never cobra.NoArgs or cobra.ExactArgs for this —
-		// both bypass the flag-error hook and exit 70 instead of 64.
+		// both bypass the flag-error hook and exit 70 instead of 64. The
+		// unknown-subcommand arm below is currently unreachable: the root
+		// dispatcher refuses an unrecognized "identity" subcommand first,
+		// exactly as org.go records for its own RunE.
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := refuseUnusableShellFlags(command); err != nil {
 				return err
