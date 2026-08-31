@@ -185,7 +185,7 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 	// at the zero value, which R7 (#112) treats as the expected case rather
 	// than a reason to invent one.
 	sessionExpiresAt := time.Time{}
-	if seconds, ok := auth.RefreshLifetimeSeconds(result.Token.Extra("refresh_token_expires_in")); ok {
+	if seconds, ok := auth.LifetimeSeconds(result.Token.Extra("refresh_token_expires_in")); ok {
 		sessionExpiresAt = time.Now().Add(time.Duration(seconds) * time.Second).UTC()
 	}
 	err = store.WithLock(reference, func() error {

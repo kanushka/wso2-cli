@@ -106,11 +106,53 @@ func TestTokenResponseUnmarshalRejectsMalformedJSONAsBeforeAtTheDocumentLevel(t 
 	}
 }
 
-// TestRefreshLifetimeSecondsAcceptsBothWireShapes pins the shared helper
-// login.go and narrowing.go both call, directly, against the same already-
-// decoded values *oauth2.Token.Extra and encoding/json's any-decoding both
-// produce: float64 for a JSON number, string for a JSON string.
-func TestRefreshLifetimeSecondsAcceptsBothWireShapes(t *testing.T) {
+// TestStringShapedExpiresInDoesNotFailTheExchange pins that a decorative
+// lifetime field cannot discard a credential that arrived intact. expires_in
+// is a number by RFC 6749 §5.1, but stating it as a string is a widespread
+// interoperability wart, and against such an issuer this shell could not
+// authenticate at all: the whole Unmarshal failed and the caller saw
+// errNoAccessToken, which names nothing about the real cause. #131.
+func TestStringShapedExpiresInDoesNotFailTheExchange(t *testing.T) {
+	body := []byte(`{"access_token":"a","refresh_token":"r","expires_in":"3600"}`)
+
+	var issued tokenResponse
+	if err := json.Unmarshal(body, &issued); err != nil {
+		t.Fatalf("a string-shaped expires_in failed the exchange: %v", err)
+	}
+	if issued.AccessToken != "a" {
+		t.Errorf("access_token = %q, want the token that arrived in the same response", issued.AccessToken)
+	}
+	if issued.ExpiresIn != 3600 {
+		t.Errorf("expires_in = %d, want 3600 read from the string shape", issued.ExpiresIn)
+	}
+}
+
+// TestUnreadableExpiresInLeavesTheExpiryUnstated pins the other half of the
+// rule: a shape that cannot be read as a positive number of seconds must
+// neither fail the exchange nor invent a lifetime. expiry() then falls back to
+// the JWT exp it already reads. #131.
+func TestUnreadableExpiresInLeavesTheExpiryUnstated(t *testing.T) {
+	for _, shape := range []string{`{"a":1}`, `true`, `"not a number"`, `-1`, `0`} {
+		body := []byte(`{"access_token":"a","expires_in":` + shape + `}`)
+
+		var issued tokenResponse
+		if err := json.Unmarshal(body, &issued); err != nil {
+			t.Fatalf("expires_in %s failed the exchange: %v", shape, err)
+		}
+		if issued.ExpiresIn != 0 {
+			t.Errorf("expires_in %s decoded to %d, want 0 for not stated", shape, issued.ExpiresIn)
+		}
+		if issued.AccessToken != "a" {
+			t.Errorf("expires_in %s discarded the access token", shape)
+		}
+	}
+}
+
+// TestLifetimeSecondsAcceptsBothWireShapes pins the shared helper login.go
+// and narrowing.go both call, directly, against the same already-decoded
+// values *oauth2.Token.Extra and encoding/json's any-decoding both produce:
+// float64 for a JSON number, string for a JSON string.
+func TestLifetimeSecondsAcceptsBothWireShapes(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		value     any
 		wantOK    bool
@@ -167,7 +209,7 @@ func TestRefreshLifetimeSecondsAcceptsBothWireShapes(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			seconds, ok := RefreshLifetimeSeconds(testCase.value)
+			seconds, ok := LifetimeSeconds(testCase.value)
 			if ok != testCase.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, testCase.wantOK)
 			}

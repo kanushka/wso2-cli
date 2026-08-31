@@ -394,7 +394,7 @@ func TestLoginRecordsNoSessionExpiryWhenTheIssuerDisclosesNone(t *testing.T) {
 // not stated; internal/auth/narrowing.go's tokenResponse used to fail its
 // whole json.Unmarshal on the identical shape instead (see
 // TestTokenResponseUnmarshalNeverFailsOnRefreshTokenExpiresIn in
-// internal/auth). Both paths now call the shared auth.RefreshLifetimeSeconds,
+// internal/auth). Both paths now call the shared auth.LifetimeSeconds,
 // so a string disclosed at login is recorded exactly as a number would be,
 // agreeing with what a rotation does with the same shape.
 func TestLoginRecordsAStringShapedDisclosedSessionExpiry(t *testing.T) {

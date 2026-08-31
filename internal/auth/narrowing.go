@@ -33,7 +33,14 @@ type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	Scope        string `json:"scope"`
-	ExpiresIn    int64  `json:"expires_in"`
+	// ExpiresIn is the access token's lifetime in seconds. It decodes through
+	// optionalSeconds, not a plain int64, because a single member of the wrong
+	// shape fails the whole Unmarshal — and an issuer that states this standard
+	// field as a string would have had its access token discarded along with
+	// it, leaving the caller an errNoAccessToken that names nothing about the
+	// real cause. Zero means not stated, and expiry() then falls back to the
+	// JWT exp rather than inventing a lifetime. #131.
+	ExpiresIn optionalSeconds `json:"expires_in"`
 	// RefreshTokenExpiresIn is the rotated refresh token's own lifetime, in
 	// seconds, when the issuer states one, decoded through optionalSeconds so
 	// a string-shaped value — seen in the wild for this non-standard OAuth
@@ -50,9 +57,8 @@ type tokenResponse struct {
 // seconds, when an issuer sends one, as either a JSON number or a JSON
 // string, and treats every other shape — absent, a bool, an object, a
 // malformed or non-positive value — as not stated. It never returns an error
-// from UnmarshalJSON: see RefreshLifetimeSeconds for why a field that exists
-// only so wso2 whoami can print something must never be allowed to fail the
-// token exchange it decorates.
+// from UnmarshalJSON: see LifetimeSeconds for why neither lifetime member,
+// standard or not, may be allowed to fail the token exchange it decorates.
 type optionalSeconds int64
 
 // UnmarshalJSON implements json.Unmarshaler. It swallows every shape it
@@ -64,7 +70,7 @@ type optionalSeconds int64
 func (o *optionalSeconds) UnmarshalJSON(data []byte) error {
 	var raw any
 	if err := json.Unmarshal(data, &raw); err == nil {
-		seconds, _ := RefreshLifetimeSeconds(raw)
+		seconds, _ := LifetimeSeconds(raw)
 		*o = optionalSeconds(seconds)
 	} else {
 		*o = 0
@@ -72,12 +78,16 @@ func (o *optionalSeconds) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// RefreshLifetimeSeconds interprets one already-decoded value as a
-// refresh-token lifetime in seconds, accepting either shape an issuer states
-// it as for the non-standard refresh_token_expires_in extension — a JSON
-// number or a JSON string — and reporting every other shape (absent, a bool,
-// an object, a malformed or non-positive number) as not stated rather than as
-// an error.
+// LifetimeSeconds interprets one already-decoded value as a lifetime in
+// seconds, accepting either shape an issuer states one as — a JSON number or a
+// JSON string — and reporting every other shape (absent, a bool, an object, a
+// malformed or non-positive number) as not stated rather than as an error.
+//
+// It governs both lifetime members of a token response. expires_in is a number
+// by RFC 6749 §5.1 and refresh_token_expires_in is a non-standard extension,
+// but issuers state either as a string in the wild, and neither is worth
+// failing an exchange over: both only supply an expiry, which is a display and
+// caching concern, while the same response carries a credential.
 //
 // It is exported, and takes the value rather than raw JSON bytes, so both
 // halves of this shell can apply the identical rule to the identical wire
@@ -87,7 +97,7 @@ func (o *optionalSeconds) UnmarshalJSON(data []byte) error {
 // already returns the same already-decoded shape — encoding/json.Unmarshal
 // into an any yields float64 for a JSON number and string for a JSON string,
 // regardless of which of the two call sites did the decoding.
-func RefreshLifetimeSeconds(value any) (int64, bool) {
+func LifetimeSeconds(value any) (int64, bool) {
 	switch v := value.(type) {
 	case float64:
 		// Compared before the conversion, not after: converting a float64
@@ -119,7 +129,7 @@ const maxLifetimeSeconds = int64(math.MaxInt64) / int64(time.Second)
 // what the token itself claims when the response said nothing.
 func (r tokenResponse) expiry(facts bearerFacts, now time.Time) time.Time {
 	if r.ExpiresIn > 0 {
-		return now.Add(time.Duration(r.ExpiresIn) * time.Second).UTC()
+		return now.Add(time.Duration(int64(r.ExpiresIn)) * time.Second).UTC()
 	}
 	return facts.ExpiresAt
 }
