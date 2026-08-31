@@ -24,6 +24,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"io"
 	"runtime"
 	"slices"
 	"strings"
@@ -52,6 +53,16 @@ type Shell struct {
 	// it to drive a login without a display. It can only change how the URL is
 	// opened, never what is authorized.
 	OpenBrowser func(url string) error
+
+	// Reader is where an interactive prompt reads its answer from. It is the
+	// reader #86 named and login_create.go's resolveClientID pre-committed to:
+	// the shell has streams for what it writes (Streams) and, until this
+	// field, none for what it reads. cmd/wso2/main.go sets it to os.Stdin; a
+	// Shell built directly in a test leaves it nil, which reader() treats the
+	// same as os.Stdin, and a test that wants to answer a prompt without a
+	// real terminal to hand it sets this to something else entirely — see
+	// mayPrompt in prompt.go for what that distinction is for.
+	Reader io.Reader
 
 	// log is this invocation's diagnostic log. It is a pointer because the
 	// flag that turns it on is parsed after the command tree that the call

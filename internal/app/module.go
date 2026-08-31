@@ -74,38 +74,143 @@ const moduleRecovery = "Run wso2 module available to see what can be installed, 
 // user who removes a module has said nothing about their identity, so the
 // credential store and the configuration are left exactly as they were — this
 // is not a logout.
+//
+// #112 §7: this used to remove on sight, with no confirmation, no --yes, and
+// no --dry-run. The store is asked whether the namespace is installed before
+// anything else runs, deliberately in that order: confirming the removal of
+// something that turns out not to be there would ask the wrong question, and
+// a typo would look, for one prompt, like a real module about to be deleted.
 func (s Shell) moduleRemove(args []string) error {
-	if len(args) == 0 {
-		return problem.New(problem.CategoryUsage, "shell.missing_argument",
-			"wso2 module remove needs the module to remove").
-			WithRecovery("Run wso2 module list to see what is installed, " +
-				"then wso2 module remove <module>.")
+	opts, err := parseRemoveArguments(args)
+	if err != nil {
+		return err
 	}
-	if len(args) > 1 {
-		return problem.New(problem.CategoryUsage, "shell.unexpected_argument",
-			fmt.Sprintf("wso2 module remove takes one module, got %q as well", args[1])).
-			WithRecovery("Remove one module at a time: wso2 module remove <module>.")
+	if opts.yes && opts.dryRun {
+		return conflictingConfirmationFlags("wso2 module remove")
 	}
 
-	namespace := args[0]
 	store, err := s.store()
 	if err != nil {
 		return err
 	}
-	removed, err := store.Remove(namespace)
+	installed, err := store.Installed(opts.namespace)
+	if err != nil {
+		return err
+	}
+	if !installed {
+		return notInstalledProblem(opts.namespace)
+	}
+
+	if opts.dryRun {
+		_, err := fmt.Fprintf(s.Streams.Out,
+			"Would remove the %s module. Nothing was removed.\n", opts.namespace)
+		return err
+	}
+
+	if !opts.yes {
+		if may, reason := s.mayPrompt(opts.noInput); !may {
+			return nonInteractiveConfirmation(
+				fmt.Sprintf("removing the %s module", opts.namespace), reason)
+		}
+		confirmed, err := s.confirm(fmt.Sprintf(
+			"Remove the %s module? This deletes it from this machine and cannot be undone. [y/N]: ",
+			opts.namespace))
+		if err != nil {
+			return err
+		}
+		if !confirmed {
+			_, err := fmt.Fprintf(s.Streams.Out,
+				"Removal cancelled; the %s module is unchanged.\n", opts.namespace)
+			return err
+		}
+	}
+
+	removed, err := store.Remove(opts.namespace)
 	if err != nil {
 		return err
 	}
 	if !removed {
-		// Reporting success here would tell a user their module is gone when
-		// what is installed is something else under the name they meant.
-		return problem.New(problem.CategoryUsage, "shell.module_not_installed",
-			fmt.Sprintf("no %s module is installed", namespace)).
-			WithRecovery("Run wso2 module list to see what is installed.")
+		// The check above found it installed; this is the race of another
+		// process (or another run of this one) removing it in between, not a
+		// second, different kind of failure. Reported the same way as the
+		// check, because from the user's side it is the same fact.
+		return notInstalledProblem(opts.namespace)
 	}
 
-	_, err = fmt.Fprintf(s.Streams.Out, "Removed the %s module.\n", namespace)
+	_, err = fmt.Fprintf(s.Streams.Out, "Removed the %s module.\n", opts.namespace)
 	return err
+}
+
+// notInstalledProblem reports that a named namespace has nothing installed.
+// Reporting success here would tell a user their module is gone when what is
+// installed is something else under the name they meant.
+func notInstalledProblem(namespace string) problem.Problem {
+	return problem.New(problem.CategoryUsage, "shell.module_not_installed",
+		fmt.Sprintf("no %s module is installed", namespace)).
+		WithRecovery("Run wso2 module list to see what is installed.")
+}
+
+// removeOptions is wso2 module remove's parsed arguments.
+type removeOptions struct {
+	namespace string
+	yes       bool
+	dryRun    bool
+	noInput   bool
+}
+
+// parseRemoveArguments hand-parses wso2 module remove's arguments: it runs
+// under DisableFlagParsing, so an unrecognised "-"-prefixed token has to be
+// refused here or it would launch as if it were a namespace.
+func parseRemoveArguments(args []string) (removeOptions, error) {
+	var opts removeOptions
+	for _, argument := range args {
+		switch argument {
+		case "--yes":
+			opts.yes = true
+		case "--dry-run":
+			opts.dryRun = true
+		case "--no-input":
+			opts.noInput = true
+		default:
+			if strings.HasPrefix(argument, "-") {
+				return removeOptions{}, problem.New(problem.CategoryUsage, "shell.unknown_flag",
+					fmt.Sprintf("%q is not a wso2 module remove flag", argument)).
+					WithRecovery("Run wso2 module remove <module> [--yes] [--dry-run] [--no-input].")
+			}
+			if opts.namespace != "" {
+				return removeOptions{}, problem.New(problem.CategoryUsage, "shell.unexpected_argument",
+					fmt.Sprintf("wso2 module remove takes one module, got %q as well", argument)).
+					WithRecovery("Remove one module at a time: wso2 module remove <module>.")
+			}
+			opts.namespace = argument
+		}
+	}
+	if opts.namespace == "" {
+		return removeOptions{}, problem.New(problem.CategoryUsage, "shell.missing_argument",
+			"wso2 module remove needs the module to remove").
+			WithRecovery("Run wso2 module list to see what is installed, " +
+				"then wso2 module remove <module>.")
+	}
+	return opts, nil
+}
+
+// conflictingConfirmationFlags refuses --yes and --dry-run together: one
+// skips the confirmation and acts, the other skips acting entirely, and a
+// command asked to do both at once has been given no coherent instruction.
+func conflictingConfirmationFlags(command string) problem.Problem {
+	return problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
+		fmt.Sprintf("%s cannot take both --yes and --dry-run", command)).
+		WithRecovery("Pass --yes to act without a prompt, or --dry-run to preview without acting, but not both.")
+}
+
+// nonInteractiveConfirmation reports that a destructive action needed
+// confirmation and mayPrompt refused it, naming which control fired: subject
+// is what needed confirming, and reason is mayPrompt's own wording for why it
+// would not ask.
+func nonInteractiveConfirmation(subject, reason string) problem.Problem {
+	return problem.New(problem.CategoryUsage, "shell.non_interactive",
+		fmt.Sprintf("%s needs to be confirmed, and %s", subject, reason)).
+		WithRecovery("Pass --yes to proceed without a prompt, or run this where standard input is a terminal.")
 }
 
 // moduleInstall installs one product module from the catalog.
@@ -341,25 +446,77 @@ func updateColumn(status install.Status) string {
 // cannot silently take a module off the version it is held at. A module whose
 // update is refused keeps the version that was active before the run, and the
 // refusal is reported rather than swallowed.
+//
+// #112 §7 named wso2 module update --all specifically as acting immediately
+// with no confirmation, no --yes, and no --dry-run, so the confirmation guards
+// only the unnamed, --all form. The reason is unboundedness, not
+// destructiveness: activate (install.go) never deactivates a module until a
+// replacement has been downloaded and verified into its own version
+// directory, and moving to a new version never touches the directory the
+// previous version lives in — each version has its own path under
+// versions/, so a named update is recoverable and not especially dangerous
+// even without a prompt. --all is what is unbounded — it is the run whose
+// scope is "however many modules happen to be installed", decided by the
+// state of the machine rather than by anything the caller typed. --dry-run
+// and --yes are accepted on either form; --yes is simply a no-op when
+// nothing was going to ask.
 func (s Shell) moduleUpdate(args []string) error {
-	namespaces, err := parseUpdateArguments(args)
+	opts, err := parseUpdateArguments(args)
 	if err != nil {
 		return err
 	}
+	if opts.yes && opts.dryRun {
+		return conflictingConfirmationFlags("wso2 module update")
+	}
+
 	installer, err := s.installer()
 	if err != nil {
 		return err
 	}
+
+	if opts.dryRun {
+		return s.reportUpdatePlan(installer, opts.namespaces)
+	}
+
+	if len(opts.namespaces) == 0 && !opts.yes {
+		// NothingWouldMove is a local-only, network-free check: nothing
+		// installed, or everything installed pinned. Asking permission to do
+		// nothing trains a person to answer without reading, so this run
+		// skips straight to reporting that outcome instead of asking first.
+		// It is deliberately not a full "would this change anything" answer
+		// (that costs the same index request the run itself pays), so this
+		// can still ask before a run that turns out to find everything
+		// already current.
+		skip, err := installer.NothingWouldMove(opts.namespaces)
+		if err != nil {
+			return err
+		}
+		if !skip {
+			if may, reason := s.mayPrompt(opts.noInput); !may {
+				return nonInteractiveConfirmation("updating every installed module", reason)
+			}
+			confirmed, err := s.confirm(
+				"This updates every installed module that has a newer version on its channel. Continue? [y/N]: ")
+			if err != nil {
+				return err
+			}
+			if !confirmed {
+				_, err := fmt.Fprintln(s.Streams.Out, "Update cancelled; nothing was changed.")
+				return err
+			}
+		}
+	}
+
 	// An empty namespace list is wso2 module update --all, so what was asked
 	// for is logged as it was parsed rather than as it was typed: an update
 	// that moved a module the user did not name is read here.
 	s.log.Debug("updating modules from the catalog",
-		"namespaces", strings.Join(namespaces, " "),
-		"all", len(namespaces) == 0,
+		"namespaces", strings.Join(opts.namespaces, " "),
+		"all", len(opts.namespaces) == 0,
 		"catalog_origin", installer.Client.Origin)
 	ctx, cancel := context.WithTimeout(context.Background(), catalogTimeout)
 	defer cancel()
-	outcomes, err := installer.Update(ctx, namespaces)
+	outcomes, err := installer.Update(ctx, opts.namespaces)
 	if err != nil {
 		return err
 	}
@@ -390,6 +547,48 @@ func (s Shell) moduleUpdate(args []string) error {
 	return failures[0]
 }
 
+// reportUpdatePlan renders what wso2 module update would do without doing it.
+//
+// It reads Installer.Check rather than a second planner of its own: Check
+// already computes, in one index request, exactly the []Status Update acts
+// on, so a preview built from anything else could disagree with the run it
+// is previewing.
+func (s Shell) reportUpdatePlan(installer install.Installer, namespaces []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), catalogTimeout)
+	defer cancel()
+	statuses, err := installer.Check(ctx, namespaces...)
+	if err != nil {
+		return err
+	}
+	if len(statuses) == 0 {
+		_, err := fmt.Fprintln(s.Streams.Out, "No modules are installed.")
+		return err
+	}
+	for _, status := range statuses {
+		if _, err := fmt.Fprintln(s.Streams.Out, dryRunUpdateLine(status)); err != nil {
+			return err
+		}
+	}
+	_, err = fmt.Fprintln(s.Streams.Out, "\nNothing was changed. Run without --dry-run to apply this.")
+	return err
+}
+
+// dryRunUpdateLine renders what Update would do to one module, from the same
+// Status it would act on: the three branches mirror updateOne's exactly.
+// module_test.go exercises all three (TestModuleUpdateAllDryRunReports*),
+// so this claim is enforced rather than merely asserted in a comment.
+func dryRunUpdateLine(status install.Status) string {
+	switch {
+	case status.Pinned:
+		return fmt.Sprintf("%s is pinned to v%s and would not be updated.", status.Namespace, status.PinnedVersion)
+	case status.Update:
+		return fmt.Sprintf("%s would be updated from v%s to v%s.",
+			status.Namespace, status.Installed, status.Available)
+	default:
+		return fmt.Sprintf("%s is already current at v%s.", status.Namespace, status.Installed)
+	}
+}
+
 // updateLine renders one module's outcome, and reports the refusal to exit on.
 func updateLine(outcome install.Outcome) (string, error) {
 	switch outcome.Action {
@@ -405,35 +604,51 @@ func updateLine(outcome install.Outcome) (string, error) {
 	}
 }
 
+// updateOptions is wso2 module update's parsed arguments.
+type updateOptions struct {
+	namespaces []string
+	yes        bool
+	dryRun     bool
+	noInput    bool
+}
+
 // parseUpdateArguments reads the modules an update run covers. Updating
 // everything is asked for explicitly, so a mistyped module name cannot become a
 // run over every installed module.
-func parseUpdateArguments(args []string) ([]string, error) {
+func parseUpdateArguments(args []string) (updateOptions, error) {
+	var opts updateOptions
 	all := false
-	var namespaces []string
 	for _, argument := range args {
-		switch {
-		case argument == "--all":
+		switch argument {
+		case "--all":
 			all = true
-		case strings.HasPrefix(argument, "-"):
-			return nil, problem.New(problem.CategoryUsage, "shell.unknown_flag",
-				fmt.Sprintf("%q is not a wso2 module update flag", argument)).
-				WithRecovery("Run wso2 module update <module>, or wso2 module update --all.")
+		case "--yes":
+			opts.yes = true
+		case "--dry-run":
+			opts.dryRun = true
+		case "--no-input":
+			opts.noInput = true
 		default:
-			namespaces = append(namespaces, argument)
+			if strings.HasPrefix(argument, "-") {
+				return updateOptions{}, problem.New(problem.CategoryUsage, "shell.unknown_flag",
+					fmt.Sprintf("%q is not a wso2 module update flag", argument)).
+					WithRecovery("Run wso2 module update <module> [--yes] [--dry-run] [--no-input], " +
+						"or wso2 module update --all [--yes] [--dry-run] [--no-input].")
+			}
+			opts.namespaces = append(opts.namespaces, argument)
 		}
 	}
-	if all && len(namespaces) > 0 {
-		return nil, problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
+	if all && len(opts.namespaces) > 0 {
+		return updateOptions{}, problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
 			"--all updates every installed module, so naming one as well is ambiguous").
 			WithRecovery("Run wso2 module update <module>, or wso2 module update --all.")
 	}
-	if !all && len(namespaces) == 0 {
-		return nil, problem.New(problem.CategoryUsage, "shell.missing_argument",
+	if !all && len(opts.namespaces) == 0 {
+		return updateOptions{}, problem.New(problem.CategoryUsage, "shell.missing_argument",
 			"wso2 module update needs a module, or --all").
 			WithRecovery("Run wso2 module update <module>, or wso2 module update --all.")
 	}
-	return namespaces, nil
+	return opts, nil
 }
 
 // asProblem renders a refusal that is not the one this run exits on, so a

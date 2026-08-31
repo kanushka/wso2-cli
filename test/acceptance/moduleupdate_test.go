@@ -244,7 +244,7 @@ func TestChannelIsChosenPerModule(t *testing.T) {
 	// prerelease for either.
 	origin.generate(catalogStable, catalogPrerelease, catalogAddedStable,
 		catalogOtherStable, catalogOtherPrerelease, catalogOtherNewer)
-	stdout, stderr, err := moduleCommandFrom(shell, stateRoot, origin.server.URL, "update", "--all")
+	stdout, stderr, err := moduleCommandFrom(shell, stateRoot, origin.server.URL, "update", "--all", "--yes")
 	if err != nil {
 		t.Fatalf("updating returned %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
@@ -287,7 +287,7 @@ func TestAPinnedModuleStaysPinnedAcrossAnUpdateRun(t *testing.T) {
 	// a single-run test while still being a one-shot argument rather than a
 	// property of the installation.
 	for run := 1; run <= 2; run++ {
-		stdout, stderr, err := moduleCommandFrom(shell, stateRoot, origin.server.URL, "update", "--all")
+		stdout, stderr, err := moduleCommandFrom(shell, stateRoot, origin.server.URL, "update", "--all", "--yes")
 		if err != nil {
 			t.Fatalf("update run %d returned %v\nstdout:\n%s\nstderr:\n%s", run, err, stdout, stderr)
 		}
@@ -478,7 +478,7 @@ func TestAPartlyFailedUpdateRunMovesTheModulesThatDidNotFail(t *testing.T) {
 	origin.generate(catalogOlderStable, catalogStable, catalogOtherStable, catalogOtherNewer)
 	origin.forget()
 
-	stdout, stderr, err := moduleCommandFrom(shell, stateRoot, origin.server.URL, "update", "--all")
+	stdout, stderr, err := moduleCommandFrom(shell, stateRoot, origin.server.URL, "update", "--all", "--yes")
 
 	requireProblem(t, stdout, stderr, err, 69, "modules.artifact_malformed")
 	if got := installedVersion(t, stateRoot, catalogNamespace); got != "4.4.0" {
@@ -508,7 +508,7 @@ func TestAnUpdateRunReportsEveryRefusal(t *testing.T) {
 	origin.options.carriesNoModule = map[string]bool{catalogStable: true, catalogOtherNewer: true}
 	origin.generate(catalogOlderStable, catalogStable, catalogOtherStable, catalogOtherNewer)
 
-	stdout, stderr, err := moduleCommandFrom(shell, stateRoot, origin.server.URL, "update", "--all")
+	stdout, stderr, err := moduleCommandFrom(shell, stateRoot, origin.server.URL, "update", "--all", "--yes")
 
 	requireProblem(t, stdout, stderr, err, 69, "modules.artifact_malformed")
 	// The refusal the run did not exit on names its own module, so a user is

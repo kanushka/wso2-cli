@@ -64,7 +64,7 @@ func TestRemovingAModuleTakesItOffTheMachine(t *testing.T) {
 		t.Fatalf("installing returned %v\nstderr:\n%s", err, stderr)
 	}
 
-	stdout, stderr, err := removeModule(shell, stateRoot, catalogNamespace)
+	stdout, stderr, err := removeModule(shell, stateRoot, catalogNamespace, "--yes")
 	if err != nil {
 		t.Fatalf("removing returned %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
@@ -106,7 +106,7 @@ func TestARemovedModulesCommandsStopResolving(t *testing.T) {
 	if _, stderr, err := installModuleFrom(shell, stateRoot, origin.server.URL, catalogNamespace); err != nil {
 		t.Fatalf("installing returned %v\nstderr:\n%s", err, stderr)
 	}
-	if _, stderr, err := removeModule(shell, stateRoot, catalogNamespace); err != nil {
+	if _, stderr, err := removeModule(shell, stateRoot, catalogNamespace, "--yes"); err != nil {
 		t.Fatalf("removing returned %v\nstderr:\n%s", err, stderr)
 	}
 
@@ -129,7 +129,7 @@ func TestRemovingOneModuleLeavesTheOthersInstalled(t *testing.T) {
 		}
 	}
 
-	if _, stderr, err := removeModule(shell, stateRoot, catalogNamespace); err != nil {
+	if _, stderr, err := removeModule(shell, stateRoot, catalogNamespace, "--yes"); err != nil {
 		t.Fatalf("removing returned %v\nstderr:\n%s", err, stderr)
 	}
 
@@ -166,7 +166,7 @@ func TestRemovingAModuleLeavesConfigurationAndCredentialsAlone(t *testing.T) {
 	// before and after. Naming the files individually would let a removal that
 	// deleted something this test had not thought of pass.
 	before := stateRootEntriesOutsideTheStore(t, stateRoot)
-	if _, stderr, err := removeModule(shell, stateRoot, catalogNamespace); err != nil {
+	if _, stderr, err := removeModule(shell, stateRoot, catalogNamespace, "--yes"); err != nil {
 		t.Fatalf("removing returned %v\nstderr:\n%s", err, stderr)
 	}
 	after := stateRootEntriesOutsideTheStore(t, stateRoot)
@@ -221,7 +221,7 @@ func TestRemovingThenReinstallingWorks(t *testing.T) {
 	if _, stderr, err := installModuleFrom(shell, stateRoot, origin.server.URL, catalogNamespace); err != nil {
 		t.Fatalf("installing returned %v\nstderr:\n%s", err, stderr)
 	}
-	if _, stderr, err := removeModule(shell, stateRoot, catalogNamespace); err != nil {
+	if _, stderr, err := removeModule(shell, stateRoot, catalogNamespace, "--yes"); err != nil {
 		t.Fatalf("removing returned %v\nstderr:\n%s", err, stderr)
 	}
 	if _, stderr, err := installModuleFrom(shell, stateRoot, origin.server.URL, catalogNamespace); err != nil {

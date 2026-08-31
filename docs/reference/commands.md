@@ -53,11 +53,11 @@ refusal is reported.
 | `wso2 module install <module>@<version>` | Installs an exact compatible module version. |
 | `wso2 module list` | Lists installed modules, versions, and update availability. |
 | `wso2 module info <module>` | Shows catalog, compatibility, and installation information. |
-| `wso2 module update <module>` | Updates one product module. |
-| `wso2 module update --all` | Updates all installed product modules. |
+| `wso2 module update <module>` | Updates one product module. Naming a module is already an explicit target, so this does not prompt; `--dry-run` still reports what it would do without changing anything. |
+| `wso2 module update --all` | Built today: updates every installed product module that has a newer version on its followed channel, skipping a pinned one. Being unbounded, it prompts for confirmation before moving anything; `--yes` skips the prompt, `--dry-run` reports what it would do without changing anything, and `--no-input` (or `WSO2_NO_INPUT`) refuses rather than prompt. Refuses `shell.non_interactive` when standard input is not a terminal and neither `--yes` nor `--no-input`/`WSO2_NO_INPUT` was given, and `shell.conflicting_arguments` for `--yes` with `--dry-run`. |
 | `wso2 module verify <module>` | Verifies an installed module and its receipt. |
 | `wso2 module rollback <module>` | Reactivates a retained compatible version. |
-| `wso2 module remove <module>` | Removes one installed module, leaving configuration and credentials alone. |
+| `wso2 module remove <module>` | Built today: removes one installed module, leaving configuration and credentials alone. Prompts for confirmation after confirming the module is installed; `--yes` skips the prompt, `--dry-run` reports what it would remove without removing anything, and `--no-input` (or `WSO2_NO_INPUT`) refuses rather than prompt. Refuses `shell.module_not_installed` before any prompt when the module is not installed, `shell.non_interactive` when standard input is not a terminal and neither `--yes` nor `--no-input`/`WSO2_NO_INPUT` was given, and `shell.conflicting_arguments` for `--yes` with `--dry-run`. |
 | `wso2 module install --file <module.wso2module>` | Installs one module from an offline file. |
 | `wso2 bundle create` | Creates a platform-specific, self-installing offline bundle from catalog releases. |
 | `wso2 bundle inspect <file>` | Shows bundle contents without installing it. |

@@ -31,6 +31,7 @@ import (
 func main() {
 	shell := app.Shell{
 		Streams: output.Streams{Out: os.Stdout, Err: os.Stderr},
+		Reader:  os.Stdin,
 	}
 	os.Exit(int(shell.Run(os.Args[1:])))
 }
