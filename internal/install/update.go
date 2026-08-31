@@ -274,11 +274,11 @@ func (i Installer) Update(ctx context.Context, namespaces []string) ([]Outcome, 
 	return outcomes, nil
 }
 
-// OutcomeFor reports what an update run would decide for one status, without
+// outcomeFor reports what an update run would decide for one status, without
 // performing it. updateOne calls it and then acts; a test calls it to pin the
 // decision. The branches are the whole of what #135 turned on, and reaching
 // them through a live catalog proved nothing that this does not.
-func OutcomeFor(status Status) Outcome {
+func outcomeFor(status Status) Outcome {
 	outcome := Outcome{
 		Namespace: status.Namespace,
 		From:      status.Installed,
@@ -300,7 +300,7 @@ func OutcomeFor(status Status) Outcome {
 
 // updateOne moves one module, or reports why it was not moved.
 func (i Installer) updateOne(ctx context.Context, index catalog.Index, status Status) Outcome {
-	outcome := OutcomeFor(status)
+	outcome := outcomeFor(status)
 	switch outcome.Action {
 	case ActionPinned, ActionNotPublished, ActionCurrent:
 		return outcome

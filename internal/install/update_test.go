@@ -39,7 +39,7 @@ func TestUpdateReportsAModuleTheCatalogDoesNotPublish(t *testing.T) {
 		Update:    false,
 	}
 
-	outcome := OutcomeFor(status) // see Step 3 on why this seam exists
+	outcome := outcomeFor(status) // see Step 3 on why this seam exists
 
 	if outcome.Action != ActionNotPublished {
 		t.Errorf("Action = %q, want %q", outcome.Action, ActionNotPublished)
@@ -65,7 +65,7 @@ func TestUpdateStillReportsAGenuinelyCurrentModule(t *testing.T) {
 		Update:    false,
 	}
 
-	outcome := OutcomeFor(status)
+	outcome := outcomeFor(status)
 
 	if outcome.Action != ActionCurrent {
 		t.Errorf("Action = %q, want %q", outcome.Action, ActionCurrent)
