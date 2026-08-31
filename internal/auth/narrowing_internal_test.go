@@ -113,17 +113,20 @@ func TestTokenResponseUnmarshalRejectsMalformedJSONAsBeforeAtTheDocumentLevel(t 
 // authenticate at all: the whole Unmarshal failed and the caller saw
 // errNoAccessToken, which names nothing about the real cause. #131.
 func TestStringShapedExpiresInDoesNotFailTheExchange(t *testing.T) {
-	body := []byte(`{"access_token":"a","refresh_token":"r","expires_in":"3600"}`)
+	for _, shape := range []string{`"3600"`, `3600`} {
+		body := []byte(`{"access_token":"a","refresh_token":"r","expires_in":` + shape + `}`)
 
-	var issued tokenResponse
-	if err := json.Unmarshal(body, &issued); err != nil {
-		t.Fatalf("a string-shaped expires_in failed the exchange: %v", err)
-	}
-	if issued.AccessToken != "a" {
-		t.Errorf("access_token = %q, want the token that arrived in the same response", issued.AccessToken)
-	}
-	if issued.ExpiresIn != 3600 {
-		t.Errorf("expires_in = %d, want 3600 read from the string shape", issued.ExpiresIn)
+		var issued tokenResponse
+		if err := json.Unmarshal(body, &issued); err != nil {
+			t.Fatalf("expires_in %s failed the exchange: %v", shape, err)
+		}
+		if issued.AccessToken != "a" {
+			t.Errorf("expires_in %s: access_token = %q, want the token that arrived in the same response",
+				shape, issued.AccessToken)
+		}
+		if issued.ExpiresIn != 3600 {
+			t.Errorf("expires_in %s decoded to %d, want 3600", shape, issued.ExpiresIn)
+		}
 	}
 }
 

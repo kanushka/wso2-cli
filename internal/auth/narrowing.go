@@ -121,8 +121,8 @@ func LifetimeSeconds(value any) (int64, bool) {
 // when multiplied by time.Second and yields an expiry in the past, so a caller
 // would report a session that has just been issued as long expired. Anything
 // above it is treated as unstated, on the same principle as every other shape
-// this function refuses: a field that exists so wso2 whoami can print
-// something must never produce an answer worse than saying nothing.
+// this function refuses: either lifetime member must never produce an answer
+// worse than saying nothing.
 const maxLifetimeSeconds = int64(math.MaxInt64) / int64(time.Second)
 
 // expiry is when the issued token stops working: what the response said, or
