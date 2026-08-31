@@ -131,7 +131,7 @@ func (s Shell) rootCommand() *cobra.Command {
 	root.PersistentFlags().Bool(verboseFlag, false, "Write diagnostics about what the shell attempted to stderr.")
 
 	root.AddCommand(s.configCommand(), s.contextCommand(), s.doctorCommand(), s.identityCommand(),
-		s.loginCommand(), s.logoutCommand(), s.moduleCommand(), s.versionCommand(),
+		s.loginCommand(), s.logoutCommand(), s.moduleCommand(), s.orgCommand(), s.versionCommand(),
 		s.whoamiCommand())
 
 	// Cobra's generated help command describes itself generically. The shell
@@ -364,6 +364,15 @@ func shellFlag(command *cobra.Command, name string) *pflag.Flag {
 // every one of them: version and the module lifecycle commands render their own
 // fixed output and select no context. Naming what each command honors keeps a
 // flag it cannot act on a refusal rather than a value silently ignored.
+//
+// A known consequence, left as it is: because the flags are persistent on the
+// root, --help lists --context under a family that refuses it, and the
+// refusal's recovery points back at that help. It has been true of context
+// and identity since they shipped, and config and org inherit it. The fix is
+// not local to this function — it means declaring the shell flags per command
+// instead of once on the root, which is the same change that would retire
+// forwardShellFlags — so making it here for two families and not the others
+// would trade one inconsistency for a worse one.
 func shellFlagsFor(name string) []string {
 	// --verbose is deliberately absent from every list. This set answers one
 	// question — which flags forwardShellFlags may re-attach to a command's own
@@ -406,6 +415,12 @@ func shellFlagsFor(name string) []string {
 		// what the issuer was told about the ended session is not observable
 		// any other way.
 		return []string{contextFlag, outputFlag}
+	case "org":
+		// The family always acts on the selected context, exactly as wso2
+		// context does: naming one with --context would be a second answer to
+		// a question the family does not ask, since org use writes the
+		// selected context's Organization field, not some other one's.
+		return []string{outputFlag}
 	case "whoami":
 		// whoami reports ON a selected context exactly as doctor does (R5,
 		// #112), so naming one with --context is meaningful for the same
