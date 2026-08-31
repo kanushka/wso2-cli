@@ -33,7 +33,14 @@ type Status struct {
 	Namespace string
 	Installed string
 	Channel   string
-	Pinned    bool
+	// PolicyChannel is the channel the policy actually records, empty when none
+	// was chosen. Channel resolves that to the stable one so there is something
+	// to ask the catalog for; this is the unresolved fact, and it is what a
+	// report must print. A pinned module with no recorded channel follows no
+	// channel at all, and naming one — stable, necessarily — names the single
+	// channel a pinned prerelease provably is not on. #128.
+	PolicyChannel string
+	Pinned        bool
 	// PinnedVersion is the version the policy holds the module at, which is
 	// what a report shows. It is empty when nothing is pinned.
 	PinnedVersion string
@@ -126,6 +133,7 @@ func (i Installer) statuses(index catalog.Index, installed []modules.Installed) 
 			Namespace:     entry.Namespace,
 			Installed:     entry.Version,
 			Channel:       policy.FollowedChannel(),
+			PolicyChannel: policy.Channel,
 			Pinned:        policy.Pinned(),
 			PinnedVersion: policy.PinnedVersion,
 		}

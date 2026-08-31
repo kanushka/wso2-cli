@@ -232,10 +232,20 @@ $ wso2 module list
 MODULE        INSTALLED   CHANNEL   UPDATE
 api           v0.9.0      stable    current
 agent         v1.2.0      stable    v1.3.0 available
-integration   v0.4.0      stable    pinned to v0.4.0
+integration   v0.4.0      —         pinned to v0.4.0
 
 1 module(s) have an update available. Run wso2 module update --all to take them.
 ```
+
+CHANNEL names the channel a module follows for updates; it is empty (`—`) for
+a module installed at an exact version with no channel chosen, such as
+`integration` above. A pin overrides the channel — it is what makes a pinned
+prerelease installable without putting the module on that channel — so there
+is no channel to name while the pin holds, and the blank cell is not a
+prediction that the module would move to stable once unpinned: `wso2 module
+install integration` without `@<version>` records whatever channel that
+command names, stable by default, which need not be the channel the pinned
+version actually came from.
 
 Credentials are never shown by these commands. Tokens are stored separately in
 the operating system's secure credential store.

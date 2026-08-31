@@ -56,3 +56,49 @@ func TestTheThreeUpdateRenderingsAgreeOnAnUnpublishedModule(t *testing.T) {
 		}
 	}
 }
+
+// TestChannelColumnSaysNothingAboutAPinnedModulesChannel pins that the table
+// does not name a channel for a module held at an exact version with no
+// channel recorded. Policy.FollowedChannel resolves an unrecorded channel to
+// stable so the catalog query has something to ask for; that resolution is not
+// a fact about the installed version, and printing it named the one channel a
+// pinned prerelease provably is not on. #128.
+func TestChannelColumnSaysNothingAboutAPinnedModulesChannel(t *testing.T) {
+	pinned := install.Status{
+		Namespace:     "reference",
+		Installed:     "0.1.0-rc.2",
+		Channel:       "stable", // what FollowedChannel resolved for the query
+		PolicyChannel: "",       // what the policy actually records
+		Pinned:        true,
+		PinnedVersion: "0.1.0-rc.2",
+	}
+
+	if column := channelColumn(pinned); column != "—" {
+		t.Errorf("channelColumn = %q, want an em dash: a pinned module with no "+
+			"recorded channel follows no channel at all", column)
+	}
+}
+
+// TestChannelColumnNamesARecordedChannel pins the two cases that must keep
+// printing a channel: an unpinned module following one, and a module pinned
+// after a channel was explicitly chosen. #128.
+func TestChannelColumnNamesARecordedChannel(t *testing.T) {
+	following := install.Status{Channel: "prerelease", PolicyChannel: "prerelease"}
+	if column := channelColumn(following); column != "prerelease" {
+		t.Errorf("channelColumn = %q, want prerelease for a module following one", column)
+	}
+
+	pinnedOnAChannel := install.Status{
+		Channel: "prerelease", PolicyChannel: "prerelease",
+		Pinned: true, PinnedVersion: "0.1.0-rc.2",
+	}
+	if column := channelColumn(pinnedOnAChannel); column != "prerelease" {
+		t.Errorf("channelColumn = %q, want the channel the user chose", column)
+	}
+
+	unpinnedDefault := install.Status{Channel: "stable", PolicyChannel: ""}
+	if column := channelColumn(unpinnedDefault); column != "stable" {
+		t.Errorf("channelColumn = %q, want stable: no channel chosen means stable "+
+			"for a module that is free to move", column)
+	}
+}

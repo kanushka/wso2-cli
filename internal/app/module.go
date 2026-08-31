@@ -435,7 +435,7 @@ func (s Shell) moduleList(args []string) error {
 	updates := 0
 	table := output.NewTable("module", "installed", "channel", "update")
 	for _, status := range statuses {
-		table.Append(status.Namespace, "v"+status.Installed, status.Channel, updateColumn(status))
+		table.Append(status.Namespace, "v"+status.Installed, channelColumn(status), updateColumn(status))
 		if status.Update {
 			updates++
 		}
@@ -450,6 +450,20 @@ func (s Shell) moduleList(args []string) error {
 	_, err = fmt.Fprintf(s.Streams.Out,
 		"\n%d module(s) have an update available. Run wso2 module update --all to take them.\n", updates)
 	return err
+}
+
+// channelColumn says which channel a module follows, or says nothing when it
+// follows none. A pin overrides the channel — catalog.Policy documents that,
+// and it is why a pinned prerelease is installable without putting the module
+// on that channel — so a module pinned with no channel recorded has no
+// followed channel to name while the pin holds. The UPDATE column already
+// declines to derive a verdict from a channel in that case; this is the same
+// honesty one column to the left. #128.
+func channelColumn(status install.Status) string {
+	if status.Pinned && status.PolicyChannel == "" {
+		return "—"
+	}
+	return status.Channel
 }
 
 // updateColumn says what is available for one module in the terms that decide
