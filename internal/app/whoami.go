@@ -99,7 +99,7 @@ func (s Shell) whoamiCommand() *cobra.Command {
 // what the stored session says about who is signed in — all read from local
 // state, never from a network call.
 func (s Shell) whoami(command *cobra.Command) error {
-	mode, err := shellOutputMode(command)
+	mode, err := s.shellOutputMode(command)
 	if err != nil {
 		return err
 	}

@@ -183,6 +183,38 @@ func activeMalformed(namespace, detail string) problem.Problem {
 		WithRecovery(reinstallRecovery)
 }
 
+// Installed reports whether one namespace has anything in the store, without
+// changing or removing anything.
+//
+// It exists so a caller can establish that a module is there before doing
+// anything irreversible to it — asking before acting, rather than acting and
+// finding out from the result. Remove performs the same stat internally, but
+// by the time it answers, a namespace that was there is already gone.
+func (s Store) Installed(namespace string) (bool, error) {
+	if !ValidNamespace(namespace) {
+		return false, problem.New(problem.CategoryUsage, "modules.invalid_namespace",
+			fmt.Sprintf("%q is not a valid module namespace", namespace)).
+			WithRecovery("Run wso2 module list to see the installed modules.")
+	}
+	switch _, err := os.Stat(s.NamespaceDir(namespace)); {
+	case os.IsNotExist(err):
+		return false, nil
+	case err != nil:
+		return false, namespaceUnreadable(namespace, err)
+	}
+	return true, nil
+}
+
+// namespaceUnreadable reports a namespace directory that could not be
+// inspected, which is not the same fact as one that is not there: treating a
+// permission failure as "not installed" would send a caller off to reinstall
+// something the shell simply could not look at.
+func namespaceUnreadable(namespace string, err error) problem.Problem {
+	return problem.New(problem.CategoryModuleProcess, "modules.namespace_unreadable",
+		fmt.Sprintf("the %s module's store entry could not be read: %v", namespace, err)).
+		WithRecovery("Check the permissions on the module store and try again.")
+}
+
 // Remove takes one module off the machine. Everything the module has here —
 // its versions, its receipts, its active-version pointer, and its policy —
 // lives inside the namespace directory, so removing that directory is the whole

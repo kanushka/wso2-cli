@@ -26,6 +26,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/wso2/wso2-cli/internal/preferences"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -40,6 +41,17 @@ const OriginEnvVar = "WSO2_CLI_CATALOG_ORIGIN"
 
 // The read limits. A catalog document is small by construction, and an archive
 // is bounded so a hostile or broken origin cannot make the shell read forever.
+//
+// LimitReader does two separate jobs here, and the tests below pin only one
+// of them: TestDownloadRefusesAnArchiveOverTheByteLimit and
+// TestDownloadAcceptsAnArchiveExactlyAtTheByteLimit prove the finite-body
+// overflow check (a body of maxArtifactBytes+1 is refused, one of exactly
+// maxArtifactBytes is not). Neither test, nor any other in this repository,
+// proves the memory bound against an origin that never stops streaming: doing
+// that honestly means actually serving an unbounded body, and a test that got
+// that wrong would hang a CI job for the length of the request's context
+// timeout rather than fail fast. That gap is accepted, not hidden — the
+// bound below still protects a real, if untested, case.
 const (
 	maxDocumentBytes = 8 << 20
 	maxArtifactBytes = 512 << 20
@@ -47,8 +59,22 @@ const (
 
 // Origin reports the catalog origin this invocation reads, with no trailing
 // slash so a published path always joins onto it the same way.
-func Origin() string {
+//
+// The precedence is three layers, outermost first: OriginEnvVar, which the
+// acceptance suite sets so no test ever reaches the real origin and which a
+// saved preference must never be able to override; the "catalog-origin"
+// preference (wso2 config set catalog-origin <url>); and DefaultOrigin. A
+// preferences document this shell cannot read falls back to no override
+// configured, silently as far as this function is concerned — see
+// preferences.Load and output.ColorEnabled's doc comment for why that
+// diagnostic belongs to the shell, once per invocation, and not here.
+func Origin(stateRoot string) string {
 	origin := os.Getenv(OriginEnvVar)
+	if origin == "" {
+		if document, _ := preferences.Load(stateRoot); document.CatalogOrigin != "" {
+			origin = document.CatalogOrigin
+		}
+	}
 	if origin == "" {
 		origin = DefaultOrigin
 	}
@@ -72,7 +98,7 @@ type Client struct {
 // different answers, and collapsing them leaves a user unable to tell which
 // they have.
 func (c Client) Index(ctx context.Context) (Index, error) {
-	body, err := c.get(ctx, c.Origin+"/"+IndexPath, maxDocumentBytes)
+	body, err := c.get(ctx, c.Origin+"/"+IndexPath, maxDocumentBytes, nil)
 	if err != nil {
 		return Index{}, err
 	}
@@ -105,7 +131,7 @@ func (c Client) Namespace(ctx context.Context, entry IndexModule) (NamespaceFile
 	if err := validPublishedPath(entry.Path); err != nil {
 		return NamespaceFile{}, err
 	}
-	body, err := c.get(ctx, c.Origin+"/"+entry.Path, maxDocumentBytes)
+	body, err := c.get(ctx, c.Origin+"/"+entry.Path, maxDocumentBytes, nil)
 	if err != nil {
 		return NamespaceFile{}, err
 	}
@@ -125,19 +151,31 @@ func (c Client) Namespace(ctx context.Context, entry IndexModule) (NamespaceFile
 	return file, nil
 }
 
+// ProgressFunc receives the cumulative number of bytes read so far during a
+// Download. It is called synchronously from the goroutine doing the read, as
+// often as once per chunk the network hands back; a caller that needs to
+// throttle how often that becomes visible does so itself (see
+// internal/output.Progress), not by asking here for fewer calls.
+type ProgressFunc func(read int64)
+
 // Download reads one published artifact. Its digest is checked by the caller
 // against the entry that named it, which proves the archive matches the entry
 // and not that the entry is authentic.
-func (c Client) Download(ctx context.Context, artifactURL string) ([]byte, error) {
+//
+// report is called as the archive is read, with the cumulative byte count; it
+// may be nil, which reports nothing. This is the one catalog request progress
+// is wired to (see internal/install.Installer): Index and Namespace fetch two
+// small JSON documents that need no progress indicator.
+func (c Client) Download(ctx context.Context, artifactURL string, report ProgressFunc) ([]byte, error) {
 	if err := validArtifactURL(artifactURL); err != nil {
 		return nil, err
 	}
-	return c.get(ctx, artifactURL, maxArtifactBytes)
+	return c.get(ctx, artifactURL, maxArtifactBytes, report)
 }
 
 // get reads one URL, mapping every way a read can fail onto the one problem
 // that says the origin could not be read.
-func (c Client) get(ctx context.Context, target string, limit int64) ([]byte, error) {
+func (c Client) get(ctx context.Context, target string, limit int64, report ProgressFunc) ([]byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return nil, originUnreachable(target, err.Error())
@@ -156,7 +194,17 @@ func (c Client) get(ctx context.Context, target string, limit int64) ([]byte, er
 	if response.StatusCode != http.StatusOK {
 		return nil, originUnreachable(target, fmt.Sprintf("the origin answered with status %d", response.StatusCode))
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	// The counting reader sits inside the limit reader, not outside it: what
+	// is counted and reported is exactly what the limit reader lets through,
+	// so wiring progress in can never change how many bytes this function
+	// itself reads or when it decides the response overflowed the limit. See
+	// the maxArtifactBytes doc comment above for which half of what
+	// io.LimitReader does below is actually pinned by a test.
+	var reader io.Reader = response.Body
+	if report != nil {
+		reader = &countingReader{inner: reader, report: report}
+	}
+	body, err := io.ReadAll(io.LimitReader(reader, limit+1))
 	if err != nil {
 		return nil, originUnreachable(target, err.Error())
 	}
@@ -164,6 +212,23 @@ func (c Client) get(ctx context.Context, target string, limit int64) ([]byte, er
 		return nil, originUnreachable(target, fmt.Sprintf("the origin answered with more than %d bytes", limit))
 	}
 	return body, nil
+}
+
+// countingReader reports cumulative bytes read as they pass through, without
+// changing what is read or how errors propagate.
+type countingReader struct {
+	inner  io.Reader
+	report ProgressFunc
+	read   int64
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	n, err := r.inner.Read(p)
+	if n > 0 {
+		r.read += int64(n)
+		r.report(r.read)
+	}
+	return n, err
 }
 
 // validPublishedPath proves a path the index named is a path on this origin and

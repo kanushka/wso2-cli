@@ -182,7 +182,7 @@ func refuseUnusableShellFlags(command *cobra.Command) error {
 // a deployment being reachable. That is what makes ADR 0011's claim checkable
 // by reading this function. See #112 D8.
 func (s Shell) contextCreate(command *cobra.Command, name, identity, organization, project string) error {
-	mode, err := shellOutputMode(command)
+	mode, err := s.shellOutputMode(command)
 	if err != nil {
 		return err
 	}
@@ -275,7 +275,7 @@ func (s Shell) contextCreate(command *cobra.Command, name, identity, organizatio
 
 // contextUse writes the selection and nothing else.
 func (s Shell) contextUse(command *cobra.Command, name string) error {
-	mode, err := shellOutputMode(command)
+	mode, err := s.shellOutputMode(command)
 	if err != nil {
 		return err
 	}
@@ -311,7 +311,7 @@ func (s Shell) contextUse(command *cobra.Command, name string) error {
 }
 
 func (s Shell) contextList(command *cobra.Command) error {
-	mode, err := shellOutputMode(command)
+	mode, err := s.shellOutputMode(command)
 	if err != nil {
 		return err
 	}
@@ -353,7 +353,7 @@ func (s Shell) contextList(command *cobra.Command) error {
 
 // contextCurrent reports the context commands run against.
 func (s Shell) contextCurrent(command *cobra.Command) error {
-	mode, err := shellOutputMode(command)
+	mode, err := s.shellOutputMode(command)
 	if err != nil {
 		return err
 	}

@@ -110,7 +110,7 @@ func (s Shell) identityListCommand() *cobra.Command {
 func (s Shell) identityAddProduct(
 	command *cobra.Command, identity, namespace string, product contexts.Product, replace bool,
 ) error {
-	mode, err := shellOutputMode(command)
+	mode, err := s.shellOutputMode(command)
 	if err != nil {
 		return err
 	}
@@ -228,7 +228,7 @@ func (s Shell) identityAddProduct(
 
 // identityList reports every identity and what it reaches.
 func (s Shell) identityList(command *cobra.Command) error {
-	mode, err := shellOutputMode(command)
+	mode, err := s.shellOutputMode(command)
 	if err != nil {
 		return err
 	}

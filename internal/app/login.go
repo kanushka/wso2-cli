@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -117,23 +116,20 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 	if err := loginKindGate.check(selected); err != nil {
 		return oauthflow.Result{}, err
 	}
-	if flags.noInput || os.Getenv(NoInputEnvVar) != "" {
+	// nonInteractiveControl is the same check resolveClientID's mayPrompt
+	// consults, kept to one implementation (prompt.go) so a login's browser
+	// gate and a text prompt's gate cannot drift into two different answers to
+	// "did --no-input or WSO2_NO_INPUT ask for this". This gate stops short of
+	// mayPrompt's terminal check: a device login waits on a person without
+	// ever reading this process's own stdin, so whether that descriptor is a
+	// terminal is not what decides it.
+	if control := s.nonInteractiveControl(flags.noInput); control != "" {
 		// Named for the mode actually refused. Both are interactive and both
 		// are wrong in CI, but telling a device login it is a browser login
 		// sends the reader looking for a browser that was never involved.
 		mode := "browser login"
 		if selected.Identity.Auth.Kind == contexts.KindOAuthDevice {
 			mode = "device login"
-		}
-		// Which of the two controls fired, because the flag is on the command
-		// line in front of the reader and the environment variable is not: one
-		// set in a shell profile months ago is otherwise a refusal with nothing
-		// in it to search for. The flag is named first when both are present,
-		// since it is the one the caller can drop without touching their
-		// environment.
-		control := NoInputEnvVar
-		if flags.noInput {
-			control = "--no-input"
 		}
 		return oauthflow.Result{}, problem.New(problem.CategoryAuthPolicy, "auth.non_interactive",
 			mode+" cannot run in non-interactive mode, which "+control+" asked for").

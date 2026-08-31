@@ -20,7 +20,6 @@ import (
 	"bufio"
 	"fmt"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/wso2/wso2-cli/internal/contexts"
@@ -299,26 +298,19 @@ func (s Shell) resolveClientID(flags loginFlags) (string, error) {
 	if flags.clientID != "" {
 		return flags.clientID, nil
 	}
-	// Which control fired, for the reason the non-interactive refusal gives:
-	// an environment variable set in a shell profile months ago is otherwise a
-	// refusal with nothing in it to search for.
-	if flags.noInput {
-		return "", missingClientID("--no-input asked that nothing prompt")
-	}
-	if os.Getenv(NoInputEnvVar) != "" {
-		return "", missingClientID(NoInputEnvVar + " asked that nothing prompt")
-	}
-	if !stdinIsTerminal() {
-		return "", missingClientID("standard input is not a terminal, so nothing can be asked")
+	// mayPrompt (prompt.go) is the shared answer to "may this ask standard
+	// input a question": the flag, WSO2_NO_INPUT, then whether standard input
+	// is a terminal, in that order, naming which one refused.
+	if may, reason := s.mayPrompt(flags.noInput); !may {
+		return "", missingClientID(reason)
 	}
 	if _, err := fmt.Fprint(s.Streams.Err, "Client ID of the registered OAuth application: "); err != nil {
 		return "", err
 	}
-	// Read from the process's own standard input rather than from a stream on
-	// the Shell: the shell has streams for what it writes and none for what it
-	// reads, and one prompt is not the case for inventing one. #86 is where a
-	// reader belongs if a second prompt ever appears.
-	scanner := bufio.NewScanner(os.Stdin)
+	// s.reader() is this Shell's own input stream (#86, prompt.go): it
+	// defaults to the process's real standard input, and is what a test
+	// overrides to answer this prompt without a real terminal to hand it.
+	scanner := bufio.NewScanner(s.reader())
 	if !scanner.Scan() {
 		return "", missingClientID("nothing was entered at the prompt")
 	}
@@ -327,24 +319,6 @@ func (s Shell) resolveClientID(flags loginFlags) (string, error) {
 		return "", missingClientID("nothing was entered at the prompt")
 	}
 	return clientID, nil
-}
-
-// stdinIsTerminal reports whether standard input is a character device, which
-// is as close to "a person could answer a prompt" as the standard library gets.
-//
-// It is not the same question. /dev/null and /dev/zero are character devices
-// too, so a login run with standard input redirected from one of them prompts
-// and then refuses with "nothing was entered at the prompt" — the right code,
-// the right recovery, and no wait for input that is not coming. What this does
-// rule out is the case that matters, a pipe or a file, where prompting would
-// consume a line of somebody's data and call it a client ID.
-//
-// The shell has no terminal handling by decision, so this asks the one question
-// this command has rather than taking a dependency on a terminal package to
-// answer it more precisely than the outcome needs.
-func stdinIsTerminal() bool {
-	info, err := os.Stdin.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 // missingClientID refuses a login that has no application to present.

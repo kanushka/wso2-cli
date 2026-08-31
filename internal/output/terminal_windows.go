@@ -14,24 +14,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Command wso2 is the WSO2 CLI shell.
+//go:build windows
+
+package output
+
+import "golang.org/x/sys/windows"
+
+// isTerminal reports whether fd names a console.
 //
-// The shell owns shared policy and dispatches product commands to
-// independently released product modules resolved from its managed module
-// store.
-package main
-
-import (
-	"os"
-
-	"github.com/wso2/wso2-cli/internal/app"
-	"github.com/wso2/wso2-cli/internal/output"
-)
-
-func main() {
-	shell := app.Shell{
-		Streams: output.Streams{Out: os.Stdout, Err: os.Stderr},
-		Reader:  os.Stdin,
-	}
-	os.Exit(int(shell.Run(os.Args[1:])))
+// GetConsoleMode succeeds only for a console handle; a pipe, a regular file,
+// or a closed or nonsense handle fails, which this reports as "not a
+// terminal" rather than propagating.
+func isTerminal(fd uintptr) bool {
+	var mode uint32
+	return windows.GetConsoleMode(windows.Handle(fd), &mode) == nil
 }

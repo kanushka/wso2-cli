@@ -24,6 +24,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"io"
 	"runtime"
 	"slices"
 	"strings"
@@ -33,6 +34,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/exit"
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/internal/preferences"
 	"github.com/wso2/wso2-cli/internal/state"
 	"github.com/wso2/wso2-cli/internal/version"
 	"github.com/wso2/wso2-cli/sdk/problem"
@@ -52,6 +54,16 @@ type Shell struct {
 	// it to drive a login without a display. It can only change how the URL is
 	// opened, never what is authorized.
 	OpenBrowser func(url string) error
+
+	// Reader is where an interactive prompt reads its answer from. It is the
+	// reader #86 named and login_create.go's resolveClientID pre-committed to:
+	// the shell has streams for what it writes (Streams) and, until this
+	// field, none for what it reads. cmd/wso2/main.go sets it to os.Stdin; a
+	// Shell built directly in a test leaves it nil, which reader() treats the
+	// same as os.Stdin, and a test that wants to answer a prompt without a
+	// real terminal to hand it sets this to something else entirely — see
+	// mayPrompt in prompt.go for what that distinction is for.
+	Reader io.Reader
 
 	// log is this invocation's diagnostic log. It is a pointer because the
 	// flag that turns it on is parsed after the command tree that the call
@@ -101,6 +113,27 @@ func (s Shell) dispatch(args []string) error {
 	// shares this log, and turned on later by --verbose. Until then it writes
 	// nothing, which is what an invocation without the flag must produce.
 	s.log = output.NewLogger()
+
+	// The preferences diagnostic is surfaced here, once, before any fork this
+	// function makes — rather than in applyShellFlags, Cobra's
+	// PersistentPreRunE, which a product namespace never reaches at all.
+	//
+	// Fix round 1, F1: dispatchNamespace never enters the Cobra command tree,
+	// so applyShellFlags's diagnostic never ran for it — and that path is the
+	// ordinary case for a product command, not an edge, so R9's "never
+	// silent" promise was broken for every wso2 <namespace> invocation whose
+	// preferences document could not be read. Cobra's own commands, including
+	// the DisableFlagParsing ones (module, logout), still run
+	// PersistentPreRunE and would have been covered either way; this is
+	// structural rather than depending on which path a command happens to
+	// take, and it also now covers the bare `wso2` and `--version` cases
+	// below, which applyShellFlags never reached either.
+	if root, err := s.stateRoot(); err == nil {
+		if _, diagnostic := preferences.Load(root); diagnostic != nil {
+			output.Diagnostic(s.Streams.Err, *diagnostic)
+		}
+	}
+
 	root := s.rootCommand()
 
 	if len(args) == 0 {
@@ -159,7 +192,7 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 	if verbose {
 		// The module's own --output governs, because these diagnostics
 		// interleave with the result the module renders under it.
-		mode, err := diagnosticMode(root, args)
+		mode, err := s.diagnosticMode(root, args)
 		if err != nil {
 			return err
 		}

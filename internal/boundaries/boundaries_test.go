@@ -24,6 +24,7 @@ package boundaries_test
 
 import (
 	"encoding/json"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -334,6 +335,118 @@ func TestNoModuleWritesToStandardOutputOutsideTheProtocol(t *testing.T) {
 			t.Fatalf("walking %s failed: %v", tree, err)
 		}
 	}
+}
+
+// TestShellReaderIsAssignedOnlyInCmdWso2 pins an architectural rule that used
+// to be true only by accident of who happened to write Shell literals: the
+// confirmation gate in front of an irreversible os.RemoveAll (internal/app's
+// mayPrompt, #112 fix round 1 finding F3) trusts any Shell.Reader that is not
+// the process's own os.Stdin, on the theory that only a test ever wires it to
+// anything else. That theory holds today because cmd/wso2/main.go is the only
+// non-test assignment, but nothing enforced that before this test: a future
+// command wiring Reader to a pipe would silently void the terminal refusal in
+// front of that deletion, and every other test in this repository would still
+// pass.
+//
+// The source is parsed rather than matched as text. A substring check for
+// "Reader:" sees the composite-literal form only, so the plain assignment
+// s.Reader = strings.NewReader("y\n") walks straight through it — which is
+// the form a real command would most likely use — while any unrelated struct
+// with a field named Reader anywhere in the repository fails it for nothing.
+//
+// The scan is narrowed to the files that can name the type at all: internal/
+// app's own non-test sources and every non-test file importing that package.
+// A file that can reference neither the Shell type nor a value of it cannot
+// assign its Reader field, so nothing that could void the gate is outside the
+// scanned set. Within that set both forms are reported — a Reader key in a
+// composite literal and an assignment to a .Reader selector — without
+// resolving the target's type, so an unrelated Reader field in one of those
+// few files would be reported too. That direction is the safe one: it asks
+// for a look at the change, rather than passing it silently.
+func TestShellReaderIsAssignedOnlyInCmdWso2(t *testing.T) {
+	root := repoRoot(t)
+	allowed := filepath.Join("cmd", "wso2", "main.go")
+
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if entry.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		relative, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		if relative == allowed {
+			return nil
+		}
+
+		fileSet := token.NewFileSet()
+		file, parseErr := parser.ParseFile(fileSet, path, nil, 0)
+		if parseErr != nil {
+			t.Fatalf("cannot parse %s: %v", relative, parseErr)
+		}
+		if !canNameShell(root, path, file) {
+			return nil
+		}
+
+		report := func(position token.Pos, form string) {
+			t.Errorf("%s:%d %s; Shell.Reader must be assigned only in %s, where it is set "+
+				"to os.Stdin, so mayPrompt's terminal check keeps meaning what it says",
+				relative, fileSet.Position(position).Line, form, allowed)
+		}
+
+		ast.Inspect(file, func(node ast.Node) bool {
+			switch typed := node.(type) {
+			case *ast.AssignStmt:
+				for _, target := range typed.Lhs {
+					if selector, ok := target.(*ast.SelectorExpr); ok && selector.Sel.Name == "Reader" {
+						report(selector.Sel.Pos(), "assigns a Reader field")
+					}
+				}
+			case *ast.CompositeLit:
+				for _, element := range typed.Elts {
+					pair, ok := element.(*ast.KeyValueExpr)
+					if !ok {
+						continue
+					}
+					if key, ok := pair.Key.(*ast.Ident); ok && key.Name == "Reader" {
+						report(key.Pos(), "sets a Reader field in a composite literal")
+					}
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking %s failed: %v", root, err)
+	}
+}
+
+// canNameShell reports whether a parsed file could refer to internal/app's
+// Shell type: it is one of that package's own sources, or it imports it.
+func canNameShell(root, path string, file *ast.File) bool {
+	const shellPackage = "github.com/wso2/wso2-cli/internal/app"
+
+	if relativeDir, err := filepath.Rel(root, filepath.Dir(path)); err == nil {
+		if filepath.ToSlash(relativeDir) == "internal/app" && file.Name.Name == "app" {
+			return true
+		}
+	}
+	for _, imported := range file.Imports {
+		if importPath, err := strconv.Unquote(imported.Path.Value); err == nil && importPath == shellPackage {
+			return true
+		}
+	}
+	return false
 }
 
 func TestTheShellLinksTheCommandFrameworkAndNotItsDocumentationGenerator(t *testing.T) {

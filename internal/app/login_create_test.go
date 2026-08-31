@@ -269,6 +269,38 @@ func TestOmittingTheClientIdUnderNoInputIsATypedProblem(t *testing.T) {
 	}
 }
 
+// TestOmittingTheClientIdWithoutNoInputRefusesOnStandardInput pins the
+// behaviour internal/output.StdinIsTerminal replaced stdinIsTerminal with:
+// neither --no-input nor WSO2_NO_INPUT is set here, so resolveClientID falls
+// through to asking whether standard input is a terminal.
+//
+// `go test` connects the test binary's standard input to /dev/null, which
+// the old os.ModeCharDevice check treated as a terminal (a documented hole)
+// and the new ioctl/GetConsoleMode-backed check does not, so this is
+// deterministic under `go test` rather than depending on however the test
+// runner happens to be invoked. Before the fold-in, this same command
+// prompted and then failed with "nothing was entered at the prompt" instead
+// of refusing immediately; this test pins the new, correct answer at the
+// login contract, not just inside internal/output.
+func TestOmittingTheClientIdWithoutNoInputRefusesOnStandardInput(t *testing.T) {
+	shell, out, errOut := newLoginShell(t)
+
+	code := shell.Run([]string{"login", "--url", "https://idp.customer.example"})
+	if code != exit.Usage {
+		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
+	}
+	requireRefusal(t, errOut.String(), "shell.missing_required_flag")
+	if !strings.Contains(errOut.String(), "standard input is not a terminal") {
+		t.Errorf("the refusal does not name standard input:\n%s", errOut)
+	}
+	if _, err := os.Stat(contexts.Path(shell.StateRoot)); !os.IsNotExist(err) {
+		t.Error("a refused login wrote a context document")
+	}
+	if out.String() != "" {
+		t.Errorf("a refused login wrote to standard output:\n%s", out)
+	}
+}
+
 // TestLoginRefusesAnIssuerNoNameCanBeDerivedFrom covers a plausible self-hosted
 // first run: an issuer at a bare IP address, whose host cannot make a legal
 // name.

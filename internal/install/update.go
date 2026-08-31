@@ -52,10 +52,22 @@ type Status struct {
 // rather than by release history, so extending a module's history does not make
 // this cost more. A version history is deliberately not fetched here: selecting
 // a specific version is what pays for one, and a check selects nothing.
-func (i Installer) Check(ctx context.Context) ([]Status, error) {
+//
+// namespaces narrows the report to those modules, refusing exactly as Update
+// would if one of them is not installed (selectInstalled is shared with it).
+// Called with none, it reports every installed module — what wso2 module list
+// wants, and also what a --dry-run wso2 module update --all wants, since an
+// empty namespace list means "every module" for both.
+func (i Installer) Check(ctx context.Context, namespaces ...string) ([]Status, error) {
 	installed, _, err := i.Store.Inventory()
 	if err != nil {
 		return nil, err
+	}
+	if len(namespaces) > 0 {
+		installed, err = selectInstalled(installed, namespaces)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if len(installed) == 0 {
 		return nil, nil
@@ -65,6 +77,41 @@ func (i Installer) Check(ctx context.Context) ([]Status, error) {
 		return nil, err
 	}
 	return i.statuses(index, installed)
+}
+
+// NothingWouldMove reports, from local state alone, whether an update run
+// over namespaces could not possibly move anything: nothing named is
+// installed, or every module that is installed is pinned.
+//
+// This is a narrower answer than "would this update change anything" — an
+// unpinned module that happens to already be at the newest published version
+// still counts as "might move" here, since knowing otherwise costs the same
+// index request Update itself pays. It exists so a caller deciding whether to
+// ask permission first can skip that question when the answer to "would
+// anything happen" is knowable without a network call: asking permission to
+// do nothing trains a person to answer without reading.
+func (i Installer) NothingWouldMove(namespaces []string) (bool, error) {
+	installed, _, err := i.Store.Inventory()
+	if err != nil {
+		return false, err
+	}
+	selected, err := selectInstalled(installed, namespaces)
+	if err != nil {
+		return false, err
+	}
+	if len(selected) == 0 {
+		return true, nil
+	}
+	for _, entry := range selected {
+		policy, err := i.Store.ReadPolicy(entry.Namespace)
+		if err != nil {
+			return false, err
+		}
+		if !policy.Pinned() {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // statuses joins local inventory and policy against the published index.

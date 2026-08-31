@@ -14,24 +14,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Command wso2 is the WSO2 CLI shell.
-//
-// The shell owns shared policy and dispatches product commands to
-// independently released product modules resolved from its managed module
-// store.
-package main
+//go:build linux
 
-import (
-	"os"
+package output
 
-	"github.com/wso2/wso2-cli/internal/app"
-	"github.com/wso2/wso2-cli/internal/output"
-)
+import "golang.org/x/sys/unix"
 
-func main() {
-	shell := app.Shell{
-		Streams: output.Streams{Out: os.Stdout, Err: os.Stderr},
-		Reader:  os.Stdin,
-	}
-	os.Exit(int(shell.Run(os.Args[1:])))
-}
+// ioctlGetTermios is Linux's request number for reading a terminal's line
+// settings. The BSD family, including Darwin, uses a different one; see
+// terminal_bsd.go.
+const ioctlGetTermios = unix.TCGETS

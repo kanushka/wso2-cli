@@ -27,6 +27,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/internal/preferences"
 	"github.com/wso2/wso2-cli/internal/version"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
@@ -129,8 +130,8 @@ func (s Shell) rootCommand() *cobra.Command {
 	// same code that parses every other shell flag.
 	root.PersistentFlags().Bool(verboseFlag, false, "Write diagnostics about what the shell attempted to stderr.")
 
-	root.AddCommand(s.contextCommand(), s.doctorCommand(), s.identityCommand(),
-		s.loginCommand(), s.logoutCommand(), s.moduleCommand(), s.versionCommand(),
+	root.AddCommand(s.configCommand(), s.contextCommand(), s.doctorCommand(), s.identityCommand(),
+		s.loginCommand(), s.logoutCommand(), s.moduleCommand(), s.orgCommand(), s.versionCommand(),
 		s.whoamiCommand())
 
 	// Cobra's generated help command describes itself generically. The shell
@@ -152,7 +153,13 @@ func (s Shell) rootCommand() *cobra.Command {
 // parsed and no command body has run yet: a failure inside the very first thing
 // a command does is still explained.
 func (s Shell) applyShellFlags(command *cobra.Command, _ []string) error {
-	mode, err := shellOutputMode(command)
+	// The preferences diagnostic used to be surfaced here, once per
+	// invocation. It moved to dispatch, before this and the product-namespace
+	// path fork apart (fix round 1, F1): this hook is Cobra's own
+	// PersistentPreRunE, which a product namespace never triggers at all, so
+	// the diagnostic silently never fired for the ordinary case of a wso2
+	// <namespace> command. See dispatch's comment in app.go.
+	mode, err := s.shellOutputMode(command)
 	if err != nil {
 		return err
 	}
@@ -167,18 +174,41 @@ func (s Shell) applyShellFlags(command *cobra.Command, _ []string) error {
 
 // shellOutputMode reports the rendering this invocation asked for, refusing an
 // unusable value before any command runs.
-func shellOutputMode(command *cobra.Command) (output.Mode, error) {
+//
+// The --output flag wins when given. Otherwise the "output" preference
+// (wso2 config set output table|json) wins over the built-in default,
+// output.ModeTable — configuration is always the new, lowest layer above a
+// built-in default, never something that overrides a more specific source.
+func (s Shell) shellOutputMode(command *cobra.Command) (output.Mode, error) {
 	flag := shellFlag(command, outputFlag)
-	if flag == nil || !flag.Changed {
+	if flag != nil && flag.Changed {
+		mode, ok := output.ParseMode(flag.Value.String())
+		if !ok {
+			return "", problem.New(problem.CategoryUsage, "shell.unknown_output_mode",
+				fmt.Sprintf("%q is not an output mode", flag.Value.String())).
+				WithRecovery("Use --output table or --output json.")
+		}
+		return mode, nil
+	}
+	root, err := s.stateRoot()
+	if err != nil {
+		// Left to the caller: nearly every command resolves its own state root
+		// immediately afterward and reports this properly. Defaulting to
+		// output.ModeTable here costs nothing, because the command never
+		// reaches a point where that default is rendered.
 		return output.ModeTable, nil
 	}
-	mode, ok := output.ParseMode(flag.Value.String())
-	if !ok {
-		return "", problem.New(problem.CategoryUsage, "shell.unknown_output_mode",
-			fmt.Sprintf("%q is not an output mode", flag.Value.String())).
-			WithRecovery("Use --output table or --output json.")
+	document, _ := preferences.Load(root)
+	if configured, set := document.Get(preferences.KeyOutputMode); set {
+		if mode, ok := output.ParseMode(configured); ok {
+			return mode, nil
+		}
+		// A stored value Set already validates cannot fail to parse here in
+		// production; this is only reached by a document edited by hand.
+		// Falling back rather than refusing keeps R9's asymmetry: a bad
+		// preference must not break every command that reads it.
 	}
-	return mode, nil
+	return output.ModeTable, nil
 }
 
 // enableDiagnostics opens the diagnostic log, once.
@@ -239,7 +269,7 @@ func (s Shell) takeVerboseFlag(command *cobra.Command, args []string) ([]string,
 		_ = flag.Value.Set("true")
 		flag.Changed = true
 	}
-	mode, err := diagnosticMode(command, remaining)
+	mode, err := s.diagnosticMode(command, remaining)
 	if err != nil {
 		return nil, err
 	}
@@ -283,11 +313,11 @@ func takeVerbose(args []string) (remaining []string, asked bool, err error) {
 // JSON, and diagnostics interleaved with a machine-readable result have to be
 // machine-readable too. An unusable value is left in place rather than refused
 // here, so that the parser that owns the flag is the one that explains it.
-func diagnosticMode(command *cobra.Command, args []string) (output.Mode, error) {
+func (s Shell) diagnosticMode(command *cobra.Command, args []string) (output.Mode, error) {
 	if mode, found := argumentOutputMode(args); found {
 		return mode, nil
 	}
-	return shellOutputMode(command)
+	return s.shellOutputMode(command)
 }
 
 // argumentOutputMode reports the rendering an argument list names, in every
@@ -334,6 +364,15 @@ func shellFlag(command *cobra.Command, name string) *pflag.Flag {
 // every one of them: version and the module lifecycle commands render their own
 // fixed output and select no context. Naming what each command honors keeps a
 // flag it cannot act on a refusal rather than a value silently ignored.
+//
+// A known consequence, left as it is: because the flags are persistent on the
+// root, --help lists --context under a family that refuses it, and the
+// refusal's recovery points back at that help. It has been true of context
+// and identity since they shipped, and config and org inherit it. The fix is
+// not local to this function — it means declaring the shell flags per command
+// instead of once on the root, which is the same change that would retire
+// forwardShellFlags — so making it here for two families and not the others
+// would trade one inconsistency for a worse one.
 func shellFlagsFor(name string) []string {
 	// --verbose is deliberately absent from every list. This set answers one
 	// question — which flags forwardShellFlags may re-attach to a command's own
@@ -346,6 +385,11 @@ func shellFlagsFor(name string) []string {
 		// The root routes a product namespace, and a module command may act on
 		// every forwarded shell flag.
 		return []string{contextFlag, outputFlag}
+	case "config":
+		// Preferences are machine-local, not context-scoped: a saved output
+		// mode or catalog origin applies to every context on this machine,
+		// so --context has nothing to select here.
+		return []string{outputFlag}
 	case "context":
 		// The family renders a machine-readable result, and takes no --context:
 		// naming a context is what its own arguments do, and a selection flag
@@ -371,6 +415,12 @@ func shellFlagsFor(name string) []string {
 		// what the issuer was told about the ended session is not observable
 		// any other way.
 		return []string{contextFlag, outputFlag}
+	case "org":
+		// The family always acts on the selected context, exactly as wso2
+		// context does: naming one with --context would be a second answer to
+		// a question the family does not ask, since org use writes the
+		// selected context's Organization field, not some other one's.
+		return []string{outputFlag}
 	case "whoami":
 		// whoami reports ON a selected context exactly as doctor does (R5,
 		// #112), so naming one with --context is meaningful for the same
