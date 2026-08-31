@@ -200,6 +200,11 @@ jobs:
       - name: Run the architecture-proof acceptance gate
         run: ./scripts/acceptance.sh
 
+      - name: Prove the suite under an unclean TMPDIR
+        run: |
+          mkdir -p "${RUNNER_TEMP}/trailing"
+          TMPDIR="${RUNNER_TEMP}/trailing//" go test ./internal/state/ -count=1
+
   previous-protocol:
     name: Previous Protocol
     needs: changes
