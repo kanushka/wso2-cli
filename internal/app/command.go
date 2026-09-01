@@ -217,10 +217,13 @@ func (s Shell) shellOutputMode(command *cobra.Command) (output.Mode, error) {
 // carries the result, so --verbose cannot break a caller parsing standard
 // output. See docs/adr/0003-shell-owned-output.md.
 //
-// It is idempotent because there are two doors into it: the root's flag parser
-// for a flag written before the command name, and takeVerboseFlag for one
-// written after it. A user who writes the flag in both places asked for
-// diagnostics once.
+// It is idempotent because there are two doors into it: the root's flag
+// parser, which every built-in command now inherits --verbose through
+// wherever it is written, and the product-namespace path's own takeVerbose
+// scan (app.go), which still parses its own arguments by hand because a
+// module's flags must reach it unparsed. A user who writes the flag through
+// both doors — before a shell flag and after a product namespace's own — asked
+// for diagnostics once.
 func (s Shell) enableDiagnostics(command *cobra.Command, mode output.Mode) {
 	if s.log.Enabled() {
 		return
@@ -235,46 +238,6 @@ func (s Shell) enableDiagnostics(command *cobra.Command, mode output.Mode) {
 		"shell_version", version.Shell(),
 		"platform", version.Platform(),
 		"output_mode", string(mode))
-}
-
-// takeVerboseFlag removes --verbose from an argument list a built-in command
-// parses for itself, and turns the diagnostic log on when it was there.
-//
-// The two commands that still disable Cobra's flag parsing — logout and module
-// — never see the root's parse, so a flag written after the command name
-// arrives in their own argument list and their own parsers refuse it as
-// unknown. That refusal is worst for this flag in particular: it arrives while
-// the user is already trying to diagnose something else. login no longer needs
-// this: it declares its flags, so the root parses --verbose wherever it is
-// written (#118).
-//
-// There is one of these rather than one scanner per command on purpose.
-// --context is scanned separately by each of the two, and those scanners have
-// already drifted apart from one another. This is the one place to delete when
-// each command declares its flags directly. The scanning itself lives in
-// takeVerbose, which is the one place --verbose is read out of an argument
-// list — the product namespace path reads it from there too.
-func (s Shell) takeVerboseFlag(command *cobra.Command, args []string) ([]string, error) {
-	remaining, asked, err := takeVerbose(args)
-	if err != nil {
-		return nil, err
-	}
-	if !asked {
-		return remaining, nil
-	}
-	// Recorded on the root's own flag, so that the flag has one value however
-	// it was written and anything later asking whether diagnostics are on gets
-	// the same answer as the parser would have given.
-	if flag := shellFlag(command, verboseFlag); flag != nil {
-		_ = flag.Value.Set("true")
-		flag.Changed = true
-	}
-	mode, err := s.diagnosticMode(command, remaining)
-	if err != nil {
-		return nil, err
-	}
-	s.enableDiagnostics(command, mode)
-	return remaining, nil
 }
 
 // takeVerbose removes every spelling of --verbose from an argument list and
@@ -377,7 +340,7 @@ func shellFlagsFor(name string) []string {
 	// --verbose is deliberately absent from every list. This set answers one
 	// question — which flags forwardShellFlags may re-attach to a command's own
 	// parser, and which it must refuse — and --verbose is outside that question
-	// entirely: takeVerboseFlag enables the log directly off the root's flag
+	// entirely: applyShellFlags enables the log directly off the root's flag
 	// set, whoever the command is, and the flag is forwarded to nothing. Naming
 	// it here would be a claim no reader of this set ever checks.
 	switch name {
@@ -409,6 +372,15 @@ func shellFlagsFor(name string) []string {
 		return []string{outputFlag}
 	case "login":
 		return []string{contextFlag}
+	case "module":
+		// Every module lifecycle command renders fixed, non-JSON text and
+		// selects no context: an install or an update names its target as an
+		// argument, not by --context, and its report is prose meant to be
+		// read, not a schema a script parses. moduleinstall_test.go's
+		// TestVerboseInstallKeepsProgressOffStdout confirms by hand that
+		// wso2 module install <module> --output json is refused outright, and
+		// this is the entry that refusal comes from.
+		return nil
 	case "logout":
 		// The only interactive-auth command that renders a machine-readable
 		// result, because it is the only one whose result a script has to read:
@@ -462,29 +434,17 @@ func forwardShellFlags(command *cobra.Command, args []string) ([]string, error) 
 	return append(forwarded, args...), nil
 }
 
-// wantsHelp reports whether a command whose own parser owns its arguments was
-// asked for help. Flag parsing is disabled on those commands, so Cobra never
-// sets its help flag and the request has to be recognized here.
-func wantsHelp(args []string) bool {
-	for _, argument := range args {
-		if argument == "--help" || argument == "-h" {
-			return true
-		}
-	}
-	return false
-}
-
-// logoutCommand and moduleCommand keep their own argument parsing for now, so
-// flag parsing is disabled on them rather than allowed to fail on a flag the
-// root does not declare.
+// loginCommand declares its own flags directly, and reads the two the shell
+// declares once on the root (--context, --verbose) off the parsed flag set
+// rather than a second time here — declaring them again would shadow the
+// root's and leave two flags of one name disagreeing about what was asked.
 //
-// Cobra's allowlist for unknown flags must not be used for this: it does not
-// forward an unknown flag, it discards it together with its value, so a command
-// would run without a flag the user gave and without any diagnostic.
-//
-// login no longer does: it declares its flags, so the root's parser refuses an
-// unknown one, recognizes --help, and reads --verbose and --context wherever
-// they are written. #89 moves the remaining two.
+// Cobra's allowlist for unknown flags could not have been used to reach this
+// for any of the commands that used to disable flag parsing (login, logout,
+// module): it does not forward an unknown flag, it discards it together with
+// its value, so a command would have run without a flag the user gave and
+// without any diagnostic. Declaring the flags directly, as all three now do,
+// is what let each one drop DisableFlagParsing instead.
 func (s Shell) loginCommand() *cobra.Command {
 	var flags loginFlags
 	command := &cobra.Command{
@@ -523,47 +483,21 @@ func (s Shell) logoutCommand() *cobra.Command {
 		Use:                   "logout",
 		Short:                 "End the selected context's session.",
 		DisableFlagsInUseLine: true,
-		DisableFlagParsing:    true,
+		Args:                  noArguments(logoutUsageRecovery),
 		RunE: func(command *cobra.Command, args []string) error {
-			if wantsHelp(args) {
-				return command.Help()
-			}
-			args, err := s.takeVerboseFlag(command, args)
+			// Both flags logout honors are the root's own, declared once on
+			// PersistentFlags. shellFlagsFor("logout") lists both, so nothing
+			// is refused here the way refuseUnusableShellFlags refuses a flag
+			// a family cannot act on elsewhere: this family can act on both.
+			mode, err := s.shellOutputMode(command)
 			if err != nil {
 				return err
 			}
-			forwarded, err := forwardShellFlags(command, args)
-			if err != nil {
-				return err
+			var contextName string
+			if flag := shellFlag(command, contextFlag); flag != nil {
+				contextName = flag.Value.String()
 			}
-			return s.logout(forwarded)
-		},
-	}
-}
-
-func (s Shell) moduleCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "module <subcommand>",
-		Short: "Install, list, and update product modules from the module catalog.",
-		// module still routes its own subcommands, so they are named here
-		// rather than walked from the tree. They move into the tree when the
-		// command declares its flags directly.
-		Long:                  "Subcommands: available, install, list, remove, update.",
-		DisableFlagsInUseLine: true,
-		DisableFlagParsing:    true,
-		RunE: func(command *cobra.Command, args []string) error {
-			if wantsHelp(args) {
-				return command.Help()
-			}
-			args, err := s.takeVerboseFlag(command, args)
-			if err != nil {
-				return err
-			}
-			forwarded, err := forwardShellFlags(command, args)
-			if err != nil {
-				return err
-			}
-			return s.module(forwarded)
+			return s.logout(logoutFlags{contextName: contextName, mode: mode})
 		},
 	}
 }
@@ -607,6 +541,24 @@ func usageProblem(err error) error {
 	}
 	return problem.New(problem.CategoryUsage, code, message).
 		WithRecovery("Run wso2 help to see the shell commands and the flags they accept.")
+}
+
+// usageProblemWithRecovery classifies a flag-parsing failure exactly as
+// usageProblem does, but points the recovery at the command that failed
+// rather than at the generic "wso2 help".
+//
+// A command whose own flag set is worth naming in the recovery — wso2 module
+// update's --yes, --dry-run, and --no-input, for instance, which a mistyped
+// flag most needs reminding of — sets this as its own FlagErrorFunc instead
+// of inheriting the root's. It is still reached only from a flag-error hook,
+// so, like usageProblem, every error it sees is a parse failure.
+func usageProblemWithRecovery(err error, recovery string) error {
+	wrapped := usageProblem(err)
+	var typed problem.Problem
+	if errors.As(wrapped, &typed) {
+		return typed.WithRecovery(recovery)
+	}
+	return wrapped
 }
 
 // suggestionFor reports the shell command closest to an unrecognized name, so a

@@ -26,11 +26,13 @@ import (
 // TestEveryOutputFlagInterpreterAgrees pins the parsers of the output flag to
 // one another.
 //
-// The shell parses its own flags with pflag, and parses them again by hand on
-// the product namespace path and in wso2 logout, because flag parsing has to be
-// disabled on both for arguments to arrive unparsed. Parsers of one flag can
-// drift, so they are asserted to agree for as long as they all exist. The
-// duplication ends when each command declares its flags directly.
+// The shell parses its own flags with pflag everywhere except the product
+// namespace path, which parses them again by hand because flag parsing has to
+// stay disabled there for a module's own arguments to arrive unparsed (#86's
+// namespace boundary, deliberately left alone by #89). wso2 logout used to be
+// a second hand-parser of this flag; #89 converted it to a declared flag, so
+// this test now proves logout's declared flag agrees with pflag's own answer
+// instead of proving two hand-written scanners agreed with each other.
 func TestEveryOutputFlagInterpreterAgrees(t *testing.T) {
 	for _, spelling := range [][]string{
 		{"--output", "json"},
@@ -65,13 +67,26 @@ func TestEveryOutputFlagInterpreterAgrees(t *testing.T) {
 					spelling, viaPflag, viaHand)
 			}
 
-			viaLogout, err := parseLogoutArgs(spelling)
+			// logoutCommand declares no --output of its own: it reads the root's,
+			// exactly as every other declared-flag command does. Finding it
+			// from a freshly built root and parsing onto it (rather than
+			// calling parseLogoutArgs, which #89 deleted) is what proves the
+			// actual command wso2 logout runs agrees with pflag, not a
+			// separate hand-rolled stand-in for it.
+			logoutCmd, _, err := root.Find([]string{"logout"})
 			if err != nil {
-				t.Fatalf("the logout parser rejected %v: %v", spelling, err)
+				t.Fatalf("root.Find(logout) failed: %v", err)
 			}
-			if viaPflag != viaLogout.mode {
-				t.Fatalf("the logout parser disagrees on %v: pflag reports %q, logout reports %q",
-					spelling, viaPflag, viaLogout.mode)
+			if err := logoutCmd.ParseFlags(spelling); err != nil {
+				t.Fatalf("logout's own flag set rejected %v: %v", spelling, err)
+			}
+			viaLogout, err := shell.shellOutputMode(logoutCmd)
+			if err != nil {
+				t.Fatalf("shellOutputMode rejected what logout's own flags parsed from %v: %v", spelling, err)
+			}
+			if viaPflag != viaLogout {
+				t.Fatalf("logout's declared flag disagrees on %v: pflag reports %q, logout reports %q",
+					spelling, viaPflag, viaLogout)
 			}
 		})
 	}

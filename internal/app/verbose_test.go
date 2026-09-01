@@ -301,11 +301,16 @@ func installDevelopmentContext(t *testing.T, shell app.Shell) {
 }
 
 // TestVerboseIsHonoredAfterTheCommandName covers the position users actually
-// type. login, logout, and module disable Cobra's flag parsing and read their
-// own arguments, so a flag written after the command name reaches their parsers
-// rather than the root's. Before takeVerboseFlag existed, all three refused it
-// as an unknown flag — which is the worst possible answer to a user who is
-// already trying to diagnose something else.
+// type. login, logout, and module all used to disable Cobra's flag parsing and
+// read their own arguments, so a flag written after the command name reached
+// their parsers rather than the root's and was refused as unknown — the worst
+// possible answer to a user who is already trying to diagnose something else.
+// #89 converted the last two (module's install/available/list/remove/update
+// and logout) onto declared flags, following #118's earlier conversion of
+// login, so all three now inherit --verbose from the root's own parser
+// wherever it is written; this test is kept because that property is worth
+// pinning for its own sake, not because any of the three still needs a
+// special case to get it right.
 func TestVerboseIsHonoredAfterTheCommandName(t *testing.T) {
 	t.Run("login", func(t *testing.T) {
 		keyring.MockInit()
@@ -356,7 +361,10 @@ func TestVerboseIsHonoredAfterTheCommandName(t *testing.T) {
 }
 
 // TestVerboseWrittenTwiceEnablesTheLogOnce proves the two doors into the log —
-// the root's parser and takeVerboseFlag — do not both open it.
+// the root's parser, for a flag written before the command name, and its own
+// parser again, for one written after it, now that every built-in command
+// declares --verbose through the same root persistent flag — do not both open
+// it.
 func TestVerboseWrittenTwiceEnablesTheLogOnce(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	if code := shell.Run([]string{"--verbose", "module", "list", "--verbose"}); code != exit.OK {

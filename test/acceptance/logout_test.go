@@ -238,6 +238,55 @@ func TestLogoutRendersJSON(t *testing.T) {
 	}
 }
 
+// TestLogoutOutputFlagAcceptsEverySpelling proves #89's claim for wso2 logout
+// specifically: it is the one command that actually honours --output today
+// (TestEveryOutputFlagInterpreterAgrees, internal/app), so converting it off
+// its own hand-written scanner and onto the same declared root flag every
+// other command uses must not change what a caller who already used the
+// working spelling sees, and must make every previously-failing spelling
+// succeed the same way.
+//
+// Before #89, parseLogoutArgs (internal/app/logout.go, now deleted) matched
+// only "--output"/"-o" as a separate token or the flag's own attached forms it
+// special-cased by hand; --output=json worked because that case existed, but
+// nothing here was pflag, so any drift between this scanner and the root's own
+// parser was possible by construction. This test exercises the real,
+// currently-shipped command end-to-end, not a unit stand-in, so it catches
+// that class of drift the way the deleted scanner never could have proven it
+// was absent.
+func TestLogoutOutputFlagAcceptsEverySpelling(t *testing.T) {
+	for _, spelling := range [][]string{
+		{"--output", "json"},
+		{"--output=json"},
+		{"-o", "json"},
+		{"-o=json"},
+		{"-ojson"},
+	} {
+		t.Run(strings.Join(spelling, " "), func(t *testing.T) {
+			deployment := deployLoginWithoutModule(t, fakeissuer.Options{AllowAnyLoopbackPort: true}, nil)
+			deployment.login(t)
+			deployment.out.Reset()
+
+			deployment.logout(t, spelling...)
+
+			var reported struct {
+				Context string `json:"context"`
+				Session string `json:"session"`
+			}
+			if err := json.Unmarshal(deployment.out.Bytes(), &reported); err != nil {
+				t.Fatalf("wso2 logout %s did not render a JSON document: %v\n%s",
+					strings.Join(spelling, " "), err, deployment.out)
+			}
+			if reported.Context != referenceContextName {
+				t.Errorf("context = %q, want %q", reported.Context, referenceContextName)
+			}
+			if reported.Session != "ended" {
+				t.Errorf("session = %q, want ended", reported.Session)
+			}
+		})
+	}
+}
+
 // A session is keyed by the identity's credential reference, so contexts
 // sharing an identity share one session. Ending it ends theirs, and a user who
 // named one context by hand would not otherwise learn that.

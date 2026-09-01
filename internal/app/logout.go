@@ -58,11 +58,7 @@ type logoutFlags struct {
 // removed from the OS secure store. Only the second is guaranteed, so the
 // report names what the first achieved rather than letting the command's name
 // imply it. See docs/adr/0010-best-effort-revocation-on-session-end.md.
-func (s Shell) logout(args []string) error {
-	flags, err := parseLogoutArgs(args)
-	if err != nil {
-		return err
-	}
+func (s Shell) logout(flags logoutFlags) error {
 	selected, document, err := s.selectionAndDocument(flags.contextName)
 	if err != nil {
 		return err
@@ -255,59 +251,5 @@ func logoutNotes(ended logoutOutcome) []string {
 	return notes
 }
 
-// parseLogoutArgs reads the flags wso2 logout owns and refuses everything else.
-func parseLogoutArgs(args []string) (logoutFlags, error) {
-	flags := logoutFlags{mode: output.ModeTable}
-	remaining := args
-	for len(remaining) > 0 {
-		argument := remaining[0]
-		switch {
-		case argument == "--context" || strings.HasPrefix(argument, "--context="):
-			name, consumed := contextFlagValue(remaining)
-			if name == "" {
-				return logoutFlags{}, missingContextValue(logoutUsageRecovery)
-			}
-			flags.contextName = name
-			remaining = remaining[consumed:]
-		case argument == "--output" || argument == "-o":
-			if len(remaining) < 2 {
-				return logoutFlags{}, logoutUsage("shell.missing_flag_value",
-					fmt.Sprintf("%s needs a value", argument))
-			}
-			parsed, ok := output.ParseMode(remaining[1])
-			if !ok {
-				return logoutFlags{}, logoutUsage("shell.unknown_output_mode",
-					fmt.Sprintf("%q is not an output mode", remaining[1]))
-			}
-			flags.mode = parsed
-			remaining = remaining[2:]
-		case attachedOutput(argument):
-			// Every spelling the shell's own flags accept is accepted here too.
-			// A mode that worked on a product namespace and not on wso2 logout
-			// would be exactly the drift TestEveryOutputFlagInterpreterAgrees
-			// exists to catch.
-			value, _ := outputFlagValue(argument)
-			parsed, ok := output.ParseMode(value)
-			if !ok {
-				return logoutFlags{}, logoutUsage("shell.unknown_output_mode",
-					fmt.Sprintf("%q is not an output mode", value))
-			}
-			flags.mode = parsed
-			remaining = remaining[1:]
-		case strings.HasPrefix(argument, "-"):
-			return logoutFlags{}, logoutUsage("shell.unknown_flag",
-				fmt.Sprintf("wso2 logout does not take the flag %q", argument))
-		default:
-			return logoutFlags{}, logoutUsage("shell.unexpected_argument",
-				fmt.Sprintf("wso2 logout does not take the argument %q", argument))
-		}
-	}
-	return flags, nil
-}
-
 // logoutUsageRecovery is the way back from every wso2 logout usage refusal.
 const logoutUsageRecovery = "Run wso2 logout [--context <name>] [--output table|json]."
-
-func logoutUsage(code, message string) problem.Problem {
-	return problem.New(problem.CategoryUsage, code, message).WithRecovery(logoutUsageRecovery)
-}
