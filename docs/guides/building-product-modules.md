@@ -11,25 +11,20 @@
 [contributing](../../CONTRIBUTING.md)  
 **Last reviewed:** 2026-09-01
 
-The single-repository layout this guide describes is
-[ADR 0006](../adr/0006-monorepo-modules-and-generated-catalog.md). A product
-module lives here and is released by its own tag, on its own schedule: the
-single repository removes the cross-repository trust plumbing, not the
-independent release.
+For a WSO2 product team adding a module to this repository. A product module
+owns one top-level command namespace, such as `api`, and is an independently
+versioned executable. The shell owns installation, contexts, credentials,
+protocol negotiation, and user-facing output. The module owns the product
+commands and the calls to its product API.
 
-This guide is for a WSO2 product team adding a module to this repository. A
-product module owns one top-level command namespace, such as `api`, and is an
-independently versioned executable. The shell owns installation, contexts,
-credentials, protocol negotiation, and user-facing output; the module owns the
-product commands and calls to its product API.
+Modules live in this repository and each is released by its own tag, on its own
+schedule ([ADR 0006](../adr/0006-monorepo-modules-and-generated-catalog.md)).
+[`modules/reference`](../../modules/reference/) is the example used throughout,
+and its `whoami` command shows the whole path from a command handler, through
+brokered access, to a typed result. Do not assign the reserved `reference`
+namespace to a product.
 
-The [`modules/reference`](../../modules/reference/) module is the small,
-non-product example used throughout this guide. Its `whoami` command shows the
-complete path from a command handler, through brokered access, to a typed
-result. Do not publish or assign the reserved `reference` namespace to a
-product.
-
-## The model to keep in mind
+## How the pieces fit
 
 ```mermaid
 flowchart LR
@@ -45,25 +40,24 @@ flowchart LR
     S --> O["Table, JSON, diagnostics, exit code"]
 ```
 
-The process boundary is intentional. It lets a product release without a shell
-release, while keeping common security and UX policy in one place.
+The process boundary lets a product release without a shell release, while
+keeping shared security and UX policy in one place.
 
 | The module author owns | The shell and SDK own |
 | --- | --- |
 | Namespace-specific commands, validation, product API calls, semantic results, and typed product errors | Command dispatch, installed-version selection, context selection, credential storage, access-token policy, protocol framing, output rendering, diagnostics, and exit-code mapping |
 
-Two rules follow from this split:
+Two rules follow:
 
-1. A module imports the public `github.com/wso2/wso2-cli/sdk/...` packages, but
-   never a shell `internal/...` package.
-2. A module never writes terminal output to standard output. Standard output is
-   reserved for the module contract; return a `result.Result` or a typed
-   `problem.Problem` and let the shell render it.
+1. A module imports the public `github.com/wso2/wso2-cli/sdk/...` packages, never
+   a shell `internal/...` package.
+2. A module never writes to standard output, which carries the module contract.
+   Return a `result.Result` or a typed `problem.Problem` and let the shell
+   render it.
 
 ## 1. Create the module
 
-One command creates the module, and what it creates builds and passes its own
-test with nothing edited:
+One command creates a module that builds and passes its own test unedited:
 
 ```console
 $ make new-module NAMESPACE=api
@@ -85,15 +79,13 @@ $ go test ./modules/api/...
 ok  	github.com/wso2/wso2-cli/modules/api/cmd/wso2-module-api	0.686s
 ```
 
-Do not assemble a module by hand. The generator is not a convenience over a
-documented layout: it reads two facts from the checkout that a hand-written
-module would have to guess and would then hold wrongly for as long as nobody
-noticed: the SDK version to build against, and the module contract
-versions to declare.
+Do not assemble a module by hand. The generator reads two facts from the
+checkout that a hand-written module would have to guess: the SDK version to
+build against, and the module contract versions to declare.
 
-Choose the namespace before you run it. It is the user's top-level command, the
-tag prefix, the catalog identity, the executable name, and the installed-store
-key, so changing it later is a migration rather than a rename. Four namespaces
+Choose the namespace first. It is the user's top-level command, the tag prefix,
+the catalog identity, the executable name, and the installed-store key, so
+changing it later is a migration rather than a rename. Four kinds of namespace
 are refused, and nothing is written when one is:
 
 ```console
@@ -104,12 +96,11 @@ exit status 1
 make: *** [new-module] Error 1
 ```
 
-That refusal is the one worth understanding. The shell resolves its own commands
-before it consults an installed module, so a module in a shadowed namespace
-would build, release, install, and then never run: every invocation would reach
-the shell command instead. The others are a namespace another module already
-declares, the reserved `reference` namespace, and anything that is not lowercase
-letters and digits starting with a letter.
+The shell resolves its own commands before consulting an installed module, so a
+module in a shadowed namespace would build, release, install, and then never
+run. The other three refusals are a namespace another module declares, the
+reserved `reference` namespace, and anything that is not lowercase letters and
+digits starting with a letter.
 
 ### What it wrote
 
@@ -124,7 +115,7 @@ modules/api/
         └── main_test.go
 ```
 
-The directory name is a source-location choice; `module.json` declares the
+The directory name is only a source location; `module.json` declares the
 namespace users type. The release tooling expects the main package at
 `modules/<namespace>/cmd/wso2-module-<namespace>` and packages an executable of
 that name.
@@ -144,42 +135,35 @@ that name.
 }
 ```
 
-Every field here is stated in full, with what reads it and what refuses when it
-is wrong, in the [module manifest reference](../reference/module-manifest.md).
-The parts worth meeting now are these.
+The [module manifest reference](../reference/module-manifest.md) documents every
+field. Two matter now.
 
-`compatibility.protocolVersions` is the module contract versions this release
-supports, and it was read from the SDK in your checkout rather than chosen. Do
-not invent a version and do not compare your product version with the shell
-version: the release gate accepts a module only when its declared protocol
-intersects the protocol window of an already released shell.
+`compatibility.protocolVersions` is read from the SDK in your checkout, not
+chosen. Do not invent a version, and do not compare your product version with
+the shell version. The release gate accepts a module only when its declared
+protocol intersects the protocol window of an already released shell.
 
-`capabilities` are the maximum audiences and scopes the module may ever request,
-and they are empty because a new module asks the shell for nothing yet. Keep
-them equal to the `module.Options` declaration in the executable. Installation
-records them in the local receipt, and the broker refuses an access request the
-receipt did not authorize, so an audience you add in one place and not the
-other is refused at runtime rather than at build time.
+`capabilities` are the most audiences and scopes the module may ever request,
+empty here because a new module asks for nothing yet. Keep them equal to the
+`module.Options` declaration in the executable: installation records them in the
+local receipt, and the broker refuses any access request the receipt did not
+authorize. An audience added in one place and not the other fails at runtime,
+not at build time.
 
 #### Declare a logical audience, never a deployment value
 
-The audience your module declares is **the stable name your API is known by**,
-compiled in and identical against every deployment your module will ever run
-against. It is not the string any particular identity provider puts in a token's
-`aud` claim, and it must never be a client ID, a tenant URL, or anything else
-that differs between one customer and the next.
+Declare the stable name your API is known by, compiled in and identical against
+every deployment. Never a client ID, a tenant URL, or anything else that differs
+between customers.
 
-That is not a style preference; the three deployments the shell supports each
-bind `aud` differently — to the client ID on Asgardeo, to the API resource
-identifier on Identity Server, and to a resource-server URI on Thunder. A module
-that compiled any one of those in would be installable only against the single
-tenant it was built for.
+The three deployments the shell supports each bind `aud` differently: to the
+client ID on Asgardeo, the API resource identifier on Identity Server, and a
+resource-server URI on Thunder. A module compiling any one of those in would
+install only against the tenant it was built for.
 
-The operator records the concrete value in `products.<namespace>.audience` in
-their context document, and the shell proves the issued token is bound to *that*
-before handing anything over. So the deployment-specific half of the problem
-belongs to the person who registered the application, and never to you. Ask for
-your logical name and let the shell do the rest.
+The operator records the concrete value in `products.<namespace>.audience`, and
+the shell proves the issued token is bound to that before handing anything over.
+Ask for your logical name and let the shell do the rest.
 
 ### The versions your module depends on
 
@@ -190,16 +174,15 @@ require (
 )
 ```
 
-The SDK version is the one the checkout builds modules against, and it is worth
-knowing what it does and does not promise. It says which Go API your module
-compiled against, and nothing more. Below `1.0` it may break on a minor bump, so
-read the SDK's release notes before moving it.
+The SDK version says which Go API your module compiled against, and nothing
+more. Below `1.0` it may break on a minor bump, so read the SDK's release notes
+before moving it.
 
-What decides whether a user's shell can launch your module is the **protocol
-version**, which is versioned separately, declared in `module.json`, checked by
+Whether a user's shell can launch your module is decided by the **protocol
+version** instead: versioned separately, declared in `module.json`, checked by
 the release gate, and negotiated at every invocation. Two modules built against
-different SDK versions run on the same shell if they speak a protocol it speaks.
-See [ADR 0009](../adr/0009-sdk-versioning-and-publication.md).
+different SDK versions run on the same shell if they speak a protocol it speaks
+([ADR 0009](../adr/0009-sdk-versioning-and-publication.md)).
 
 ## 2. Build commands with the SDK
 
@@ -260,9 +243,9 @@ receive refresh tokens, client secrets, or the shell configuration store.
 ### Serving an existing Cobra command tree
 
 A product CLI being migrated already has a Cobra command tree. `sdk/cobratree`
-serves that tree directly, so the commands, their flags, and their help stay
-where they are and only the ending changes: a handler returns typed fields
-instead of printing.
+serves it directly, so the commands, their flags, and their help stay where they
+are. Only the ending changes: a handler returns typed fields instead of
+printing.
 
 ```go
 func commands() []module.Command {
@@ -280,17 +263,15 @@ adapter parses the module's own arguments with the matched command's flag set
 before the handler runs, so a handler reads its flags from the command it was
 written beside.
 
-Two things the adapter guarantees without being asked. Every writer in the tree
-points at standard error, and Cobra prints neither errors nor usage itself, so
-the tree cannot write to standard output, which carries protocol frames and
-which a stray write would corrupt. And a flag failure reaches the shell as a
-typed usage problem rather than as Cobra's own error text, so the user sees a
-classified refusal instead of a module crash.
+The adapter guarantees two things. Every writer in the tree points at standard
+error, and Cobra prints neither errors nor usage itself, so the tree cannot
+corrupt the protocol frames on standard output. And a flag failure reaches the
+shell as a typed usage problem rather than Cobra's own error text, so the user
+sees a classified refusal instead of a module crash.
 
-The limit is worth knowing: a handler that calls `fmt.Println` writes to
-standard output and corrupts the stream. No adapter can prevent that. Send
-diagnostics to standard error, and return everything the user should see as
-result fields.
+The limit: a handler that calls `fmt.Println` writes to standard output and
+corrupts the stream, and no adapter can prevent that. Send diagnostics to
+standard error, and return everything the user should see as result fields.
 
 A command with no handler bound is not served, so the shell reports it as an
 unknown command rather than as one that silently succeeded.
@@ -323,7 +304,7 @@ The access token is opaque to the module. Do not parse it, log it, return it,
 persist it, or pass it in command-line arguments. A module can spend access on
 its product API but cannot refresh or broaden it.
 
-The following request flow is what the module must preserve:
+The module must preserve this request flow:
 
 ```mermaid
 sequenceDiagram
@@ -345,8 +326,7 @@ sequenceDiagram
 
 ## 4. Use `reference whoami` as the concrete example
 
-`wso2 reference whoami` is deliberately small but exercises every important
-boundary:
+`wso2 reference whoami` is small and still crosses every boundary that matters:
 
 1. [`main.go`](../../modules/reference/cmd/wso2-module-reference/main.go)
    registers the `whoami` command and declares the `reference-status` audience
@@ -357,18 +337,17 @@ boundary:
    access token and invocation ID.
 4. The service verifies the token and returns non-secret claims: organization,
    audiences, scopes, and invocation binding.
-5. The handler returns those claims as `reference.whoami/v1`; the shell renders
-   them as a table or deterministic JSON.
+5. The handler returns those claims as `reference.whoami/v1`, and the shell
+   renders them as a table or deterministic JSON.
 
-This command proves the correct boundary: the service that verifies access says
-what it conveys. The module never tries to inspect the token itself, and no
+The boundary is in the right place: the service that verifies access is what
+says what the access conveys. The module never inspects the token itself, and no
 access material appears in its result or diagnostics.
 
 ## 5. Develop and test locally
 
-During this move, `go.work` composes the shell, SDK, and reference module. Run
-the smallest relevant checks while working, then the repository acceptance
-gate before review:
+For now, `go.work` composes the shell, SDK, and reference module. Run the
+smallest relevant checks while working, then the acceptance gate before review:
 
 ```sh
 # From the repository root.
@@ -378,27 +357,27 @@ go build ./...
 # The SDK must also work outside workspace composition.
 (cd sdk && GOWORK=off go test ./...)
 
-# Full shell–module contract and acceptance proof.
+# Full shell/module contract and acceptance proof.
 ./scripts/acceptance.sh
 ```
 
-Unit-test handlers with [`sdk/testkit`](../../sdk/testkit/), which runs a
-command through the real protocol framing with access you supply, so a test
-covers the handler and its contract rather than the handler alone. `testkit.Run`
-takes the module options and commands; `testkit.Access` grants a token or, with
-`Deny`, returns a broker denial. Do not make unit tests depend on a real
-identity provider. Add acceptance coverage when a command changes
-the shell/module boundary, access behavior, output schema, or a security
-property. The reference `whoami` acceptance tests are the example for an
-access-reporting command: they verify table output, JSON field order,
+Unit-test handlers with [`sdk/testkit`](../../sdk/testkit/). It runs a command
+through the real protocol framing with access you supply, so a test covers the
+handler and its contract rather than the handler alone. `testkit.Run` takes the
+module options and commands, and `testkit.Access` grants a token or, with
+`Deny`, returns a broker denial. Never make a unit test depend on a real
+identity provider.
+
+Add acceptance coverage when a command changes the shell/module boundary, access
+behavior, output schema, or a security property. The reference `whoami`
+acceptance tests are the model: they check table output, JSON field order,
 per-invocation binding, and that no access material is printed.
 
 ### Run it under the real shell before you tag
 
-`sdk/testkit` is a conforming peer rather than the shell: it performs no
-receipt resolution, no integrity check, and no rendering, so a module that
-satisfies it is not thereby proven to satisfy the shell. Install your
-unpublished module and find out:
+`sdk/testkit` is a conforming peer, not the shell: no receipt resolution, no
+integrity check, no rendering. A module that satisfies it is not proven to
+satisfy the shell. Install your unpublished module and find out:
 
 ```sh
 make install-module NAMESPACE=api
@@ -406,33 +385,26 @@ make install-module NAMESPACE=api
 ./bin/wso2 module remove api
 ```
 
-The module is built, packed, and installed by the ordinary installer, reading a
-catalog generated by the published generator from an origin that lives on
-loopback for the length of the run. Nothing about the installation is made
-easier, so what lands in your module store is a real installation and `wso2
-module list`, `update`, and `remove` all work on it. It is installed as the
-prerelease `0.0.0-dev`, pinned, so no one following the stable channel is ever
-offered your build and a published release will not replace it behind your
-back. Name another version with `VERSION=`.
+The ordinary installer builds, packs, and installs the module from a catalog
+served on loopback for the length of the run. Nothing is made easier, so what
+lands in your module store is a real installation that `wso2 module list`,
+`update`, and `remove` all work on. It installs as the pinned prerelease
+`0.0.0-dev`, so nobody following the stable channel is offered your build and a
+published release will not replace it. Name another version with `VERSION=`.
 
-`install-module` builds the shell as well, which is why one command is enough
-and why it prints `./bin/wso2` rather than `wso2`. A shell built the ordinary
-way reports `0.0.0-dev`, and the shell range your `module.json` declares does
-not contain it, because a prerelease sorts below its own release and the range
-starts at `>=0.1.0`. Such a shell installs a module and then refuses to launch
-it, so the module is installed for the version that same run built, and
-installing for a shell that could not launch it is refused up front.
+`install-module` builds the shell too, which is why it prints `./bin/wso2`
+rather than `wso2`. A shell built the ordinary way reports `0.0.0-dev`, which the
+`>=0.1.0` range in your `module.json` does not contain, because a prerelease
+sorts below its own release. Such a shell would install a module and then refuse
+to launch it, so the module is installed for the version that same run built.
 
-`SHELL_VERSION` overrides that version and is only needed when you intend to
-run a different `wso2`, such as one installed from a release. Any version inside
-your module's declared range works; it does not have to match exactly. `make
-build-shell` builds the shell on its own, if you want it without installing
-anything.
+`SHELL_VERSION` overrides that, and you need it only to run a different `wso2`,
+such as one installed from a release. Any version inside your declared range
+works. `make build-shell` builds the shell without installing anything.
 
-Installing for a released `wso2` takes one more fact, because its version says
-nothing about the module-contract protocol it speaks, and that is what selection
-decides over. Run the command directly and tell it, using what `wso2 version`
-prints:
+Installing for a released `wso2` takes one more fact: its version says nothing
+about the module-contract protocol it speaks, and that is what selection decides
+over. Run the command directly and tell it, using what `wso2 version` prints:
 
 ```sh
 go run ./cmd/wso2-module-dev -namespace api \
@@ -440,19 +412,15 @@ go run ./cmd/wso2-module-dev -namespace api \
 ```
 
 Naming another shell's version without its protocol window is refused rather
-than assumed. Assuming this checkout's window is what would install a module
-that the released shell then refuses to launch, which is the failure this whole
-step exists to bring forward.
-
-See
+than assumed, because assuming this checkout's window is what would install a
+module that shell then refuses to launch.
 [ADR 0011](../adr/0011-local-module-install-through-a-development-origin.md)
-for why this goes through the real catalog rather than writing the store entry
-directly.
+covers why this goes through the real catalog rather than writing the store
+entry directly.
 
-Use the SDK as a normal published dependency in a real product repository. A
-module's `go.mod` must not contain a `replace` directive. The workspace
-replacement in this repository is temporary local composition for the
-unpublished SDK and must not be copied into a product module.
+In a real product repository, use the SDK as a normal published dependency. A
+module's `go.mod` must not contain a `replace` directive: the workspace
+replacement here is temporary composition for the unpublished SDK.
 
 ## 6. Release and publish the catalog entry
 
@@ -463,8 +431,8 @@ semantic version in this form:
 api/v1.2.0
 ```
 
-The tag is a module release, not a shell or SDK release. The workflow performs
-the following sequence:
+The tag is a module release, not a shell or SDK release. The workflow then runs
+this sequence:
 
 ```mermaid
 flowchart LR
@@ -477,10 +445,10 @@ flowchart LR
 ```
 
 The release tool builds archives for the supported shell platforms, injects the
-module version and the SDK version the module was built against, and publishes
-`checksums.txt`. Catalog generation then reads
-the tag, the `module.json` as it existed at that tag, and the published assets.
-No one hand-authors a catalog entry.
+module version and the SDK version it was built against, and publishes
+`checksums.txt`. Catalog generation then reads the tag, the `module.json` as it
+existed at that tag, and the published assets. Nobody hand-writes a catalog
+entry.
 
 The shell discovers a module from `index.json`, fetches that namespace's
 history only when it must select a version, verifies the downloaded archive
@@ -488,9 +456,8 @@ against its catalog digest, and atomically activates the new installed version.
 Normal product commands run from that local managed store and do not need the
 catalog.
 
-Run the gate alone before you tag, and it answers the only question a tag
-cannot take back, which is whether any shell that exists can launch what you
-are about to publish:
+Run the gate alone before you tag. It answers the one question a tag cannot take
+back: can any shell that exists launch what you are about to publish?
 
 ```console
 $ go run ./cmd/wso2-module-release -tag api/v1.2.0-rc.1 -gate-only
@@ -505,25 +472,22 @@ $ go run ./cmd/wso2-module-release -tag api/v1.2.0-rc.1 -out dist
 8 archives and checksums.txt written into dist
 ```
 
-Run this only after the module is present under `modules/` with a valid
-declaration. It writes build artifacts to `dist/`; do not commit them.
+Run this only once the module is under `modules/` with a valid declaration. It
+writes build artifacts to `dist/`; do not commit them.
 
-A version carrying a prerelease identifier, such as `api/v1.2.0-rc.1`, is
-published on the prerelease channel: it is installable by anyone who asks for
-that channel and is offered to nobody following the stable one. That is the
-channel to release a first module on.
+A version carrying a prerelease identifier, such as `api/v1.2.0-rc.1`, publishes
+on the prerelease channel: installable by anyone who asks for that channel, and
+offered to nobody following the stable one. Release a first module there.
 
 ## 7. Install, update, and remove it
 
-The other end of the lifecycle is what a user does, and it is worth running
-once rather than reading about. Installing your own unpublished build needs no
-tag: `make install-module` above already did this, from a catalog generated in
-the checkout. What follows instead runs against the module this repository has
-actually published — `modules/reference` — reading the deployed catalog at
-`https://wso2.github.io/wso2-cli`, on the prerelease channel, which is the
-channel a first module release lands on. `WSO2_HOME` is set to an empty
-directory first so the run starts from no installed modules and no receipts,
-the same as a user's machine the first time they install anything:
+This is what a user does, and it is worth running once rather than reading
+about. Installing your own unpublished build needs no tag, and `make
+install-module` above already did that. What follows runs against the module
+this repository actually publishes, `modules/reference`, reading the deployed
+catalog at `https://wso2.github.io/wso2-cli` on the prerelease channel.
+`WSO2_HOME` points at an empty directory, so the run starts with no installed
+modules and no receipts, like a user's machine the first time:
 
 ```console
 $ export WSO2_HOME=$(mktemp -d)
@@ -549,14 +513,12 @@ Installed reference v0.1.0-rc.4 for darwin/arm64.
 The artifact was checked against the digest the catalog publishes. Artifacts are integrity-checked, not signed.
 ```
 
-Asking for a channel rather than a version is the form a reader can run and
-have it keep working: it resolves the newest version on that channel this
-shell can launch on this platform, verifies the archive against the digest the
-catalog published, and writes a receipt recording what it installed.
-Pinning an exact version with `<namespace>@<version>` is what a pipeline does
-instead, so its behavior does not depend on what is newest that day; do that
-when you need it, but the channel-following form above is what stays correct
-as new prerelease versions ship.
+Asking for a channel resolves the newest version on it that this shell can
+launch on this platform, verifies the archive against the digest the catalog
+published, and writes a receipt recording what it installed. It also keeps
+working as new prerelease versions ship. Pin an exact version with
+`<namespace>@<version>` in a pipeline instead, so its behavior does not depend
+on what is newest that day.
 
 ```console
 $ wso2 module list
@@ -574,9 +536,9 @@ reference is current at v0.1.0-rc.4.
 `wso2 module update --all` does the same for every installed module at once,
 and asks for confirmation first unless you pass `--yes`.
 
-Removing takes the module off the machine, meaning its versions, its receipts,
-its active-version pointer, and its version policy, and touches nothing else. It
-is not a logout: your configuration and credentials are left as they were.
+Removing takes the module off the machine: its versions, its receipts, its
+active-version pointer, and its version policy, and nothing else. It is not a
+logout, and it leaves your configuration and credentials alone.
 
 ```console
 $ wso2 module remove reference --yes
@@ -584,7 +546,7 @@ Removed the reference module.
 ```
 
 Removing something that is not installed is refused rather than reported as
-done, so a typo is distinguishable from a no-op:
+done, so you can tell a typo from a no-op:
 
 ```console
 $ wso2 module remove reference --yes
@@ -592,25 +554,23 @@ error: no reference module is installed (shell.module_not_installed)
   Run wso2 module list to see what is installed.
 ```
 
-Remove and reinstall freely while iterating: removal leaves no receipt or
-version directory behind, so the next install resolves cleanly rather than
-against something you already discarded.
+Remove and reinstall freely while iterating. Removal leaves no receipt or
+version directory behind, so the next install resolves cleanly.
 
 ## Product-module checklist
 
 Before asking for review, confirm that:
 
-- the module was created with `make new-module`, rather than assembled by
-  hand;
+- the module was created with `make new-module`, not assembled by hand
 - the namespace is assigned and appears identically in `module.json`,
-  `module.Options`, executable path, and intended tag;
-- the module imports public SDK packages only and has no `replace` directive;
-- every access audience and scope requested at runtime is declared in both
-  `module.json` and `module.Options`;
-- handlers return semantic `result.Result` values or typed problems, rather
-  than formatting output or choosing exit codes;
+  `module.Options`, the executable path, and the intended tag
+- the module imports public SDK packages only and has no `replace` directive
+- every audience and scope requested at runtime is declared in both
+  `module.json` and `module.Options`
+- handlers return `result.Result` values or typed problems, rather than
+  formatting output or choosing exit codes
 - access tokens and other credentials cannot reach output, logs, files,
-  arguments, or environment variables;
+  arguments, or environment variables
 - the generated test still passes, and unit and acceptance tests cover the new
-  command's behavior; and
-- `./scripts/acceptance.sh` passes from a clean checkout.
+  command's behavior
+- `./scripts/acceptance.sh` passes from a clean checkout
