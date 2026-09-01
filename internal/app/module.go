@@ -92,7 +92,7 @@ func (s Shell) moduleCommand() *cobra.Command {
 }
 
 func (s Shell) moduleAvailableCommand() *cobra.Command {
-	return &cobra.Command{
+	command := &cobra.Command{
 		Use:   "available",
 		Short: "List the product modules the catalog publishes.",
 		Args:  noArguments(moduleAvailableUsage),
@@ -103,10 +103,16 @@ func (s Shell) moduleAvailableCommand() *cobra.Command {
 			return s.moduleAvailable()
 		},
 	}
+	// Every module subcommand recovers with its own usage line, so a mistyped
+	// flag here names this command rather than the shell's general help.
+	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return usageProblemWithRecovery(err, moduleAvailableUsage)
+	})
+	return command
 }
 
 func (s Shell) moduleListCommand() *cobra.Command {
-	return &cobra.Command{
+	command := &cobra.Command{
 		Use:   "list",
 		Short: "Report the installed modules and which have an update available.",
 		Args:  noArguments(moduleListUsage),
@@ -117,6 +123,10 @@ func (s Shell) moduleListCommand() *cobra.Command {
 			return s.moduleList()
 		},
 	}
+	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return usageProblemWithRecovery(err, moduleListUsage)
+	})
+	return command
 }
 
 func (s Shell) moduleInstallCommand() *cobra.Command {
@@ -180,7 +190,7 @@ func (s Shell) moduleUpdateCommand() *cobra.Command {
 	var opts updateOptions
 	var all bool
 	command := &cobra.Command{
-		Use:   "update [module...]",
+		Use:   "update <module...> | update --all",
 		Short: "Bring installed modules to the newest version their channel publishes.",
 		// Not exactlyOneArgument or noArguments: this command takes zero or
 		// more module names, and which count is valid depends on --all, so the
