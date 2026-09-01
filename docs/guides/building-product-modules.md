@@ -143,8 +143,8 @@ chosen. Do not invent a version, and do not compare your product version with
 the shell version. The release gate accepts a module only when its declared
 protocol intersects the protocol window of an already released shell.
 
-`capabilities` are the most audiences and scopes the module may ever request,
-empty here because a new module asks for nothing yet. Keep them equal to the
+`capabilities` are the upper bound on the audiences and scopes the module may
+ever request, empty here because a new module asks for nothing yet. Keep them equal to the
 `module.Options` declaration in the executable: installation records them in the
 local receipt, and the broker refuses any access request the receipt did not
 authorize. An audience added in one place and not the other fails at runtime,
@@ -472,7 +472,7 @@ $ go run ./cmd/wso2-module-release -tag api/v1.2.0-rc.1 -out dist
 8 archives and checksums.txt written into dist
 ```
 
-Run this only once the module is under `modules/` with a valid declaration. It
+Run this only after the module is under `modules/` with a valid declaration. It
 writes build artifacts to `dist/`; do not commit them.
 
 A version carrying a prerelease identifier, such as `api/v1.2.0-rc.1`, publishes

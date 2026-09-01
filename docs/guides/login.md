@@ -50,8 +50,11 @@ them both directly. You type that name on every `--context` flag and every
 wso2 context create <name> --identity <identity>
 ```
 
-**What login refuses.** An issuer with no host to derive a name from, such as a
-bare IP address, unless you pass `--context`. A `--url` that is not an absolute
+**What login refuses.** An issuer whose host cannot become an identity name,
+unless you pass `--context`. A name must start with a lower-case letter, so a
+bare IP address, or a host whose first label starts with a digit, is refused
+rather than turned into a name you could not have predicted. A `--url` that is
+not an absolute
 `http` or `https` URL, so a missing `https://` is reported where you typed it. A
 login that would change the issuer or client ID of an existing identity. A
 context document this shell may not overwrite, which is refused before the
@@ -62,8 +65,12 @@ self-hosted deployment publishes no catalogue of what it serves. Record each
 one:
 
 ```sh
-wso2 identity add-product <namespace> --endpoint <url> --audience <aud> --scope <scope>
+wso2 identity add-product <identity> <namespace> \
+  --endpoint <url> --audience <aud> --scopes <scope1,scope2>
 ```
+
+`--scopes` takes a comma-separated list. `wso2 identity list` shows what is
+recorded, and `--replace` overwrites a namespace's existing record.
 
 ### What happens during login
 
@@ -443,7 +450,7 @@ None of these reaches a browser, and nothing is written when one is reported.
 | `contexts.unknown_context` | You named a context the document does not declare. Compare it against the `contexts` array and `defaultContext`. |
 | `contexts.unknown_identity` | `wso2 context create --identity` named an identity that does not exist. Only logging in creates one. |
 | `contexts.identity_exists` | `wso2 login --url` named a context whose identity is already configured against a different issuer or client ID. Logging in never replaces an identity. Use another `--context`, or correct the flag. |
-| `contexts.identity_name_underivable` | The issuer has no host to derive a name from, and no `--context` was given. Pass `--context <name>`. |
+| `contexts.identity_name_underivable` | The issuer's host cannot become a name (a bare IP address, or a first label starting with a digit), and no `--context` was given. Pass `--context <name>`. |
 | `contexts.context_exists` | `wso2 context create` was given a name that already exists. Creating never replaces. Choose another name. |
 | `contexts.product_exists` | `wso2 identity add-product` named a product the identity already records. `wso2 identity list` shows what is recorded, and `--replace` overwrites the whole record. |
 
@@ -604,6 +611,13 @@ make smoke-build   # proves the live runs still compile
 make lint
 ```
 
+Confirm the live runs skip honestly while you are still unconfigured:
+
+```sh
+go test -tags smoke ./test/smoke -run TestLoginSmoke -v
+# --- SKIP: TestLoginSmoke — no live deployment is configured: set WSO2_SMOKE_ISSUER, ...
+```
+
 Describe the deployment in a file rather than in your shell:
 
 ```sh
@@ -643,7 +657,7 @@ The printed issuer must equal `WSO2_SMOKE_ISSUER` character for character, and
 ```sh
 make smoke-login          # log in, prove the session persisted, broker one acquisition
 make smoke-login-device   # the same, approved on another device (section 1.1)
-make empirical-asgardeo   # answer the two open questions about Asgardeo's behavior
+make empirical-asgardeo   # measure both behaviors against your own tenant
 ```
 
 A passing run ends with the acquisition granted:
