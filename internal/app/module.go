@@ -24,6 +24,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/wso2/wso2-cli/internal/catalog"
 	"github.com/wso2/wso2-cli/internal/install"
 	"github.com/wso2/wso2-cli/internal/output"
@@ -34,34 +36,189 @@ import (
 // one request, so a stalled origin cannot hold a command open indefinitely.
 const catalogTimeout = 10 * time.Minute
 
-// module runs the module lifecycle commands.
-func (s Shell) module(args []string) error {
-	if len(args) == 0 {
-		return problem.New(problem.CategoryUsage, "shell.missing_argument",
-			"wso2 module needs a subcommand").
-			WithRecovery(moduleRecovery)
-	}
-	switch args[0] {
-	case "install":
-		return s.moduleInstall(args[1:])
-	case "available":
-		return s.moduleAvailable(args[1:])
-	case "list":
-		return s.moduleList(args[1:])
-	case "update":
-		return s.moduleUpdate(args[1:])
-	case "remove":
-		return s.moduleRemove(args[1:])
-	default:
-		return problem.New(problem.CategoryUsage, "shell.unknown_command",
-			fmt.Sprintf("%q is not a wso2 module subcommand", args[0])).
-			WithRecovery(moduleRecovery)
-	}
-}
+// The way back from each subcommand's usage refusals.
+const (
+	moduleAvailableUsage = "Run wso2 module available."
+	moduleListUsage      = "Run wso2 module list."
+	moduleInstallUsage   = "Run wso2 module install <module> [--channel <channel>]."
+	moduleRemoveUsage    = "Run wso2 module remove <module> [--yes] [--dry-run] [--no-input]."
+	moduleUpdateUsage    = "Run wso2 module update <module> [--yes] [--dry-run] [--no-input], " +
+		"or wso2 module update --all [--yes] [--dry-run] [--no-input]."
+)
 
 const moduleRecovery = "Run wso2 module available to see what can be installed, " +
 	"wso2 module install <module> to install one, wso2 module update --all to update what is " +
 	"installed, or wso2 module remove <module> to take one off this machine."
+
+// moduleCommand builds the wso2 module tree.
+//
+// Every subcommand below declares its own flags directly (#89): available,
+// install, list, remove, and update all had DisableFlagParsing and hand-scanned
+// their own argument list until now. install's --channel and update's --all
+// were the two spellings a user could get wrong with no recovery guidance
+// beyond a hand-written switch's own message; the rest (--yes, --dry-run,
+// --no-input) scanned the same list but never had a spelling problem, since a
+// bare boolean flag has only one to get right. Declaring all of them together
+// is what retires the loops rather than leaving a mix of declared and scanned
+// flags in the same command bodies.
+func (s Shell) moduleCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:                   "module <subcommand>",
+		Short:                 "Install, list, and update product modules from the module catalog.",
+		Long:                  "Subcommands: available, install, list, remove, update.",
+		DisableFlagsInUseLine: true,
+		// A RunE is declared for the reason org's and identity's are: Cobra
+		// validates a non-leaf command's arguments only when it is Runnable,
+		// so leaving this nil would print help and exit 0 for a mistyped
+		// subcommand. Never cobra.NoArgs or cobra.ExactArgs here — both bypass
+		// the flag-error hook and exit 70 instead of 64.
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := refuseUnusableShellFlags(command); err != nil {
+				return err
+			}
+			if len(args) == 0 {
+				return problem.New(problem.CategoryUsage, "shell.missing_argument",
+					"wso2 module needs a subcommand").
+					WithRecovery(moduleRecovery)
+			}
+			return problem.New(problem.CategoryUsage, "shell.unknown_command",
+				fmt.Sprintf("%q is not a wso2 module subcommand", args[0])).
+				WithRecovery(moduleRecovery)
+		},
+	}
+	command.AddCommand(s.moduleAvailableCommand(), s.moduleInstallCommand(), s.moduleListCommand(),
+		s.moduleRemoveCommand(), s.moduleUpdateCommand())
+	return command
+}
+
+func (s Shell) moduleAvailableCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "available",
+		Short: "List the product modules the catalog publishes.",
+		Args:  noArguments(moduleAvailableUsage),
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := refuseUnusableShellFlags(command); err != nil {
+				return err
+			}
+			return s.moduleAvailable()
+		},
+	}
+}
+
+func (s Shell) moduleListCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "Report the installed modules and which have an update available.",
+		Args:  noArguments(moduleListUsage),
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := refuseUnusableShellFlags(command); err != nil {
+				return err
+			}
+			return s.moduleList()
+		},
+	}
+}
+
+func (s Shell) moduleInstallCommand() *cobra.Command {
+	var channel string
+	command := &cobra.Command{
+		Use:   "install <module>",
+		Short: "Install one product module from the catalog.",
+		Args:  exactlyOneArgument("a module to install", moduleInstallUsage),
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := refuseUnusableShellFlags(command); err != nil {
+				return err
+			}
+			// The module may be named as "<module>@<version>" to pin an exact
+			// version; Cut on an absent "@" leaves version empty, which is
+			// catalog.Policy's zero value for "no pin".
+			namespace, version, _ := strings.Cut(args[0], "@")
+			policy := catalog.Policy{Channel: channel, Version: version}
+			if policy.Channel != "" && policy.Version != "" {
+				return problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
+					"a pinned version and a channel cannot both be given").
+					WithRecovery("Pin a version, or choose a channel, but not both.")
+			}
+			return s.moduleInstall(namespace, policy)
+		},
+	}
+	command.Flags().StringVar(&channel, "channel", "",
+		"Install the newest version on this release channel, instead of the default.")
+	// A tailored FlagErrorFunc, not the root's inherited one: a missing
+	// --channel value or an unknown flag on this command should point back at
+	// this command's own usage rather than at the generic "wso2 help".
+	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return usageProblemWithRecovery(err, moduleInstallUsage)
+	})
+	return command
+}
+
+func (s Shell) moduleRemoveCommand() *cobra.Command {
+	var opts removeOptions
+	command := &cobra.Command{
+		Use:   "remove <module>",
+		Short: "Take one installed module off this machine.",
+		Args:  exactlyOneArgument("the module to remove", moduleRemoveUsage),
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := refuseUnusableShellFlags(command); err != nil {
+				return err
+			}
+			opts.namespace = args[0]
+			return s.moduleRemove(opts)
+		},
+	}
+	command.Flags().BoolVar(&opts.yes, "yes", false, "Remove without asking for confirmation.")
+	command.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Show what would be removed without removing it.")
+	command.Flags().BoolVar(&opts.noInput, "no-input", false, "Refuse rather than prompt for confirmation.")
+	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return usageProblemWithRecovery(err, moduleRemoveUsage)
+	})
+	return command
+}
+
+func (s Shell) moduleUpdateCommand() *cobra.Command {
+	var opts updateOptions
+	var all bool
+	command := &cobra.Command{
+		Use:   "update [module...]",
+		Short: "Bring installed modules to the newest version their channel publishes.",
+		// Not exactlyOneArgument or noArguments: this command takes zero or
+		// more module names, and which count is valid depends on --all, so the
+		// combination is checked in RunE once both are parsed, exactly as
+		// parseUpdateArguments used to check it by hand.
+		Args: cobra.ArbitraryArgs,
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := refuseUnusableShellFlags(command); err != nil {
+				return err
+			}
+			opts.namespaces = args
+			if all && len(opts.namespaces) > 0 {
+				// The problem code here is load-bearing: it is the same
+				// "naming a module together with --all is ambiguous" refusal
+				// this command has always given, now reached by a declared
+				// flag instead of a hand-written scan, and an automation
+				// contract keyed on this code must not see it change.
+				return problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
+					"--all updates every installed module, so naming one as well is ambiguous").
+					WithRecovery("Run wso2 module update <module>, or wso2 module update --all.")
+			}
+			if !all && len(opts.namespaces) == 0 {
+				return problem.New(problem.CategoryUsage, "shell.missing_argument",
+					"wso2 module update needs a module, or --all").
+					WithRecovery("Run wso2 module update <module>, or wso2 module update --all.")
+			}
+			return s.moduleUpdate(opts)
+		},
+	}
+	command.Flags().BoolVar(&all, "all", false, "Update every installed module that is not pinned.")
+	command.Flags().BoolVar(&opts.yes, "yes", false, "Update without asking for confirmation.")
+	command.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Show what would be updated without updating it.")
+	command.Flags().BoolVar(&opts.noInput, "no-input", false, "Refuse rather than prompt for confirmation.")
+	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return usageProblemWithRecovery(err, moduleUpdateUsage)
+	})
+	return command
+}
 
 // moduleRemove takes one installed module off this machine.
 //
@@ -80,11 +237,7 @@ const moduleRecovery = "Run wso2 module available to see what can be installed, 
 // anything else runs, deliberately in that order: confirming the removal of
 // something that turns out not to be there would ask the wrong question, and
 // a typo would look, for one prompt, like a real module about to be deleted.
-func (s Shell) moduleRemove(args []string) error {
-	opts, err := parseRemoveArguments(args)
-	if err != nil {
-		return err
-	}
+func (s Shell) moduleRemove(opts removeOptions) error {
 	if opts.yes && opts.dryRun {
 		return conflictingConfirmationFlags("wso2 module remove")
 	}
@@ -158,42 +311,6 @@ type removeOptions struct {
 	noInput   bool
 }
 
-// parseRemoveArguments hand-parses wso2 module remove's arguments: it runs
-// under DisableFlagParsing, so an unrecognised "-"-prefixed token has to be
-// refused here or it would launch as if it were a namespace.
-func parseRemoveArguments(args []string) (removeOptions, error) {
-	var opts removeOptions
-	for _, argument := range args {
-		switch argument {
-		case "--yes":
-			opts.yes = true
-		case "--dry-run":
-			opts.dryRun = true
-		case "--no-input":
-			opts.noInput = true
-		default:
-			if strings.HasPrefix(argument, "-") {
-				return removeOptions{}, problem.New(problem.CategoryUsage, "shell.unknown_flag",
-					fmt.Sprintf("%q is not a wso2 module remove flag", argument)).
-					WithRecovery("Run wso2 module remove <module> [--yes] [--dry-run] [--no-input].")
-			}
-			if opts.namespace != "" {
-				return removeOptions{}, problem.New(problem.CategoryUsage, "shell.unexpected_argument",
-					fmt.Sprintf("wso2 module remove takes one module, got %q as well", argument)).
-					WithRecovery("Remove one module at a time: wso2 module remove <module>.")
-			}
-			opts.namespace = argument
-		}
-	}
-	if opts.namespace == "" {
-		return removeOptions{}, problem.New(problem.CategoryUsage, "shell.missing_argument",
-			"wso2 module remove needs the module to remove").
-			WithRecovery("Run wso2 module list to see what is installed, " +
-				"then wso2 module remove <module>.")
-	}
-	return opts, nil
-}
-
 // conflictingConfirmationFlags refuses --yes and --dry-run together: one
 // skips the confirmation and acts, the other skips acting entirely, and a
 // command asked to do both at once has been given no coherent instruction.
@@ -243,13 +360,10 @@ func nonInteractiveConfirmation(subject, reason string) problem.Problem {
 // The module may be named as "<module>@<version>" to install an exact version,
 // which is what a pipeline pins so its behaviour does not depend on what is
 // newest that day. Without a pin, the newest version on the chosen channel that
-// this shell can launch on this platform is installed.
-func (s Shell) moduleInstall(args []string) error {
-	namespace, policy, err := parseInstallArguments(args)
-	if err != nil {
-		return err
-	}
-
+// this shell can launch on this platform is installed. moduleInstallCommand's
+// RunE has already split the "@" and refused a pin given together with
+// --channel, so policy arrives here as exactly what this install acts under.
+func (s Shell) moduleInstall(namespace string, policy catalog.Policy) error {
 	installer, err := s.installer()
 	if err != nil {
 		return err
@@ -280,47 +394,6 @@ func (s Shell) moduleInstall(args []string) error {
 			"Artifacts are integrity-checked, not signed.\n",
 		installed.Namespace, installed.Version, installed.Platform)
 	return err
-}
-
-// parseInstallArguments reads the module to install and the policy to select
-// its version under.
-func parseInstallArguments(args []string) (string, catalog.Policy, error) {
-	var namespace string
-	var policy catalog.Policy
-	for index := 0; index < len(args); index++ {
-		argument := args[index]
-		switch {
-		case argument == "--channel":
-			if index+1 >= len(args) {
-				return "", catalog.Policy{}, problem.New(problem.CategoryUsage, "shell.missing_argument",
-					"--channel needs a channel name").
-					WithRecovery("Run wso2 module install <module> --channel stable.")
-			}
-			index++
-			policy.Channel = args[index]
-		case strings.HasPrefix(argument, "-"):
-			return "", catalog.Policy{}, problem.New(problem.CategoryUsage, "shell.unknown_flag",
-				fmt.Sprintf("%q is not a wso2 module install flag", argument)).
-				WithRecovery("Run wso2 module install <module> [--channel <channel>].")
-		case namespace != "":
-			return "", catalog.Policy{}, problem.New(problem.CategoryUsage, "shell.unexpected_argument",
-				fmt.Sprintf("wso2 module install takes one module, got %q as well", argument)).
-				WithRecovery("Run wso2 module install <module>.")
-		default:
-			namespace, policy.Version, _ = strings.Cut(argument, "@")
-		}
-	}
-	if namespace == "" {
-		return "", catalog.Policy{}, problem.New(problem.CategoryUsage, "shell.missing_argument",
-			"wso2 module install needs a module to install").
-			WithRecovery("Run wso2 module install <module>.")
-	}
-	if policy.Channel != "" && policy.Version != "" {
-		return "", catalog.Policy{}, problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
-			"a pinned version and a channel cannot both be given").
-			WithRecovery("Pin a version, or choose a channel, but not both.")
-	}
-	return namespace, policy, nil
 }
 
 // installer builds the installer this invocation uses: one store, one catalog
@@ -360,12 +433,7 @@ func (s Shell) installer() (install.Installer, error) {
 //
 // It costs one request: the index carries the latest version on each channel
 // for every namespace, and nothing here selects a specific version.
-func (s Shell) moduleAvailable(args []string) error {
-	if len(args) > 0 {
-		return problem.New(problem.CategoryUsage, "shell.unexpected_argument",
-			fmt.Sprintf("wso2 module available takes no arguments, got %q", args[0])).
-			WithRecovery("Run wso2 module available.")
-	}
+func (s Shell) moduleAvailable() error {
 	installer, err := s.installer()
 	if err != nil {
 		return err
@@ -406,12 +474,7 @@ func (s Shell) moduleAvailable(args []string) error {
 // The whole report costs one request whatever is installed, because the index
 // carries the latest version per channel and no version history is fetched: a
 // check selects nothing, and selecting is what a history is for.
-func (s Shell) moduleList(args []string) error {
-	if len(args) > 0 {
-		return problem.New(problem.CategoryUsage, "shell.unexpected_argument",
-			fmt.Sprintf("wso2 module list takes no arguments, got %q", args[0])).
-			WithRecovery("Run wso2 module list.")
-	}
+func (s Shell) moduleList() error {
 	installer, err := s.installer()
 	if err != nil {
 		return err
@@ -503,11 +566,7 @@ func updateColumn(status install.Status) string {
 // state of the machine rather than by anything the caller typed. --dry-run
 // and --yes are accepted on either form; --yes is simply a no-op when
 // nothing was going to ask.
-func (s Shell) moduleUpdate(args []string) error {
-	opts, err := parseUpdateArguments(args)
-	if err != nil {
-		return err
-	}
+func (s Shell) moduleUpdate(opts updateOptions) error {
 	if opts.yes && opts.dryRun {
 		return conflictingConfirmationFlags("wso2 module update")
 	}
@@ -662,45 +721,6 @@ type updateOptions struct {
 	yes        bool
 	dryRun     bool
 	noInput    bool
-}
-
-// parseUpdateArguments reads the modules an update run covers. Updating
-// everything is asked for explicitly, so a mistyped module name cannot become a
-// run over every installed module.
-func parseUpdateArguments(args []string) (updateOptions, error) {
-	var opts updateOptions
-	all := false
-	for _, argument := range args {
-		switch argument {
-		case "--all":
-			all = true
-		case "--yes":
-			opts.yes = true
-		case "--dry-run":
-			opts.dryRun = true
-		case "--no-input":
-			opts.noInput = true
-		default:
-			if strings.HasPrefix(argument, "-") {
-				return updateOptions{}, problem.New(problem.CategoryUsage, "shell.unknown_flag",
-					fmt.Sprintf("%q is not a wso2 module update flag", argument)).
-					WithRecovery("Run wso2 module update <module> [--yes] [--dry-run] [--no-input], " +
-						"or wso2 module update --all [--yes] [--dry-run] [--no-input].")
-			}
-			opts.namespaces = append(opts.namespaces, argument)
-		}
-	}
-	if all && len(opts.namespaces) > 0 {
-		return updateOptions{}, problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
-			"--all updates every installed module, so naming one as well is ambiguous").
-			WithRecovery("Run wso2 module update <module>, or wso2 module update --all.")
-	}
-	if !all && len(opts.namespaces) == 0 {
-		return updateOptions{}, problem.New(problem.CategoryUsage, "shell.missing_argument",
-			"wso2 module update needs a module, or --all").
-			WithRecovery("Run wso2 module update <module>, or wso2 module update --all.")
-	}
-	return opts, nil
 }
 
 // asProblem renders a refusal that is not the one this run exits on, so a

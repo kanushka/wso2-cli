@@ -409,6 +409,15 @@ func shellFlagsFor(name string) []string {
 		return []string{outputFlag}
 	case "login":
 		return []string{contextFlag}
+	case "module":
+		// Every module lifecycle command renders fixed, non-JSON text and
+		// selects no context: an install or an update names its target as an
+		// argument, not by --context, and its report is prose meant to be
+		// read, not a schema a script parses. moduleinstall_test.go's
+		// TestVerboseInstallKeepsProgressOffStdout confirms by hand that
+		// wso2 module install <module> --output json is refused outright, and
+		// this is the entry that refusal comes from.
+		return nil
 	case "logout":
 		// The only interactive-auth command that renders a machine-readable
 		// result, because it is the only one whose result a script has to read:
@@ -474,17 +483,18 @@ func wantsHelp(args []string) bool {
 	return false
 }
 
-// logoutCommand and moduleCommand keep their own argument parsing for now, so
-// flag parsing is disabled on them rather than allowed to fail on a flag the
-// root does not declare.
+// logoutCommand keeps its own argument parsing for now, so flag parsing is
+// disabled on it rather than allowed to fail on a flag the root does not
+// declare.
 //
 // Cobra's allowlist for unknown flags must not be used for this: it does not
 // forward an unknown flag, it discards it together with its value, so a command
 // would run without a flag the user gave and without any diagnostic.
 //
-// login no longer does: it declares its flags, so the root's parser refuses an
-// unknown one, recognizes --help, and reads --verbose and --context wherever
-// they are written. #89 moves the remaining two.
+// login and module no longer do: both declare their flags, so the root's
+// parser refuses an unknown one, recognizes --help, and reads --verbose and
+// --context wherever they are written. #89 moved module's --channel and --all
+// out of the hand-parsed switch that used to own them; logout is what is left.
 func (s Shell) loginCommand() *cobra.Command {
 	var flags loginFlags
 	command := &cobra.Command{
@@ -541,33 +551,6 @@ func (s Shell) logoutCommand() *cobra.Command {
 	}
 }
 
-func (s Shell) moduleCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "module <subcommand>",
-		Short: "Install, list, and update product modules from the module catalog.",
-		// module still routes its own subcommands, so they are named here
-		// rather than walked from the tree. They move into the tree when the
-		// command declares its flags directly.
-		Long:                  "Subcommands: available, install, list, remove, update.",
-		DisableFlagsInUseLine: true,
-		DisableFlagParsing:    true,
-		RunE: func(command *cobra.Command, args []string) error {
-			if wantsHelp(args) {
-				return command.Help()
-			}
-			args, err := s.takeVerboseFlag(command, args)
-			if err != nil {
-				return err
-			}
-			forwarded, err := forwardShellFlags(command, args)
-			if err != nil {
-				return err
-			}
-			return s.module(forwarded)
-		},
-	}
-}
-
 func (s Shell) versionCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:                   "version",
@@ -607,6 +590,24 @@ func usageProblem(err error) error {
 	}
 	return problem.New(problem.CategoryUsage, code, message).
 		WithRecovery("Run wso2 help to see the shell commands and the flags they accept.")
+}
+
+// usageProblemWithRecovery classifies a flag-parsing failure exactly as
+// usageProblem does, but points the recovery at the command that failed
+// rather than at the generic "wso2 help".
+//
+// A command whose own flag set is worth naming in the recovery — wso2 module
+// update's --yes, --dry-run, and --no-input, for instance, which a mistyped
+// flag most needs reminding of — sets this as its own FlagErrorFunc instead
+// of inheriting the root's. It is still reached only from a flag-error hook,
+// so, like usageProblem, every error it sees is a parse failure.
+func usageProblemWithRecovery(err error, recovery string) error {
+	wrapped := usageProblem(err)
+	var typed problem.Problem
+	if errors.As(wrapped, &typed) {
+		return typed.WithRecovery(recovery)
+	}
+	return wrapped
 }
 
 // suggestionFor reports the shell command closest to an unrecognized name, so a
