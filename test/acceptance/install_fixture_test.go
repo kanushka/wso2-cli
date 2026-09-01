@@ -129,7 +129,13 @@ type installHarness struct {
 
 func newInstallHarness(t *testing.T) *installHarness {
 	t.Helper()
-	home := t.TempDir()
+	// Cleaned at the source. t.TempDir() joins onto TMPDIR verbatim, so on a
+	// machine whose TMPDIR ends in a separator this path carries a doubled one.
+	// stateRoot and profilePath below are built with filepath.Join, which
+	// cleans them, while the install script is handed home as HOME and prints
+	// it uncleaned — so leaving it produces expectations that cannot match the
+	// output they are compared against. #124.
+	home := filepath.Clean(t.TempDir())
 	install := &installHarness{
 		t:            t,
 		home:         home,

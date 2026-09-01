@@ -425,7 +425,12 @@ func TestModuleUpdateAllDryRunReportsWithoutChanging(t *testing.T) {
 	shell, out, errOut := newModuleShell(t)
 	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
 	shell.Reader = failIfReadReader{t}
-	catalogServing(t, `{"schemaVersion":1,"modules":[]}`)
+	// The channel publishes the version already installed, so this is a
+	// genuinely current module, not #135's unpublished one: an empty catalog
+	// here would say nothing about currency at all.
+	catalogServing(t, `{"schemaVersion":1,"modules":[`+
+		`{"namespace":"reference","path":"reference","channels":`+
+		`[{"channel":"stable","version":"0.1.0"}]}]}`)
 
 	if code := shell.Run([]string{"module", "update", "--all", "--dry-run"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
@@ -439,6 +444,27 @@ func TestModuleUpdateAllDryRunReportsWithoutChanging(t *testing.T) {
 	}
 	if active.Version != "0.1.0" {
 		t.Errorf("the active version is %s, want the untouched 0.1.0", active.Version)
+	}
+}
+
+// TestModuleUpdateAllReportsAModuleTheCatalogDoesNotPublish is the
+// command-level regression guard for #135: an empty catalog is exactly what a
+// withdrawn, renamed, or channel-moved module looks like, and this asserts
+// both the report and, per D2, that the exit status stays exit.OK. Without
+// this, only the unit-level nil-error assertion in module_internal_test.go
+// protects that exit-status decision, which a future refactor of the caller
+// would not catch.
+func TestModuleUpdateAllReportsAModuleTheCatalogDoesNotPublish(t *testing.T) {
+	shell, out, errOut := newModuleShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+	shell.Reader = failIfReadReader{t}
+	catalogServing(t, `{"schemaVersion":1,"modules":[]}`)
+
+	if code := shell.Run([]string{"module", "update", "--all", "--yes"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "The catalog publishes no version of reference on the stable channel") {
+		t.Errorf("stdout does not report the unpublished module:\n%s", out)
 	}
 }
 
@@ -555,7 +581,12 @@ func TestModuleUpdateOfOneNamedModuleNeedsNoConfirmation(t *testing.T) {
 	shell, out, errOut := newModuleShell(t)
 	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
 	shell.Reader = failIfReadReader{t}
-	catalogServing(t, `{"schemaVersion":1,"modules":[]}`)
+	// The channel publishes the version already installed, so this is a
+	// genuinely current module, not #135's unpublished one: an empty catalog
+	// here would say nothing about currency at all.
+	catalogServing(t, `{"schemaVersion":1,"modules":[`+
+		`{"namespace":"reference","path":"reference","channels":`+
+		`[{"channel":"stable","version":"0.1.0"}]}]}`)
 
 	if code := shell.Run([]string{"module", "update", "reference"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)

@@ -37,6 +37,12 @@ const (
 	identityListUsage = "Run wso2 identity list [--output table|json]."
 )
 
+// identityRecovery is what every refusal from the identity command itself,
+// rather than one of its subcommands, points a user at.
+const identityRecovery = "Run wso2 identity list to see what login recorded, or " +
+	"wso2 identity add-product to record what a self-hosted deployment reaches. " +
+	"Logging in is what creates an identity."
+
 // identityCommand builds the wso2 identity tree.
 //
 // There is no create subcommand. Logging in is the only thing that creates an
@@ -48,6 +54,24 @@ func (s Shell) identityCommand() *cobra.Command {
 		Short:                 "Record and inspect what an identity reaches.",
 		Long:                  "Subcommands: add-product, list.",
 		DisableFlagsInUseLine: true,
+		// A RunE is declared because Cobra validates a non-leaf command's
+		// arguments only when it is Runnable: leave it nil and wso2 identity
+		// prints help and exits 0, reporting a usage error as success to
+		// whatever ran it. Never cobra.NoArgs or cobra.ExactArgs for this —
+		// both bypass the flag-error hook and exit 70 instead of 64.
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := refuseUnusableShellFlags(command); err != nil {
+				return err
+			}
+			if len(args) == 0 {
+				return problem.New(problem.CategoryUsage, "shell.missing_argument",
+					"wso2 identity needs a subcommand").
+					WithRecovery(identityRecovery)
+			}
+			return problem.New(problem.CategoryUsage, "shell.unknown_command",
+				fmt.Sprintf("%q is not a wso2 identity subcommand", args[0])).
+				WithRecovery(identityRecovery)
+		},
 	}
 	command.AddCommand(s.identityAddProductCommand(), s.identityListCommand())
 	return command

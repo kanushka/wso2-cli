@@ -22,7 +22,7 @@ import (
 )
 
 func TestRootPrefersTheOverrideEnvironmentVariable(t *testing.T) {
-	isolated := t.TempDir()
+	isolated := filepath.Clean(t.TempDir())
 	t.Setenv(RootEnvVar, isolated)
 
 	root, err := Root()
@@ -31,6 +31,25 @@ func TestRootPrefersTheOverrideEnvironmentVariable(t *testing.T) {
 	}
 	if root != isolated {
 		t.Fatalf("Root() = %q, want the isolated override %q", root, isolated)
+	}
+}
+
+func TestRootCleansTheOverrideItReads(t *testing.T) {
+	// A state root arrives from the environment, and an environment is allowed
+	// to hand over a path with a doubled separator: TMPDIR does exactly that on
+	// some machines, and t.TempDir() passes it through. Root cleans what it
+	// reads, and every caller compares against the cleaned form, so the
+	// cleaning is a contract rather than a convenience. #124.
+	clean := filepath.Clean(t.TempDir())
+	unclean := clean + string(filepath.Separator) + string(filepath.Separator)
+	t.Setenv(RootEnvVar, unclean)
+
+	root, err := Root()
+	if err != nil {
+		t.Fatalf("Root returned %v", err)
+	}
+	if root != clean {
+		t.Fatalf("Root() = %q, want the cleaned override %q", root, clean)
 	}
 }
 

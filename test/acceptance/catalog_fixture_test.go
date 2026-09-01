@@ -116,6 +116,12 @@ type catalogHarness struct {
 	options catalogOptions
 	server  *httptest.Server
 	catalog catalog.Catalog
+	// contentMutex guards files, archives and catalog. The origin serves from
+	// them on its own goroutine while the test goroutine writes them: once at
+	// construction, because the generator needs a running server's URL for its
+	// artifact URLs and so cannot precede it, and again whenever a test extends
+	// the tag set to prove a later deploy does not unpublish an earlier release.
+	contentMutex sync.RWMutex
 	// files is what the generator produced, by published path.
 	files map[string][]byte
 	// archives is the archive bytes published for each tag and platform, keyed
@@ -151,7 +157,7 @@ func newCatalogOrigin(t *testing.T, options catalogOptions, tags ...string) *cat
 	harness.server = httptest.NewServer(http.HandlerFunc(harness.serve))
 	t.Cleanup(harness.server.Close)
 
-	harness.files = harness.generate(tags...)
+	harness.generate(tags...)
 	return harness
 }
 
@@ -163,13 +169,21 @@ func newCatalogOrigin(t *testing.T, options catalogOptions, tags ...string) *cat
 // generator.
 func (c *catalogHarness) generate(tags ...string) map[string][]byte {
 	c.t.Helper()
+	// Built into locals first: input below calls publish, which takes the same
+	// mutex, so holding it across generation would deadlock. The lock is held
+	// only for the swap, which is the moment the origin could observe a
+	// half-built catalog.
 	generated, err := catalog.Generate(c.input(tags))
 	if err != nil {
 		c.t.Fatalf("generating the catalog over %v returned %v", tags, err)
 	}
+	rendered := renderCatalog(c.t, generated)
+
+	c.contentMutex.Lock()
 	c.catalog = generated
-	c.files = renderCatalog(c.t, generated)
-	return c.files
+	c.files = rendered
+	c.contentMutex.Unlock()
+	return rendered
 }
 
 // input builds what the release job would hand the generator: the tags that
@@ -244,7 +258,9 @@ func (c *catalogHarness) input(tags []string) catalog.Input {
 // reports that path.
 func (c *catalogHarness) publish(tag string, platform modules.Platform, body []byte) string {
 	archivePath := c.archivePath(tag, platform)
+	c.contentMutex.Lock()
 	c.archives[archivePath] = body
+	c.contentMutex.Unlock()
 	return archivePath
 }
 
@@ -342,15 +358,21 @@ func (c *catalogHarness) buildArchive(tag string, platform modules.Platform) []b
 func (c *catalogHarness) serve(w http.ResponseWriter, r *http.Request) {
 	requested := strings.TrimPrefix(r.URL.Path, "/")
 	c.record(requested)
-	if body, found := c.files[requested]; found {
+
+	c.contentMutex.RLock()
+	body, isCatalogFile := c.files[requested]
+	archive, isArchive := c.archives[requested]
+	c.contentMutex.RUnlock()
+
+	if isCatalogFile {
 		w.Header().Set("Content-Type", "application/json")
 		if _, err := w.Write(body); err != nil {
 			c.t.Errorf("writing %s returned %v", requested, err)
 		}
 		return
 	}
-	if body, found := c.archives[requested]; found {
-		if _, err := w.Write(body); err != nil {
+	if isArchive {
+		if _, err := w.Write(archive); err != nil {
 			c.t.Errorf("writing %s returned %v", requested, err)
 		}
 		return
@@ -396,6 +418,8 @@ func (c *catalogHarness) forget() {
 func (c *catalogHarness) corruptArchive(tag string, platform modules.Platform) {
 	c.t.Helper()
 	path := c.archivePath(tag, platform)
+	c.contentMutex.Lock()
+	defer c.contentMutex.Unlock()
 	original, found := c.archives[path]
 	if !found {
 		c.t.Fatalf("no archive is published at %s", path)

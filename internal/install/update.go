@@ -27,13 +27,21 @@ import (
 )
 
 // Status is what one installed module's own policy and the published index say
-// about it: the version installed, the channel it follows, whether it is held
-// at an exact version, and the newest version published on that channel.
+// about it: the version installed, the channel it follows and the channel its
+// policy actually records, whether it is held at an exact version, and the
+// newest version published on the followed channel.
 type Status struct {
 	Namespace string
 	Installed string
 	Channel   string
-	Pinned    bool
+	// PolicyChannel is the channel the policy actually records, empty when none
+	// was chosen. Channel resolves that to the stable one so there is something
+	// to ask the catalog for; this is the unresolved fact, and it is what a
+	// report must print. A pinned module with no recorded channel follows no
+	// channel at all, and naming one — stable, necessarily — names the single
+	// channel a pinned prerelease provably is not on. #128.
+	PolicyChannel string
+	Pinned        bool
 	// PinnedVersion is the version the policy holds the module at, which is
 	// what a report shows. It is empty when nothing is pinned.
 	PinnedVersion string
@@ -126,6 +134,7 @@ func (i Installer) statuses(index catalog.Index, installed []modules.Installed) 
 			Namespace:     entry.Namespace,
 			Installed:     entry.Version,
 			Channel:       policy.FollowedChannel(),
+			PolicyChannel: policy.Channel,
 			Pinned:        policy.Pinned(),
 			PinnedVersion: policy.PinnedVersion,
 		}
@@ -199,6 +208,12 @@ const (
 	// ActionFailed means the update was attempted and refused. The version that
 	// was active before it is still active.
 	ActionFailed Action = "failed"
+	// ActionNotPublished means the catalog publishes no version of the module
+	// on the channel it follows, so no statement about whether the installed
+	// version is current is available to make. A module that was withdrawn,
+	// renamed, or published only on a channel the install no longer follows
+	// looks exactly like this, and used to be reported as already current.
+	ActionNotPublished Action = "not_published"
 )
 
 // Outcome is what happened to one module in an update run.
@@ -211,6 +226,11 @@ type Outcome struct {
 	To   string
 	// Err is why an attempted update was refused.
 	Err error
+	// Channel is the channel the decision was made against. It is carried here
+	// rather than re-derived from policy at render time, because updateLine
+	// must name the channel that publishes nothing and a second derivation is
+	// a second chance to name a different one.
+	Channel string
 }
 
 // Update brings installed modules to the newest version their own channel
@@ -254,15 +274,35 @@ func (i Installer) Update(ctx context.Context, namespaces []string) ([]Outcome, 
 	return outcomes, nil
 }
 
-// updateOne moves one module, or reports why it was not moved.
-func (i Installer) updateOne(ctx context.Context, index catalog.Index, status Status) Outcome {
-	outcome := Outcome{Namespace: status.Namespace, From: status.Installed, To: status.Installed}
+// outcomeFor reports what an update run would decide for one status, without
+// performing it. updateOne calls it and then acts; a test calls it to pin the
+// decision. The branches are the whole of what #135 turned on, and reaching
+// them through a live catalog proved nothing that this does not.
+func outcomeFor(status Status) Outcome {
+	outcome := Outcome{
+		Namespace: status.Namespace,
+		From:      status.Installed,
+		To:        status.Installed,
+		Channel:   status.Channel,
+	}
 	switch {
 	case status.Pinned:
 		outcome.Action = ActionPinned
-		return outcome
+	case status.Available == "":
+		outcome.Action = ActionNotPublished
 	case !status.Update:
 		outcome.Action = ActionCurrent
+	default:
+		outcome.Action = ActionUpdated // provisional; updateOne performs it
+	}
+	return outcome
+}
+
+// updateOne moves one module, or reports why it was not moved.
+func (i Installer) updateOne(ctx context.Context, index catalog.Index, status Status) Outcome {
+	outcome := outcomeFor(status)
+	switch outcome.Action {
+	case ActionPinned, ActionNotPublished, ActionCurrent:
 		return outcome
 	}
 

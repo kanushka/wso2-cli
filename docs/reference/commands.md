@@ -40,10 +40,12 @@ refusal is reported.
 | `wso2 org list` | Deferred (#112): no control-plane endpoint for enumerating organizations exists yet, and listing would need an access token before an organization is chosen, which the auth broker refuses. Typing it is refused as an unknown `wso2 org` subcommand, naming `current` and `use` as what the family supports. |
 | `wso2 org use <organization>` | Built today: sets the `Organization` field on the selected context through `contexts.Update`, and names which context it edited. The auth broker binds a minted token to a context's `Organization` and refuses when it is empty, so a session already signed in under the previous organization no longer matches — the command warns about that on standard error, in both renderings. It writes nothing, and does not migrate, invalidate, or re-mint a session. Refused with `shell.no_context_configured` when no context exists to edit. |
 | `wso2 org current` | Built today: shows the organization the selected context runs within, read from `contexts.Context.Organization`. With no context configured it reports that state and exits 0, worded exactly as `wso2 context current`. A configured context with no organization set says so distinctly, rather than reporting the same blank field either state would otherwise share. |
+| `wso2 context` | With no subcommand, refused with `shell.missing_argument` and the usage exit class, naming `create`, `current`, `list` and `use` as what to run instead. Previously printed help and exited 0, reporting a usage error as success to whatever ran it (#133). |
 | `wso2 context create <name>` | Creates a context naming an identity with `--identity`, and optionally an organization and project with `--organization` and `--project`. It writes no credential and makes no network call, so an unreachable issuer or a misspelled organization is reported by the command that needs it rather than here. Creating a context whose name is taken is refused. The first context created becomes the selected one. |
 | `wso2 context list` | Lists saved cloud and on-premises contexts, marking the selected one. |
 | `wso2 context use <context>` | Selects the context used by default for later commands. |
 | `wso2 context current` | Shows the active context. |
+| `wso2 identity` | With no subcommand, refused with `shell.missing_argument` and the usage exit class, naming `add-product` and `list` as what to run instead. Previously printed help and exited 0, reporting a usage error as success to whatever ran it (#133). |
 | `wso2 identity add-product <identity> <namespace>` | Records a product the identity reaches, with `--endpoint`, and optionally `--audience` and a comma-separated `--scopes`. It modifies an identity `wso2 login` wrote and creates no identity and no context: logging in is the only thing that creates an identity. Nothing is written to the secure store and no network call is made, so the record is an assertion that the login's session reaches the product, checked by the first command that needs it. A namespace the identity already records is refused with `contexts.product_exists`; `--replace` overwrites it, replacing the whole record rather than merging with it. An endpoint embedding user information is refused, and the rejected value is not echoed. |
 | `wso2 identity list` | Lists the identities and, for each, the products it reaches. It names no credential and reads nothing from the secure store. |
 | `wso2 config list` | Built today: shows every key in the closed set of shell preferences — the default output mode and the catalog origin override — and whether each is currently configured. |
@@ -55,8 +57,8 @@ refusal is reported.
 | `wso2 module install <module>@<version>` | Installs an exact compatible module version. |
 | `wso2 module list` | Lists installed modules, versions, and update availability. |
 | `wso2 module info <module>` | Shows catalog, compatibility, and installation information. |
-| `wso2 module update <module>` | Updates one product module. Naming a module is already an explicit target, so this does not prompt; `--dry-run` still reports what it would do without changing anything. |
-| `wso2 module update --all` | Built today: updates every installed product module that has a newer version on its followed channel, skipping a pinned one. Being unbounded, it prompts for confirmation before moving anything; `--yes` skips the prompt, `--dry-run` reports what it would do without changing anything, and `--no-input` (or `WSO2_NO_INPUT`) refuses rather than prompt. Refuses `shell.non_interactive` when it may not prompt and `--yes` was not given — either because `--no-input` or `WSO2_NO_INPUT` asked that nothing prompt, or because standard input is not a terminal; the refusal names the control that fired and offers the one way out that applies to it, and `shell.conflicting_arguments` for `--yes` with `--dry-run`. |
+| `wso2 module update <module>` | Updates one product module. Naming a module is already an explicit target, so this does not prompt; `--dry-run` still reports what it would do without changing anything. A module the catalog publishes no version of on its followed channel — withdrawn, renamed, or moved to a channel this install no longer follows — is reported by name rather than called current, since the catalog cannot say whether the installed version is current when it does not publish the module at all; this does not change the exit status. |
+| `wso2 module update --all` | Built today: updates every installed product module that has a newer version on its followed channel, skipping a pinned one. Being unbounded, it prompts for confirmation before moving anything; `--yes` skips the prompt, `--dry-run` reports what it would do without changing anything, and `--no-input` (or `WSO2_NO_INPUT`) refuses rather than prompt. Refuses `shell.non_interactive` when it may not prompt and `--yes` was not given — either because `--no-input` or `WSO2_NO_INPUT` asked that nothing prompt, or because standard input is not a terminal; the refusal names the control that fired and offers the one way out that applies to it, and `shell.conflicting_arguments` for `--yes` with `--dry-run`. A module the catalog publishes no version of on its followed channel — withdrawn, renamed, or moved to a channel this install no longer follows — is reported by name rather than called current, since the catalog cannot say whether the installed version is current when it does not publish the module at all; this does not change the exit status, so a scheduled `--all` run does not start failing the moment one module goes unpublished upstream. |
 | `wso2 module verify <module>` | Verifies an installed module and its receipt. |
 | `wso2 module rollback <module>` | Reactivates a retained compatible version. |
 | `wso2 module remove <module>` | Built today: removes one installed module, leaving configuration and credentials alone. Prompts for confirmation after confirming the module is installed; `--yes` skips the prompt, `--dry-run` reports what it would remove without removing anything, and `--no-input` (or `WSO2_NO_INPUT`) refuses rather than prompt. Refuses `shell.module_not_installed` before any prompt when the module is not installed, `shell.non_interactive` when it may not prompt and `--yes` was not given — either because `--no-input` or `WSO2_NO_INPUT` asked that nothing prompt, or because standard input is not a terminal; the refusal names the control that fired and offers the one way out that applies to it, and `shell.conflicting_arguments` for `--yes` with `--dry-run`. |
@@ -232,10 +234,20 @@ $ wso2 module list
 MODULE        INSTALLED   CHANNEL   UPDATE
 api           v0.9.0      stable    current
 agent         v1.2.0      stable    v1.3.0 available
-integration   v0.4.0      stable    pinned to v0.4.0
+integration   v0.4.0      —         pinned to v0.4.0
 
 1 module(s) have an update available. Run wso2 module update --all to take them.
 ```
+
+CHANNEL names the channel a module follows for updates; it shows `—` for a
+module installed at an exact version with no channel chosen, such as
+`integration` above. A pin overrides the channel — it is what makes a pinned
+prerelease installable without putting the module on that channel — so there
+is no channel to name while the pin holds, and the blank cell is not a
+prediction that the module would move to stable once unpinned: `wso2 module
+install integration` without `@<version>` records whatever channel that
+command names, stable by default, which need not be the channel the pinned
+version actually came from.
 
 Credentials are never shown by these commands. Tokens are stored separately in
 the operating system's secure credential store.

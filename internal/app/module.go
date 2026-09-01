@@ -435,7 +435,7 @@ func (s Shell) moduleList(args []string) error {
 	updates := 0
 	table := output.NewTable("module", "installed", "channel", "update")
 	for _, status := range statuses {
-		table.Append(status.Namespace, "v"+status.Installed, status.Channel, updateColumn(status))
+		table.Append(status.Namespace, "v"+status.Installed, channelColumn(status), updateColumn(status))
 		if status.Update {
 			updates++
 		}
@@ -450,6 +450,20 @@ func (s Shell) moduleList(args []string) error {
 	_, err = fmt.Fprintf(s.Streams.Out,
 		"\n%d module(s) have an update available. Run wso2 module update --all to take them.\n", updates)
 	return err
+}
+
+// channelColumn says which channel a module follows, or says nothing when it
+// follows none. A pin overrides the channel — catalog.Policy documents that,
+// and it is why a pinned prerelease is installable without putting the module
+// on that channel — so a module pinned with no channel recorded has no
+// followed channel to name while the pin holds. The UPDATE column already
+// declines to derive a verdict from a channel in that case; this is the same
+// honesty one column to the left. #128.
+func channelColumn(status install.Status) string {
+	if status.Pinned && status.PolicyChannel == "" {
+		return "—"
+	}
+	return status.Channel
 }
 
 // updateColumn says what is available for one module in the terms that decide
@@ -603,13 +617,18 @@ func (s Shell) reportUpdatePlan(installer install.Installer, namespaces []string
 }
 
 // dryRunUpdateLine renders what Update would do to one module, from the same
-// Status it would act on: the three branches mirror updateOne's exactly.
-// module_test.go exercises all three (TestModuleUpdateAllDryRunReports*),
-// so this claim is enforced rather than merely asserted in a comment.
+// Status it would act on: the four branches mirror updateOne's exactly.
+// module_test.go exercises the first three (TestModuleUpdateAllDryRunReports*)
+// and module_internal_test.go the fourth (the unpublished branch), so this
+// claim is enforced rather than merely asserted in a comment.
 func dryRunUpdateLine(status install.Status) string {
 	switch {
 	case status.Pinned:
 		return fmt.Sprintf("%s is pinned to v%s and would not be updated.", status.Namespace, status.PinnedVersion)
+	case status.Available == "":
+		return fmt.Sprintf("The catalog publishes no version of %s on the %s channel, "+
+			"so whether v%s is up to date is unknown. Run wso2 module available to see what it publishes.",
+			status.Namespace, status.Channel, status.Installed)
 	case status.Update:
 		return fmt.Sprintf("%s would be updated from v%s to v%s.",
 			status.Namespace, status.Installed, status.Available)
@@ -628,6 +647,10 @@ func updateLine(outcome install.Outcome) (string, error) {
 	case install.ActionFailed:
 		return fmt.Sprintf("%s could not be updated. v%s is still active.",
 			outcome.Namespace, outcome.From), outcome.Err
+	case install.ActionNotPublished:
+		return fmt.Sprintf("The catalog publishes no version of %s on the %s channel, "+
+			"so whether v%s is up to date is unknown. Run wso2 module available to see what it publishes.",
+			outcome.Namespace, outcome.Channel, outcome.From), nil
 	default:
 		return fmt.Sprintf("%s is current at v%s.", outcome.Namespace, outcome.From), nil
 	}
