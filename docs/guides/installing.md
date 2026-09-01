@@ -69,6 +69,9 @@ Installed reference v0.1.0-rc.4 for darwin/arm64.
 The artifact was checked against the digest the catalog publishes. Artifacts are integrity-checked, not signed.
 ```
 
+The digest proves the artifact matches what the catalog entry describes. It
+does not prove the entry itself is authentic, because nothing signs the catalog.
+
 ```console
 $ wso2 module list
 MODULE      INSTALLED     CHANNEL      UPDATE

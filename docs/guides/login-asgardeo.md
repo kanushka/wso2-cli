@@ -73,14 +73,16 @@ http://127.0.0.1:10427/callback
 http://127.0.0.1:10428/callback
 ```
 
-The shell binds these in order, taking the first free one. Asgardeo matches
-redirect URIs exactly by default, so a missing entry becomes a mismatch error
-for whichever developer's machine has that port busy.
+The shell binds these in order, taking the first free one.
 
-Asgardeo does in fact waive the port for loopback redirect URIs, as RFC 8252
-§7.3 asks: a login completed through `127.0.0.1:16000`, which the application
-never registered. Register all four anyway. The verdict came from one tenant, it
-is undocumented, and the shell binds only these four ports regardless.
+Asgardeo does appear to waive the port when matching loopback redirect URIs, the
+way RFC 8252 §7.3 asks: a login completed through `127.0.0.1:16000`, a port the
+application had never registered. That was measured on one tenant, Asgardeo does
+not document it, and it may change without notice, so do not build on it.
+Register all four. The shell binds only these ports, so you gain nothing by
+registering fewer, and against a deployment that does match exactly, any missing
+entry becomes a redirect-mismatch error for whichever developer's machine has
+that port busy.
 
 ---
 
@@ -240,7 +242,8 @@ client ID:
 ```
 
 The example in the login guide shows the resource-identifier form of `audience`,
-which is right on Identity Server and Thunder, and wrong here.
+which is right on Identity Server. Thunder needs an absolute resource-server
+URI, and Asgardeo needs the client ID, so that example is wrong here.
 
 To log in without a browser, add the **Device Code** grant to the application's
 allowed grant types; nothing else changes. See

@@ -416,8 +416,8 @@ http://127.0.0.1:10427/callback
 http://127.0.0.1:10428/callback
 ```
 
-Four rather than one because these ports are in the IANA dynamic range, so
-something else may already hold the first choice.
+Four rather than one because another process on the machine may already hold
+the first choice, and the shell then falls back to the next.
 
 For a browserless login, add the device code grant as well (section 1.1).
 
