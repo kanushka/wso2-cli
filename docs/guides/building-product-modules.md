@@ -9,7 +9,7 @@
 [troubleshooting](troubleshooting-modules.md),
 [ADR 0011](../adr/0011-local-module-install-through-a-development-origin.md),
 [contributing](../../CONTRIBUTING.md)  
-**Last reviewed:** 2026-08-30
+**Last reviewed:** 2026-09-01
 
 The single-repository layout this guide describes is
 [ADR 0006](../adr/0006-monorepo-modules-and-generated-catalog.md). A product
@@ -67,6 +67,7 @@ test with nothing edited:
 
 ```console
 $ make new-module NAMESPACE=api
+go run ./cmd/wso2-module-new -namespace 'api'
 Created the api module in modules/api:
   modules/api/go.mod
   modules/api/module.json
@@ -81,7 +82,7 @@ Then open modules/api/cmd/wso2-module-api/main.go
 
 ```console
 $ go test ./modules/api/...
-ok  	github.com/wso2/wso2-cli/modules/api/cmd/wso2-module-api	0.618s
+ok  	github.com/wso2/wso2-cli/modules/api/cmd/wso2-module-api	0.686s
 ```
 
 Do not assemble a module by hand. The generator is not a convenience over a
@@ -97,7 +98,10 @@ are refused, and nothing is written when one is:
 
 ```console
 $ make new-module NAMESPACE=login
-wso2-module-new: "login" is a shell command, so a module owning that namespace could never be reached; the shell owns help, login, module, version
+go run ./cmd/wso2-module-new -namespace 'login'
+wso2-module-new: "login" is a shell command, so a module owning that namespace could never be reached; the shell owns config, context, doctor, help, identity, login, logout, module, org, version, whoami
+exit status 1
+make: *** [new-module] Error 1
 ```
 
 That refusal is the one worth understanding. The shell resolves its own commands
@@ -182,7 +186,7 @@ your logical name and let the shell do the rest.
 ```text
 require (
 	github.com/spf13/cobra v1.10.2
-	github.com/wso2/wso2-cli/sdk v0.0.0
+	github.com/wso2/wso2-cli/sdk v0.1.0
 )
 ```
 
@@ -512,46 +516,79 @@ channel to release a first module on.
 ## 7. Install, update, and remove it
 
 The other end of the lifecycle is what a user does, and it is worth running
-once against your own module rather than reading about. Installing your own
-build needs no tag: `make install-module` above already did this, from a
-catalog generated in the checkout. What follows is the published path, which is
-the same commands reading the real catalog origin.
+once rather than reading about. Installing your own unpublished build needs no
+tag: `make install-module` above already did this, from a catalog generated in
+the checkout. What follows instead runs against the module this repository has
+actually published — `modules/reference` — reading the deployed catalog at
+`https://wso2.github.io/wso2-cli`, on the prerelease channel, which is the
+channel a first module release lands on. `WSO2_HOME` is set to an empty
+directory first so the run starts from no installed modules and no receipts,
+the same as a user's machine the first time they install anything:
 
-```sh
-# What the catalog publishes, and what is installed here.
-wso2 module available
+```console
+$ export WSO2_HOME=$(mktemp -d)
+$ wso2 module available
+MODULE      CHANNEL      VERSION
+reference   prerelease   v0.1.0-rc.4
 
-# The first release is a prerelease, so it is offered on that channel only.
-# Asking for the stable channel here finds nothing to install yet.
-wso2 module install api --channel prerelease
-wso2 module install api@1.2.0-rc.1
-
-wso2 module list
-wso2 module update api
-wso2 module update --all
+Run wso2 module install <module> to install one.
 ```
 
-Installation resolves the newest version on the chosen channel that this shell
-can launch on this platform, verifies the archive against the digest the catalog
-published, and writes a receipt recording what it installed. Pinning an exact
-version is what a pipeline does so its behaviour does not depend on what is
-newest that day.
+Installing without naming a channel resolves the stable channel, and the
+reference module has never published to it:
+
+```console
+$ wso2 module install reference
+error: the "reference" module publishes no version on the stable channel (catalog.empty_channel)
+  It publishes on prerelease. Choose one with --channel.
+```
+
+```console
+$ wso2 module install reference --channel prerelease
+Installed reference v0.1.0-rc.4 for darwin/arm64.
+The artifact was checked against the digest the catalog publishes. Artifacts are integrity-checked, not signed.
+```
+
+Asking for a channel rather than a version is the form a reader can run and
+have it keep working: it resolves the newest version on that channel this
+shell can launch on this platform, verifies the archive against the digest the
+catalog published, and writes a receipt recording what it installed.
+Pinning an exact version with `<namespace>@<version>` is what a pipeline does
+instead, so its behavior does not depend on what is newest that day; do that
+when you need it, but the channel-following form above is what stays correct
+as new prerelease versions ship.
+
+```console
+$ wso2 module list
+MODULE      INSTALLED     CHANNEL      UPDATE
+reference   v0.1.0-rc.4   prerelease   current
+
+Every installed module is current.
+```
+
+```console
+$ wso2 module update reference
+reference is current at v0.1.0-rc.4.
+```
+
+`wso2 module update --all` does the same for every installed module at once,
+and asks for confirmation first unless you pass `--yes`.
 
 Removing takes the module off the machine, meaning its versions, its receipts,
 its active-version pointer, and its version policy, and touches nothing else. It
 is not a logout: your configuration and credentials are left as they were.
 
 ```console
-$ wso2 module remove api
-Removed the api module.
+$ wso2 module remove reference --yes
+Removed the reference module.
 ```
 
 Removing something that is not installed is refused rather than reported as
 done, so a typo is distinguishable from a no-op:
 
 ```console
-$ wso2 module remove api
-error: no api module is installed (shell.module_not_installed)
+$ wso2 module remove reference --yes
+error: no reference module is installed (shell.module_not_installed)
   Run wso2 module list to see what is installed.
 ```
 
