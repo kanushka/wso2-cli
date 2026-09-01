@@ -122,12 +122,13 @@ func (s Shell) dispatch(args []string) error {
 	// so applyShellFlags's diagnostic never ran for it — and that path is the
 	// ordinary case for a product command, not an edge, so R9's "never
 	// silent" promise was broken for every wso2 <namespace> invocation whose
-	// preferences document could not be read. Cobra's own commands, including
-	// the DisableFlagParsing ones (module, logout), still run
-	// PersistentPreRunE and would have been covered either way; this is
-	// structural rather than depending on which path a command happens to
-	// take, and it also now covers the bare `wso2` and `--version` cases
-	// below, which applyShellFlags never reached either.
+	// preferences document could not be read. Every one of Cobra's own
+	// commands still runs PersistentPreRunE and would have been covered
+	// either way, whether or not it happened to disable flag parsing — #89
+	// removed the last two that did (module, logout); this is structural
+	// rather than depending on which path a command happens to take, and it
+	// also now covers the bare `wso2` and `--version` cases below, which
+	// applyShellFlags never reached either.
 	if root, err := s.stateRoot(); err == nil {
 		if _, diagnostic := preferences.Load(root); diagnostic != nil {
 			output.Diagnostic(s.Streams.Err, *diagnostic)
