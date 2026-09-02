@@ -156,7 +156,7 @@ func (i Installer) runWithIndex(ctx context.Context, index catalog.Index, reques
 		return Installed{}, err
 	}
 
-	if err := i.activate(request.Namespace, selection, request.Policy, archive); err != nil {
+	if err := i.activate(ctx, request.Namespace, selection, request.Policy, archive); err != nil {
 		return Installed{}, err
 	}
 	return Installed{
@@ -195,7 +195,7 @@ const corruptedRecovery = "The download was corrupted or substituted. Try again;
 //
 // Everything before the last step happens where a failure can be swept away, so
 // a refused install is indistinguishable from one that never ran.
-func (i Installer) activate(namespace string, selection catalog.Selection,
+func (i Installer) activate(ctx context.Context, namespace string, selection catalog.Selection,
 	requested catalog.Policy, archive []byte) error {
 	namespaceDir := i.Store.NamespaceDir(namespace)
 	_, existedErr := os.Stat(namespaceDir)
@@ -272,7 +272,7 @@ func (i Installer) activate(namespace string, selection catalog.Selection,
 		return storeFailure("moving the verified module into place", err)
 	}
 
-	receipt, err := i.receipt(namespace, selection, versionDir, executableName)
+	receipt, err := i.receipt(ctx, namespace, selection, versionDir, executableName)
 	if err != nil {
 		return err
 	}
@@ -347,11 +347,23 @@ func readPolicyDocument(path string) (content []byte, exists, absent bool) {
 
 // receipt records what the catalog published, so what the shell later gates a
 // launch on is what was published rather than what the archive contained.
-func (i Installer) receipt(namespace string, selection catalog.Selection,
+//
+// The declared command tree is the exception, and deliberately so: it is read
+// from the executable itself. A tree decides how a command line is interpreted,
+// and the catalog is fetched over the network unsigned, so this is the one field
+// where what the archive contains has to outrank what the entry claimed.
+func (i Installer) receipt(ctx context.Context, namespace string, selection catalog.Selection,
 	versionDir, executableName string) (modules.Receipt, error) {
 	digest, err := modules.FileDigest(filepath.Join(versionDir, executableName))
 	if err != nil {
 		return modules.Receipt{}, storeFailure("reading the installed executable", err)
+	}
+	// The command tree is the one field read from the executable rather than
+	// from what the catalog published, because it is the one field that
+	// decides how the shell interprets what a user types. See declaredTree.
+	tree, err := declaredTree(ctx, namespace, versionDir, executableName)
+	if err != nil {
+		return modules.Receipt{}, err
 	}
 	receipt := modules.Receipt{
 		SchemaVersion: modules.ReceiptSchemaVersion,
@@ -365,6 +377,7 @@ func (i Installer) receipt(namespace string, selection catalog.Selection,
 		Capabilities:     selection.Version.Capabilities,
 		Platform:         i.Shell.Platform,
 		ExecutableSHA256: digest,
+		CommandTree:      tree,
 	}
 	if err := receipt.Validate(); err != nil {
 		return modules.Receipt{}, err
