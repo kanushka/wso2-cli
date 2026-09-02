@@ -18,7 +18,7 @@ accepted as a known cost rather than missed.
 | F3 | `wso2 help` never names an installed module's commands | **Tracked.** #86 delivers it; #85 accepted it explicitly as the cost of not registering namespaces as Cobra commands |
 | F4 | `--help` on a module command is reported as an error | **New**, deferred to #86 |
 | F5 | A permanent endpoint failure is reported as retryable and never names the endpoint | **New** |
-| F6 | The reference module cannot be run outside the acceptance harness | **New.** Gap against #113's delivered outcome |
+| F6 | The reference module cannot be run outside the acceptance harness | **Fixed.** `status` is now self-contained |
 | — | `module list` claims every module is current above a pinned row | **Already #143.** Independently reproduced here |
 
 F3 needs nothing new. The namespace-help half of F2 is also #86; only the
@@ -110,25 +110,37 @@ the URL lets the *user* distinguish them.
 
 ### F6 — the reference module cannot be run by hand
 
-The reference status service exists only as `internal/statusservice`, stood up
-in-process by `test/acceptance`, and is deliberately unreachable from the shell
-binary. So there is no endpoint `wso2 reference status` can succeed against on
-a developer's machine.
+Fixed by changing what the sample does, not by deploying a service for it.
 
-#113 closed on "a developer can build their own module from the checkout and
-run it under the real `wso2` shell without publishing a tag, and one command
-does it". The install half works. The run half stops at F5's dead end, and the
-reference module's stated purpose — proving the shell, SDK, and module contract
-before a real product is migrated (`CONTEXT.md`) — holds under `go test` and
-not for a person typing commands.
+`wso2 reference status` now answers from the invocation alone: it asks the
+broker for access and reports what it was granted, calling nothing. It works on
+any machine with a session and nothing deployed.
 
-**Suggested shape:** a contributor command and `make status-service` target
-that runs the fixture on loopback, prints its endpoint, and mints tokens the
-verifier accepts, to pair with the `make install-module` flow. The boundary that
-keeps fixtures out of the shell binary must hold unchanged
-(`TestNoDevelopmentFixtureIsReachableFromTheShellBinary`).
+```
+$ wso2 reference status
+MODULE                 CONTEXT        ACCESS    AUDIENCE           SCOPES                  EXPIRES
+reference v0.0.0-dev   kanushka-dev   granted   reference-status   reference:status:read   2026-09-02T07:01:46Z
+exit=0
 
-**Needs a decision** on whether this is wanted at all.
+$ wso2 --context local-ci reference status
+MODULE                 CONTEXT    ACCESS    REASON                                          RECOVERY
+reference v0.0.0-dev   local-ci   refused   the credential source ... is not set            Set the credential ...
+exit=0
+```
+
+A refusal is a field rather than an error, so the command can answer its own
+question when the answer is "no". It is the only command in the shell that
+reports an auth failure as exit 0, and the exception is deliberate.
+
+The service-backed handler survives unchanged as `wso2 reference call`. That is
+what still proves a brokered token is accepted at the declared audience, that
+another organization's token is refused, and that broker denial and service
+failure reach different exit classes. 49 acceptance call sites moved from
+`status` to `call`.
+
+Building a local status service was considered and dropped: the sample does not
+need a real service to demonstrate the contract, and a fixture reachable by hand
+would have sat against the boundary that keeps fixtures out of the shell binary.
 
 ## Suggested order
 
