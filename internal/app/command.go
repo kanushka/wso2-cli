@@ -19,7 +19,6 @@ package app
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -89,11 +88,8 @@ func (s Shell) rootCommand() *cobra.Command {
 			}
 			// A product namespace honors every shell flag, and its own parser
 			// reads them back off the argument list.
-			forwarded, err := forwardShellFlags(command, args[1:])
-			if err != nil {
-				return err
-			}
-			return s.dispatchNamespace(command.Root(), args[0], forwarded)
+			return s.dispatchNamespace(command.Root(), args[0],
+				forwardToNamespace(command, args[1:]))
 		},
 	}
 	// Completion is deliberately absent. Until a module declares its command
@@ -105,8 +101,8 @@ func (s Shell) rootCommand() *cobra.Command {
 	// through this hook, so wrapping here keeps every other error a command
 	// returns — an unwritable stream, a failed lookup — classified as what it
 	// is instead of as the user's mistake.
-	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
-		return usageProblem(err)
+	root.SetFlagErrorFunc(func(command *cobra.Command, err error) error {
+		return flagProblem(command, err)
 	})
 	root.SetHelpTemplate(helpTemplate)
 	root.SetUsageTemplate(helpTemplate)
@@ -120,15 +116,20 @@ func (s Shell) rootCommand() *cobra.Command {
 	// the module's flag and none of the shell's business.
 	root.Flags().SetInterspersed(false)
 
-	// The help flag is declared rather than left to Cobra so its description
-	// reads in the shell's voice rather than as the framework's default.
+	// --help and --verbose are persistent because every command honors them:
+	// help is universal, and applyShellFlags turns the diagnostic log on off
+	// the root's own flag set whoever the command is.
+	//
+	// --context and --output are not. They are declared by each command that
+	// can act on one, and here only for the root's own job of dispatching a
+	// product namespace, which honors both. Declaring them persistently is what
+	// used to put them in every command's help while forwardShellFlags refused
+	// them, so that help advertised what the command rejected and the refusal
+	// pointed back at the help (#147).
 	root.PersistentFlags().BoolP("help", "h", false, "Show help for a command.")
-	root.PersistentFlags().String(contextFlag, "", "Use the named context instead of the selected one.")
-	root.PersistentFlags().StringP(outputFlag, "o", string(output.ModeTable), "Render results as table or json.")
-	// Declared here rather than scanned out of the argument list by hand, so
-	// that it appears in help, is refused with a value, and is parsed by the
-	// same code that parses every other shell flag.
 	root.PersistentFlags().Bool(verboseFlag, false, "Write diagnostics about what the shell attempted to stderr.")
+	declareContextFlag(root.Flags())
+	declareOutputFlag(root.Flags())
 
 	root.AddCommand(s.configCommand(), s.contextCommand(), s.doctorCommand(), s.identityCommand(),
 		s.loginCommand(), s.logoutCommand(), s.moduleCommand(), s.orgCommand(), s.versionCommand(),
@@ -159,6 +160,9 @@ func (s Shell) applyShellFlags(command *cobra.Command, _ []string) error {
 	// PersistentPreRunE, which a product namespace never triggers at all, so
 	// the diagnostic silently never fired for the ordinary case of a wso2
 	// <namespace> command. See dispatch's comment in app.go.
+	if err := refuseShellFlagsWrittenEarly(command); err != nil {
+		return err
+	}
 	mode, err := s.shellOutputMode(command)
 	if err != nil {
 		return err
@@ -311,127 +315,166 @@ func argumentOutputMode(args []string) (output.Mode, bool) {
 	return mode, found
 }
 
-// shellFlag finds a shell-owned flag whether or not the command it is asked
-// about parses flags. A command with parsing disabled still inherits the root's
-// persistent flag set, but does not always have it merged into its own.
+// shellFlag finds a shell-owned flag on the command that is running, or on a
+// family it inherits one from, honoring the spelling written before the command
+// name.
+//
+// A shell flag is accepted on either side of a command name, and the root
+// parses the ones written before it into its own flag set. So "wso2 --output
+// json whoami" and "wso2 whoami --output json" have to reach the same value
+// from two different flag sets. The command's own wins when it was given, and
+// the root's stands in when it was not.
+//
+// The command's declaration remains the whole truth about what it accepts: the
+// root's copy is only consulted for a flag the command itself declares. A flag
+// written before the name of a command that does not take it is refused by
+// refuseShellFlagsWrittenEarly, not silently honored here.
 func shellFlag(command *cobra.Command, name string) *pflag.Flag {
-	if flag := command.Flags().Lookup(name); flag != nil {
-		return flag
+	own := command.Flags().Lookup(name)
+	if own != nil && own.Changed {
+		return own
 	}
-	return command.Root().PersistentFlags().Lookup(name)
-}
-
-// shellFlagsFor reports the shell-owned flags a built-in command honors.
-//
-// A shell flag is declared once on the root, but not every command can act on
-// every one of them: version and the module lifecycle commands render their own
-// fixed output and select no context. Naming what each command honors keeps a
-// flag it cannot act on a refusal rather than a value silently ignored.
-//
-// A known consequence, left as it is: because the flags are persistent on the
-// root, --help lists --context under a family that refuses it, and the
-// refusal's recovery points back at that help. It has been true of context
-// and identity since they shipped, and config and org inherit it. The fix is
-// not local to this function — it means declaring the shell flags per command
-// instead of once on the root, which is the same change that would retire
-// forwardShellFlags — so making it here for two families and not the others
-// would trade one inconsistency for a worse one.
-func shellFlagsFor(name string) []string {
-	// --verbose is deliberately absent from every list. This set answers one
-	// question — which flags forwardShellFlags may re-attach to a command's own
-	// parser, and which it must refuse — and --verbose is outside that question
-	// entirely: applyShellFlags enables the log directly off the root's flag
-	// set, whoever the command is, and the flag is forwarded to nothing. Naming
-	// it here would be a claim no reader of this set ever checks.
-	switch name {
-	case "wso2":
-		// The root routes a product namespace, and a module command may act on
-		// every forwarded shell flag.
-		return []string{contextFlag, outputFlag}
-	case "config":
-		// Preferences are machine-local, not context-scoped: a saved output
-		// mode or catalog origin applies to every context on this machine,
-		// so --context has nothing to select here.
-		return []string{outputFlag}
-	case "context":
-		// The family renders a machine-readable result, and takes no --context:
-		// naming a context is what its own arguments do, and a selection flag
-		// alongside "wso2 context use beta" would be two answers to one
-		// question.
-		return []string{outputFlag}
-	case "doctor":
-		// doctor reports ON a selected context, so naming one with --context is
-		// meaningful, and its findings are read by scripts as much as by a
-		// person.
-		return []string{contextFlag, outputFlag}
-	case "identity":
-		// The family renders a machine-readable result, and takes no
-		// --context: an identity is named by this family's own arguments, and
-		// a selection flag alongside "wso2 identity list" would be a second
-		// answer to a question nothing asked.
-		return []string{outputFlag}
-	case "login":
-		return []string{contextFlag}
-	case "module":
-		// Every module lifecycle command renders fixed, non-JSON text and
-		// selects no context: an install or an update names its target as an
-		// argument, not by --context, and its report is prose meant to be
-		// read, not a schema a script parses. moduleinstall_test.go's
-		// TestVerboseInstallKeepsProgressOffStdout confirms by hand that
-		// wso2 module install <module> --output json is refused outright, and
-		// this is the entry that refusal comes from.
-		return nil
-	case "logout":
-		// The only interactive-auth command that renders a machine-readable
-		// result, because it is the only one whose result a script has to read:
-		// what the issuer was told about the ended session is not observable
-		// any other way.
-		return []string{contextFlag, outputFlag}
-	case "org":
-		// The family always acts on the selected context, exactly as wso2
-		// context does: naming one with --context would be a second answer to
-		// a question the family does not ask, since org use writes the
-		// selected context's Organization field, not some other one's.
-		return []string{outputFlag}
-	case "whoami":
-		// whoami reports ON a selected context exactly as doctor does (R5,
-		// #112), so naming one with --context is meaningful for the same
-		// reason.
-		return []string{contextFlag, outputFlag}
-	default:
+	if own == nil {
 		return nil
 	}
+	if early := command.Root().Flags().Lookup(name); early != nil && early.Changed {
+		return early
+	}
+	return own
 }
 
-// forwardShellFlags re-attaches the shell flags Cobra parsed to the argument
-// list a built-in command's own parser expects, and refuses a flag the command
-// cannot act on.
+// refuseShellFlagsWrittenEarly refuses a shell flag written before the name of a
+// command that cannot act on it.
 //
-// The re-attachment is deliberate scaffolding. The built-in command bodies still
-// parse their own arguments, so this change alters routing and not flag
-// semantics, and the existing tests stay a regression suite for it. It goes away
-// when each command declares its flags directly.
-func forwardShellFlags(command *cobra.Command, args []string) ([]string, error) {
-	honored := shellFlagsFor(command.Name())
-	forwarded := make([]string, 0, len(args)+4)
-	// --verbose is honored by every command but forwarded to none of them. A
-	// built-in reads it off the root's own flag set, and the product namespace
-	// boundary cannot forward it yet: until a module declares its command tree,
-	// the shell cannot tell a flag it should pass on from one the module owns,
-	// and a module that does not know the flag would refuse the whole command.
+// Cobra parses a flag written before the command name into the root's flag set,
+// so the command's own parser never sees it and cannot refuse it. Without this,
+// "wso2 --output json version" would be accepted and silently ignored, while
+// "wso2 version --output json" is refused — the same request answered two ways
+// depending on where it was written.
+func refuseShellFlagsWrittenEarly(command *cobra.Command) error {
+	if command == command.Root() {
+		return nil
+	}
 	for _, name := range []string{contextFlag, outputFlag} {
-		flag := command.Root().PersistentFlags().Lookup(name)
+		early := command.Root().Flags().Lookup(name)
+		if early == nil || !early.Changed {
+			continue
+		}
+		if command.Flags().Lookup(name) != nil {
+			continue
+		}
+		return unsupportedFlag(command, name)
+	}
+	return nil
+}
+
+// declareContextFlag declares --context on a command that acts on a named
+// context.
+//
+// A command that selects no context does not call this, and a user who writes
+// --context on one gets Cobra's own refusal, classified by flagProblem. There
+// is no allowlist to keep in step with the declaration: the declaration is the
+// allowlist.
+func declareContextFlag(flags *pflag.FlagSet) {
+	flags.String(contextFlag, "", "Use the named context instead of the selected one.")
+}
+
+// declareOutputFlag declares --output on a command that renders a
+// machine-readable result.
+func declareOutputFlag(flags *pflag.FlagSet) {
+	flags.StringP(outputFlag, "o", string(output.ModeTable), "Render results as table or json.")
+}
+
+// forwardToNamespace re-attaches the shell flags Cobra parsed to the arguments
+// bound for a product module, whose own parser reads them back off the list.
+//
+// The root honors both flags, so unlike the built-ins there is nothing to
+// refuse here: what this does is carry a flag written before the namespace
+// ("wso2 --output json api list") through to the parser that reads one written
+// after it.
+func forwardToNamespace(command *cobra.Command, args []string) []string {
+	forwarded := make([]string, 0, len(args)+4)
+	for _, name := range []string{contextFlag, outputFlag} {
+		flag := command.Flags().Lookup(name)
 		if flag == nil || !flag.Changed {
 			continue
 		}
-		if !slices.Contains(honored, name) {
-			return nil, problem.New(problem.CategoryUsage, "shell.unsupported_flag",
-				fmt.Sprintf("wso2 %s does not take the flag --%s", command.Name(), name)).
-				WithRecovery(fmt.Sprintf("Run wso2 %s --help to see the flags it accepts.", command.Name()))
-		}
 		forwarded = append(forwarded, "--"+name, flag.Value.String())
 	}
-	return append(forwarded, args...), nil
+	return append(forwarded, args...)
+}
+
+// flagProblem classifies a flag-parsing failure, telling a flag that does not
+// exist anywhere from one the shell owns that this command cannot act on.
+//
+// The distinction is worth keeping and used to be drawn by a hand-maintained
+// allowlist. It is drawn here from the command tree instead: a flag the root
+// declares is a real shell flag, so naming it on a command that did not declare
+// it is a different mistake from a typo, and deserves a different message. The
+// command that failed is named, rather than the family it belongs to, because
+// naming the family sent the user to a help page for a command they had not
+// typed (#147).
+func flagProblem(command *cobra.Command, err error) error {
+	name, ok := unknownFlagName(err)
+	if !ok {
+		return usageProblem(err)
+	}
+	if !ownsShellFlag(command.Root(), name) {
+		return usageProblem(err)
+	}
+	return unsupportedFlag(command, name)
+}
+
+// flagProblemWithRecovery classifies as flagProblem does, but points a failure
+// that is a plain typo at the command's own usage line. A shell flag the command
+// cannot act on keeps flagProblem's recovery, which names the help that lists
+// what it does accept.
+func flagProblemWithRecovery(command *cobra.Command, err error, recovery string) error {
+	if name, ok := unknownFlagName(err); ok && ownsShellFlag(command.Root(), name) {
+		return unsupportedFlag(command, name)
+	}
+	return usageProblemWithRecovery(err, recovery)
+}
+
+// unsupportedFlag reports a shell-owned flag named on a command that does not
+// declare it, naming the command typed rather than the family it belongs to.
+func unsupportedFlag(command *cobra.Command, name string) error {
+	path := command.CommandPath()
+	return problem.New(problem.CategoryUsage, "shell.unsupported_flag",
+		fmt.Sprintf("%s does not take the flag --%s", path, name)).
+		WithRecovery(fmt.Sprintf("Run %s --help to see the flags it accepts.", path))
+}
+
+// ownsShellFlag reports whether a name is a shell-owned flag at all, which is
+// what separates "this command does not take it" from "no such flag".
+func ownsShellFlag(root *cobra.Command, name string) bool {
+	if root.PersistentFlags().Lookup(name) != nil {
+		return true
+	}
+	return root.Flags().Lookup(name) != nil
+}
+
+// unknownFlagName reads the flag name out of Cobra's unknown-flag error.
+//
+// Cobra reports the failure as text and offers no structured form of it, so the
+// name is recovered from the message. A message this does not recognize falls
+// back to usageProblem, which reports it verbatim: a worse message, never a
+// wrong one.
+func unknownFlagName(err error) (string, bool) {
+	const prefix = "unknown flag: --"
+	message := err.Error()
+	index := strings.Index(message, prefix)
+	if index < 0 {
+		return "", false
+	}
+	name := message[index+len(prefix):]
+	if cut := strings.IndexAny(name, "= "); cut >= 0 {
+		name = name[:cut]
+	}
+	if name == "" {
+		return "", false
+	}
+	return name, true
 }
 
 // loginCommand declares its own flags directly, and reads the two the shell
@@ -453,16 +496,11 @@ func (s Shell) loginCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  noArguments(loginUsageRecovery),
 		RunE: func(command *cobra.Command, args []string) error {
-			// The returned list is discarded: login declares its own flags, so
-			// nothing is forwarded anywhere and what is wanted is the refusal
-			// of a shell flag this command cannot act on.
-			if _, err := forwardShellFlags(command, nil); err != nil {
-				return err
-			}
-			// --context is the shell's own flag, declared once on the root, so
-			// it is read off the parsed flag set rather than declared a second
-			// time here. Declaring it again would shadow the root's and leave
-			// two flags of one name disagreeing about what was asked.
+			// login logs in to a named context, so it declares --context. It
+			// renders no machine-readable result and does not declare
+			// --output: what a login writes is prose about a browser and a
+			// session, and a caller that wants the outcome as data reads
+			// wso2 whoami afterwards.
 			if flag := shellFlag(command, contextFlag); flag != nil {
 				flags.contextName = flag.Value.String()
 			}
@@ -475,20 +513,21 @@ func (s Shell) loginCommand() *cobra.Command {
 		"Present this registered OAuth application. Required with --url.")
 	command.Flags().BoolVar(&flags.noInput, "no-input", false,
 		"Refuse rather than prompt, open a browser, or wait for a human.")
+	declareContextFlag(command.Flags())
 	return command
 }
 
 func (s Shell) logoutCommand() *cobra.Command {
-	return &cobra.Command{
+	command := &cobra.Command{
 		Use:                   "logout",
 		Short:                 "End the selected context's session.",
 		DisableFlagsInUseLine: true,
 		Args:                  noArguments(logoutUsageRecovery),
 		RunE: func(command *cobra.Command, args []string) error {
-			// Both flags logout honors are the root's own, declared once on
-			// PersistentFlags. shellFlagsFor("logout") lists both, so nothing
-			// is refused here the way refuseUnusableShellFlags refuses a flag
-			// a family cannot act on elsewhere: this family can act on both.
+			// logout declares both shell flags: it acts on a named context,
+			// and it is the only interactive-auth command that renders a
+			// machine-readable result, because what the issuer was told about
+			// the ended session is not observable any other way.
 			mode, err := s.shellOutputMode(command)
 			if err != nil {
 				return err
@@ -500,6 +539,9 @@ func (s Shell) logoutCommand() *cobra.Command {
 			return s.logout(logoutFlags{contextName: contextName, mode: mode})
 		},
 	}
+	declareContextFlag(command.Flags())
+	declareOutputFlag(command.Flags())
+	return command
 }
 
 func (s Shell) versionCommand() *cobra.Command {
@@ -507,10 +549,10 @@ func (s Shell) versionCommand() *cobra.Command {
 		Use:                   "version",
 		Short:                 "Show the shell, protocol, and installed module versions.",
 		DisableFlagsInUseLine: true,
+		// version declares neither shell flag. It renders fixed prose about
+		// this build and the modules installed beside it, and selects no
+		// context.
 		RunE: func(command *cobra.Command, args []string) error {
-			if _, err := forwardShellFlags(command, args); err != nil {
-				return err
-			}
 			return s.version(args)
 		},
 	}

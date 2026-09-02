@@ -65,9 +65,6 @@ func (s Shell) configCommand() *cobra.Command {
 		// A bare wso2 config is the other arm, and is deliberately not a
 		// refusal. See helpForBareFamily.
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			if len(args) == 0 {
 				return helpForBareFamily(command)
 			}
@@ -76,6 +73,11 @@ func (s Shell) configCommand() *cobra.Command {
 				WithRecovery(configRecovery)
 		},
 	}
+	// Preferences are machine-local, not context-scoped: a saved output mode or
+	// catalog origin applies to every context on this machine, so --context has
+	// nothing to select here. --output is declared on the family so every
+	// subcommand inherits it.
+	declareOutputFlag(command.PersistentFlags())
 	command.AddCommand(s.configListCommand(), s.configGetCommand(), s.configSetCommand())
 	return command
 }
@@ -86,9 +88,6 @@ func (s Shell) configListCommand() *cobra.Command {
 		Short: "Show every shell preference in the closed key set.",
 		Args:  noArguments(configListUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			return s.configList(command)
 		},
 	}
@@ -100,9 +99,6 @@ func (s Shell) configGetCommand() *cobra.Command {
 		Short: "Show one shell preference.",
 		Args:  exactlyOneArgument("a preference key", configGetUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			return s.configGet(command, args[0])
 		},
 	}
@@ -114,9 +110,6 @@ func (s Shell) configSetCommand() *cobra.Command {
 		Short: "Change one shell preference.",
 		Args:  exactlyTwoArguments("a preference key and a value", configSetUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			return s.configSet(command, args[0], args[1])
 		},
 	}
