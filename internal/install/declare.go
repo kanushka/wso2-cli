@@ -60,7 +60,7 @@ func declaredTree(ctx context.Context, namespace, versionDir, executableName str
 	if err != nil {
 		return commandtree.Tree{}, storeFailure("creating a directory for the module declaration", err)
 	}
-	defer os.RemoveAll(answers)
+	defer func() { _ = os.RemoveAll(answers) }()
 	answer := filepath.Join(answers, "declaration.json")
 
 	ctx, cancel := context.WithTimeout(ctx, declarationTimeout)

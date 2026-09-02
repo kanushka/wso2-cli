@@ -67,7 +67,7 @@ func runStatus(t *testing.T, endpoint string, access *testkit.Access) testkit.Ou
 	// The whole tree is served, as the shell serves it, so the test exercises
 	// the routing the module actually ships rather than one handler in
 	// isolation.
-	return testkit.Run(t.Context(), moduleOptions(), commandTree().Commands(),
+	return testkit.Run(t.Context(), moduleOptions(), commands(),
 		testkit.Invocation{
 			Command:      []string{"status"},
 			InvocationID: invocationID,

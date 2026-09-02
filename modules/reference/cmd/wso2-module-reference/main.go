@@ -82,7 +82,7 @@ func main() {
 	// Standard output now carries protocol frames only. Anything this process
 	// wants to say goes to standard error, where the shell captures it as
 	// bounded diagnostics.
-	err := commandTree().Serve(context.Background(), options)
+	err := module.Serve(context.Background(), options, commands()...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "wso2-module-reference: %v\n", err)
 		os.Exit(1)
@@ -99,14 +99,14 @@ func moduleOptions() module.Options {
 	}
 }
 
-// commandTree builds this module's command tree and binds each command to its
+// commands builds this module's command tree and binds each command to its
 // handler.
 //
 // The tree is a Cobra tree because a product CLI being migrated already has one:
 // its commands, its flags, and its help are declared here exactly as they would
 // be in a standalone CLI. What changes is the ending — a handler returns typed
 // fields instead of printing, because the shell owns rendering.
-func commandTree() *cobratree.Tree {
+func commands() []module.Command {
 	root := &cobra.Command{
 		Use:   "reference",
 		Short: "Reference product module for the WSO2 CLI.",
@@ -123,7 +123,8 @@ func commandTree() *cobratree.Tree {
 
 	return cobratree.New(root).
 		Handle(statusCommand, status).
-		Handle(whoamiCommand, whoami)
+		Handle(whoamiCommand, whoami).
+		Commands()
 }
 
 // status answers "wso2 reference status".
