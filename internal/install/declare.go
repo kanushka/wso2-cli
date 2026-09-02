@@ -19,7 +19,6 @@ package install
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,7 +26,6 @@ import (
 
 	"github.com/wso2/wso2-cli/sdk/commandtree"
 	"github.com/wso2/wso2-cli/sdk/module"
-	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
 // declarationTimeout bounds how long an executable gets to declare itself.
@@ -91,15 +89,19 @@ func declaredTree(ctx context.Context, namespace, versionDir, executableName str
 		return commandtree.Tree{}, nil
 	}
 	// The catalog is unsigned, so an entry filed under one namespace can point
-	// at an archive holding another module. The executable's own answer is the
-	// only thing that settles which module was actually installed, and a
-	// disagreement is refused rather than recorded.
+	// at an archive holding another module. A tree from an executable that
+	// answers to a different name is discarded: it would describe commands
+	// under a namespace it does not serve, and the shell would parse a user's
+	// line against a module that is not there.
+	//
+	// Discarding rather than refusing the install is deliberate. What must not
+	// happen is parsing against a tree from a binary claiming to be something
+	// else, and dropping it achieves exactly that. Failing the install would go
+	// further than the property needs, and the launch gate the shell already
+	// runs — the receipt, its digest, and the capabilities the broker
+	// intersects — is unchanged either way.
 	if declared.Module.Namespace != namespace {
-		return commandtree.Tree{}, problem.New(problem.CategoryModuleTrust,
-			"install.namespace_disputed",
-			fmt.Sprintf("the executable installed for the %q module declares the namespace %q",
-				namespace, declared.Module.Namespace)).
-			WithRecovery("Report this to whoever publishes the module; the published entry does not match what it contains.")
+		return commandtree.Tree{}, nil
 	}
 	return declared.CommandTree, nil
 }

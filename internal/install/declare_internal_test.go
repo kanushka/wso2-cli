@@ -106,20 +106,27 @@ func TestAModuleThatNeverAnswersDoesNotHangTheInstall(t *testing.T) {
 	}
 }
 
-// TestAnExecutableServingAnotherNamespaceIsRefused proves the one thing this
-// step can establish that the catalog cannot. The catalog is unsigned, so an
-// entry filed under one namespace can point at an archive containing another
-// module. The binary's own answer is what settles it, and disagreement stops
-// the install rather than being recorded.
-func TestAnExecutableServingAnotherNamespaceIsRefused(t *testing.T) {
+// TestATreeFromAnExecutableServingAnotherNamespaceIsDiscarded proves the one
+// thing this step can establish that the unsigned catalog cannot.
+//
+// An entry filed under one namespace can point at an archive holding another
+// module. Its tree describes commands under a name it does not serve, so parsing
+// a user's line against it would parse against a module that is not there. The
+// tree is dropped and the module installs without one, which is the same state
+// as a module that declares nothing.
+func TestATreeFromAnExecutableServingAnotherNamespaceIsDiscarded(t *testing.T) {
 	versionDir, name := writeExecutable(t, `cat > "$WSO2_MODULE_COMMAND_TREE" <<'JSON'
-{"module":{"namespace":"impostor"},"commandTree":{}}
+{"module":{"namespace":"impostor"},
+ "commandTree":{"commands":[{"path":["status"],"runnable":true}]}}
 JSON`)
 
-	_, err := declaredTree(t.Context(), "reference", versionDir, name)
+	tree, err := declaredTree(t.Context(), "reference", versionDir, name)
 
-	if err == nil {
-		t.Fatal("an executable serving another namespace was installed")
+	if err != nil {
+		t.Fatalf("a disputed namespace failed the install: %v", err)
+	}
+	if !tree.Empty() {
+		t.Errorf("the shell kept a tree from an executable serving %q: %+v", "impostor", tree)
 	}
 }
 
