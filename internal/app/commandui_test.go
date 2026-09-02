@@ -341,24 +341,79 @@ func TestAFailureInsideACommandIsNotReportedAsAUsageProblem(t *testing.T) {
 	}
 }
 
-// TestEveryCommandFamilyRefusesAMissingSubcommand pins that a bare family name
-// is a usage error in all five families. Cobra validates a non-leaf command's
-// arguments only when it is Runnable, so a parent with a nil RunE prints help
-// and exits 0 — which reports a usage error to whatever script ran it as
-// everything having worked. org, config and module already refuse; context and
-// identity did not. #133.
-func TestEveryCommandFamilyRefusesAMissingSubcommand(t *testing.T) {
+// TestEveryCommandFamilyAnswersABareNameWithHelp pins that a bare family name
+// prints that family's help and succeeds, in all five families.
+//
+// A bare family name is an incomplete command, not a failed one. It used to be
+// refused as shell.missing_argument at exit 64, which said "this command is
+// broken" about five families whose every subcommand works — clearly enough
+// that a reader of docs/examples/user-flow-review.md proposed hiding config and
+// org from the tree until their subcommands were "implemented" (F8).
+//
+// The refusal that matters is pinned by
+// TestEveryCommandFamilyRefusesAnUnknownSubcommand below, and the two must not
+// be collapsed into one: the whole point is that the shell tells an incomplete
+// command and a mistyped one apart.
+func TestEveryCommandFamilyAnswersABareNameWithHelp(t *testing.T) {
+	// Each family and one subcommand its help has to name.
+	families := map[string]string{
+		"context":  "create",
+		"identity": "add-product",
+		"module":   "available",
+		"org":      "current",
+		"config":   "set",
+	}
+	for family, subcommand := range families {
+		t.Run(family, func(t *testing.T) {
+			shell, out, errOut := newShell(t)
+
+			if code := shell.Run([]string{family}); code != 0 {
+				t.Fatalf("wso2 %s exited %d, want 0: naming a family without a "+
+					"subcommand is an incomplete command, not a failed one; stderr: %s",
+					family, code, errOut)
+			}
+			// Help is a result, so it belongs on stdout. Writing it to stderr
+			// would keep it out of a pipe and read as diagnostic output.
+			if out.Len() == 0 {
+				t.Fatalf("wso2 %s printed nothing to stdout; stderr: %s", family, errOut)
+			}
+			if strings.Contains(out.String(), "error:") {
+				t.Errorf("wso2 %s calls itself an error:\n%s", family, out)
+			}
+			// The guidance that used to be the refusal's recovery line is the
+			// family's Long, so the help still points at the family's own
+			// subcommands. A help body that names none leaves the user exactly
+			// where they started.
+			if !strings.Contains(out.String(), "wso2 "+family+" ") {
+				t.Errorf("wso2 %s help does not point at one of its own subcommands:\n%s", family, out)
+			}
+			if !strings.Contains(out.String(), subcommand) {
+				t.Errorf("wso2 %s help does not name its %q subcommand:\n%s", family, subcommand, out)
+			}
+		})
+	}
+}
+
+// TestEveryCommandFamilyRefusesAnUnknownSubcommand pins the half of the
+// families' RunE that must stay a refusal.
+//
+// Cobra validates a non-leaf command's arguments only when it is Runnable, so
+// a parent with a nil RunE prints help and exits 0 — which reports a typo to
+// whatever script ran it as everything having worked. #133 made all five
+// families refuse instead, and giving the bare form back to help must not take
+// that with it.
+func TestEveryCommandFamilyRefusesAnUnknownSubcommand(t *testing.T) {
 	for _, family := range []string{"context", "identity", "module", "org", "config"} {
 		t.Run(family, func(t *testing.T) {
 			shell, _, errOut := newShell(t)
 
-			if code := shell.Run([]string{family}); code != exit.Usage {
-				t.Fatalf("wso2 %s exited %d, want the usage class %d: a missing "+
-					"subcommand is a usage error, and exit 0 tells a script the "+
-					"typo worked; stderr: %s", family, code, exit.Usage, errOut)
+			if code := shell.Run([]string{family, "nosuchsubcommand"}); code != exit.Usage {
+				t.Fatalf("wso2 %s nosuchsubcommand exited %d, want the usage class %d: "+
+					"exit 0 tells a script the typo worked; stderr: %s",
+					family, code, exit.Usage, errOut)
 			}
-			if !strings.Contains(errOut.String(), "shell.missing_argument") {
-				t.Errorf("wso2 %s does not report shell.missing_argument:\n%s", family, errOut)
+			if !strings.Contains(errOut.String(), "shell.unknown_command") {
+				t.Errorf("wso2 %s nosuchsubcommand does not report shell.unknown_command:\n%s", family, errOut)
 			}
 			// writeProblem (internal/output/output.go) renders the message on
 			// its own first line as "error: ... (code)" and, only when one is
@@ -370,12 +425,11 @@ func TestEveryCommandFamilyRefusesAMissingSubcommand(t *testing.T) {
 			if len(lines) < 2 || strings.TrimSpace(lines[1]) == "" {
 				t.Fatalf("wso2 %s did not print recovery guidance below its message:\n%s", family, errOut)
 			}
-			recovery := lines[1]
 			// A refusal that does not name one of the family's own
 			// subcommands leaves the user exactly where they started; a stub
 			// like "Sorry." would satisfy a bare line-count check, so pin the
 			// documented promise instead (docs/reference/commands.md).
-			if !strings.Contains(recovery, "wso2 "+family+" ") {
+			if !strings.Contains(lines[1], "wso2 "+family+" ") {
 				t.Errorf("wso2 %s recovery does not point at one of its own subcommands:\n%s", family, errOut)
 			}
 		})

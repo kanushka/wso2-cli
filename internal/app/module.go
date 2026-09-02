@@ -65,21 +65,22 @@ func (s Shell) moduleCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:                   "module <subcommand>",
 		Short:                 "Install, list, and update product modules from the module catalog.",
-		Long:                  "Subcommands: available, install, list, remove, update.",
+		Long:                  moduleRecovery,
 		DisableFlagsInUseLine: true,
 		// A RunE is declared for the reason org's and identity's are: Cobra
 		// validates a non-leaf command's arguments only when it is Runnable,
 		// so leaving this nil would print help and exit 0 for a mistyped
 		// subcommand. Never cobra.NoArgs or cobra.ExactArgs here — both bypass
 		// the flag-error hook and exit 70 instead of 64.
+		//
+		// A bare wso2 module is the other arm, and is deliberately not a
+		// refusal. See helpForBareFamily.
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := refuseUnusableShellFlags(command); err != nil {
 				return err
 			}
 			if len(args) == 0 {
-				return problem.New(problem.CategoryUsage, "shell.missing_argument",
-					"wso2 module needs a subcommand").
-					WithRecovery(moduleRecovery)
+				return helpForBareFamily(command)
 			}
 			return problem.New(problem.CategoryUsage, "shell.unknown_command",
 				fmt.Sprintf("%q is not a wso2 module subcommand", args[0])).

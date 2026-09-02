@@ -60,23 +60,21 @@ func (s Shell) orgCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:                   "org <subcommand>",
 		Short:                 "Show and change the organization the selected context runs within.",
-		Long:                  "Subcommands: current, use.",
+		Long:                  orgRecovery,
 		DisableFlagsInUseLine: true,
-		// A RunE is declared here, unlike the config family, because Cobra
-		// validates a non-leaf command's arguments only when the command is
-		// Runnable: leave it nil and a bare wso2 org prints help and exits 0,
-		// reporting a usage error as success.
+		// A RunE is declared here because Cobra validates a non-leaf command's
+		// arguments only when the command is Runnable: leave it nil and
+		// wso2 org bogus prints help and exits 0, reporting a typo as success.
 		//
-		// The arm below refuses an unrecognised subcommand with this
-		// family's own message.
+		// The arm below refuses an unrecognised subcommand with this family's
+		// own message. A bare wso2 org is the other arm, and is deliberately
+		// not a refusal. See helpForBareFamily.
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := refuseUnusableShellFlags(command); err != nil {
 				return err
 			}
 			if len(args) == 0 {
-				return problem.New(problem.CategoryUsage, "shell.missing_argument",
-					"wso2 org needs a subcommand").
-					WithRecovery(orgRecovery)
+				return helpForBareFamily(command)
 			}
 			return problem.New(problem.CategoryUsage, "shell.unknown_command",
 				fmt.Sprintf("%q is not a wso2 org subcommand", args[0])).

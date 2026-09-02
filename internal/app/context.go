@@ -54,21 +54,22 @@ func (s Shell) contextCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:                   "context <subcommand>",
 		Short:                 "Create, select, and list the targets commands run against.",
-		Long:                  "Subcommands: create, current, list, use.",
+		Long:                  contextRecovery,
 		DisableFlagsInUseLine: true,
 		// A RunE is declared because Cobra validates a non-leaf command's
 		// arguments only when it is Runnable: leave it nil and wso2 context
-		// prints help and exits 0, reporting a usage error as success to
+		// bogus prints help and exits 0, reporting a typo as success to
 		// whatever ran it. Never cobra.NoArgs or cobra.ExactArgs for this —
 		// both bypass the flag-error hook and exit 70 instead of 64.
+		//
+		// A bare wso2 context is the other arm, and is deliberately not a
+		// refusal. See helpForBareFamily.
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := refuseUnusableShellFlags(command); err != nil {
 				return err
 			}
 			if len(args) == 0 {
-				return problem.New(problem.CategoryUsage, "shell.missing_argument",
-					"wso2 context needs a subcommand").
-					WithRecovery(contextRecovery)
+				return helpForBareFamily(command)
 			}
 			return problem.New(problem.CategoryUsage, "shell.unknown_command",
 				fmt.Sprintf("%q is not a wso2 context subcommand", args[0])).
@@ -196,6 +197,30 @@ func noArguments(usage string) cobra.PositionalArgs {
 func refuseUnusableShellFlags(command *cobra.Command) error {
 	_, err := forwardShellFlags(command.Parent(), nil)
 	return err
+}
+
+// helpForBareFamily answers a family name typed with no subcommand at all.
+//
+// It prints the family's help and succeeds. A bare family name is an
+// incomplete command, not a failed one: every subcommand it names is
+// implemented and works. Reporting it as "error: wso2 config needs a
+// subcommand" at exit 64 said the opposite loudly enough that a reader of
+// docs/examples/user-flow-review.md concluded config and org were
+// unimplemented stubs and proposed hiding both from the command tree until
+// their subcommands were written (F8). The guidance that used to be the
+// refusal's recovery line is now each family's Long, so it is still the first
+// thing printed and nothing is lost.
+//
+// This is only the no-arguments arm. A family whose RunE calls this still
+// refuses an unknown subcommand with its own message and the usage exit class,
+// which is the whole reason the RunE exists: Cobra validates a non-leaf
+// command's arguments only when the command is Runnable, so a nil RunE would
+// report "wso2 config bogus" to a script as everything having worked (#133).
+//
+// The five families share this so that they cannot drift apart. They answered
+// a bare name identically before and must go on doing so.
+func helpForBareFamily(command *cobra.Command) error {
+	return command.Help()
 }
 
 // contextCreate writes one context and nothing else.
