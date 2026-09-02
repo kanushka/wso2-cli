@@ -26,6 +26,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/internal/parsetree"
 	"github.com/wso2/wso2-cli/internal/rpc"
 	"github.com/wso2/wso2-cli/internal/version"
 	"github.com/wso2/wso2-cli/sdk/problem"
@@ -41,7 +42,10 @@ import (
 // the module's diagnostics, and returns a typed problem for the exit class. The
 // module contributes semantics only.
 func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []string) error {
-	command, arguments, mode, contextName, err := parseProductArgs(namespace, args)
+	// The tree comes from the receipt the resolver already verified, and from
+	// nowhere else. See internal/parsetree.
+	command, arguments, mode, contextName, err := parseProductArgs(
+		namespace, parsetree.FromReceipt(resolved.Receipt), args)
 	if err != nil {
 		return err
 	}
@@ -164,61 +168,6 @@ func (s Shell) selectionAndDocument(flagName string) (contexts.Selection, contex
 	}
 	selected, err := document.Select(name)
 	return selected, document, err
-}
-
-// parseProductArgs separates the shell's own flags from the module's arguments.
-//
-// The shell parses only what it owns. Everything after the first argument it
-// does not recognize belongs to the module, so a module can add flags without
-// the shell being released.
-func parseProductArgs(namespace string, args []string) (command, arguments []string, mode output.Mode, contextName string, err error) {
-	mode = output.ModeTable
-	remaining := args
-
-	for len(remaining) > 0 {
-		argument := remaining[0]
-		switch {
-		case argument == "--output" || argument == "-o":
-			if len(remaining) < 2 {
-				return nil, nil, "", "", missingOutputValue(namespace, argument)
-			}
-			parsed, ok := output.ParseMode(remaining[1])
-			if !ok {
-				return nil, nil, "", "", unknownOutputMode(namespace, remaining[1])
-			}
-			mode = parsed
-			remaining = remaining[2:]
-		case attachedOutput(argument):
-			// Every spelling pflag accepts for the shell's own flags is
-			// accepted here too. A spelling that worked before a product
-			// namespace and not after it would be the drift this path and the
-			// root command's parser are pinned against.
-			value, _ := outputFlagValue(argument)
-			parsed, ok := output.ParseMode(value)
-			if !ok {
-				return nil, nil, "", "", unknownOutputMode(namespace, value)
-			}
-			mode = parsed
-			remaining = remaining[1:]
-		case argument == "--context" || strings.HasPrefix(argument, "--context="):
-			name, consumed := contextFlagValue(remaining)
-			if name == "" {
-				return nil, nil, "", "", missingContextValue(
-					fmt.Sprintf("Run wso2 %s --context <name>.", namespace))
-			}
-			contextName = name
-			remaining = remaining[consumed:]
-		case strings.HasPrefix(argument, "-"):
-			// An unrecognized flag is the module's to interpret or reject.
-			return command, remaining, mode, contextName, nil
-		default:
-			// The command path is the leading run of plain words; everything
-			// from the first flag onward is the module's.
-			command = append(command, argument)
-			remaining = remaining[1:]
-		}
-	}
-	return command, remaining, mode, contextName, nil
 }
 
 // outputFlagValue reports the value carried by a single argument that spells the

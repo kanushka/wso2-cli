@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/internal/parsetree"
 )
 
 // TestEveryOutputFlagInterpreterAgrees pins the parsers of the output flag to
@@ -57,7 +58,7 @@ func TestEveryOutputFlagInterpreterAgrees(t *testing.T) {
 				t.Fatalf("pflag accepted %v but the value is not an output mode", spelling)
 			}
 
-			_, _, viaHand, _, err := parseProductArgs("reference", append([]string{"status"}, spelling...))
+			_, _, viaHand, _, err := parseProductArgs("reference", parsetree.Tree{}, append([]string{"status"}, spelling...))
 			if err != nil {
 				t.Fatalf("the namespace parser rejected %v: %v", spelling, err)
 			}
