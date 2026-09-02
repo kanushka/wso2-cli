@@ -62,14 +62,14 @@ const operational = `{"organization":"reference-org","service":"reference",` +
 	`"status":"operational","checkedAt":"2026-07-27T10:00:00Z"}`
 
 // runStatus invokes the module's status command against an endpoint.
-func runStatus(t *testing.T, endpoint string, access *testkit.Access) testkit.Outcome {
+func runCall(t *testing.T, endpoint string, access *testkit.Access) testkit.Outcome {
 	t.Helper()
 	// The whole tree is served, as the shell serves it, so the test exercises
 	// the routing the module actually ships rather than one handler in
 	// isolation.
 	return testkit.Run(t.Context(), moduleOptions(), commands(),
 		testkit.Invocation{
-			Command:      []string{"status"},
+			Command:      []string{"call"},
 			InvocationID: invocationID,
 			Context: module.Context{
 				Name:           "reference-local",
@@ -84,10 +84,10 @@ func granted() *testkit.Access {
 	return &testkit.Access{Token: fixtureToken, ExpiresAt: time.Now().Add(2 * time.Minute)}
 }
 
-func TestStatusCallsTheServiceWithTheBrokeredAccessOnly(t *testing.T) {
+func TestCallReachesTheServiceWithTheBrokeredAccessOnly(t *testing.T) {
 	service, seen := statusService(t, http.StatusOK, operational)
 
-	outcome := runStatus(t, service.URL, granted())
+	outcome := runCall(t, service.URL, granted())
 
 	if outcome.Err != nil {
 		t.Fatalf("the invocation failed: %v", outcome.Err)
@@ -116,10 +116,10 @@ func TestStatusCallsTheServiceWithTheBrokeredAccessOnly(t *testing.T) {
 	}
 }
 
-func TestStatusReturnsTheServicesAnswerAsSemanticFields(t *testing.T) {
+func TestCallReturnsTheServicesAnswerAsSemanticFields(t *testing.T) {
 	service, _ := statusService(t, http.StatusOK, operational)
 
-	outcome := runStatus(t, service.URL, granted())
+	outcome := runCall(t, service.URL, granted())
 
 	if outcome.Err != nil {
 		t.Fatalf("the invocation failed: %v", outcome.Err)
@@ -154,7 +154,7 @@ func TestADeniedRequestEndsTheCommandWithTheShellsDenial(t *testing.T) {
 		"the credential source the \"reference-local\" context names is not set").
 		WithRecovery("Set WSO2_REFERENCE_DEV_CREDENTIAL to the credential for this context.")
 
-	outcome := runStatus(t, service.URL, &testkit.Access{Deny: &denial})
+	outcome := runCall(t, service.URL, &testkit.Access{Deny: &denial})
 
 	if outcome.Err != nil {
 		t.Fatalf("the invocation failed: %v", outcome.Err)
@@ -174,7 +174,7 @@ func TestAFailingServiceBecomesAProductServiceProblem(t *testing.T) {
 	service, _ := statusService(t, http.StatusInternalServerError,
 		`{"code":"status_service.unavailable","message":"the service cannot read its status"}`)
 
-	outcome := runStatus(t, service.URL, granted())
+	outcome := runCall(t, service.URL, granted())
 
 	failure := terminalProblem(t, outcome)
 	if failure.Category != problem.CategoryProductService {
@@ -192,7 +192,7 @@ func TestAServiceThatRefusesTheAccessBecomesADistinctProblem(t *testing.T) {
 	service, _ := statusService(t, http.StatusForbidden,
 		`{"code":"status_service.access_not_accepted","message":"not for this organization"}`)
 
-	outcome := runStatus(t, service.URL, granted())
+	outcome := runCall(t, service.URL, granted())
 
 	failure := terminalProblem(t, outcome)
 	if failure.Category != problem.CategoryProductService {
@@ -210,7 +210,7 @@ func TestAnUnreachableServiceBecomesAProductServiceProblem(t *testing.T) {
 	endpoint := service.URL
 	service.Close()
 
-	outcome := runStatus(t, endpoint, granted())
+	outcome := runCall(t, endpoint, granted())
 
 	failure := terminalProblem(t, outcome)
 	if failure.Category != problem.CategoryProductService {
@@ -222,7 +222,7 @@ func TestAnUnreachableServiceBecomesAProductServiceProblem(t *testing.T) {
 }
 
 func TestAContextWithNoEndpointCannotBeCalled(t *testing.T) {
-	outcome := runStatus(t, "", granted())
+	outcome := runCall(t, "", granted())
 
 	failure := terminalProblem(t, outcome)
 	if failure.Category != problem.CategoryUsage {
@@ -238,7 +238,7 @@ func TestNoFailureRepeatsTheAccessMaterial(t *testing.T) {
 	// mistaken for access material may reach one.
 	service, _ := statusService(t, http.StatusForbidden, `{"code":"status_service.access_not_accepted"}`)
 
-	outcome := runStatus(t, service.URL, granted())
+	outcome := runCall(t, service.URL, granted())
 
 	failure := terminalProblem(t, outcome)
 	if strings.Contains(failure.Message+failure.Recovery, fixtureToken) {
@@ -258,4 +258,86 @@ func terminalProblem(t *testing.T, outcome testkit.Outcome) problem.Problem {
 		t.Errorf("the problem %+v is not reportable", *outcome.Problem)
 	}
 	return *outcome.Problem
+}
+
+// runReport invokes "wso2 reference status", the self-contained command.
+//
+// No endpoint is configured, because the command must not need one: proving it
+// answers with the context deliberately naming no service is the point (#147).
+func runReport(t *testing.T, access *testkit.Access) testkit.Outcome {
+	t.Helper()
+	return testkit.Run(t.Context(), moduleOptions(), commands(),
+		testkit.Invocation{
+			Command:      []string{"status"},
+			InvocationID: invocationID,
+			Context: module.Context{
+				Name:           "reference-local",
+				OrganizationID: "reference-org",
+			},
+			Access: access,
+		})
+}
+
+func fieldsOf(t *testing.T, outcome testkit.Outcome) map[string]string {
+	t.Helper()
+	if outcome.Err != nil {
+		t.Fatalf("the invocation failed: %v", outcome.Err)
+	}
+	if outcome.Problem != nil {
+		t.Fatalf("the module returned a problem: %+v", *outcome.Problem)
+	}
+	if outcome.Result == nil {
+		t.Fatal("the module returned no result")
+	}
+	values := make(map[string]string, len(outcome.Result.Fields))
+	for _, field := range outcome.Result.Fields {
+		values[field.Name] = field.Value
+	}
+	return values
+}
+
+func TestStatusReportsGrantedAccessWithoutCallingAnything(t *testing.T) {
+	// No service is started. A command that needed one could not pass this.
+	fields := fieldsOf(t, runReport(t, granted()))
+
+	if fields["access"] != "granted" {
+		t.Errorf("access = %q, want %q", fields["access"], "granted")
+	}
+	if fields["audience"] != StatusAudience {
+		t.Errorf("audience = %q, want %q", fields["audience"], StatusAudience)
+	}
+	if fields["scopes"] != StatusScope {
+		t.Errorf("scopes = %q, want %q", fields["scopes"], StatusScope)
+	}
+	if fields["context"] != "reference-local" {
+		t.Errorf("the report does not carry the invocation's context: %+v", fields)
+	}
+}
+
+func TestStatusReportsARefusalAsAResultRatherThanAFailure(t *testing.T) {
+	// The one command in the shell that answers "no" with exit 0, because
+	// whether the broker granted anything is the question it exists to answer.
+	// wso2 reference call keeps the ordinary auth exit class.
+	fields := fieldsOf(t, runReport(t, nil))
+
+	if fields["access"] != "refused" {
+		t.Errorf("access = %q, want %q", fields["access"], "refused")
+	}
+	if fields["reason"] == "" {
+		t.Error("a refusal carries no reason")
+	}
+	if fields["audience"] != "" || fields["scopes"] != "" {
+		t.Errorf("a refusal claims granted access: %+v", fields)
+	}
+}
+
+func TestTheStatusReportNeverCarriesTheAccessMaterial(t *testing.T) {
+	// The token is what the module holds and what a reader must never see. It
+	// is checked here as well as on the failure paths, because this command
+	// reports the access itself and is the likeliest place to leak it.
+	for _, field := range fieldsOf(t, runReport(t, granted())) {
+		if strings.Contains(field, fixtureToken) {
+			t.Fatalf("the report repeats the access material: %q", field)
+		}
+	}
 }

@@ -49,10 +49,14 @@ func TestEveryOutputFlagInterpreterAgrees(t *testing.T) {
 		t.Run(strings.Join(spelling, " "), func(t *testing.T) {
 			shell := Shell{Streams: output.Streams{}}
 			root := shell.rootCommand()
-			if err := root.PersistentFlags().Parse(spelling); err != nil {
+			// The root's own set, not its persistent one: #147 moved --output
+			// off PersistentFlags so that a command which cannot act on it does
+			// not advertise it in help. The root still declares it, for the
+			// product-namespace dispatch this test compares against.
+			if err := root.Flags().Parse(spelling); err != nil {
 				t.Fatalf("pflag rejected %v: %v", spelling, err)
 			}
-			viaPflag, ok := output.ParseMode(root.PersistentFlags().Lookup(outputFlag).Value.String())
+			viaPflag, ok := output.ParseMode(root.Flags().Lookup(outputFlag).Value.String())
 			if !ok {
 				t.Fatalf("pflag accepted %v but the value is not an output mode", spelling)
 			}

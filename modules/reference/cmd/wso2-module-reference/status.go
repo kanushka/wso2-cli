@@ -77,7 +77,7 @@ func readStatus(ctx context.Context, endpoint, invocationID, token string) (serv
 	defer cancel()
 	request, err := http.NewRequestWithContext(call, http.MethodGet, target, nil)
 	if err != nil {
-		return serviceStatus{}, unavailable("the reference status service cannot be called")
+		return serviceStatus{}, unavailable(target, "cannot be called")
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set(invocationHeader, invocationID)
@@ -85,11 +85,11 @@ func readStatus(ctx context.Context, endpoint, invocationID, token string) (serv
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return serviceStatus{}, unavailable("the reference status service did not answer")
+		return serviceStatus{}, unavailable(target, "did not answer")
 	}
 	defer func() { _ = response.Body.Close() }()
 
-	if failure := statusFailure(response.StatusCode); failure != nil {
+	if failure := statusFailure(target, response.StatusCode); failure != nil {
 		return serviceStatus{}, failure
 	}
 
@@ -97,14 +97,18 @@ func readStatus(ctx context.Context, endpoint, invocationID, token string) (serv
 	// status document must not be able to exhaust this process.
 	body, err := io.ReadAll(io.LimitReader(response.Body, 64<<10))
 	if err != nil {
-		return serviceStatus{}, unavailable("the reference status service stopped part-way through its answer")
+		return serviceStatus{}, unavailable(target, "stopped part-way through its answer")
 	}
+	// A body that is not a status document is not a service having a bad
+	// moment: the endpoint is answering, and answering with something else.
+	// Reported apart from the transient failures above so that the recovery can
+	// say what would actually recover.
 	var status serviceStatus
 	if err := json.Unmarshal(body, &status); err != nil {
-		return serviceStatus{}, unavailable("the reference status service answered with something this module cannot read")
+		return serviceStatus{}, unreadable(target, "answered with something this module cannot read")
 	}
 	if strings.TrimSpace(status.Status) == "" {
-		return serviceStatus{}, unavailable("the reference status service reported no status")
+		return serviceStatus{}, unreadable(target, "answered without a status")
 	}
 	return status, nil
 }
@@ -116,20 +120,51 @@ func readStatus(ctx context.Context, endpoint, invocationID, token string) (serv
 // granted the access, so neither is a broker denial. Keeping them apart from
 // each other, and from shell policy, is what lets automation tell "you may not"
 // from "it is broken".
-func statusFailure(status int) error {
+func statusFailure(target string, status int) error {
 	switch {
 	case status == http.StatusOK:
 		return nil
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
 		return problem.New(problem.CategoryProductService, "reference.status_access_rejected",
-			"the reference status service did not accept the access this command was granted").
+			"the reference status service at "+target+
+				" did not accept the access this command was granted").
 			WithRecovery("Retry the command. Report the failure if the service keeps refusing valid access.")
+	case status == http.StatusNotFound || status == http.StatusMethodNotAllowed || status == http.StatusGone:
+		// The host answered and does not serve this path. Retrying cannot
+		// change that, so this must not be reported as a service that failed.
+		return problem.New(problem.CategoryProductService, "reference.status_not_served",
+			"no reference status service is served at "+target).
+			WithRecovery("Check the endpoint recorded for the reference product in wso2 identity list. " +
+				"Retrying will not change this answer.")
 	default:
-		return unavailable("the reference status service could not report its status")
+		return unavailable(target, "could not report its status")
 	}
 }
 
-func unavailable(message string) problem.Problem {
-	return problem.New(problem.CategoryProductService, "reference.status_unavailable", message).
+// unavailable reports a status service that may answer correctly on another
+// attempt: it did not answer, stopped part-way, or failed.
+//
+// The endpoint is named because the module is the only party that knows which
+// URL it called: the shell's diagnostics stop at the access it brokered, and a
+// user reading this error would otherwise have to cross-reference
+// wso2 identity list against this module's source to find out (#147).
+func unavailable(target, what string) problem.Problem {
+	return problem.New(problem.CategoryProductService, "reference.status_unavailable",
+		"the reference status service at "+target+" "+what).
 		WithRecovery("Retry the command. Report the failure if it persists.")
+}
+
+// unreadable reports an endpoint that answered with something other than a
+// status document.
+//
+// It carries the same category and exit class as unavailable, because the shell
+// granted the access and neither is a broker denial. What it must not carry is
+// unavailable's recovery: an endpoint that is not a status service answers the
+// same way every time, and "retry the command" would send the user round a loop
+// that cannot terminate (#147).
+func unreadable(target, what string) problem.Problem {
+	return problem.New(problem.CategoryProductService, "reference.status_unavailable",
+		"the reference status service at "+target+" "+what).
+		WithRecovery("Check that this endpoint is a reference status service; it is recorded for the " +
+			"reference product in wso2 identity list. Retrying will not change this answer.")
 }

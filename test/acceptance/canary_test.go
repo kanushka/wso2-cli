@@ -107,7 +107,7 @@ func TestNoFileTheRunLeavesBehindHoldsTheCredential(t *testing.T) {
 	shell := buildShell(t)
 	deployed := deploy(t, statusservice.Options{})
 
-	runShell(t, shell, deployed.stateRoot, "reference", "status")
+	runShell(t, shell, deployed.stateRoot, "reference", "call")
 
 	scanned := 0
 	err := filepath.WalkDir(deployed.stateRoot, func(path string, entry fs.DirEntry, err error) error {
@@ -188,7 +188,7 @@ func TestNoTypedProblemDisclosesTheCredential(t *testing.T) {
 		t.Run(refusal.name, func(t *testing.T) {
 			stateRoot := refusal.arrange(t)
 
-			stdout, stderr, _ := runShellWithCeiling(t, shell, stateRoot, "reference", "status")
+			stdout, stderr, _ := runShellWithCeiling(t, shell, stateRoot, "reference", "call")
 
 			// Proving the run failed the way it was meant to is what makes the
 			// scan meaningful: a run that succeeded quietly would have no
@@ -216,7 +216,7 @@ func TestNoCrashDiagnosticDisclosesTheCredential(t *testing.T) {
 			service := startStatusService(t, statusservice.Options{})
 			installReferenceContext(t, stateRoot, service.server.URL, credentialVariable)
 
-			stdout, stderr, _ := runShellWithCeiling(t, shell, stateRoot, "reference", "status")
+			stdout, stderr, _ := runShellWithCeiling(t, shell, stateRoot, "reference", "call")
 
 			if stderr == "" {
 				t.Fatalf("the %s fault produced no diagnostics, so this scan reads nothing", fault)
@@ -258,7 +258,7 @@ func TestTheShellHasNoCredentialToFallBackOn(t *testing.T) {
 	shell := buildShell(t)
 	deployed := deploy(t, statusservice.Options{})
 
-	stdout, stderr, err := runShellWithoutCredential(t, shell, deployed.stateRoot, "reference", "status")
+	stdout, stderr, err := runShellWithoutCredential(t, shell, deployed.stateRoot, "reference", "call")
 
 	if exitCode(t, err) != exitAuthPolicy {
 		t.Fatalf("exit status = %v, want the authentication class %d\nstderr:\n%s", err, exitAuthPolicy, stderr)

@@ -484,7 +484,7 @@ func TestContextCreateOnAVersionOneDocumentExplainsWhatToDo(t *testing.T) {
 }
 
 // TestTheContextFamilyRefusesTheContextFlag proves the family is registered in
-// shellFlagsFor rather than silently ignoring a shell flag it cannot act on:
+// its own declaration rather than silently ignoring a flag it cannot act on:
 // naming a context is what its own arguments do.
 func TestTheContextFamilyRefusesTheContextFlag(t *testing.T) {
 	shell, _, errOut := newShell(t)

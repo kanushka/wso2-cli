@@ -81,18 +81,20 @@ const unconfiguredRecovery = "Run wso2 login to create an identity and a context
 	"or wso2 context create <name> --identity <identity> if you already have one."
 
 func (s Shell) whoamiCommand() *cobra.Command {
-	return &cobra.Command{
+	command := &cobra.Command{
 		Use:                   "whoami",
 		Short:                 "Show who is signed in, and to what context, identity, and session.",
 		Args:                  noArguments(whoamiUsage),
 		DisableFlagsInUseLine: true,
 		RunE: func(command *cobra.Command, args []string) error {
-			if _, err := forwardShellFlags(command, nil); err != nil {
-				return err
-			}
 			return s.whoami(command)
 		},
 	}
+	// whoami reports ON a selected context exactly as doctor does (R5, #112),
+	// so naming one with --context is meaningful for the same reason.
+	declareContextFlag(command.Flags())
+	declareOutputFlag(command.Flags())
+	return command
 }
 
 // whoami reports the selected context, the identity it authenticates as, and

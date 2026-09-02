@@ -104,14 +104,15 @@ func (s Shell) doctorCommand() *cobra.Command {
 		Args:                  noArguments(doctorUsage),
 		DisableFlagsInUseLine: true,
 		RunE: func(command *cobra.Command, args []string) error {
-			if _, err := forwardShellFlags(command, nil); err != nil {
-				return err
-			}
 			return s.doctor(command, online)
 		},
 	}
 	command.Flags().BoolVar(&online, doctorOnlineFlag, false,
 		"Also check module catalog reachability, which requires a network connection.")
+	// doctor reports ON a selected context, so naming one with --context is
+	// meaningful, and its findings are read by scripts as much as by a person.
+	declareContextFlag(command.Flags())
+	declareOutputFlag(command.Flags())
 	return command
 }
 

@@ -76,9 +76,6 @@ func (s Shell) moduleCommand() *cobra.Command {
 		// A bare wso2 module is the other arm, and is deliberately not a
 		// refusal. See helpForBareFamily.
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			if len(args) == 0 {
 				return helpForBareFamily(command)
 			}
@@ -87,6 +84,14 @@ func (s Shell) moduleCommand() *cobra.Command {
 				WithRecovery(moduleRecovery)
 		},
 	}
+	// The family declares neither shell flag, so every module subcommand
+	// refuses both. Every module lifecycle command renders fixed, non-JSON text
+	// and selects no context: an install or an update names its target as an
+	// argument, not by --context, and its report is prose meant to be read, not
+	// a schema a script parses. moduleinstall_test.go's
+	// TestVerboseInstallKeepsProgressOffStdout confirms by hand that
+	// wso2 module install <module> --output json is refused outright, and this
+	// absence is where that refusal now comes from.
 	command.AddCommand(s.moduleAvailableCommand(), s.moduleInstallCommand(), s.moduleListCommand(),
 		s.moduleRemoveCommand(), s.moduleUpdateCommand())
 	return command
@@ -98,16 +103,13 @@ func (s Shell) moduleAvailableCommand() *cobra.Command {
 		Short: "List the product modules the catalog publishes.",
 		Args:  noArguments(moduleAvailableUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			return s.moduleAvailable()
 		},
 	}
 	// Every module subcommand recovers with its own usage line, so a mistyped
 	// flag here names this command rather than the shell's general help.
-	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
-		return usageProblemWithRecovery(err, moduleAvailableUsage)
+	command.SetFlagErrorFunc(func(command *cobra.Command, err error) error {
+		return flagProblemWithRecovery(command, err, moduleAvailableUsage)
 	})
 	return command
 }
@@ -118,14 +120,11 @@ func (s Shell) moduleListCommand() *cobra.Command {
 		Short: "Report the installed modules and which have an update available.",
 		Args:  noArguments(moduleListUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			return s.moduleList()
 		},
 	}
-	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
-		return usageProblemWithRecovery(err, moduleListUsage)
+	command.SetFlagErrorFunc(func(command *cobra.Command, err error) error {
+		return flagProblemWithRecovery(command, err, moduleListUsage)
 	})
 	return command
 }
@@ -137,9 +136,6 @@ func (s Shell) moduleInstallCommand() *cobra.Command {
 		Short: "Install one product module from the catalog.",
 		Args:  exactlyOneArgument("a module to install", moduleInstallUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			// The module may be named as "<module>@<version>" to pin an exact
 			// version; Cut on an absent "@" leaves version empty, which is
 			// catalog.Policy's zero value for "no pin".
@@ -158,8 +154,8 @@ func (s Shell) moduleInstallCommand() *cobra.Command {
 	// A tailored FlagErrorFunc, not the root's inherited one: a missing
 	// --channel value or an unknown flag on this command should point back at
 	// this command's own usage rather than at the generic "wso2 help".
-	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
-		return usageProblemWithRecovery(err, moduleInstallUsage)
+	command.SetFlagErrorFunc(func(command *cobra.Command, err error) error {
+		return flagProblemWithRecovery(command, err, moduleInstallUsage)
 	})
 	return command
 }
@@ -171,9 +167,6 @@ func (s Shell) moduleRemoveCommand() *cobra.Command {
 		Short: "Take one installed module off this machine.",
 		Args:  exactlyOneArgument("the module to remove", moduleRemoveUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			opts.namespace = args[0]
 			return s.moduleRemove(opts)
 		},
@@ -181,8 +174,8 @@ func (s Shell) moduleRemoveCommand() *cobra.Command {
 	command.Flags().BoolVar(&opts.yes, "yes", false, "Remove without asking for confirmation.")
 	command.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Show what would be removed without removing it.")
 	command.Flags().BoolVar(&opts.noInput, "no-input", false, "Refuse rather than prompt for confirmation.")
-	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
-		return usageProblemWithRecovery(err, moduleRemoveUsage)
+	command.SetFlagErrorFunc(func(command *cobra.Command, err error) error {
+		return flagProblemWithRecovery(command, err, moduleRemoveUsage)
 	})
 	return command
 }
@@ -199,9 +192,6 @@ func (s Shell) moduleUpdateCommand() *cobra.Command {
 		// parseUpdateArguments used to check it by hand.
 		Args: cobra.ArbitraryArgs,
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			opts.namespaces = args
 			if all && len(opts.namespaces) > 0 {
 				// The problem code here is load-bearing: it is the same
@@ -225,8 +215,8 @@ func (s Shell) moduleUpdateCommand() *cobra.Command {
 	command.Flags().BoolVar(&opts.yes, "yes", false, "Update without asking for confirmation.")
 	command.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Show what would be updated without updating it.")
 	command.Flags().BoolVar(&opts.noInput, "no-input", false, "Refuse rather than prompt for confirmation.")
-	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
-		return usageProblemWithRecovery(err, moduleUpdateUsage)
+	command.SetFlagErrorFunc(func(command *cobra.Command, err error) error {
+		return flagProblemWithRecovery(command, err, moduleUpdateUsage)
 	})
 	return command
 }

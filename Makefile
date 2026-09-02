@@ -233,9 +233,21 @@ ifndef VERSION
 endif
 	$(GO) run ./cmd/wso2-module-release -tag '$(NAMESPACE)/$(VERSION)' -gate-only
 
+# The race detector roughly doubles how long the acceptance package takes, and
+# that package alone runs past go test's default per-binary timeout of ten
+# minutes on an ordinary machine. Without a timeout named here, this target
+# cannot pass: the run dies as a panic and a goroutine dump naming whichever
+# test happened to be in flight when the alarm fired, which reads as a hung
+# test rather than as a suite that needed longer. See #147.
+#
+# scripts/acceptance.sh does not hit this, because the gate runs without -race
+# and stays inside the default. The two are meant to run the same tests, so the
+# limit is stated here rather than the race detector dropped.
+TEST_TIMEOUT := 30m
+
 .PHONY: test
 test:
-	$(GO) test ./... -race -count=1
+	$(GO) test ./... -race -count=1 -timeout $(TEST_TIMEOUT)
 
 .PHONY: vet
 vet:

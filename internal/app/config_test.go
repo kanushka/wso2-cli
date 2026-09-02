@@ -326,7 +326,7 @@ func TestACorruptPreferencesDocumentFallsBackWithADiagnostic(t *testing.T) {
 	}
 }
 
-// TestAConfigSubcommandRefusesContextFlag proves shellFlagsFor's entry for
+// TestAConfigSubcommandRefusesContextFlag proves the flags declared for
 // "config" (outputFlag only, no context) is enforced: a preference is
 // machine-local, not context-scoped, so --context has nothing to select
 // here.

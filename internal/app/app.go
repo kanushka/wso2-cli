@@ -185,7 +185,7 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 	// at all. It is taken and not forwarded, because until a module declares
 	// its command tree the shell cannot tell a flag it should pass on from one
 	// the module owns, and a module that does not know the flag would refuse
-	// the whole command. See forwardShellFlags.
+	// the whole command. See forwardToNamespace.
 	args, verbose, err := takeVerbose(args)
 	if err != nil {
 		return err

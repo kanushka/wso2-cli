@@ -63,9 +63,6 @@ func (s Shell) identityCommand() *cobra.Command {
 		// A bare wso2 identity is the other arm, and is deliberately not a
 		// refusal. See helpForBareFamily.
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			if len(args) == 0 {
 				return helpForBareFamily(command)
 			}
@@ -74,6 +71,11 @@ func (s Shell) identityCommand() *cobra.Command {
 				WithRecovery(identityRecovery)
 		},
 	}
+	// The family renders a machine-readable result, and takes no --context: an
+	// identity is named by this family's own arguments, and a selection flag
+	// alongside "wso2 identity list" would be a second answer to a question
+	// nothing asked.
+	declareOutputFlag(command.PersistentFlags())
 	command.AddCommand(s.identityAddProductCommand(), s.identityListCommand())
 	return command
 }
@@ -88,9 +90,6 @@ func (s Shell) identityAddProductCommand() *cobra.Command {
 		Args: exactlyTwoArguments("an identity and a product namespace",
 			identityAddProductUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			return s.identityAddProduct(command, args[0], args[1],
 				contexts.Product{Endpoint: endpoint, Audience: audience, Scopes: scopes},
 				replace)
@@ -115,9 +114,6 @@ func (s Shell) identityListCommand() *cobra.Command {
 		Short: "List the identities and the products each one reaches.",
 		Args:  noArguments(identityListUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			return s.identityList(command)
 		},
 	}

@@ -65,9 +65,6 @@ func (s Shell) contextCommand() *cobra.Command {
 		// A bare wso2 context is the other arm, and is deliberately not a
 		// refusal. See helpForBareFamily.
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			if len(args) == 0 {
 				return helpForBareFamily(command)
 			}
@@ -76,6 +73,10 @@ func (s Shell) contextCommand() *cobra.Command {
 				WithRecovery(contextRecovery)
 		},
 	}
+	// The family renders a machine-readable result, and takes no --context:
+	// naming a context is what its own arguments do, and a selection flag
+	// alongside "wso2 context use beta" would be two answers to one question.
+	declareOutputFlag(command.PersistentFlags())
 	command.AddCommand(s.contextCreateCommand(), s.contextUseCommand(),
 		s.contextListCommand(), s.contextCurrentCommand())
 	return command
@@ -88,9 +89,6 @@ func (s Shell) contextCreateCommand() *cobra.Command {
 		Short: "Create a context. Writes no credential and makes no network call.",
 		Args:  exactlyOneArgument("a name for the context", contextCreateUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			return s.contextCreate(command, args[0], identity, organization, project)
 		},
 	}
@@ -114,9 +112,6 @@ func (s Shell) contextUseCommand() *cobra.Command {
 		Short: "Select the context commands run against.",
 		Args:  exactlyOneArgument("the name of a configured context", contextUseUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			return s.contextUse(command, args[0])
 		},
 	}
@@ -128,9 +123,6 @@ func (s Shell) contextListCommand() *cobra.Command {
 		Short: "List the configured contexts and mark the selected one.",
 		Args:  noArguments(contextListUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			return s.contextList(command)
 		},
 	}
@@ -142,9 +134,6 @@ func (s Shell) contextCurrentCommand() *cobra.Command {
 		Short: "Show the selected context.",
 		Args:  noArguments(contextCurrentUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			return s.contextCurrent(command)
 		},
 	}
@@ -185,18 +174,6 @@ func noArguments(usage string) cobra.PositionalArgs {
 		}
 		return nil
 	}
-}
-
-// refuseUnusableShellFlags refuses a shell-owned flag this family cannot act on.
-//
-// The family declares its own flags, so nothing is forwarded anywhere and the
-// returned argument list is discarded: what is wanted is the refusal.
-// forwardShellFlags keys off the command's name, so it is asked about the
-// parent — "context" is the name shellFlagsFor knows and the name a refusal
-// should print, not "list".
-func refuseUnusableShellFlags(command *cobra.Command) error {
-	_, err := forwardShellFlags(command.Parent(), nil)
-	return err
 }
 
 // helpForBareFamily answers a family name typed with no subcommand at all.

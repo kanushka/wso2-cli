@@ -514,7 +514,7 @@ func TestVerboseIsHonoredAfterAProductNamespace(t *testing.T) {
 // TestVerboseIsNotForwardedToAModule is the other half. Until a module declares
 // its command tree the shell cannot tell a flag it should pass on from one the
 // module owns, so a module that does not know --verbose would refuse the whole
-// command. The flag is taken and forwarded to nothing; see forwardShellFlags.
+// command. The flag is taken and forwarded to nothing; see applyShellFlags.
 func TestVerboseIsNotForwardedToAModule(t *testing.T) {
 	directory := t.TempDir()
 	hello := filepath.Join(directory, "hello.bin")

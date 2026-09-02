@@ -123,8 +123,15 @@ func run() error {
 	fmt.Printf("It was installed by the ordinary installer from a catalog served at %s for the length of this run.\n",
 		result.Origin)
 	fmt.Printf("The version is pinned, so wso2 module update leaves this build alone.\n")
-	fmt.Printf("\nRun it:\n  %s %s --help\nTake it off again:\n  %s module remove %s\n",
-		*shellPath, result.Namespace, *shellPath, result.Namespace)
+	// The module's own commands are not named, because this command does not
+	// know them: a module declares no command tree yet (#86), so the shell
+	// cannot answer "wso2 <namespace> --help" and neither can this. Printing a
+	// command that fails is worse than printing none, and "wso2 <namespace>
+	// --help" is exactly the one that does (#147). What is offered instead is
+	// the command that confirms the install, which this command does know the
+	// answer to.
+	fmt.Printf("\nConfirm it is installed:\n  %s version\nTake it off again:\n  %s module remove %s\n",
+		*shellPath, *shellPath, result.Namespace)
 	return nil
 }
 

@@ -46,7 +46,7 @@ func TestTheReferenceModuleWorksFromAnotherRepository(t *testing.T) {
 	service := startStatusService(t, statusservice.Options{})
 	installReferenceContext(t, stateRoot, service.server.URL, credentialVariable)
 
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "status", "--output", "json")
+	stdout, stderr := runShell(t, shell, stateRoot, "reference", "call", "--output", "json")
 
 	// The module built somewhere else answers the same command through the
 	// same contract with the same brokered access. Nothing about being outside

@@ -70,9 +70,6 @@ func (s Shell) orgCommand() *cobra.Command {
 		// own message. A bare wso2 org is the other arm, and is deliberately
 		// not a refusal. See helpForBareFamily.
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			if len(args) == 0 {
 				return helpForBareFamily(command)
 			}
@@ -81,6 +78,11 @@ func (s Shell) orgCommand() *cobra.Command {
 				WithRecovery(orgRecovery)
 		},
 	}
+	// The family always acts on the selected context, exactly as wso2 context
+	// does: naming one with --context would be a second answer to a question the
+	// family does not ask, since org use writes the selected context's
+	// Organization field, not some other one's.
+	declareOutputFlag(command.PersistentFlags())
 	command.AddCommand(s.orgCurrentCommand(), s.orgUseCommand())
 	return command
 }
@@ -91,9 +93,6 @@ func (s Shell) orgCurrentCommand() *cobra.Command {
 		Short: "Show the organization the selected context runs within.",
 		Args:  noArguments(orgCurrentUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			return s.orgCurrent(command)
 		},
 	}
@@ -105,9 +104,6 @@ func (s Shell) orgUseCommand() *cobra.Command {
 		Short: "Set the organization the selected context runs within.",
 		Args:  exactlyOneArgument("the name of an organization", orgUseUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := refuseUnusableShellFlags(command); err != nil {
-				return err
-			}
 			return s.orgUse(command, args[0])
 		},
 	}

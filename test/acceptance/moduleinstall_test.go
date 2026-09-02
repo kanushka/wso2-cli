@@ -458,7 +458,7 @@ func TestAChannelSelectionTakesTheNewestOnThatChannel(t *testing.T) {
 // stderr and must never change what stdout renders. wso2 module install does
 // not support --output at all — it is refused outright, confirmed by hand
 // (`wso2 module install <module> --output json` exits 64 with
-// shell.unsupported_flag) because shellFlagsFor in internal/app/command.go's
+// shell.unsupported_flag) because the module family in internal/app/module.go
 // "module" case returns nil — so this is the applicable analogue of a
 // "--output json is unaffected" test for this command family: stdout is a
 // fixed, non-JSON message either way, and what matters is that --verbose
