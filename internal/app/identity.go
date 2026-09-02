@@ -52,21 +52,22 @@ func (s Shell) identityCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:                   "identity <subcommand>",
 		Short:                 "Record and inspect what an identity reaches.",
-		Long:                  "Subcommands: add-product, list.",
+		Long:                  identityRecovery,
 		DisableFlagsInUseLine: true,
 		// A RunE is declared because Cobra validates a non-leaf command's
 		// arguments only when it is Runnable: leave it nil and wso2 identity
-		// prints help and exits 0, reporting a usage error as success to
+		// bogus prints help and exits 0, reporting a typo as success to
 		// whatever ran it. Never cobra.NoArgs or cobra.ExactArgs for this —
 		// both bypass the flag-error hook and exit 70 instead of 64.
+		//
+		// A bare wso2 identity is the other arm, and is deliberately not a
+		// refusal. See helpForBareFamily.
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := refuseUnusableShellFlags(command); err != nil {
 				return err
 			}
 			if len(args) == 0 {
-				return problem.New(problem.CategoryUsage, "shell.missing_argument",
-					"wso2 identity needs a subcommand").
-					WithRecovery(identityRecovery)
+				return helpForBareFamily(command)
 			}
 			return problem.New(problem.CategoryUsage, "shell.unknown_command",
 				fmt.Sprintf("%q is not a wso2 identity subcommand", args[0])).

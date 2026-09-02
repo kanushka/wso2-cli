@@ -54,25 +54,22 @@ func (s Shell) configCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:                   "config <subcommand>",
 		Short:                 "Show and change shell preferences.",
-		Long:                  "Subcommands: list, get, set.",
+		Long:                  configRecovery,
 		DisableFlagsInUseLine: true,
-		// A RunE is declared here for the reason org.go's states: Cobra only
-		// validates a non-leaf command's arguments when it is Runnable, so
-		// without this, wso2 config bogus prints help and exits 0 — a mistyped
-		// subcommand reported as success to whatever script ran it. This
-		// branch and org's must agree, because this branch introduces both.
-		// The pre-existing context, identity and module families still print
-		// help and exit 0; turning that into a refusal is a user-visible
-		// change to shipped commands and is filed as #133 rather than made
-		// here.
+		// A RunE is declared here so that a mistyped subcommand is refused:
+		// Cobra validates a non-leaf command's arguments only when the command
+		// is Runnable, so without this, wso2 config bogus prints help and
+		// exits 0 — a typo reported as success to whatever script ran it.
+		// All five families agree on this, since #133.
+		//
+		// A bare wso2 config is the other arm, and is deliberately not a
+		// refusal. See helpForBareFamily.
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := refuseUnusableShellFlags(command); err != nil {
 				return err
 			}
 			if len(args) == 0 {
-				return problem.New(problem.CategoryUsage, "shell.missing_argument",
-					"wso2 config needs a subcommand").
-					WithRecovery(configRecovery)
+				return helpForBareFamily(command)
 			}
 			return problem.New(problem.CategoryUsage, "shell.unknown_command",
 				fmt.Sprintf("%q is not a wso2 config subcommand", args[0])).

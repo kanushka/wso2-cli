@@ -400,32 +400,23 @@ func TestDoctorOnlineHonorsTheConfiguredCatalogOrigin(t *testing.T) {
 // TestConfigRefusesAnUnknownSubcommand pins the decision that a mistyped
 // subcommand is a usage error rather than a success. Cobra's default for a
 // non-Runnable parent is to print help and exit 0, which reports a typo to a
-// script as everything having worked; wso2 org refuses instead, and this
-// branch introduces both families, so they must not disagree with each other.
+// script as everything having worked; every family refuses instead, and they
+// must not disagree with each other.
 //
-// The bare form is covered too, because the catch-all has to tell the two
-// apart: nothing typed is a missing argument, not an unknown command.
+// The bare form is deliberately not covered here: it answers with help and
+// exits 0, which TestEveryCommandFamilyAnswersABareNameWithHelp pins. Telling
+// an incomplete command apart from a mistyped one is the point of the split.
 func TestConfigRefusesAnUnknownSubcommand(t *testing.T) {
-	for name, invocation := range map[string]struct {
-		args []string
-		code string
-	}{
-		"unknown": {args: []string{"config", "bogus"}, code: "shell.unknown_command"},
-		"bare":    {args: []string{"config"}, code: "shell.missing_argument"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			shell, out, errOut := newShell(t)
-			if code := shell.Run(invocation.args); code != exit.Usage {
-				t.Fatalf("exit code = %d, want %d (usage); stdout: %s stderr: %s",
-					code, exit.Usage, out, errOut)
-			}
-			requireRefusal(t, errOut.String(), invocation.code)
-			for _, named := range []string{"config list", "config get", "config set"} {
-				if !strings.Contains(errOut.String(), named) {
-					t.Errorf("the refusal does not name %q as a way forward:\n%s", named, errOut)
-				}
-			}
-		})
+	shell, out, errOut := newShell(t)
+	if code := shell.Run([]string{"config", "bogus"}); code != exit.Usage {
+		t.Fatalf("exit code = %d, want %d (usage); stdout: %s stderr: %s",
+			code, exit.Usage, out, errOut)
+	}
+	requireRefusal(t, errOut.String(), "shell.unknown_command")
+	for _, named := range []string{"config list", "config get", "config set"} {
+		if !strings.Contains(errOut.String(), named) {
+			t.Errorf("the refusal does not name %q as a way forward:\n%s", named, errOut)
+		}
 	}
 }
 
