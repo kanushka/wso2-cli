@@ -71,6 +71,10 @@ type Command struct {
 	// others beneath it. A group is declared so that its path parses and its
 	// help is reachable, and refused as a command to run.
 	Runnable bool `json:"runnable,omitempty"`
+	// Hidden reports whether this path should be offered to a user. An alias
+	// gets its own entry so that it parses, and is hidden so that it is not
+	// suggested alongside the name it duplicates.
+	Hidden bool `json:"hidden,omitempty"`
 	// Flags are every flag this command accepts, including the ones it
 	// inherits from its parents. They are flattened at extraction so that
 	// answering "does this command take this flag" never walks the tree.
