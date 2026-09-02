@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/sdk/commandtree"
 	"github.com/wso2/wso2-cli/sdk/module"
 )
@@ -45,10 +46,11 @@ const declarationTimeout = 10 * time.Second
 // the binary means the tree the shell parses with is the tree of the code that
 // runs, which the receipt's digest then pins for every later launch.
 //
-// Only a namespace the executable disputes is an error. Everything else — an
-// executable too old to understand the request, one that fails, one that never
-// answers, one whose answer will not decode — leaves the module with no declared
-// tree, and the shell parses for it the way it did before declarations existed.
+// Nothing here fails an install. An executable too old to understand the
+// request, one that fails, one that never answers, one whose answer will not
+// decode, and one that answers for a different namespace all leave the module
+// with no declared tree, and the shell parses for it the way it did before
+// declarations existed.
 // That fallback is the previous behaviour rather than a weaker one: it forwards
 // the arguments to the module, which accepts or refuses them itself, so a module
 // that cannot declare is not a module whose flags stop being checked.
@@ -74,7 +76,11 @@ func declaredTree(ctx context.Context, namespace, versionDir, executableName str
 	// module itself was killed. WaitDelay bounds what remains.
 	command := exec.CommandContext(ctx, filepath.Join(versionDir, executableName))
 	command.Dir = versionDir
-	command.Env = append(os.Environ(), module.CommandTreeEnv+"="+answer)
+	// The environment is built from nothing, exactly as it is for an ordinary
+	// invocation. This runs a binary that was downloaded moments ago, so the
+	// ambient environment — every WSO2_ variable, every credential a CI runner
+	// exports — is precisely what it must not inherit.
+	command.Env = append(modules.SanitizedEnvironment(), module.CommandTreeEnv+"="+answer)
 	command.WaitDelay = time.Second
 	if err := command.Run(); err != nil {
 		return commandtree.Tree{}, nil

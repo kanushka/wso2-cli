@@ -147,3 +147,34 @@ func TestAnUnreadableDeclarationLeavesTheModuleWithoutATree(t *testing.T) {
 		t.Errorf("an unreadable declaration produced %+v", tree)
 	}
 }
+
+// TestTheDeclaringProcessInheritsNothing proves this launch is sanitized like
+// the other one.
+//
+// A module process is started twice in a module's life: here, to ask a
+// just-downloaded executable what commands it serves, and again for every
+// invocation. The invocation path builds the child environment from nothing
+// because the shell decides what a module may see rather than filtering what it
+// must not. This path runs a binary that arrived seconds ago over an unsigned
+// catalog, so handing it the ambient environment — every WSO2_ variable, every
+// credential a CI runner exports — would be the worse of the two places to do
+// it.
+//
+// The stand-in reports what it can see by declaring it as a command name, which
+// is the only channel it has here.
+func TestTheDeclaringProcessInheritsNothing(t *testing.T) {
+	t.Setenv("WSO2_TEST_CREDENTIAL", "leaked")
+	versionDir, name := writeExecutable(t,
+		`printf '{"module":{"namespace":"reference"},"commandTree":{"commands":`+
+			`[{"path":["%s"],"runnable":true}]}}' "${WSO2_TEST_CREDENTIAL:-unset}" `+
+			`> "$WSO2_MODULE_COMMAND_TREE"`)
+
+	tree, err := declaredTree(t.Context(), "reference", versionDir, name)
+	if err != nil {
+		t.Fatalf("reading the declaration: %v", err)
+	}
+
+	if _, _, ok := tree.Find([]string{"unset"}); !ok {
+		t.Errorf("the declaring process inherited the shell's environment: %+v", tree)
+	}
+}

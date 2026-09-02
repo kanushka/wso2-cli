@@ -21,9 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
-	"runtime"
 	"time"
 
 	"github.com/wso2/wso2-cli/internal/modules"
@@ -72,7 +70,7 @@ func (l Launcher) Invoke(ctx context.Context, invocation Invocation) (Outcome, e
 	// credential source the broker reads. Access reaches a module only as a
 	// short-lived token inside the protocol, so there is no ambient value for
 	// it to find, log, or pass on.
-	command.Env = sanitizedEnvironment()
+	command.Env = modules.SanitizedEnvironment()
 
 	toModule, err := command.StdinPipe()
 	if err != nil {
@@ -232,24 +230,4 @@ func (l Launcher) spawnProblem(err error) error {
 
 func (l Launcher) namespace() string {
 	return l.Resolved.Receipt.Namespace
-}
-
-// sanitizedEnvironment builds the child environment from nothing.
-//
-// The shell decides what a module may see rather than filtering what it must
-// not: a deny list would leak every variable nobody thought of. Only the
-// entries an operating system needs to start a process at all are added back.
-func sanitizedEnvironment() []string {
-	if runtime.GOOS != "windows" {
-		return []string{}
-	}
-	// Windows cannot reliably start a process without these, and neither
-	// carries user or credential data.
-	var environment []string
-	for _, name := range []string{"SYSTEMROOT", "SYSTEMDRIVE", "WINDIR"} {
-		if value, present := os.LookupEnv(name); present {
-			environment = append(environment, name+"="+value)
-		}
-	}
-	return environment
 }
