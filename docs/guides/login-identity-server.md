@@ -249,6 +249,7 @@ the context document and the job wiring.
 | **Audience** | The API resource identifier from section 7, which reaches `aud` only because you added it to the Audience list. Not the client ID. |
 | **Scopes** | The ones you authorized in section 7. |
 | **Issuer** | `https://localhost:9443/oauth2/token` on a default 7.x deployment. |
+| **Endpoint** | The product API's base URL, `https://localhost:9443` for a module served by this deployment. |
 
 Confirm the issuer from
 `https://localhost:9443/oauth2/token/.well-known/openid-configuration` and use
@@ -262,13 +263,44 @@ Also confirm this machine trusts the deployment's certificate (section 3).
 ## 12. Log in, and check what it wrote
 
 ```console
-$ wso2 login --url https://is.example.com/oauth2/token \
+$ wso2 login --url https://localhost:9443/oauth2/token \
     --client-id <client-id> --context is-local
 ```
 
-It reports the names it assigned, and `wso2 context list` shows them. What it
-writes is spare: the issuer and client ID you passed, `"type": "onprem"`, a
+Use the issuer you recorded in section 11, which carries the deployment's own
+port. It reports the names it assigned, and `wso2 context list` shows them. What
+it writes is spare: the issuer and client ID you passed, `"type": "onprem"`, a
 `credentialRef` equal to the identity name, and no products.
+
+**Record the product before running a product command.** Login stores no
+product, so `wso2 reference status` fails with `auth.product_not_configured`
+until you add one. Here the audience is the API resource identifier (section 1):
+
+```console
+$ wso2 identity add-product is-local reference \
+    --endpoint https://localhost:9443 \
+    --audience reference-status \
+    --scopes reference:status:read,reference:status:write
+
+Added product "reference" to identity "is-local".
+Identity   is-local
+Product    reference
+Endpoint   https://localhost:9443
+Audience   reference-status
+Scopes     reference:status:read,reference:status:write
+Replaced   no
+```
+
+Check what is recorded:
+
+```console
+$ wso2 identity list
+IDENTITY   TYPE     ISSUER                                PRODUCT     ENDPOINT                 SCOPES
+is-local   onprem   https://localhost:9443/oauth2/token   reference   https://localhost:9443   reference:status:read,reference:status:write
+```
+
+The module's own commands work from here. The rest is
+[the main login guide](login.md), from section 2.
 
 The record below is the fuller shape, not what login leaves behind. Add products
 with `wso2 identity add-product`. An Identity Server identity is

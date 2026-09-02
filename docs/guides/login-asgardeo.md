@@ -195,6 +195,7 @@ the context document and the job wiring.
 | **Audience** | The client ID again (section 1), not the API resource identifier. |
 | **Scopes** | The ones you authorized in section 5. |
 | **Issuer** | `https://api.asgardeo.io/t/<organization>/oauth2/token`. |
+| **Endpoint** | The product API's base URL, `https://api.asgardeo.io` for a module served by Asgardeo. |
 
 Confirm the issuer rather than assuming it. Fetch
 `https://api.asgardeo.io/t/<organization>/oauth2/token/.well-known/openid-configuration`
@@ -214,6 +215,36 @@ $ wso2 login --url https://api.asgardeo.io/t/acme/oauth2/token \
 It reports the names it assigned, and `wso2 context list` shows them. What it
 writes is spare: the issuer and client ID you passed, `"type": "onprem"`, a
 `credentialRef` equal to the identity name, and no products.
+
+**Record the product before running a product command.** Login stores no
+product, so `wso2 reference status` fails with `auth.product_not_configured`
+until you add one. On Asgardeo the audience is the client ID (section 1):
+
+```console
+$ wso2 identity add-product acme reference \
+    --endpoint https://api.asgardeo.io \
+    --audience <client-id> \
+    --scopes reference:status:read,reference:status:write
+
+Added product "reference" to identity "acme".
+Identity   acme
+Product    reference
+Endpoint   https://api.asgardeo.io
+Audience   <client-id>
+Scopes     reference:status:read,reference:status:write
+Replaced   no
+```
+
+Check what is recorded:
+
+```console
+$ wso2 identity list
+IDENTITY   TYPE     ISSUER                                        PRODUCT     ENDPOINT                  SCOPES
+acme       onprem   https://api.asgardeo.io/t/acme/oauth2/token   reference   https://api.asgardeo.io   reference:status:read,reference:status:write
+```
+
+The module's own commands work from here. The rest is
+[the main login guide](login.md), from section 2.
 
 The record below is the fuller shape, not what login leaves behind. Add products
 with `wso2 identity add-product`, and set `tenant` and `"type": "cloud"` by hand

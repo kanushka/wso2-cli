@@ -269,6 +269,7 @@ which is the same for all three products.
 | **Issuer** | The bare origin, verbatim from the `issuer` value in `https://localhost:8090/.well-known/openid-configuration`. |
 | **Audience** | The resource server's identifier from section 4, the absolute URI, not its name. |
 | **Scopes** | The permissions from section 4. |
+| **Endpoint** | The product API's base URL, `https://localhost:8090` for a module served by this deployment. |
 
 Also confirm this machine trusts the deployment's certificate (section 3).
 
@@ -277,17 +278,54 @@ Also confirm this machine trusts the deployment's certificate (section 3).
 ## 9. Log in, and check what it wrote
 
 ```console
-$ wso2 login --url https://thunder.example.com \
+$ wso2 login --url https://localhost:8090 \
     --client-id <client-id> --context thunder-local
 ```
 
-It reports the names it assigned, and `wso2 context list` shows them. What it
-writes is spare: the issuer and client ID you passed, `"type": "onprem"`, a
+Use the issuer you recorded in section 8, which is the bare origin. It reports
+the names it assigned, and `wso2 context list` shows them. What it writes is
+spare: the issuer and client ID you passed, `"type": "onprem"`, a
 `credentialRef` equal to the identity name, and no products.
 
-The record below is the fuller shape. Add the product with `wso2 identity
-add-product`, and set the two Thunder-specific fields by hand: login writes
-neither, and a Thunder deployment needs both.
+Two things are still missing, and **the order matters here**. Record the product
+first, then add `provider`. A Thunder identity binds one login to one product,
+so an identity that names Thunder and holds no product is refused as
+`contexts.document_malformed`, and while the document is refused no command can
+repair it.
+
+Record the product. The audience is the resource server's absolute URI
+(section 1):
+
+```console
+$ wso2 identity add-product thunder-local reference \
+    --endpoint https://localhost:8090 \
+    --audience https://localhost:8090/reference-status \
+    --scopes read,write
+
+Added product "reference" to identity "thunder-local".
+Identity   thunder-local
+Product    reference
+Endpoint   https://localhost:8090
+Audience   https://localhost:8090/reference-status
+Scopes     read,write
+Replaced   no
+```
+
+Then add `"provider": "thunder"` to that identity's `auth` block in
+`~/.wso2/cli/contexts.json`. No command writes it, and without it the login is
+refused with `invalid_target`. Check the result:
+
+```console
+$ wso2 identity list
+IDENTITY        TYPE     ISSUER                   PRODUCT     ENDPOINT                 SCOPES
+thunder-local   onprem   https://localhost:8090   reference   https://localhost:8090   read,write
+```
+
+The module's own commands work from here. The rest is
+[the main login guide](login.md), from section 2.
+
+The record below is the whole identity, with both Thunder-specific fields in
+place.
 
 ```json
 {
@@ -309,9 +347,6 @@ neither, and a Thunder deployment needs both.
   }
 }
 ```
-
-`provider` is what makes the shell send the resource indicator. Without it the
-login is refused with `invalid_target` and no session is established.
 
 You can also set `narrowing` explicitly, as `scoped-refresh` or
 `token-resource`, for a deployment that does not behave the way its product

@@ -12,8 +12,13 @@ This works the same whichever product backs your deployment.
 
 ## Before you start
 
-You need an OAuth application registered in your deployment. That part is
-product-specific, so start with your product's walkthrough and come back here:
+`wso2 login` signs you in through an *application registration*: an entry in
+your identity deployment's admin console that permits this CLI to sign people
+in. Creating one needs permission to manage applications, API resources, scopes
+and users in that deployment. There are two ways to get one.
+
+**If you administer the deployment**, follow your product's walkthrough. It
+creates the registration and ends by handing you the five values below.
 
 | Deployment | Walkthrough |
 | --- | --- |
@@ -21,9 +26,21 @@ product-specific, so start with your product's walkthrough and come back here:
 | WSO2 Identity Server 7.x | [Registering in Identity Server](login-identity-server.md) |
 | ThunderID | [Registering in ThunderID](login-thunder.md) |
 
-Each one ends by handing you four values: **issuer**, **client ID**,
-**audience**, and **scopes**. Section 5 lists what the shell needs from an
-application, if you would rather see the requirements first.
+**If someone else administers it**, ask them to complete that walkthrough and
+send you the five values. You need no console access of your own.
+
+| Value | What you do with it |
+| --- | --- |
+| Issuer | `wso2 login --url` |
+| Client ID | `wso2 login --client-id` |
+| Endpoint | `wso2 identity add-product --endpoint` |
+| Audience | `wso2 identity add-product --audience` |
+| Scopes | `wso2 identity add-product --scopes` |
+
+Two commands, in that order: `wso2 login` establishes who you are, and `wso2
+identity add-product` records what a module may reach. Section 5 lists what the
+shell needs from the registration, if you would rather see the requirements
+first.
 
 ---
 
@@ -69,8 +86,11 @@ wso2 identity add-product <identity> <namespace> \
   --endpoint <url> --audience <aud> --scopes <scope1,scope2>
 ```
 
-`--scopes` takes a comma-separated list. `wso2 identity list` shows what is
-recorded, and `--replace` overwrites a namespace's existing record.
+`--scopes` takes a comma-separated list, and `--replace` overwrites a
+namespace's existing record. Until you do this, a product command fails with
+`auth.product_not_configured`, however well the login went. `wso2 identity list`
+shows what is recorded. Your product's walkthrough has this command filled in
+with its own values.
 
 ### What happens during login
 
