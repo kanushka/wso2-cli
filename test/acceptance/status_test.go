@@ -106,7 +106,7 @@ func TestJSONOutputStaysValidWhileTheModuleWritesDiagnostics(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 	installNoisyModule(t, stateRoot)
 
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "call", "--output", "json")
+	stdout, stderr := runShell(t, shell, stateRoot, "reference", "status", "--output", "json")
 
 	decoded := decodeStatusJSON(t, stdout)
 	if decoded["status"] != "operational" {
@@ -251,7 +251,7 @@ func TestAModuleThatAnswersThenExitsUncleanlyFailsWithAStableProblem(t *testing.
 	installNoisyModule(t, stateRoot)
 	writeControlFile(t, stateRoot, "exit-uncleanly", "")
 
-	stdout, stderr, err := tryShell(shell, stateRoot, "reference", "call")
+	stdout, stderr, err := tryShell(shell, stateRoot, "reference", "status")
 
 	if exitCode(t, err) != 70 {
 		t.Fatalf("exit status = %v, want the module process class 70\nstderr:\n%s", err, stderr)

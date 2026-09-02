@@ -551,7 +551,7 @@ func TestTheModuleEnvironmentCarriesNoAmbientCredential(t *testing.T) {
 			installNoisyModule(t, deployed.stateRoot)
 			writeControlFile(t, deployed.stateRoot, "report-environment", "")
 
-			stdout, stderr := deployed.run(t, shell, "reference", "call")
+			stdout, stderr := deployed.run(t, shell, "reference", "status")
 
 			const prefix = "module-environment: "
 			if !strings.Contains(stderr, prefix) {

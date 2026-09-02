@@ -75,7 +75,13 @@ func main() {
 			AuthAudiences: []string{statusAudience},
 			AuthScopes:    []string{statusScope},
 		},
-		module.Command{Path: []string{"status"}, Run: disclose})
+		// Both names reach the same handler, so this fixture mirrors the
+		// command surface the real reference module serves. A test that
+		// arranges several module sources behind one invocation — canary_test's
+		// refusal table does — must be able to name one command that every
+		// arrangement answers.
+		module.Command{Path: []string{"status"}, Run: disclose},
+		module.Command{Path: []string{"call"}, Run: disclose})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "canarymodule: %v\n", err)
 		os.Exit(1)

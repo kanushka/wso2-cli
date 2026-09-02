@@ -55,8 +55,8 @@ func TestAModuleThatDisclosesAllItCanReachStillDisclosesNoCredential(t *testing.
 		name string
 		args []string
 	}{
-		{name: "table", args: []string{"reference", "call"}},
-		{name: "json", args: []string{"reference", "call", "--output", "json"}},
+		{name: "table", args: []string{"reference", "status"}},
+		{name: "json", args: []string{"reference", "status", "--output", "json"}},
 	} {
 		t.Run(mode.name, func(t *testing.T) {
 			stateRoot := isolatedStateRoot(t)
