@@ -491,10 +491,9 @@ func TestWhoamiOpensNoNetworkConnection(t *testing.T) {
 	keyring.MockInit()
 
 	// No "unsupported flag" case: unlike wso2 context's subcommands, whoami's
-	// own shellFlagsFor entry grants both contextFlag and outputFlag, so there
-	// is no shell-owned flag this command actually refuses (--verbose is
-	// exempt from every command's shellFlagsFor list — see command.go's own
-	// comment on shellFlagsFor — so {"--verbose", "whoami"} is a supported
+	// own declaration carries both contextFlag and outputFlag, so there
+	// is nothing to refuse here. --verbose is declared on the root and is
+	// honored by every command — so {"--verbose", "whoami"} is a supported
 	// invocation that exits 0, not a refusal; doctor_test.go's equivalent
 	// guard carries no such case either, for the same reason).
 	invocations := map[string][]string{

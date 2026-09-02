@@ -123,7 +123,7 @@ func (s Shell) rootCommand() *cobra.Command {
 	// --context and --output are not. They are declared by each command that
 	// can act on one, and here only for the root's own job of dispatching a
 	// product namespace, which honors both. Declaring them persistently is what
-	// used to put them in every command's help while forwardShellFlags refused
+	// used to put them in every command's help while the shell refused
 	// them, so that help advertised what the command rejected and the refusal
 	// pointed back at the help (#147).
 	root.PersistentFlags().BoolP("help", "h", false, "Show help for a command.")
