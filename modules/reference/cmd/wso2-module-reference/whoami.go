@@ -65,7 +65,7 @@ func readWhoami(ctx context.Context, endpoint, invocationID, token string) (brok
 	defer cancel()
 	request, err := http.NewRequestWithContext(call, http.MethodGet, target, nil)
 	if err != nil {
-		return brokeredAccess{}, unavailable("the reference status service cannot be called")
+		return brokeredAccess{}, unavailable(target, "cannot be called")
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set(invocationHeader, invocationID)
@@ -73,24 +73,24 @@ func readWhoami(ctx context.Context, endpoint, invocationID, token string) (brok
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return brokeredAccess{}, unavailable("the reference status service did not answer")
+		return brokeredAccess{}, unavailable(target, "did not answer")
 	}
 	defer func() { _ = response.Body.Close() }()
 
-	if failure := statusFailure(response.StatusCode); failure != nil {
+	if failure := statusFailure(target, response.StatusCode); failure != nil {
 		return brokeredAccess{}, failure
 	}
 
 	body, err := io.ReadAll(io.LimitReader(response.Body, 64<<10))
 	if err != nil {
-		return brokeredAccess{}, unavailable("the reference status service stopped part-way through its answer")
+		return brokeredAccess{}, unavailable(target, "stopped part-way through its answer")
 	}
 	var granted brokeredAccess
 	if err := json.Unmarshal(body, &granted); err != nil {
-		return brokeredAccess{}, unavailable("the reference status service answered with something this module cannot read")
+		return brokeredAccess{}, unreadable(target, "answered with something this module cannot read")
 	}
 	if strings.TrimSpace(granted.Audiences) == "" {
-		return brokeredAccess{}, unavailable("the reference status service reported no verified audience")
+		return brokeredAccess{}, unreadable(target, "answered without a verified audience")
 	}
 	return granted, nil
 }
