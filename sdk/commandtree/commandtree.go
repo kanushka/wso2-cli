@@ -76,10 +76,18 @@ type Command struct {
 	// others beneath it. A group is declared so that its path parses and its
 	// help is reachable, and refused as a command to run.
 	Runnable bool `json:"runnable,omitempty"`
-	// Hidden reports whether this path should be offered to a user. An alias
-	// gets its own entry so that it parses, and is hidden so that it is not
-	// suggested alongside the name it duplicates.
+	// Hidden reports whether this command should be offered to a user. It is
+	// what the module marked hidden in its own tree.
 	Hidden bool `json:"hidden,omitempty"`
+	// Aliases are the other names this command answers to at its own level.
+	//
+	// They are carried here rather than given paths of their own because Cobra
+	// treats an alias as equal to the name while it walks: "a list" reaches
+	// "apps list" when apps is aliased "a". Giving each alias its own path
+	// would multiply with every aliased ancestor, and would send the alias to
+	// the module, which binds its handler to the canonical path and would not
+	// find one.
+	Aliases []string `json:"aliases,omitempty"`
 	// Flags are every flag this command accepts, including the ones it
 	// inherits from its parents. They are flattened at extraction so that
 	// answering "does this command take this flag" never walks the tree.
@@ -94,9 +102,17 @@ type Flag struct {
 	Shorthand string `json:"shorthand,omitempty"`
 	// Usage is the flag's one-line description.
 	Usage string `json:"usage,omitempty"`
-	// Type is the flag's value type as pflag names it. The parser reads it
-	// for one question only, which TakesValue answers.
+	// Type is the flag's value type as pflag names it. It reaches a reader as
+	// part of the flag's spelling in help; TakesValue is what the parser asks.
 	Type string `json:"type,omitempty"`
+	// NoOptDefault is pflag's NoOptDefVal: the value the flag takes when it is
+	// written bare. A flag that has one never consumes the argument after it.
+	//
+	// This is the property, not the type. Every boolean has one, which is why
+	// a boolean stands alone — but so does a counter, whose type is "count"
+	// and whose NoOptDefVal is "+1", and reading the type alone would have the
+	// shell swallow the word after "--verbose" as its value.
+	NoOptDefault string `json:"noOptDefault,omitempty"`
 }
 
 // New builds a canonical tree from commands in any order.
@@ -122,7 +138,17 @@ func New(commands []Command) Tree {
 // alike.
 func (c Command) canonical() Command {
 	c.Path = slices.Clone(c.Path)
+	c.Aliases = slices.Clone(c.Aliases)
 	c.Flags = slices.Clone(c.Flags)
+	for index, flag := range c.Flags {
+		// A boolean written bare is true, which is pflag's own rule and the
+		// reason it never reads the next argument. Filling it in here means a
+		// tree built by hand cannot declare a boolean that the parser then
+		// treats as taking a value.
+		if flag.Type == TypeBool && flag.NoOptDefault == "" {
+			c.Flags[index].NoOptDefault = "true"
+		}
+	}
 	slices.SortFunc(c.Flags, func(a, b Flag) int {
 		return strings.Compare(a.Name, b.Name)
 	})
@@ -156,7 +182,14 @@ func (t Tree) Child(parent []string, name string) (Command, bool) {
 		if len(command.Path) != len(parent)+1 {
 			continue
 		}
-		if slices.Equal(command.Path[:len(parent)], parent) && command.Path[len(parent)] == name {
+		if !slices.Equal(command.Path[:len(parent)], parent) {
+			continue
+		}
+		// An alias is equal to the name here, as it is in Cobra's own walk,
+		// and the command that comes back carries its canonical path. That is
+		// what reaches the module, which binds its handler to that path and
+		// would not recognise the alias.
+		if command.Path[len(parent)] == name || slices.Contains(command.Aliases, name) {
 			return command, true
 		}
 	}
@@ -196,9 +229,15 @@ func (c Command) LookupShorthand(letter rune) (Flag, bool) {
 
 // TakesValue reports whether a value follows this flag on the command line.
 //
-// Every type but boolean does. Getting this backwards is what makes "--all list"
-// swallow a command path as a flag's argument, so the parser asks the
-// declaration rather than guessing from the shape of what follows.
+// pflag settles this with NoOptDefVal rather than with the type: a flag that has
+// one stands alone and leaves the next argument to whoever comes next. Booleans
+// are the common case, counters are the one that catches a parser reading types
+// instead — "--verbose status" leaves status alone, because a counter written
+// bare is "+1".
+//
+// Getting this backwards is what makes "--all list" swallow a command path as a
+// flag's argument, so the parser asks the declaration rather than guessing from
+// the shape of what follows.
 func (f Flag) TakesValue() bool {
-	return f.Type != TypeBool
+	return f.NoOptDefault == ""
 }

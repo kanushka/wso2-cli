@@ -52,32 +52,14 @@ func (t *Tree) Declare() commandtree.Tree {
 // answers to.
 func (t *Tree) declare(command *cobra.Command, path []string, into *[]commandtree.Command) {
 	_, runnable := t.handlers[command]
-	entry := commandtree.Command{
+	*into = append(*into, commandtree.Command{
 		Path:     path,
 		Short:    command.Short,
 		Runnable: runnable,
 		Hidden:   command.Hidden,
+		Aliases:  append([]string(nil), command.Aliases...),
 		Flags:    declareFlags(command),
-	}
-	*into = append(*into, entry)
-
-	// An alias is a second path to the same command, so it is declared as its
-	// own entry rather than as a field the parser would have to interpret.
-	// Hidden keeps it out of suggestions, where it would appear as a
-	// near-duplicate of the name it stands in for.
-	//
-	// Only the command's own name is aliased here, not its parents': a nested
-	// alias path is spelled out by whichever level declares it, and expanding
-	// every combination would multiply the declaration without naming a path
-	// Cobra resolves differently.
-	if len(path) > 0 {
-		for _, alias := range command.Aliases {
-			aliased := entry
-			aliased.Path = append(append([]string(nil), path[:len(path)-1]...), alias)
-			aliased.Hidden = true
-			*into = append(*into, aliased)
-		}
-	}
+	})
 
 	for _, child := range command.Commands() {
 		t.declare(child, append(append([]string(nil), path...), child.Name()), into)
@@ -104,6 +86,10 @@ func declareFlags(command *cobra.Command) []commandtree.Flag {
 			Shorthand: flag.Shorthand,
 			Usage:     flag.Usage,
 			Type:      flag.Value.Type(),
+			// Carried verbatim because it is what decides whether the next
+			// argument belongs to this flag. Reading the type instead would
+			// be right for booleans and wrong for counters.
+			NoOptDefault: flag.NoOptDefVal,
 		})
 	}
 	// LocalFlags and InheritedFlags both merge the persistent sets before
@@ -127,10 +113,11 @@ func declareFlags(command *cobra.Command) []commandtree.Flag {
 			}
 		}
 		flags = append(flags, commandtree.Flag{
-			Name:      commandtree.HelpFlagName,
-			Shorthand: shorthand,
-			Usage:     "Show help for this command.",
-			Type:      commandtree.TypeBool,
+			Name:         commandtree.HelpFlagName,
+			Shorthand:    shorthand,
+			Usage:        "Show help for this command.",
+			Type:         commandtree.TypeBool,
+			NoOptDefault: "true",
 		})
 	}
 	return flags

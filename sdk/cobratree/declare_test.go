@@ -104,30 +104,42 @@ func TestDeclareFlattensInheritedFlagsOntoEveryCommand(t *testing.T) {
 	}
 }
 
-// TestDeclareGivesAnAliasItsOwnPath proves a command reachable under a second
-// name parses under it too. A product CLI being migrated brings its aliases
-// with it, and a declaration that omitted them would have the shell refuse a
-// spelling the module itself accepts — a regression caused by declaring.
-func TestDeclareGivesAnAliasItsOwnPath(t *testing.T) {
+// TestDeclareCarriesAnAliasBesideTheNameItStandsFor proves a second spelling
+// reaches the same command without becoming a second command.
+//
+// Cobra treats an alias as equal to the name while it walks, so "a list"
+// reaches "apps list" when apps is aliased "a" — checked against Cobra's own
+// Find, not assumed. Declaring each alias as its own path would multiply with
+// every aliased ancestor, and worse, would send the alias to the module, which
+// binds its handler to the canonical path and would find nothing there.
+func TestDeclareCarriesAnAliasBesideTheNameItStandsFor(t *testing.T) {
 	root := &cobra.Command{Use: "reference"}
+	apps := &cobra.Command{Use: "apps", Aliases: []string{"a"}}
 	list := &cobra.Command{Use: "list", Aliases: []string{"ls"}}
-	root.AddCommand(list)
+	root.AddCommand(apps)
+	apps.AddCommand(list)
 
 	declared := cobratree.New(root).Handle(list, noop).Declare()
 
-	alias, ok := findDeclared(declared, "ls")
+	group, ok := findDeclared(declared, "apps")
 	if !ok {
-		t.Fatalf("the alias has no path in %+v", declared.Commands)
+		t.Fatalf("the group is absent from %+v", declared.Commands)
 	}
-	if !alias.Runnable {
-		t.Error("the alias is not runnable while the command it names is")
+	if !slices.Contains(group.Aliases, "a") {
+		t.Errorf("the group declares aliases %q", group.Aliases)
 	}
-	if !alias.Hidden {
-		t.Error("the alias is not hidden, so it would be offered as a suggestion")
+	leaf, ok := findDeclared(declared, "apps", "list")
+	if !ok {
+		t.Fatal("the leaf is absent")
 	}
-	canonical, _ := findDeclared(declared, "list")
-	if canonical.Hidden {
-		t.Error("the command's own name is hidden")
+	if !slices.Contains(leaf.Aliases, "ls") {
+		t.Errorf("the leaf declares aliases %q", leaf.Aliases)
+	}
+	// No alias becomes a path of its own, at either level.
+	for _, path := range [][]string{{"a"}, {"apps", "ls"}, {"a", "list"}, {"a", "ls"}} {
+		if _, found := findDeclared(declared, path...); found {
+			t.Errorf("the alias %q was declared as a command of its own", path)
+		}
 	}
 }
 

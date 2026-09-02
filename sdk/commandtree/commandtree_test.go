@@ -129,17 +129,78 @@ func TestHasChildrenDistinguishesAGroupFromALeaf(t *testing.T) {
 	}
 }
 
-// TestOnlyABooleanFlagTakesNoValue proves the one distinction the parser needs
-// from a flag's type. Getting it backwards makes "--all list" swallow "list" as
-// --all's value, which turns a command path into a flag argument.
-func TestOnlyABooleanFlagTakesNoValue(t *testing.T) {
-	if (commandtree.Flag{Name: "all", Type: commandtree.TypeBool}).TakesValue() {
-		t.Error("a boolean flag reports that it takes a value")
+// TestAFlagTakesNoValueWhenPflagGivesItOneWithout is the distinction the parser
+// reads a flag for, and it is pflag's NoOptDefVal rather than the type.
+//
+// A boolean is the common case. A counter is the one that catches a parser
+// reading types: its type is "count", it is not boolean, and pflag still leaves
+// the next argument alone because it has a NoOptDefVal of "+1" — verified
+// against pflag, where "--verbose status" leaves status unconsumed. Reading the
+// type would have the shell swallow a command name as a counter's value.
+func TestAFlagTakesNoValueWhenPflagGivesItOneWithout(t *testing.T) {
+	standsAlone := []commandtree.Flag{
+		{Name: "all", Type: commandtree.TypeBool, NoOptDefault: "true"},
+		{Name: "verbose", Type: "count", NoOptDefault: "+1"},
+	}
+	for _, flag := range standsAlone {
+		if flag.TakesValue() {
+			t.Errorf("%q takes a value although pflag would not read one", flag.Name)
+		}
 	}
 	for _, kind := range []string{"string", "int", "stringSlice", ""} {
 		if !(commandtree.Flag{Name: "region", Type: kind}).TakesValue() {
 			t.Errorf("a flag of type %q reports that it takes no value", kind)
 		}
+	}
+}
+
+// TestNewGivesABooleanTheDefaultPflagWouldGiveIt proves a tree built by hand
+// cannot declare a boolean the parser then feeds an argument to. pflag fills
+// this in for every boolean it declares; New fills it in for every boolean
+// anyone else writes.
+func TestNewGivesABooleanTheDefaultPflagWouldGiveIt(t *testing.T) {
+	tree := commandtree.New([]commandtree.Command{
+		{Path: []string{"status"}, Flags: []commandtree.Flag{
+			{Name: "all", Type: commandtree.TypeBool},
+		}},
+	})
+
+	command, ok := tree.Child(nil, "status")
+	if !ok {
+		t.Fatal("the command is absent")
+	}
+	flag, ok := command.LookupFlag("all")
+	if !ok {
+		t.Fatal("the flag is absent")
+	}
+	if flag.TakesValue() {
+		t.Errorf("a hand-declared boolean takes a value: %+v", flag)
+	}
+}
+
+// TestChildAcceptsAnAliasAndAnswersWithTheCanonicalPath proves the alias is a
+// way in, not a command. What comes back carries the canonical path, because
+// that is the path the module binds its handler to.
+func TestChildAcceptsAnAliasAndAnswersWithTheCanonicalPath(t *testing.T) {
+	tree := commandtree.New([]commandtree.Command{
+		{Path: nil},
+		{Path: []string{"apps"}, Aliases: []string{"a"}},
+		{Path: []string{"apps", "list"}, Aliases: []string{"ls"}, Runnable: true},
+	})
+
+	group, ok := tree.Child(nil, "a")
+	if !ok {
+		t.Fatal("the alias reached no command")
+	}
+	if len(group.Path) != 1 || group.Path[0] != "apps" {
+		t.Errorf("the alias answered with the path %q, want [apps]", group.Path)
+	}
+	leaf, ok := tree.Child(group.Path, "ls")
+	if !ok {
+		t.Fatal("the nested alias reached no command")
+	}
+	if len(leaf.Path) != 2 || leaf.Path[1] != "list" {
+		t.Errorf("the nested alias answered with %q, want [apps list]", leaf.Path)
 	}
 }
 

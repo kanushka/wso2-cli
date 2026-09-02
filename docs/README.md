@@ -79,9 +79,10 @@ described commands or schemas are currently available.
   Its reader is a product team, not a first-time user.
 - [Troubleshooting a product module](guides/troubleshooting-modules.md) maps
   what a module author sees to what is wrong. Nearly everything the shell checks
-  about a module it checks without executing it — the one exception is the
-  command declaration, which installation reads by running the executable once —
-  so a mistake in a declaration survives every test the module has.
+  about a module it checks by reading `module.json` rather than by running
+  anything, so a mistake there survives every test the module has. Installation
+  does run the executable once, to read the command tree it declares, and that
+  much is checked against the module itself.
 
 ## Research
 

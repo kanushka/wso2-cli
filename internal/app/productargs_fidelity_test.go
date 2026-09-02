@@ -36,12 +36,15 @@ func fidelityTree(t *testing.T) (*cobra.Command, parsetree.Tree) {
 	t.Helper()
 	root := &cobra.Command{Use: "reference", Run: func(*cobra.Command, []string) {}}
 	root.PersistentFlags().Bool("verbose", false, "Say more.")
+	// A counter is not boolean and still takes no value, which is the case a
+	// parser reading flag types instead of pflag's NoOptDefVal gets wrong.
+	root.PersistentFlags().CountP("loud", "L", "Say more, repeatedly.")
 	status := &cobra.Command{Use: "status", Run: func(*cobra.Command, []string) {}}
 	status.Flags().String("since", "", "How far back.")
 	status.Flags().BoolP("all", "a", false, "Everything.")
 	status.Flags().StringP("region", "r", "", "Where.")
-	apps := &cobra.Command{Use: "apps", Run: func(*cobra.Command, []string) {}}
-	list := &cobra.Command{Use: "list", Run: func(*cobra.Command, []string) {}}
+	apps := &cobra.Command{Use: "apps", Aliases: []string{"a"}, Run: func(*cobra.Command, []string) {}}
+	list := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Run: func(*cobra.Command, []string) {}}
 	list.Flags().Int("limit", 0, "How many.")
 	apps.AddCommand(list)
 	root.AddCommand(status, apps)
@@ -87,6 +90,18 @@ func TestTheShellLandsWhereTheModuleWouldLand(t *testing.T) {
 		{"--verbose", "apps", "list"},
 		{"apps", "myapp"},
 		{"status", "--", "--since"},
+		{"status", "--all=false"},
+		{"status", "--all=true"},
+		{"status", "-a=false"},
+		{"status", "--help=false"},
+		{"status", "-h=false"},
+		{"--loud", "status"},
+		{"-L", "status"},
+		{"--loud", "--loud", "status"},
+		{"a", "list"},
+		{"apps", "ls"},
+		{"a", "ls"},
+		{"a", "list", "--limit", "5"},
 	}
 
 	for _, args := range lines {
@@ -96,6 +111,13 @@ func TestTheShellLandsWhereTheModuleWouldLand(t *testing.T) {
 			// because parsing leaves flag state behind.
 			fresh, _ := fidelityTree(t)
 			found, rest, findErr := fresh.Find(args)
+			// Cobra gives a command its help flag as it executes, not as it is
+			// built, so a tree parsed without that step does not know --help.
+			// Adding it here is what Execute would do, and is the same reason
+			// Declare synthesises one into the declaration.
+			if findErr == nil {
+				found.InitDefaultHelpFlag()
+			}
 			cobraAccepts := findErr == nil && found.ParseFlags(rest) == nil
 
 			line, parseErr := parseProductArgs("reference", declared, args)
@@ -122,6 +144,7 @@ func TestTheShellLandsWhereTheModuleWouldLand(t *testing.T) {
 			if err != nil {
 				t.Fatalf("cobra cannot find the path the shell resolved (%q): %v", line.command, err)
 			}
+			target.InitDefaultHelpFlag()
 			if err := target.ParseFlags(line.arguments); err != nil {
 				t.Errorf("the module refuses what the shell forwarded (%q): %v", line.arguments, err)
 			}

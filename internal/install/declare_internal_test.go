@@ -18,23 +18,79 @@ package install
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 )
 
-// writeExecutable writes a shell script standing in for an installed module and
-// returns the directory holding it. A script is enough because everything under
-// test is the contract at the process boundary: the environment variable going
-// in, and the file coming back.
-func writeExecutable(t *testing.T, body string) (versionDir, name string) {
+// helperControl is the control file the stand-in module reads. It is spelled
+// out here rather than imported, so the helper and the test agree through a
+// file rather than through a shared type neither of them writes to disk.
+type helperControl struct {
+	Mode            string `json:"mode"`
+	Namespace       string `json:"namespace"`
+	Command         string `json:"command"`
+	Flag            string `json:"flag"`
+	EchoEnvironment string `json:"echoEnvironment"`
+}
+
+// buildHelper compiles the stand-in module once for the whole package.
+//
+// It is compiled rather than written as a shell script because the installer
+// runs what it installed: on Windows os/exec resolves an executable by
+// extension and never reads a shebang, so a script would not run at all and
+// every test here would quietly assert nothing.
+var buildHelper = sync.OnceValues(func() (string, error) {
+	directory, err := os.MkdirTemp("", "wso2-declare-helper-")
+	if err != nil {
+		return "", err
+	}
+	binary := filepath.Join(directory, "declarehelper"+executableSuffix())
+	command := exec.Command("go", "build", "-o", binary, "./testdata/declarehelper")
+	if output, err := command.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("building the stand-in module: %w\n%s", err, output)
+	}
+	return binary, nil
+})
+
+// executableSuffix is what an executable is called on this platform.
+func executableSuffix() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
+	}
+	return ""
+}
+
+// installHelper puts the stand-in module in a version directory and steers it
+// with a control file, returning the directory and the executable's name.
+func installHelper(t *testing.T, control helperControl) (versionDir, name string) {
 	t.Helper()
+	source, err := buildHelper()
+	if err != nil {
+		t.Fatalf("preparing the stand-in module: %v", err)
+	}
+	content, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("reading the stand-in module: %v", err)
+	}
+
 	versionDir = t.TempDir()
-	name = "wso2-module-reference"
-	path := filepath.Join(versionDir, name)
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
-		t.Fatalf("writing the stand-in module: %v", err)
+	name = "wso2-module-reference" + executableSuffix()
+	if err := os.WriteFile(filepath.Join(versionDir, name), content, 0o755); err != nil {
+		t.Fatalf("installing the stand-in module: %v", err)
+	}
+	steering, err := json.Marshal(control)
+	if err != nil {
+		t.Fatalf("encoding the control file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(versionDir, "control.json"), steering, 0o600); err != nil {
+		t.Fatalf("writing the control file: %v", err)
 	}
 	return versionDir, name
 }
@@ -44,11 +100,9 @@ func writeExecutable(t *testing.T, body string) (versionDir, name string) {
 // catalog entry that pointed at it, because the catalog is fetched over the
 // network and is not signed, and a tree decides how a command line is read.
 func TestTheInstallerReadsTheTreeFromTheExecutable(t *testing.T) {
-	versionDir, name := writeExecutable(t, `cat > "$WSO2_MODULE_COMMAND_TREE" <<'JSON'
-{"module":{"namespace":"reference"},
- "commandTree":{"commands":[{"path":["status"],"runnable":true,
-   "flags":[{"name":"since","type":"string"}]}]}}
-JSON`)
+	versionDir, name := installHelper(t, helperControl{
+		Mode: "declare", Namespace: "reference", Command: "status", Flag: "since",
+	})
 
 	tree, err := declaredTree(t.Context(), "reference", versionDir, name)
 	if err != nil {
@@ -59,11 +113,11 @@ JSON`)
 	if !ok {
 		t.Fatalf("the installer read the tree %+v", tree)
 	}
-	if flag, found := command.LookupFlag("since"); !found || !flag.TakesValue() {
-		t.Errorf("the flag came back as %+v, found %v", flag, found)
-	}
 	if !command.Runnable {
 		t.Errorf("the declared command came back as %+v", command)
+	}
+	if flag, found := command.LookupFlag("since"); !found || !flag.TakesValue() {
+		t.Errorf("the flag came back as %+v, found %v", flag, found)
 	}
 }
 
@@ -72,7 +126,7 @@ JSON`)
 // ignores the request and fails its own way; installation continues with no
 // tree, and the shell parses for it the way it always did.
 func TestAModuleThatCannotDeclareIsStillInstalled(t *testing.T) {
-	versionDir, name := writeExecutable(t, `echo "unexpected argument" >&2; exit 2`)
+	versionDir, name := installHelper(t, helperControl{Mode: "fail"})
 
 	tree, err := declaredTree(t.Context(), "reference", versionDir, name)
 
@@ -88,7 +142,7 @@ func TestAModuleThatCannotDeclareIsStillInstalled(t *testing.T) {
 // that ignores the request and waits on standard input the way the protocol
 // does would otherwise stall installation with nothing on screen.
 func TestAModuleThatNeverAnswersDoesNotHangTheInstall(t *testing.T) {
-	versionDir, name := writeExecutable(t, `sleep 60`)
+	versionDir, name := installHelper(t, helperControl{Mode: "hang"})
 	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 	defer cancel()
 
@@ -115,10 +169,9 @@ func TestAModuleThatNeverAnswersDoesNotHangTheInstall(t *testing.T) {
 // tree is dropped and the module installs without one, which is the same state
 // as a module that declares nothing.
 func TestATreeFromAnExecutableServingAnotherNamespaceIsDiscarded(t *testing.T) {
-	versionDir, name := writeExecutable(t, `cat > "$WSO2_MODULE_COMMAND_TREE" <<'JSON'
-{"module":{"namespace":"impostor"},
- "commandTree":{"commands":[{"path":["status"],"runnable":true}]}}
-JSON`)
+	versionDir, name := installHelper(t, helperControl{
+		Mode: "declare", Namespace: "impostor", Command: "status",
+	})
 
 	tree, err := declaredTree(t.Context(), "reference", versionDir, name)
 
@@ -136,7 +189,7 @@ JSON`)
 // the arguments to the module to accept or refuse for itself — the same place
 // the decision sat before, rather than anywhere more permissive.
 func TestAnUnreadableDeclarationLeavesTheModuleWithoutATree(t *testing.T) {
-	versionDir, name := writeExecutable(t, `printf 'not json' > "$WSO2_MODULE_COMMAND_TREE"`)
+	versionDir, name := installHelper(t, helperControl{Mode: "garbage"})
 
 	tree, err := declaredTree(t.Context(), "reference", versionDir, name)
 
@@ -164,10 +217,9 @@ func TestAnUnreadableDeclarationLeavesTheModuleWithoutATree(t *testing.T) {
 // is the only channel it has here.
 func TestTheDeclaringProcessInheritsNothing(t *testing.T) {
 	t.Setenv("WSO2_TEST_CREDENTIAL", "leaked")
-	versionDir, name := writeExecutable(t,
-		`printf '{"module":{"namespace":"reference"},"commandTree":{"commands":`+
-			`[{"path":["%s"],"runnable":true}]}}' "${WSO2_TEST_CREDENTIAL:-unset}" `+
-			`> "$WSO2_MODULE_COMMAND_TREE"`)
+	versionDir, name := installHelper(t, helperControl{
+		Mode: "declare", Namespace: "reference", EchoEnvironment: "WSO2_TEST_CREDENTIAL",
+	})
 
 	tree, err := declaredTree(t.Context(), "reference", versionDir, name)
 	if err != nil {

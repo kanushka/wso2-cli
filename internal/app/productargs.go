@@ -18,6 +18,7 @@ package app
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/wso2/wso2-cli/internal/output"
@@ -228,7 +229,7 @@ func parseUndeclaredProductArgs(namespace string, args []string) (productLine, e
 // readLongFlag reads one of the module's long flags and the value it carries.
 func readLongFlag(namespace string, found commandtree.Command, args []string,
 	arguments *[]string) (consumed int, help bool, err error) {
-	name, _, attached := strings.Cut(strings.TrimPrefix(args[0], "--"), "=")
+	name, value, attached := strings.Cut(strings.TrimPrefix(args[0], "--"), "=")
 	flag, declared := found.LookupFlag(name)
 	if !declared {
 		return 0, false, unknownProductFlag(namespace, found, "--"+name)
@@ -237,7 +238,10 @@ func readLongFlag(namespace string, found commandtree.Command, args []string,
 	// known to be a flag. Looking for it in the finished argument list instead
 	// would find the one in "--since --help", which is the value --since
 	// claimed, not a request for anything.
-	help = name == commandtree.HelpFlagName && !flag.TakesValue()
+	//
+	// An attached value settles it: pflag reads "--help=false" as false and
+	// Cobra shows no help for it, so neither does the shell.
+	help = name == commandtree.HelpFlagName && !flag.TakesValue() && asksForHelp(value, attached)
 	*arguments = append(*arguments, args[0])
 	if !flag.TakesValue() || attached {
 		return 1, help, nil
@@ -263,14 +267,23 @@ func readShorthandFlags(namespace string, found commandtree.Command, args []stri
 		if !declared {
 			return 0, false, unknownProductFlag(namespace, found, "-"+string(letter))
 		}
+		// An equals sign directly after a letter gives that letter the rest of
+		// the run as its value, whatever its type — pflag reads "-a=false" as
+		// false, and "-ab=false" as a set and b false. Checking this before the
+		// type is what keeps an explicit value from being read as more letters.
+		if index+1 < len(letters) && letters[index+1] == '=' {
+			*arguments = append(*arguments, args[0])
+			return 1, flag.Name == commandtree.HelpFlagName &&
+				asksForHelp(string(letters[index+2:]), true), nil
+		}
 		if !flag.TakesValue() {
 			help = help || flag.Name == commandtree.HelpFlagName
 			continue
 		}
 		*arguments = append(*arguments, args[0])
-		// The rest of the run is the value, whether or not an equals sign
-		// joins it. Only an empty rest sends the parser to the next argument.
-		if rest := strings.TrimPrefix(string(letters[index+1:]), "="); rest != "" {
+		// The rest of the run is the value. Only an empty rest sends the
+		// parser to the next argument.
+		if rest := string(letters[index+1:]); rest != "" {
 			return 1, help, nil
 		}
 		if len(args) < 2 {
@@ -281,6 +294,17 @@ func readShorthandFlags(namespace string, found commandtree.Command, args []stri
 	}
 	*arguments = append(*arguments, args[0])
 	return 1, help, nil
+}
+
+// asksForHelp reports whether a help flag written with an explicit value is
+// asking for help. Written bare it always is; written with a value it is
+// whatever pflag would read that value as, so "--help=false" runs the command.
+func asksForHelp(value string, attached bool) bool {
+	if !attached {
+		return true
+	}
+	asked, err := strconv.ParseBool(value)
+	return err == nil && asked
 }
 
 // unknownProductCommand reports a word that names no command the module serves.

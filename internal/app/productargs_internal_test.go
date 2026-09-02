@@ -50,9 +50,8 @@ func referenceTree() parsetree.Tree {
 			{Name: "verbose", Type: commandtree.TypeBool},
 			{Name: "help", Shorthand: "h", Type: commandtree.TypeBool},
 		}},
-		commandtree.Command{Path: []string{"apps"}, Runnable: true},
-		commandtree.Command{Path: []string{"apps", "list"}, Runnable: true},
-		commandtree.Command{Path: []string{"apps", "ls"}, Runnable: true, Hidden: true},
+		commandtree.Command{Path: []string{"apps"}, Runnable: true, Aliases: []string{"a"}},
+		commandtree.Command{Path: []string{"apps", "list"}, Runnable: true, Aliases: []string{"ls"}},
 	)
 }
 
@@ -215,13 +214,19 @@ func TestACommandIsFoundPastFlagsWrittenBeforeIt(t *testing.T) {
 	}
 }
 
-// TestAnAliasReachesTheModuleUnderTheNameItServes proves the resolved path is
-// what travels, not the words that were typed.
+// TestAnAliasReachesTheModuleUnderTheNameItServes proves the canonical path is
+// what travels, at every level.
+//
+// The module binds its handler to the name, not the alias: cobratree builds
+// each served path from the command's own Name, and the SDK matches an incoming
+// path exactly. Forwarding "apps ls" would reach a module that serves
+// "apps list" and be reported as an unknown command.
 func TestAnAliasReachesTheModuleUnderTheNameItServes(t *testing.T) {
-	line := parse(t, referenceTree(), "apps", "ls")
-
-	if strings.Join(line.command, " ") != "apps ls" {
-		t.Errorf("the alias resolved to %q", line.command)
+	for _, args := range [][]string{{"apps", "ls"}, {"a", "list"}, {"a", "ls"}} {
+		line := parse(t, referenceTree(), args...)
+		if strings.Join(line.command, " ") != "apps list" {
+			t.Errorf("%q resolved to %q, want [apps list]", args, line.command)
+		}
 	}
 }
 
@@ -337,6 +342,55 @@ func TestAskingForHelpIsNotAskingToRun(t *testing.T) {
 	}
 	if parse(t, referenceTree(), "status", "--", "--help").help {
 		t.Error("a word after the separator was read as a request for help")
+	}
+	// pflag reads an explicit false as false, and Cobra shows no help for it.
+	if parse(t, referenceTree(), "status", "--help=false").help {
+		t.Error("--help=false was read as a request for help")
+	}
+	if parse(t, referenceTree(), "status", "-h=false").help {
+		t.Error("-h=false was read as a request for help")
+	}
+	if !parse(t, referenceTree(), "status", "--help=true").help {
+		t.Error("--help=true was not read as a request for help")
+	}
+}
+
+// TestAnExplicitBooleanValueIsThatFlagsValue proves an attached value is read as
+// the flag's own, in both spellings, rather than as more shorthand letters.
+// pflag accepts "-a=false"; a parser that treated "=" as another letter would
+// refuse a line the module accepts.
+func TestAnExplicitBooleanValueIsThatFlagsValue(t *testing.T) {
+	for _, args := range [][]string{
+		{"status", "--all=false"}, {"status", "-a=false"}, {"status", "-a=true"},
+	} {
+		line := parse(t, referenceTree(), args...)
+		if joined := strings.Join(line.arguments, " "); joined != args[1] {
+			t.Errorf("%q forwarded %q, want %q", args, joined, args[1])
+		}
+	}
+}
+
+// TestACounterTakesNoValueAlthoughItIsNotBoolean proves the parser reads pflag's
+// no-value property rather than the flag's type. A counter's type is "count",
+// and pflag still leaves the next word alone — verified against pflag, where
+// "--verbose status" leaves status unconsumed. Treating anything non-boolean as
+// taking a value would swallow the command name.
+func TestACounterTakesNoValueAlthoughItIsNotBoolean(t *testing.T) {
+	counter := []commandtree.Flag{
+		{Name: "loud", Shorthand: "L", Type: "count", NoOptDefault: "+1"},
+	}
+	tree := declaring(
+		commandtree.Command{Path: nil, Flags: counter},
+		commandtree.Command{Path: []string{"status"}, Runnable: true, Flags: counter},
+	)
+
+	line := parse(t, tree, "--loud", "status")
+
+	if strings.Join(line.command, " ") != "status" {
+		t.Errorf("the counter swallowed the command name; reached %q", line.command)
+	}
+	if strings.Join(line.arguments, " ") != "--loud" {
+		t.Errorf("the module receives %q", line.arguments)
 	}
 }
 
