@@ -683,6 +683,82 @@ no endpoint it could succeed against on a developer's machine, and #113 closed
 on "a developer can build their own module from the checkout and run it under
 the real `wso2` shell" with the run half dead-ending.
 
+### F7. `-o` and `--output` are refused with different errors, and one of them is pflag's
+
+New, and introduced by the F1 fix in this branch. A command that does not accept
+`--output` no longer declares the flag at all, so the long spelling reaches the
+shell's own refusal and the short one never gets there — it fails inside pflag
+first:
+
+```
+$ wso2 module list --output json
+error: wso2 module list does not take the flag --output (shell.unsupported_flag)
+  Run wso2 module list --help to see the flags it accepts.
+exit=64
+
+$ wso2 module list -o json
+error: unknown shorthand flag: 'o' in -o (shell.unknown_flag)
+  Run wso2 module list.
+exit=64
+```
+
+Same request, two problem codes, and the second leaks the parser's vocabulary
+into user-facing text. Its recovery is weaker too — it names the command with no
+way to find out what the command does accept:
+
+```
+$ wso2 version -o json
+error: unknown shorthand flag: 'o' in -o (shell.unknown_flag)
+  Run wso2 help to see the shell commands and the flags they accept.
+exit=64
+```
+
+That points at the whole shell tree where the long form points at
+`wso2 version --help`. Reproduces on `version`, `login`, and every `module`
+subcommand.
+
+This does not reopen F1's design, which is right: the defect is that a flag the
+command does not declare has two ways of being refused, and only one of them is
+the shell's.
+
+**Suggested shape:** declare the refused flag hidden and reject it in the same
+place the long form is rejected, or map pflag's unknown-shorthand error onto the
+`shell.unsupported_flag` problem the long form already produces.
+
+### F8. A bare family command reports a usage error, and reads as an unimplemented command
+
+> **Fixed 2026-09-02** by [#148](https://github.com/wso2/wso2-cli/pull/148),
+> which landed in `main` before this branch. A bare family name now prints that
+> family's help on standard output and exits 0. An unknown subcommand is still
+> refused with `shell.unknown_command` and the usage exit class, so #133's
+> guarantee is untouched.
+
+`wso2 config` and `wso2 org` exited 64 with the word "error", and named their
+subcommands only in the recovery line:
+
+```
+$ wso2 config
+error: wso2 config needs a subcommand (shell.missing_argument)
+  Run wso2 config list to show every preference, wso2 config get <key> to show one, or wso2 config set <key> <value> to change one.
+exit=64
+```
+
+A second reader of this document took those blocks as evidence that `config` and
+`org` had no subcommands, and proposed hiding both commands from the tree until
+subcommands were implemented. They are fully implemented, and `--help` lists
+them. What misled was the framing: a non-zero exit and a leading "error:" for
+what is not a failure but an incomplete command.
+
+The recovery text was genuinely good, and read as an afterthought under a line
+that had already said the command was broken. `git remote`, `git stash`, and
+`kubectl config` all print their subcommand list on stdout at exit 0 for the
+bare form.
+
+The fix folded each family's recovery sentence into its `Long`, so it is still
+the first thing printed and `wso2 config` and `wso2 config --help` now agree.
+All five families — `config`, `org`, `context`, `identity`, `module` — share one
+helper, so they cannot drift apart.
+
 ### Minor: a JSON request gets a plain-text error
 
 Unchanged. `-o json` is honored for the result and not for the failure,
