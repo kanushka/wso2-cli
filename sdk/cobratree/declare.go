@@ -17,10 +17,13 @@
 package cobratree
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
 	"github.com/wso2/wso2-cli/sdk/commandtree"
+	"github.com/wso2/wso2-cli/sdk/module"
 )
 
 // Declare reports the tree as the command declaration the shell parses from.
@@ -108,4 +111,16 @@ func declareFlags(command *cobra.Command) []commandtree.Flag {
 	command.LocalFlags().VisitAll(appendFlag)
 	command.InheritedFlags().VisitAll(appendFlag)
 	return flags
+}
+
+// Serve declares this tree and then serves it, which is the whole of what a
+// Cobra-based module has to do.
+//
+// Declaring and serving from one call is what keeps a module's commands in one
+// place. Calling [Tree.Declare] and [Tree.Commands] separately and handing both
+// to [module.Serve] does the same thing, and is the same two chances to update
+// one and forget the other.
+func (t *Tree) Serve(ctx context.Context, options module.Options) error {
+	options.CommandTree = t.Declare()
+	return module.Serve(ctx, options, t.Commands()...)
 }
