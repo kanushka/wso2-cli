@@ -42,6 +42,14 @@ import (
 const (
 	// TypeBool is the type of a flag that takes no value.
 	TypeBool = "bool"
+	// HelpFlagName is the flag every Cobra command answers to, whoever built
+	// the tree. It is named here rather than in either the extractor or the
+	// parser because both have to mean the same flag: one emits it into a
+	// declaration and the other reads a line asking for it.
+	HelpFlagName = "help"
+	// HelpFlagShorthand is its single-letter spelling, which a command that
+	// already uses that letter for something else does not get.
+	HelpFlagShorthand = "h"
 	// TypeString is the type of an ordinary string flag. It is named for
 	// tests and callers that build a tree by hand; the parser treats it like
 	// every other non-boolean type.
@@ -130,48 +138,36 @@ func (t Tree) Empty() bool {
 	return len(t.Commands) == 0
 }
 
-// Find matches the longest declared command path at the front of args and
-// reports it with the arguments left over.
-//
-// Longest wins: a tree declaring both "apps" and "apps list" answers "apps list"
-// for "apps list --all", because the shorter match would send the wrong path to
-// the module and pass "list" along as an argument.
-//
-// A leading word that names no command is not a match. The caller reports it as
-// an unknown command rather than treating it as an argument to the namespace's
-// root, which is the difference between naming a user's typo and running
-// something they did not ask for.
-func (t Tree) Find(args []string) (Command, []string, bool) {
-	var (
-		best      Command
-		bestDepth = -1
-	)
+// Root reports the namespace's own command, the one at the empty path.
+func (t Tree) Root() (Command, bool) {
 	for _, command := range t.Commands {
-		depth := len(command.Path)
-		if depth <= bestDepth || depth > len(args) {
-			continue
-		}
-		if slices.Equal(command.Path, args[:depth]) {
-			best, bestDepth = command, depth
+		if len(command.Path) == 0 {
+			return command, true
 		}
 	}
-	if bestDepth < 0 {
-		return Command{}, nil, false
-	}
-	remaining := args[bestDepth:]
-	// A plain word left over where the matched command has children is the
-	// name of a subcommand the module does not serve, not an argument. Where
-	// the match is a leaf the same word is its argument, which is why this
-	// asks the tree instead of refusing every unmatched word: a command that
-	// takes a file name would otherwise be unreachable.
-	if len(remaining) > 0 && !strings.HasPrefix(remaining[0], "-") && t.hasChildren(best.Path) {
-		return Command{}, nil, false
-	}
-	return best, remaining, true
+	return Command{}, false
 }
 
-// hasChildren reports whether the tree declares any command beneath this path.
-func (t Tree) hasChildren(path []string) bool {
+// Child reports the command named directly beneath parent, if the module
+// declares one.
+//
+// Resolving one level at a time is what lets a caller walk a command line the
+// way Cobra does: a word is a subcommand only where the command in hand has one
+// by that name, and anywhere else it is that command's own argument.
+func (t Tree) Child(parent []string, name string) (Command, bool) {
+	for _, command := range t.Commands {
+		if len(command.Path) != len(parent)+1 {
+			continue
+		}
+		if slices.Equal(command.Path[:len(parent)], parent) && command.Path[len(parent)] == name {
+			return command, true
+		}
+	}
+	return Command{}, false
+}
+
+// HasChildren reports whether the tree declares any command beneath this path.
+func (t Tree) HasChildren(path []string) bool {
 	for _, command := range t.Commands {
 		if len(command.Path) > len(path) && slices.Equal(command.Path[:len(path)], path) {
 			return true

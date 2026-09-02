@@ -44,11 +44,20 @@ import (
 func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []string) error {
 	// The tree comes from the receipt the resolver already verified, and from
 	// nowhere else. See internal/parsetree.
-	command, arguments, mode, contextName, err := parseProductArgs(
-		namespace, parsetree.FromReceipt(resolved.Receipt), args)
+	declared := parsetree.FromReceipt(resolved.Receipt)
+	line, err := parseProductArgs(namespace, declared, args)
 	if err != nil {
 		return err
 	}
+	// Help is answered from the declaration, so asking what a command takes
+	// launches no process, needs no context, and needs no login. Before the
+	// declaration the shell had nothing to answer from and had to forward the
+	// question.
+	if line.help {
+		return s.renderProductHelp(namespace, declared, line.declared)
+	}
+	command, arguments := line.command, line.arguments
+	mode, contextName := line.mode, line.contextName
 	selection, err := s.selection(contextName)
 	if err != nil {
 		return err

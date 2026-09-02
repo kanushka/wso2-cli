@@ -55,15 +55,15 @@ JSON`)
 		t.Fatalf("reading the declaration: %v", err)
 	}
 
-	command, remaining, ok := tree.Find([]string{"status", "--since", "1h"})
+	command, ok := tree.Child(nil, "status")
 	if !ok {
 		t.Fatalf("the installer read the tree %+v", tree)
 	}
 	if flag, found := command.LookupFlag("since"); !found || !flag.TakesValue() {
 		t.Errorf("the flag came back as %+v, found %v", flag, found)
 	}
-	if len(remaining) != 2 {
-		t.Errorf("the command left %q", remaining)
+	if !command.Runnable {
+		t.Errorf("the declared command came back as %+v", command)
 	}
 }
 
@@ -174,7 +174,7 @@ func TestTheDeclaringProcessInheritsNothing(t *testing.T) {
 		t.Fatalf("reading the declaration: %v", err)
 	}
 
-	if _, _, ok := tree.Find([]string{"unset"}); !ok {
+	if _, ok := tree.Child(nil, "unset"); !ok {
 		t.Errorf("the declaring process inherited the shell's environment: %+v", tree)
 	}
 }

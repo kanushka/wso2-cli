@@ -189,3 +189,55 @@ func TestANestedProductCommandRoutesToTheModule(t *testing.T) {
 		t.Errorf("the module answered for %q", reported["command"])
 	}
 }
+
+// TestHelpForAProductCommandIsAnsweredFromTheDeclaration proves the shell can
+// say what a product command takes without running anything.
+//
+// The declaration is local and pinned to the installed executable, so answering
+// from it needs no process, no context, and no session. No context is installed
+// in this test at all, which is the assertion: before the declaration the
+// question had to be forwarded to the module, and forwarding it meant selecting
+// a context and brokering access first.
+func TestHelpForAProductCommandIsAnsweredFromTheDeclaration(t *testing.T) {
+	shell := buildShell(t)
+	stateRoot := isolatedStateRoot(t)
+	installDeclaringModule(t, stateRoot)
+
+	stdout, stderr, err := runShellWith(shell, shellEnvironment(stateRoot),
+		"reference", "status", "--help")
+
+	if err != nil {
+		t.Fatalf("asking for help failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	for _, wanted := range []string{
+		"Report what the shell forwarded.",
+		"wso2 reference status",
+		"--since",
+		"How far back to look.",
+		"-a, --all",
+		"--output",
+	} {
+		if !strings.Contains(stdout, wanted) {
+			t.Errorf("the help does not mention %q:\n%s", wanted, stdout)
+		}
+	}
+}
+
+// TestHelpForAProductNamespaceListsItsCommands proves the namespace's own help
+// names what is inside it, which is the question a user asks first.
+func TestHelpForAProductNamespaceListsItsCommands(t *testing.T) {
+	shell := buildShell(t)
+	stateRoot := isolatedStateRoot(t)
+	installDeclaringModule(t, stateRoot)
+
+	stdout, stderr, err := runShellWith(shell, shellEnvironment(stateRoot), "reference", "--help")
+
+	if err != nil {
+		t.Fatalf("asking for help failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	for _, wanted := range []string{"status", "apps", "Work with applications."} {
+		if !strings.Contains(stdout, wanted) {
+			t.Errorf("the namespace help does not mention %q:\n%s", wanted, stdout)
+		}
+	}
+}

@@ -78,7 +78,7 @@ func (s Shell) rootCommand() *cobra.Command {
 		DisableSuggestions: true,
 		// SuggestionsFor is used directly, so the distance Cobra would default
 		// during Execute has to be set here.
-		SuggestionsMinimumDistance: 2,
+		SuggestionsMinimumDistance: suggestionDistance,
 		PersistentPreRunE:          s.applyShellFlags,
 		// Arguments left after the root's own flags are a product namespace and
 		// its arguments. Reaching them here is how a shell flag written before

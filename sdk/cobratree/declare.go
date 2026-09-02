@@ -110,6 +110,29 @@ func declareFlags(command *cobra.Command) []commandtree.Flag {
 	// reporting, so between them they name every flag the command would parse.
 	command.LocalFlags().VisitAll(appendFlag)
 	command.InheritedFlags().VisitAll(appendFlag)
+
+	// Cobra adds a help flag to every command as it executes, not as it is
+	// built, so a tree inspected beforehand does not carry one. Declaring it
+	// here is what makes the declaration describe what the command accepts
+	// rather than what it happens to have been given yet — without it the
+	// shell would report --help as a flag the command does not take, which is
+	// both a refusal the module would not make and untrue. Like Cobra, a
+	// command that declares its own is left alone.
+	if !seen[commandtree.HelpFlagName] {
+		shorthand := commandtree.HelpFlagShorthand
+		for _, flag := range flags {
+			if flag.Shorthand == shorthand {
+				shorthand = ""
+				break
+			}
+		}
+		flags = append(flags, commandtree.Flag{
+			Name:      commandtree.HelpFlagName,
+			Shorthand: shorthand,
+			Usage:     "Show help for this command.",
+			Type:      commandtree.TypeBool,
+		})
+	}
 	return flags
 }
 

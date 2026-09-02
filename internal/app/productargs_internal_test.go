@@ -35,20 +35,47 @@ func declaring(commands ...commandtree.Command) parsetree.Tree {
 	return parsetree.FromReceipt(modules.Receipt{CommandTree: commandtree.New(commands)})
 }
 
-// referenceTree is a module declaring the shapes that matter: a command taking
-// a value flag, a boolean, a shorthand pair, a group with a child, and an alias.
+// referenceTree is a module declaring the shapes that matter: a root with a
+// flag of its own, a command taking a value flag, a boolean, a shorthand pair,
+// a group with a child, and an alias.
 func referenceTree() parsetree.Tree {
 	return declaring(
-		commandtree.Command{Path: nil, Runnable: true},
+		commandtree.Command{Path: nil, Runnable: true, Flags: []commandtree.Flag{
+			{Name: "verbose", Shorthand: "a", Type: commandtree.TypeBool},
+		}},
 		commandtree.Command{Path: []string{"status"}, Runnable: true, Flags: []commandtree.Flag{
 			{Name: "since", Type: commandtree.TypeString},
 			{Name: "all", Shorthand: "a", Type: commandtree.TypeBool},
 			{Name: "region", Shorthand: "r", Type: commandtree.TypeString},
+			{Name: "verbose", Type: commandtree.TypeBool},
+			{Name: "help", Shorthand: "h", Type: commandtree.TypeBool},
 		}},
-		commandtree.Command{Path: []string{"apps"}},
+		commandtree.Command{Path: []string{"apps"}, Runnable: true},
 		commandtree.Command{Path: []string{"apps", "list"}, Runnable: true},
 		commandtree.Command{Path: []string{"apps", "ls"}, Runnable: true, Hidden: true},
 	)
+}
+
+// parse reads a product line against the reference tree, failing the test if it
+// is refused.
+func parse(t *testing.T, tree parsetree.Tree, args ...string) productLine {
+	t.Helper()
+	line, err := parseProductArgs("reference", tree, args)
+	if err != nil {
+		t.Fatalf("parsing %q: %v", args, err)
+	}
+	return line
+}
+
+// refusal reads a product line expecting a typed refusal.
+func refusal(t *testing.T, tree parsetree.Tree, args ...string) problem.Problem {
+	t.Helper()
+	_, err := parseProductArgs("reference", tree, args)
+	var reported problem.Problem
+	if !errors.As(err, &reported) {
+		t.Fatalf("parsing %q returned %v, want a typed problem", args, err)
+	}
+	return reported
 }
 
 // TestTheOutputFlagMeansTheSameWhereverItIsWritten is the defect this whole
@@ -70,14 +97,11 @@ func TestTheOutputFlagMeansTheSameWhereverItIsWritten(t *testing.T) {
 
 	for name, args := range lines {
 		t.Run(name, func(t *testing.T) {
-			_, arguments, mode, _, err := parseProductArgs("reference", referenceTree(), args)
-			if err != nil {
-				t.Fatalf("parsing %q: %v", args, err)
+			line := parse(t, referenceTree(), args...)
+			if line.mode != output.ModeJSON {
+				t.Errorf("parsing %q rendered %s, not json", args, line.mode)
 			}
-			if mode != output.ModeJSON {
-				t.Errorf("parsing %q rendered %s, not json", args, mode)
-			}
-			if joined := strings.Join(arguments, " "); strings.Contains(joined, "--output") {
+			if joined := strings.Join(line.arguments, " "); strings.Contains(joined, "--output") {
 				t.Errorf("the shell forwarded its own flag to the module as %q", joined)
 			}
 		})
@@ -89,19 +113,16 @@ func TestTheOutputFlagMeansTheSameWhereverItIsWritten(t *testing.T) {
 // whatever followed, and treating --since as if it did not would leave its value
 // looking like a command argument.
 func TestAValueFlagKeepsItsValueAndABooleanDoesNot(t *testing.T) {
-	command, arguments, mode, _, err := parseProductArgs("reference", referenceTree(),
-		[]string{"status", "--all", "--since", "1h", "--output", "json"})
-	if err != nil {
-		t.Fatalf("parsing: %v", err)
+	line := parse(t, referenceTree(), "status", "--all", "--since", "1h", "--output", "json")
+
+	if strings.Join(line.command, " ") != "status" {
+		t.Errorf("the command is %q", line.command)
 	}
-	if strings.Join(command, " ") != "status" {
-		t.Errorf("the command is %q", command)
-	}
-	if joined := strings.Join(arguments, " "); joined != "--all --since 1h" {
+	if joined := strings.Join(line.arguments, " "); joined != "--all --since 1h" {
 		t.Errorf("the module receives %q", joined)
 	}
-	if mode != output.ModeJSON {
-		t.Errorf("the output mode is %s", mode)
+	if line.mode != output.ModeJSON {
+		t.Errorf("the output mode is %s", line.mode)
 	}
 }
 
@@ -110,13 +131,8 @@ func TestAValueFlagKeepsItsValueAndABooleanDoesNot(t *testing.T) {
 // in its own words at whatever point it noticed; the shell can now say so before
 // anything is launched.
 func TestAFlagTheCommandDoesNotDeclareIsNamed(t *testing.T) {
-	_, _, _, _, err := parseProductArgs("reference", referenceTree(),
-		[]string{"status", "--sinces", "1h"})
+	reported := refusal(t, referenceTree(), "status", "--sinces", "1h")
 
-	var reported problem.Problem
-	if !errors.As(err, &reported) {
-		t.Fatalf("parsing an undeclared flag returned %v", err)
-	}
 	if reported.Code != "shell.unknown_product_flag" {
 		t.Errorf("the refusal is coded %q", reported.Code)
 	}
@@ -132,12 +148,8 @@ func TestAFlagTheCommandDoesNotDeclareIsNamed(t *testing.T) {
 // now answer for a module's commands. Cobra's suggestions never covered a
 // product namespace, because the shell did not know what was in one.
 func TestAMistypedProductCommandIsNamedAndASuggestionOffered(t *testing.T) {
-	_, _, _, _, err := parseProductArgs("reference", referenceTree(), []string{"stats"})
+	reported := refusal(t, referenceTree(), "stats")
 
-	var reported problem.Problem
-	if !errors.As(err, &reported) {
-		t.Fatalf("parsing a mistyped command returned %v", err)
-	}
 	if reported.Code != "shell.unknown_product_command" {
 		t.Errorf("the refusal is coded %q", reported.Code)
 	}
@@ -146,31 +158,70 @@ func TestAMistypedProductCommandIsNamedAndASuggestionOffered(t *testing.T) {
 	}
 }
 
-// TestAMistypedSubcommandUnderAGroupIsNamed proves the refusal reaches inside
-// the tree rather than only its top level, and that a group's own child is what
-// gets suggested.
-func TestAMistypedSubcommandUnderAGroupIsNamed(t *testing.T) {
-	_, _, _, _, err := parseProductArgs("reference", referenceTree(), []string{"apps", "lst"})
+// TestAWordUnderAGroupIsThatGroupsArgument pins fidelity to Cobra at a place
+// where being helpful would be wrong.
+//
+// Cobra refuses a plain word that names no subcommand only at a command's root;
+// anywhere below it the word is that command's own argument, and its Find and
+// ValidateArgs were run to confirm it. So the shell reports "stats" at the
+// namespace root and stays out of the way under "apps", because refusing there
+// would refuse a line the module itself would have accepted — the same class of
+// disagreement, pointing the other way, that declaring a tree exists to end.
+func TestAWordUnderAGroupIsThatGroupsArgument(t *testing.T) {
+	line := parse(t, referenceTree(), "apps", "myapp")
 
-	var reported problem.Problem
-	if !errors.As(err, &reported) {
-		t.Fatalf("parsing returned %v", err)
+	if strings.Join(line.command, " ") != "apps" {
+		t.Errorf("the command is %q", line.command)
 	}
-	if reported.Recovery != "Did you mean wso2 reference apps list?" {
-		t.Errorf("the recovery is %q", reported.Recovery)
+	if strings.Join(line.arguments, " ") != "myapp" {
+		t.Errorf("the module receives %q", line.arguments)
+	}
+}
+
+// TestACommandIsFoundPastFlagsWrittenBeforeIt is the routing half of the defect.
+//
+// Cobra locates a subcommand before it parses anything, stepping over flags and
+// over the values it assumes unknown flags carry. A shell that stopped at the
+// first flag would land on the namespace root instead: "--verbose status" would
+// run the root with "status" as an argument, silently, which is the same
+// "position changes meaning" failure the output flag had. Verified against
+// Cobra's own Find for each of these lines.
+func TestACommandIsFoundPastFlagsWrittenBeforeIt(t *testing.T) {
+	cases := map[string]struct {
+		args      []string
+		command   string
+		arguments string
+	}{
+		"past a flag the root declares": {
+			args: []string{"--verbose", "status"}, command: "status", arguments: "--verbose",
+		},
+		"past a flag only the subcommand declares": {
+			args: []string{"--since", "1h", "status"}, command: "status", arguments: "--since 1h",
+		},
+		"past a shorthand the root declares": {
+			args: []string{"-a", "status"}, command: "status", arguments: "-a",
+		},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			line := parse(t, referenceTree(), testCase.args...)
+			if got := strings.Join(line.command, " "); got != testCase.command {
+				t.Errorf("parsing %q reached %q, want %q", testCase.args, got, testCase.command)
+			}
+			if joined := strings.Join(line.arguments, " "); joined != testCase.arguments {
+				t.Errorf("parsing %q forwarded %q, want %q", testCase.args, joined, testCase.arguments)
+			}
+		})
 	}
 }
 
 // TestAnAliasReachesTheModuleUnderTheNameItServes proves the resolved path is
-// what travels, not the words that were typed. The module binds its handler to
-// one path, so forwarding the alias would be a command it does not serve.
+// what travels, not the words that were typed.
 func TestAnAliasReachesTheModuleUnderTheNameItServes(t *testing.T) {
-	command, _, _, _, err := parseProductArgs("reference", referenceTree(), []string{"apps", "ls"})
-	if err != nil {
-		t.Fatalf("parsing an alias: %v", err)
-	}
-	if strings.Join(command, " ") != "apps ls" {
-		t.Errorf("the alias resolved to %q", command)
+	line := parse(t, referenceTree(), "apps", "ls")
+
+	if strings.Join(line.command, " ") != "apps ls" {
+		t.Errorf("the alias resolved to %q", line.command)
 	}
 }
 
@@ -190,11 +241,8 @@ func TestShorthandFlagsReadTheWayPflagReadsThem(t *testing.T) {
 
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, arguments, _, _, err := parseProductArgs("reference", referenceTree(), testCase.args)
-			if err != nil {
-				t.Fatalf("parsing %q: %v", testCase.args, err)
-			}
-			if joined := strings.Join(arguments, " "); joined != testCase.arguments {
+			line := parse(t, referenceTree(), testCase.args...)
+			if joined := strings.Join(line.arguments, " "); joined != testCase.arguments {
 				t.Errorf("parsing %q forwarded %q, want %q", testCase.args, joined, testCase.arguments)
 			}
 		})
@@ -204,16 +252,13 @@ func TestShorthandFlagsReadTheWayPflagReadsThem(t *testing.T) {
 // TestTheSeparatorHandsEverythingAfterItToTheModule proves a command can still
 // take an argument that looks like a flag, including one of the shell's own.
 func TestTheSeparatorHandsEverythingAfterItToTheModule(t *testing.T) {
-	_, arguments, mode, _, err := parseProductArgs("reference", referenceTree(),
-		[]string{"status", "--", "--output", "json"})
-	if err != nil {
-		t.Fatalf("parsing: %v", err)
-	}
-	if joined := strings.Join(arguments, " "); joined != "-- --output json" {
+	line := parse(t, referenceTree(), "status", "--", "--output", "json")
+
+	if joined := strings.Join(line.arguments, " "); joined != "-- --output json" {
 		t.Errorf("the module receives %q", joined)
 	}
-	if mode != output.ModeTable {
-		t.Errorf("the shell read a flag written after the separator: %s", mode)
+	if line.mode != output.ModeTable {
+		t.Errorf("the shell read a flag written after the separator: %s", line.mode)
 	}
 }
 
@@ -221,32 +266,25 @@ func TestTheSeparatorHandsEverythingAfterItToTheModule(t *testing.T) {
 // the truncated line itself, instead of forwarding it for the module to reject
 // after the process has been launched and access brokered.
 func TestAValueFlagWithNoValueIsRefusedRatherThanForwarded(t *testing.T) {
-	_, _, _, _, err := parseProductArgs("reference", referenceTree(), []string{"status", "--since"})
-
-	var reported problem.Problem
-	if !errors.As(err, &reported) {
-		t.Fatalf("parsing returned %v", err)
-	}
-	if reported.Code != "shell.missing_flag_value" {
-		t.Errorf("the refusal is coded %q", reported.Code)
+	if code := refusal(t, referenceTree(), "status", "--since").Code; code != "shell.missing_flag_value" {
+		t.Errorf("the refusal is coded %q", code)
 	}
 }
 
 // TestACommandsOwnArgumentsStillReachIt proves declaring flags did not make
 // positional arguments disappear.
 func TestACommandsOwnArgumentsStillReachIt(t *testing.T) {
-	tree := declaring(commandtree.Command{Path: []string{"deploy"}, Runnable: true,
-		Flags: []commandtree.Flag{{Name: "force", Type: commandtree.TypeBool}}})
+	tree := declaring(
+		commandtree.Command{Path: nil},
+		commandtree.Command{Path: []string{"deploy"}, Runnable: true,
+			Flags: []commandtree.Flag{{Name: "force", Type: commandtree.TypeBool}}})
 
-	command, arguments, _, _, err := parseProductArgs("reference", tree,
-		[]string{"deploy", "app.zip", "--force"})
-	if err != nil {
-		t.Fatalf("parsing: %v", err)
+	line := parse(t, tree, "deploy", "app.zip", "--force")
+
+	if strings.Join(line.command, " ") != "deploy" {
+		t.Errorf("the command is %q", line.command)
 	}
-	if strings.Join(command, " ") != "deploy" {
-		t.Errorf("the command is %q", command)
-	}
-	if joined := strings.Join(arguments, " "); joined != "app.zip --force" {
+	if joined := strings.Join(line.arguments, " "); joined != "app.zip --force" {
 		t.Errorf("the module receives %q", joined)
 	}
 }
@@ -268,16 +306,61 @@ func TestAShellFlagWhereAModuleFlagsValueBelongsIsThatValue(t *testing.T) {
 
 	for name, args := range lines {
 		t.Run(name, func(t *testing.T) {
-			_, arguments, mode, _, err := parseProductArgs("reference", referenceTree(), args)
-			if err != nil {
-				t.Fatalf("parsing %q: %v", args, err)
+			line := parse(t, referenceTree(), args...)
+			if line.mode != output.ModeTable {
+				t.Errorf("the shell claimed a flag standing in a module flag's value: %s", line.mode)
 			}
-			if mode != output.ModeTable {
-				t.Errorf("the shell claimed a flag standing in a module flag's value: %s", mode)
-			}
-			if joined := strings.Join(arguments, " "); joined != strings.Join(args[1:], " ") {
+			if joined := strings.Join(line.arguments, " "); joined != strings.Join(args[1:], " ") {
 				t.Errorf("the module receives %q, want %q", joined, strings.Join(args[1:], " "))
 			}
 		})
+	}
+}
+
+// TestAskingForHelpIsNotAskingToRun proves the shell recognises a request for
+// help rather than reporting --help as a flag the command does not take, and
+// that a flag which takes a value still claims the word after it.
+func TestAskingForHelpIsNotAskingToRun(t *testing.T) {
+	if !parse(t, referenceTree(), "status", "--help").help {
+		t.Error("--help was not read as a request for help")
+	}
+	if !parse(t, referenceTree(), "status", "-h").help {
+		t.Error("-h was not read as a request for help")
+	}
+	if parse(t, referenceTree(), "status").help {
+		t.Error("a line with no help flag asked for help")
+	}
+	// --since takes a value, so the word after it is that value, which is how
+	// pflag reads the same line.
+	if parse(t, referenceTree(), "status", "--since", "--help").help {
+		t.Error("a value belonging to --since was read as a request for help")
+	}
+	if parse(t, referenceTree(), "status", "--", "--help").help {
+		t.Error("a word after the separator was read as a request for help")
+	}
+}
+
+// TestTheShellsOwnShorthandInsideAModuleRunIsExplained proves the refusal tells
+// the truth about whose flag it is.
+//
+// "-ao json" joins the shell's -o to a module's -a, and a run belongs to one
+// flag set. Reporting it as a flag the command does not take would be false —
+// "-o json" beside it works — and would send the reader to the module's
+// documentation looking for the shell's flag.
+func TestTheShellsOwnShorthandInsideAModuleRunIsExplained(t *testing.T) {
+	reported := refusal(t, referenceTree(), "status", "-ao", "json")
+
+	if reported.Code != "shell.shell_flag_in_a_product_run" {
+		t.Errorf("the refusal is coded %q", reported.Code)
+	}
+	if !strings.Contains(reported.Message, "the shell's own flag") {
+		t.Errorf("the refusal does not say whose flag it is: %q", reported.Message)
+	}
+	if !strings.Contains(reported.Recovery, "on its own") {
+		t.Errorf("the recovery does not say how to write it: %q", reported.Recovery)
+	}
+	// Written on its own it is the shell's, and reaches the shell.
+	if line := parse(t, referenceTree(), "status", "-a", "-o", "json"); line.mode != output.ModeJSON {
+		t.Errorf("the same flag written separately rendered %s", line.mode)
 	}
 }

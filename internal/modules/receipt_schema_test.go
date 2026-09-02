@@ -101,7 +101,7 @@ func TestAReceiptCarriesTheDeclaredTreeThroughEncoding(t *testing.T) {
 		t.Fatalf("decoding: %v", err)
 	}
 
-	command, _, ok := read.CommandTree.Find([]string{"status", "--since", "1h"})
+	command, ok := read.CommandTree.Child(nil, "status")
 	if !ok {
 		t.Fatalf("the decoded receipt declares %+v", read.CommandTree)
 	}

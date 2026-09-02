@@ -87,28 +87,124 @@ func (f *shellFlags) read(namespace string, args []string) (int, error) {
 // its flags are written. Without one the shell could only consume the flags it
 // recognised and hand everything from the first flag it did not to the module,
 // so "--output json" before an unknown product flag rendered JSON and the same
-// flag after it silently rendered a table. Knowing which flags the command takes
-// and which of them carry a value, the shell can read the whole line: the
-// module's flags go to the module wherever they appear, the shell's are the
-// shell's wherever they appear, and a flag belonging to neither is named rather
-// than forwarded to fail somewhere else.
+// flag after it silently rendered a table.
+//
+// It runs in the two phases Cobra runs in, and for the same reason: which
+// command a line names cannot be settled by reading flags, because which flags
+// exist depends on the command. So [parsetree.Tree.Route] locates the command
+// first, and only then is the whole line read against what that command
+// declares. Doing it in one pass is what makes a shell disagree with the module
+// it forwards to about where a command ends and its arguments begin.
 //
 // A module that declares no tree — one built before declarations existed, or one
 // that is not built on Cobra — is parsed the way every module was before: the
 // command path is the leading run of plain words, and everything from the first
 // unrecognised flag onward is the module's to interpret or refuse.
-func parseProductArgs(namespace string, declared parsetree.Tree, args []string) (
-	command, arguments []string, mode output.Mode, contextName string, err error) {
+func parseProductArgs(namespace string, declared parsetree.Tree, args []string) (productLine, error) {
+	if !declared.Declared() {
+		return parseUndeclaredProductArgs(namespace, args)
+	}
+
+	routed := declared.Route(args)
+	// An unmodified Cobra root refuses a plain word that names no subcommand,
+	// and passes one along anywhere below the root. Matching that is what keeps
+	// the shell from refusing a command the module would have run, or running
+	// one it would have refused.
+	if routed.Unrouted != "" && len(routed.Command.Path) == 0 && declared.RootHasChildren() {
+		return productLine{}, unknownProductCommand(namespace, routed.Unrouted, declared)
+	}
+
+	var (
+		arguments []string
+		help      bool
+	)
+	flags := shellFlags{mode: output.ModeTable}
+	for index := 0; index < len(args); index++ {
+		if routed.Path[index] {
+			continue
+		}
+		remaining := args[index:]
+		consumed, failure := flags.read(namespace, remaining)
+		if failure != nil {
+			return productLine{}, failure
+		}
+		if consumed > 0 {
+			index += consumed - 1
+			continue
+		}
+		argument := remaining[0]
+		switch {
+		case argument == "--":
+			// Everything after the separator is the module's, unread. A
+			// command that takes a file named "--output" needs a way to say so.
+			arguments = append(arguments, remaining...)
+			index = len(args)
+		case strings.HasPrefix(argument, "--"):
+			var asked bool
+			consumed, asked, failure = readLongFlag(namespace, routed.Command, remaining, &arguments)
+			help = help || asked
+		case len(argument) > 1 && argument[0] == '-':
+			var asked bool
+			consumed, asked, failure = readShorthandFlags(namespace, routed.Command, remaining, &arguments)
+			help = help || asked
+		default:
+			arguments = append(arguments, argument)
+			consumed = 1
+		}
+		if failure != nil {
+			return productLine{}, failure
+		}
+		if consumed > 0 {
+			index += consumed - 1
+		}
+	}
+	// The resolved path replaces the words that were typed, so an alias reaches
+	// the module under the name the module serves.
+	return productLine{
+		command:     routed.Command.Path,
+		arguments:   arguments,
+		mode:        flags.mode,
+		contextName: flags.contextName,
+		help:        help,
+		declared:    routed.Command,
+	}, nil
+}
+
+// productLine is one product command line as the shell read it.
+//
+// The pieces travel together because they are one reading of one line: which
+// command it names, what the module is given, and what the shell kept for
+// itself. Returning them separately was five values every caller and every test
+// had to keep in the right order.
+type productLine struct {
+	command     []string
+	arguments   []string
+	mode        output.Mode
+	contextName string
+	// help reports that the line asked for help rather than for the command to
+	// run. The shell answers it from the declaration and launches nothing.
+	help bool
+	// declared is the command the line resolved to, empty for a module that
+	// declares no tree.
+	declared commandtree.Command
+}
+
+// parseUndeclaredProductArgs is how every module was parsed before any of them
+// declared a command tree, and how one that still declares none is parsed now.
+//
+// The shell reads the flags it owns, takes the leading run of plain words as the
+// command, and stops at the first flag it does not recognise, because without a
+// declaration it cannot tell whether the word after that flag is the flag's
+// value or a command of its own. Everything from there is the module's to
+// interpret or refuse.
+func parseUndeclaredProductArgs(namespace string, args []string) (productLine, error) {
+	var command []string
 	flags := shellFlags{mode: output.ModeTable}
 	remaining := args
-
-	// The command path is the leading run of plain words. A flag the shell does
-	// not own ends it, because from there a plain word could be that flag's
-	// value rather than a command name.
 	for len(remaining) > 0 {
 		consumed, failure := flags.read(namespace, remaining)
 		if failure != nil {
-			return nil, nil, "", "", failure
+			return productLine{}, failure
 		}
 		if consumed > 0 {
 			remaining = remaining[consumed:]
@@ -120,68 +216,37 @@ func parseProductArgs(namespace string, declared parsetree.Tree, args []string) 
 		command = append(command, remaining[0])
 		remaining = remaining[1:]
 	}
-
-	if !declared.Declared() {
-		return command, remaining, flags.mode, flags.contextName, nil
-	}
-
-	found, positional, ok := declared.Lookup(command)
-	if !ok {
-		return nil, nil, "", "", unknownProductCommand(namespace, command, declared)
-	}
-	arguments = append(arguments, positional...)
-
-	for len(remaining) > 0 {
-		consumed, failure := flags.read(namespace, remaining)
-		if failure != nil {
-			return nil, nil, "", "", failure
-		}
-		if consumed > 0 {
-			remaining = remaining[consumed:]
-			continue
-		}
-		argument := remaining[0]
-		switch {
-		case argument == "--":
-			// Everything after the separator is the module's, unread. A
-			// command that takes a file named "--output" needs a way to say so.
-			arguments = append(arguments, remaining...)
-			remaining = nil
-		case strings.HasPrefix(argument, "--"):
-			consumed, failure = readLongFlag(namespace, found, remaining, &arguments)
-		case len(argument) > 1 && argument[0] == '-':
-			consumed, failure = readShorthandFlags(namespace, found, remaining, &arguments)
-		default:
-			arguments = append(arguments, argument)
-			consumed = 1
-		}
-		if failure != nil {
-			return nil, nil, "", "", failure
-		}
-		remaining = remaining[consumed:]
-	}
-	// The resolved path replaces the words that were typed, so an alias reaches
-	// the module under the name the module serves.
-	return found.Path, arguments, flags.mode, flags.contextName, nil
+	// Help is not answered for a module that declares nothing: there is no
+	// declaration to answer from, so --help travels to the module as it always
+	// did.
+	return productLine{
+		command: command, arguments: remaining,
+		mode: flags.mode, contextName: flags.contextName,
+	}, nil
 }
 
 // readLongFlag reads one of the module's long flags and the value it carries.
 func readLongFlag(namespace string, found commandtree.Command, args []string,
-	arguments *[]string) (int, error) {
+	arguments *[]string) (consumed int, help bool, err error) {
 	name, _, attached := strings.Cut(strings.TrimPrefix(args[0], "--"), "=")
 	flag, declared := found.LookupFlag(name)
 	if !declared {
-		return 0, unknownProductFlag(namespace, found, "--"+name)
+		return 0, false, unknownProductFlag(namespace, found, "--"+name)
 	}
+	// Whether this is a request for help is answered here, where the word is
+	// known to be a flag. Looking for it in the finished argument list instead
+	// would find the one in "--since --help", which is the value --since
+	// claimed, not a request for anything.
+	help = name == commandtree.HelpFlagName && !flag.TakesValue()
 	*arguments = append(*arguments, args[0])
 	if !flag.TakesValue() || attached {
-		return 1, nil
+		return 1, help, nil
 	}
 	if len(args) < 2 {
-		return 0, missingProductFlagValue(namespace, found, "--"+name)
+		return 0, false, missingProductFlagValue(namespace, found, "--"+name)
 	}
 	*arguments = append(*arguments, args[1])
-	return 2, nil
+	return 2, help, nil
 }
 
 // readShorthandFlags reads a run of single-letter flags written as one argument.
@@ -191,66 +256,73 @@ func readLongFlag(namespace string, found commandtree.Command, args []string,
 // way is what keeps a declaration honest: a shell that guessed differently from
 // the module it forwards to would send a value the module never saw as one.
 func readShorthandFlags(namespace string, found commandtree.Command, args []string,
-	arguments *[]string) (int, error) {
+	arguments *[]string) (consumed int, help bool, err error) {
 	letters := []rune(args[0][1:])
 	for index, letter := range letters {
 		flag, declared := found.LookupShorthand(letter)
 		if !declared {
-			return 0, unknownProductFlag(namespace, found, "-"+string(letter))
+			return 0, false, unknownProductFlag(namespace, found, "-"+string(letter))
 		}
 		if !flag.TakesValue() {
+			help = help || flag.Name == commandtree.HelpFlagName
 			continue
 		}
 		*arguments = append(*arguments, args[0])
 		// The rest of the run is the value, whether or not an equals sign
 		// joins it. Only an empty rest sends the parser to the next argument.
 		if rest := strings.TrimPrefix(string(letters[index+1:]), "="); rest != "" {
-			return 1, nil
+			return 1, help, nil
 		}
 		if len(args) < 2 {
-			return 0, missingProductFlagValue(namespace, found, "-"+string(letter))
+			return 0, false, missingProductFlagValue(namespace, found, "-"+string(letter))
 		}
 		*arguments = append(*arguments, args[1])
-		return 2, nil
+		return 2, help, nil
 	}
 	*arguments = append(*arguments, args[0])
-	return 1, nil
+	return 1, help, nil
 }
 
-// unknownProductCommand reports a command path the module does not serve.
+// unknownProductCommand reports a word that names no command the module serves.
 //
 // Naming it here is the point of the declaration. Before one existed the words
 // went to the module, which answered for itself and could not be asked what it
 // would have accepted, so the shell had nothing to suggest.
-func unknownProductCommand(namespace string, words []string, declared parsetree.Tree) problem.Problem {
-	typed := strings.Join(words, " ")
+func unknownProductCommand(namespace, typed string, declared parsetree.Tree) problem.Problem {
 	reported := problem.New(problem.CategoryUsage, "shell.unknown_product_command",
 		fmt.Sprintf("the %s module has no %q command", namespace, typed))
-	if closest := closestCommand(declared, words); closest != "" {
+	if closest := closestCommand(declared, typed); closest != "" {
 		return reported.WithRecovery(fmt.Sprintf("Did you mean wso2 %s %s?", namespace, closest))
 	}
 	return reported.WithRecovery(fmt.Sprintf("Run wso2 %s --help to see what it does.", namespace))
 }
 
-// closestCommand reports the declared command path nearest to what was typed,
-// or the empty string when nothing is near enough to be worth offering.
-func closestCommand(declared parsetree.Tree, words []string) string {
-	typed := strings.Join(words, " ")
+// suggestionDistance is how far a mistyped word may be from a real command
+// before the shell stops guessing. It is one number because a suggestion for a
+// product command and one for a built-in are the same offer to the same user;
+// two would be a difference nobody decided on.
+const suggestionDistance = 2
+
+// closestCommand reports the declared command nearest to what was typed, or the
+// empty string when nothing is near enough to be worth offering.
+func closestCommand(declared parsetree.Tree, typed string) string {
 	best, bestDistance := "", 0
 	for _, candidate := range declared.Commands() {
-		path := strings.Join(candidate.Path, " ")
-		if path == "" {
+		if len(candidate.Path) != 1 {
 			continue
 		}
-		distance := editDistance(typed, path)
-		// Two edits is the same tolerance Cobra offers for the shell's own
-		// commands, so a product command is suggested on the same terms as a
-		// built-in one rather than on a rule of its own.
-		if distance > 2 {
+		name := candidate.Path[0]
+		// A product command is offered on the same terms as a built-in one,
+		// so the threshold is the one the root command hands Cobra rather
+		// than a second number that could drift from it. Cobra keeps its own
+		// distance function unexported, which is why the measure is written
+		// out here and the threshold is not.
+		distance := editDistance(typed, name)
+		if distance > suggestionDistance {
 			continue
 		}
 		if best == "" || distance < bestDistance {
-			best, bestDistance = path, distance
+			best, bestDistance = name, distance
 		}
 	}
 	return best
@@ -278,11 +350,27 @@ func editDistance(from, to string) int {
 }
 
 // unknownProductFlag reports a flag the command does not declare.
+//
+// One spelling is singled out. The shell's own shorthand can be written beside a
+// module's — "-o json" — but not inside a run of the module's letters, because a
+// run belongs to one flag set and this one is the shell's. Saying the command
+// does not take it would be untrue, and would send a reader looking through the
+// module's documentation for a flag that is not the module's.
 func unknownProductFlag(namespace string, found commandtree.Command, spelling string) problem.Problem {
+	label := commandLabel(namespace, found)
+	if shellShorthand(spelling) {
+		return problem.New(problem.CategoryUsage, "shell.shell_flag_in_a_product_run",
+			fmt.Sprintf("%s is the shell's own flag and cannot be joined to %s's flags", spelling, label)).
+			WithRecovery(fmt.Sprintf("Write it on its own, as %s ... %s <mode>.", label, spelling))
+	}
 	return problem.New(problem.CategoryUsage, "shell.unknown_product_flag",
-		fmt.Sprintf("%s does not take %s", commandLabel(namespace, found), spelling)).
-		WithRecovery(fmt.Sprintf("Run %s --help to see the flags it accepts.",
-			commandLabel(namespace, found)))
+		fmt.Sprintf("%s does not take %s", label, spelling)).
+		WithRecovery(fmt.Sprintf("Run %s --help to see the flags it accepts.", label))
+}
+
+// shellShorthand reports whether a single-letter spelling is one the shell owns.
+func shellShorthand(spelling string) bool {
+	return spelling == "-o"
 }
 
 // missingProductFlagValue reports a module flag written without the value it

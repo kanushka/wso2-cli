@@ -32,11 +32,20 @@ type Options struct {
 	Version       string
 	AuthAudiences []string
 	AuthScopes    []string
+	CommandTree   commandtree.Tree
 }
 ```
 
-The author supplies these four. The SDK supplies the protocol versions and the
-SDK version itself, so neither can drift from the SDK actually linked.
+The author supplies these. The SDK supplies the protocol versions and the SDK
+version itself, so neither can drift from the SDK actually linked.
+
+`CommandTree` is the module's declared command tree, which the shell reads to
+parse a product command line as precisely as the module would. A Cobra module
+does not set it by hand: `cobratree.Tree.Serve` fills it from the same tree it
+serves, which is what keeps a module's commands in one place. Leaving it empty
+is supported, and means the shell parses for this module the way it did before
+declarations existed — the leading plain words are the command, and everything
+from the first flag the shell does not recognise goes to the module unread.
 
 `AuthAudiences` and `AuthScopes` must equal the `capabilities` in
 [`module.json`](module-manifest.md#capabilities). They are two declarations of
@@ -60,6 +69,32 @@ an unknown command rather than a silent success.
 
 `sdk/cobratree` serves an existing Cobra tree instead, for a product CLI being
 migrated.
+
+```go
+tree := cobratree.New(root).Handle(status, runStatus).Handle(list, runList)
+err := tree.Serve(ctx, options)
+```
+
+`Serve` declares the tree and then serves it. `Declare` and `Commands` are
+available separately, but calling `Serve` is one place to change rather than
+two to keep in step.
+
+The declaration is generated from the Cobra tree itself: its commands, their
+flags, each flag's shorthand and description, and whether a flag carries a
+value. Groups that bind no handler are declared too, because the shell has to
+parse a path through them. Nothing is hand-written and there is no second schema.
+
+The shell asks for that declaration by running the executable once, at install
+time, with `WSO2_MODULE_COMMAND_TREE` set to a file to write. `module.Serve`
+answers it and exits without opening the protocol. The request arrives in the
+environment rather than as a flag because a module parses its own arguments
+before the SDK sees them, and the answer is a file rather than a stream because
+standard output carries protocol frames and standard error carries the module's
+own diagnostics. A module that ignores the request installs with no declared
+tree, which is a supported state.
+
+See [ADR 0013](../adr/0013-a-command-tree-is-parsed-only-from-the-local-receipt.md)
+for why the shell parses only from the local receipt and never from the catalog.
 
 ## What a handler receives
 

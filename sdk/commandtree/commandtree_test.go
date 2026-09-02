@@ -60,90 +60,72 @@ func TestNewOrdersCommandsAndFlagsWhateverOrderTheyArriveIn(t *testing.T) {
 	}
 }
 
-// TestFindMatchesTheLongestCommandPath proves a nested command wins over its
-// parent. "apps list" is the command the user typed; answering with "apps"
-// and treating "list" as an argument would send the wrong path to the module.
-func TestFindMatchesTheLongestCommandPath(t *testing.T) {
+// TestChildResolvesOneLevelAtATime proves the tree answers the only routing
+// question a caller should ask it: does the command in hand have a subcommand
+// by this name. Resolving a whole path in one call would have to decide which
+// words are flag values, and the tree does not know where a caller is on the
+// line.
+func TestChildResolvesOneLevelAtATime(t *testing.T) {
 	tree := commandtree.New([]commandtree.Command{
 		{Path: nil, Runnable: true},
-		{Path: []string{"apps"}},
-		{Path: []string{"apps", "list"}, Runnable: true},
-	})
-
-	cases := []struct {
-		args      []string
-		path      []string
-		remaining []string
-	}{
-		{args: []string{"apps", "list", "--all"}, path: []string{"apps", "list"}, remaining: []string{"--all"}},
-		{args: []string{"apps", "--all"}, path: []string{"apps"}, remaining: []string{"--all"}},
-		{args: []string{"--all"}, path: nil, remaining: []string{"--all"}},
-		{args: []string{"apps", "list", "one", "two"}, path: []string{"apps", "list"}, remaining: []string{"one", "two"}},
-	}
-	for _, testCase := range cases {
-		found, remaining, ok := tree.Find(testCase.args)
-		if !ok {
-			t.Errorf("Find(%q) found no command", testCase.args)
-			continue
-		}
-		if !equal(found.Path, testCase.path) {
-			t.Errorf("Find(%q) matched %q, want %q", testCase.args, found.Path, testCase.path)
-		}
-		if !equal(remaining, testCase.remaining) {
-			t.Errorf("Find(%q) left %q, want %q", testCase.args, remaining, testCase.remaining)
-		}
-	}
-}
-
-// TestFindReportsAnUnknownCommand proves a word that names no command is not
-// quietly treated as an argument to the namespace's default command. That is
-// the difference between reporting a typo and running something else.
-func TestFindReportsAnUnknownCommand(t *testing.T) {
-	tree := commandtree.New([]commandtree.Command{
-		{Path: []string{"apps"}, Runnable: true},
-	})
-
-	if _, _, ok := tree.Find([]string{"aps"}); ok {
-		t.Error("Find matched a command the tree does not declare")
-	}
-}
-
-// TestFindTellsAPositionalArgumentFromABadSubcommand proves the tree itself
-// answers what an unmatched word means. Under a command that groups others it
-// is a subcommand the module does not serve, and reporting it is the point of
-// declaring a tree. Under a leaf it is that command's own argument, and refusing
-// it would make every command that takes one unreachable.
-func TestFindTellsAPositionalArgumentFromABadSubcommand(t *testing.T) {
-	tree := commandtree.New([]commandtree.Command{
 		{Path: []string{"apps"}},
 		{Path: []string{"apps", "list"}, Runnable: true},
 		{Path: []string{"deploy"}, Runnable: true},
 	})
 
-	if _, _, ok := tree.Find([]string{"apps", "lst"}); ok {
-		t.Error("a mistyped subcommand under a group was accepted as an argument")
+	if _, ok := tree.Child(nil, "apps"); !ok {
+		t.Error("a top-level command is not a child of the root")
 	}
-	found, remaining, ok := tree.Find([]string{"deploy", "app.zip"})
-	if !ok {
-		t.Fatal("a leaf command refused its own positional argument")
+	if _, ok := tree.Child([]string{"apps"}, "list"); !ok {
+		t.Error("a nested command is not a child of its parent")
 	}
-	if !equal(found.Path, []string{"deploy"}) || !equal(remaining, []string{"app.zip"}) {
-		t.Errorf("Find matched %q leaving %q, want [deploy] leaving [app.zip]", found.Path, remaining)
+	if _, ok := tree.Child(nil, "list"); ok {
+		t.Error("a nested command answered as a child of the root")
+	}
+	if _, ok := tree.Child([]string{"deploy"}, "list"); ok {
+		t.Error("a command answered as a child of an unrelated leaf")
 	}
 }
 
-// TestFindOnAnEmptyTreeMatchesNothing proves the zero tree — a module that
-// declares none — never claims a command. The shell reads that as "fall back to
-// passing the arguments through", so a tree that answered here would silently
-// take over parsing for a module that declared nothing.
-func TestFindOnAnEmptyTreeMatchesNothing(t *testing.T) {
-	var empty commandtree.Tree
+// TestRootIsTheCommandAtTheEmptyPath proves the namespace's own command is
+// reachable, since that is where every walk of a command line starts.
+func TestRootIsTheCommandAtTheEmptyPath(t *testing.T) {
+	tree := commandtree.New([]commandtree.Command{
+		{Path: nil, Runnable: true, Short: "The namespace itself."},
+		{Path: []string{"apps"}},
+	})
 
-	if !empty.Empty() {
-		t.Error("the zero tree does not report itself empty")
+	found, ok := tree.Root()
+	if !ok {
+		t.Fatal("the tree declares no root command")
 	}
-	if _, _, ok := empty.Find([]string{"apps"}); ok {
-		t.Error("the zero tree matched a command")
+	if found.Short != "The namespace itself." {
+		t.Errorf("the root is %+v", found)
+	}
+	if _, ok := (commandtree.Tree{}).Root(); ok {
+		t.Error("the zero tree reported a root command")
+	}
+}
+
+// TestHasChildrenDistinguishesAGroupFromALeaf proves the tree can say whether a
+// command takes subcommands, which is what decides whether an unrecognised word
+// under it is a mistake or an argument.
+func TestHasChildrenDistinguishesAGroupFromALeaf(t *testing.T) {
+	tree := commandtree.New([]commandtree.Command{
+		{Path: nil},
+		{Path: []string{"apps"}},
+		{Path: []string{"apps", "list"}, Runnable: true},
+		{Path: []string{"deploy"}, Runnable: true},
+	})
+
+	if !tree.HasChildren(nil) {
+		t.Error("a namespace with commands reports none")
+	}
+	if !tree.HasChildren([]string{"apps"}) {
+		t.Error("a group reports no children")
+	}
+	if tree.HasChildren([]string{"deploy"}) {
+		t.Error("a leaf reports children")
 	}
 }
 
@@ -178,16 +160,4 @@ func TestLookupFlagFindsAFlagBySpellingAndShorthand(t *testing.T) {
 	if _, ok := command.LookupFlag("a"); ok {
 		t.Error("the shorthand answered to the long spelling")
 	}
-}
-
-func equal(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
