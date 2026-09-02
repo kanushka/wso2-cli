@@ -304,7 +304,7 @@ func (d *loginDeployment) storedSession(t *testing.T) session.Session {
 // status runs one reference status command and returns its exit code.
 func (d *loginDeployment) status(t *testing.T) exit.Code {
 	t.Helper()
-	return d.shell.Run([]string{"reference", "status", "--output", "json"})
+	return d.shell.Run([]string{"reference", "call", "--output", "json"})
 }
 
 func TestLoginThenTheModuleReceivesIssuerMintedNarrowedAccess(t *testing.T) {

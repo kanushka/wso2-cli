@@ -103,7 +103,7 @@ func TestTheFaultFixtureAnswersLikeTheReferenceModuleWhenNoFaultIsSelected(t *te
 	stateRoot := isolatedStateRoot(t)
 	installFaultyModule(t, stateRoot, faultNone)
 
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "status")
+	stdout, stderr := runShell(t, shell, stateRoot, "reference", "call")
 
 	if !strings.Contains(stdout, "operational") {
 		t.Errorf("the fault fixture did not report a status:\n%s", stdout)
@@ -122,7 +122,7 @@ func TestTheLaunchCanaryRecordsAModuleTheShellDoesLaunch(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 	installLaunchCanary(t, stateRoot, fixture.Module{})
 
-	run := tryFailingShell(t, shell, stateRoot, "reference", "status")
+	run := tryFailingShell(t, shell, stateRoot, "reference", "call")
 
 	// The canary says nothing on the wire, so a shell that launched it ends
 	// without a result.
@@ -140,7 +140,7 @@ func TestAReceiptPathThatEscapesItsVersionDirectoryIsRejectedBeforeLaunch(t *tes
 		ExecutablePathOverride: "../../../escape/wso2-module-reference",
 	})
 
-	run := tryFailingShell(t, shell, stateRoot, "reference", "status")
+	run := tryFailingShell(t, shell, stateRoot, "reference", "call")
 
 	run.expect(t, exitModuleTrust, "modules.receipt_path_escape")
 	run.expectNoLaunch(t, stateRoot)
@@ -174,7 +174,7 @@ func TestASymbolicLinkThatLeavesTheVersionDirectoryIsRejectedBeforeLaunch(t *tes
 		t.Fatalf("fixture.Activate returned %v", err)
 	}
 
-	run := tryFailingShell(t, shell, stateRoot, "reference", "status")
+	run := tryFailingShell(t, shell, stateRoot, "reference", "call")
 
 	run.expect(t, exitModuleTrust, "modules.receipt_path_escape")
 	run.expectNoLaunch(t, stateRoot)
@@ -214,7 +214,7 @@ func TestIncompatibleReceiptMetadataIsRejectedBeforeLaunch(t *testing.T) {
 			stateRoot := isolatedStateRoot(t)
 			installLaunchCanary(t, stateRoot, testCase.module)
 
-			run := tryFailingShell(t, shell, stateRoot, "reference", "status")
+			run := tryFailingShell(t, shell, stateRoot, "reference", "call")
 
 			run.expect(t, exitModuleTrust, testCase.problem)
 			run.expectNoLaunch(t, stateRoot)
@@ -287,7 +287,7 @@ func TestARuntimeIdentityThatContradictsTheReceiptIsRejectedBeforeInvocation(t *
 			stateRoot := isolatedStateRoot(t)
 			installFaultyModule(t, stateRoot, testCase.fault)
 
-			run := tryFailingShell(t, shell, stateRoot, "reference", "status")
+			run := tryFailingShell(t, shell, stateRoot, "reference", "call")
 
 			run.expect(t, exitModuleTrust, testCase.problem)
 			assertMarkerAbsent(t, markerPath(stateRoot, invokedMarker),
@@ -304,7 +304,7 @@ func TestAnUnknownEnvelopeMessageKindFailsClosed(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 	installFaultyModule(t, stateRoot, faultUnknownMessageKind)
 
-	run := tryFailingShell(t, shell, stateRoot, "reference", "status")
+	run := tryFailingShell(t, shell, stateRoot, "reference", "call")
 
 	run.expect(t, exitModuleProcess, "rpc.unexpected_message")
 }
@@ -317,7 +317,7 @@ func TestAnUnknownFieldOnAKnownMessageIsStillAccepted(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 	installFaultyModule(t, stateRoot, faultUnknownField)
 
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "status")
+	stdout, stderr := runShell(t, shell, stateRoot, "reference", "call")
 
 	if !strings.Contains(stdout, "operational") {
 		t.Errorf("an additive unknown field cost the module its result:\n%s", stdout)
@@ -345,7 +345,7 @@ func TestDamagedFramesBecomeStableProtocolProblems(t *testing.T) {
 			stateRoot := isolatedStateRoot(t)
 			installFaultyModule(t, stateRoot, testCase.fault)
 
-			run := tryFailingShell(t, shell, stateRoot, "reference", "status")
+			run := tryFailingShell(t, shell, stateRoot, "reference", "call")
 
 			run.expect(t, exitModuleProcess, testCase.problem)
 		})
@@ -357,7 +357,7 @@ func TestAModuleThatPanicsFailsWithAStableProblemWithoutCrashingTheShell(t *test
 	stateRoot := isolatedStateRoot(t)
 	installFaultyModule(t, stateRoot, faultPanic)
 
-	run := tryFailingShell(t, shell, stateRoot, "reference", "status")
+	run := tryFailingShell(t, shell, stateRoot, "reference", "call")
 
 	run.expect(t, exitModuleProcess, "rpc.no_terminal_message")
 	// The shell reports the module's own crash text rather than crashing with
@@ -374,7 +374,7 @@ func TestAModuleThatKeepsWritingAfterItsResultProducesNoOutput(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 	installFaultyModule(t, stateRoot, faultExtraFrame)
 
-	run := tryFailingShell(t, shell, stateRoot, "reference", "status")
+	run := tryFailingShell(t, shell, stateRoot, "reference", "call")
 
 	run.expect(t, exitModuleProcess, "rpc.extra_message")
 	if strings.Contains(run.stdout, "operational") {
@@ -390,7 +390,7 @@ func TestAHangingModuleIsGivenAGracePeriodToExitBeforeItIsKilled(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 	installFaultyModule(t, stateRoot, faultWaitForInputClose)
 
-	stdout, stderr, err := runShellWithCeiling(t, shell, stateRoot, "reference", "status")
+	stdout, stderr, err := runShellWithCeiling(t, shell, stateRoot, "reference", "call")
 
 	run := failedRun{stdout: stdout, stderr: stderr, err: err}
 	run.expect(t, exitModuleProcess, "rpc.timed_out")
@@ -403,7 +403,7 @@ func TestModuleDiagnosticsAreBoundedAndCannotContaminateJSONOutput(t *testing.T)
 	stateRoot := isolatedStateRoot(t)
 	installFaultyModule(t, stateRoot, faultFloodDiagnostics)
 
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "status", "--output", "json")
+	stdout, stderr := runShell(t, shell, stateRoot, "reference", "call", "--output", "json")
 
 	decoded := decodeStatusJSON(t, stdout)
 	if decoded["status"] != "operational" {
@@ -524,7 +524,7 @@ func assertMarkerAbsent(t *testing.T, marker, message string) {
 // runShadowed runs a status command with an impostor first on PATH and another
 // in the working directory.
 func runShadowed(shell, stateRoot, pathDir, workingDir string) (string, string, error) {
-	command := exec.Command(shell, "reference", "status")
+	command := exec.Command(shell, "reference", "call")
 	command.Dir = workingDir
 	command.Env = withPathPrefix(shellEnvironment(stateRoot), pathDir)
 	var stdout, stderr strings.Builder

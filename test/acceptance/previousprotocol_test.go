@@ -102,7 +102,7 @@ func TestAModuleBuiltAgainstThePreviousProtocolSDKRunsUnderThisShell(t *testing.
 	}
 	deployment := deployInstalled(t, stateRoot, statusservice.Options{})
 
-	stdout, stderr, err := deployment.try(shell, "reference", "status")
+	stdout, stderr, err := deployment.try(shell, "reference", "call")
 
 	if err != nil {
 		t.Fatalf("%s: wso2 reference status failed: %v\nstdout:\n%s\nstderr:\n%s",

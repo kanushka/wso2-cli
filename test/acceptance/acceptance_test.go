@@ -150,7 +150,7 @@ func TestACopiedAndModifiedExecutableIsRejectedBeforeLaunch(t *testing.T) {
 		t.Fatalf("TamperExecutable returned %v", err)
 	}
 
-	command := exec.Command(shell, "reference", "status")
+	command := exec.Command(shell, "reference", "call")
 	command.Env = shellEnvironment(stateRoot)
 	output, err := command.CombinedOutput()
 

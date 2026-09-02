@@ -27,6 +27,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -36,6 +37,7 @@ import (
 
 	"github.com/wso2/wso2-cli/sdk/cobratree"
 	"github.com/wso2/wso2-cli/sdk/module"
+	"github.com/wso2/wso2-cli/sdk/problem"
 	"github.com/wso2/wso2-cli/sdk/result"
 )
 
@@ -49,7 +51,16 @@ const (
 	StatusScope    = "reference:status:read"
 )
 
-// StatusSchema identifies the semantic shape of the reference status result.
+// ReportSchema identifies the semantic shape of "wso2 reference status": what
+// this module is and what the shell brokered for it. It answers from the
+// invocation alone and calls nothing, so it is the command that works on a
+// developer's machine with nothing deployed (#147).
+const ReportSchema = "reference.report/v1"
+
+// StatusSchema identifies the semantic shape of the reference status service's
+// answer, returned by "wso2 reference call". The name predates the command
+// rename and is left alone: it names the shape of a status service's answer,
+// which is what it still is.
 // The shell renders it without interpreting it.
 const StatusSchema = "reference.status/v1"
 
@@ -113,21 +124,76 @@ func commands() []module.Command {
 	}
 	statusCommand := &cobra.Command{
 		Use:   "status",
-		Short: "Report the reference status service's own answer.",
+		Short: "Report this module and the access the shell brokered for it.",
+	}
+	callCommand := &cobra.Command{
+		Use:   "call",
+		Short: "Read the reference status service with brokered access.",
 	}
 	whoamiCommand := &cobra.Command{
 		Use:   "whoami",
 		Short: "Report the access the shell brokered for this invocation.",
 	}
-	root.AddCommand(statusCommand, whoamiCommand)
+	root.AddCommand(statusCommand, callCommand, whoamiCommand)
 
 	return cobratree.New(root).
 		Handle(statusCommand, status).
+		Handle(callCommand, call).
 		Handle(whoamiCommand, whoami).
 		Commands()
 }
 
 // status answers "wso2 reference status".
+//
+// It reports what this module is and what the shell granted it, and calls
+// nothing. That is deliberate: this is a sample module, and the command a
+// newcomer types first has to work on their machine with nothing deployed. The
+// service-backed proof lives in call below.
+//
+// An access denial is reported as a field rather than returned as an error, so
+// the command answers its own question when the answer is "no". Every other
+// command in the shell fails with the auth exit class instead; this one is the
+// exception because "did the broker grant anything?" is the whole question, and
+// a command that cannot say "no" cannot answer it. call keeps the ordinary
+// behaviour, so the exit-class contract is still exercised.
+//
+// It never sees a credential, and the token is never a field: what is reported
+// is which audience and scopes were granted, not the material carrying them.
+func status(ctx context.Context, request module.Request) (result.Result, error) {
+	// Kept deliberately narrow. The shell renders a module result as a single
+	// table row, one column per field, so a report that names everything it
+	// could becomes a line no terminal can show. Platform and organization are
+	// left out because wso2 version and wso2 whoami already answer for them.
+	report := result.New(ReportSchema).
+		With("module", "Module", Namespace+" v"+moduleVersion).
+		With("context", "Context", request.Context.Name)
+
+	access, err := request.Access.Acquire(ctx, module.AccessRequest{
+		Audience: StatusAudience,
+		Scopes:   []string{StatusScope},
+	})
+	if err != nil {
+		report = report.With("access", "Access", "refused")
+		// The shell's own account of the refusal is reported verbatim. A second
+		// wording here would be a second answer to why access was denied.
+		var typed problem.Problem
+		if errors.As(err, &typed) {
+			report = report.With("reason", "Reason", typed.Message)
+			if typed.Recovery != "" {
+				report = report.With("recovery", "Recovery", typed.Recovery)
+			}
+			return report, nil
+		}
+		return report.With("reason", "Reason", err.Error()), nil
+	}
+	return report.
+		With("access", "Access", "granted").
+		With("audience", "Audience", StatusAudience).
+		With("scopes", "Scopes", StatusScope).
+		With("expiresAt", "Expires", access.ExpiresAt.UTC().Format(time.RFC3339)), nil
+}
+
+// call answers "wso2 reference call".
 //
 // It asks the shell for access, reads the status service with what it was
 // granted, and returns semantic fields in presentation order. It performs no
@@ -136,7 +202,12 @@ func commands() []module.Command {
 //
 // It never sees a credential. It asks for an audience and scope, receives a
 // short-lived token, and has no way to obtain another.
-func status(ctx context.Context, request module.Request) (result.Result, error) {
+//
+// This is the command that proves a brokered token is accepted by a service at
+// the declared audience, so it needs a reference status service to call and
+// cannot succeed without one. It carried the name "status" until #147, which
+// gave that name to the command a developer can actually run.
+func call(ctx context.Context, request module.Request) (result.Result, error) {
 	access, err := request.Access.Acquire(ctx, module.AccessRequest{
 		Audience: StatusAudience,
 		Scopes:   []string{StatusScope},

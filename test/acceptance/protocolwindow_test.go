@@ -65,7 +65,7 @@ func TestAModuleAtEitherEndOfTheProtocolWindowRuns(t *testing.T) {
 		t.Run("protocol v"+strconv.Itoa(version), func(t *testing.T) {
 			deployment := deployModuleSpeaking(t, version, testModuleVersion)
 
-			stdout, stderr := deployment.run(t, shell, "reference", "status")
+			stdout, stderr := deployment.run(t, shell, "reference", "call")
 
 			if !strings.Contains(stdout, "operational") {
 				t.Fatalf("wso2 reference status did not report the service:\n%s", stdout)
@@ -87,7 +87,7 @@ func TestAModuleOutsideTheProtocolWindowIsRefusedAsACompatibilityProblem(t *test
 
 	deployment := deployModuleSpeaking(t, beyond, testModuleVersion)
 
-	stdout, stderr, err := deployment.try(shell, "reference", "status")
+	stdout, stderr, err := deployment.try(shell, "reference", "call")
 
 	if got := exitCode(t, err); got != exitModuleTrust {
 		t.Fatalf("exit status = %d, want %d\nstderr:\n%s", got, exitModuleTrust, stderr)
@@ -117,7 +117,7 @@ func TestAModuleVersionFarFromTheShellsRunsNormally(t *testing.T) {
 		t.Run("module v"+moduleVersion, func(t *testing.T) {
 			deployment := deployModuleSpeaking(t, current, moduleVersion)
 
-			stdout, stderr := deployment.run(t, shell, "reference", "status")
+			stdout, stderr := deployment.run(t, shell, "reference", "call")
 
 			if !strings.Contains(stdout, "operational") {
 				t.Fatalf("wso2 reference status did not report the service:\n%s", stdout)
