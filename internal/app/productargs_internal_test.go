@@ -44,9 +44,9 @@ func referenceTree() parsetree.Tree {
 			{Name: "verbose", Shorthand: "a", Type: commandtree.TypeBool},
 		}},
 		commandtree.Command{Path: []string{"status"}, Runnable: true, Flags: []commandtree.Flag{
-			{Name: "since", Type: commandtree.TypeString},
+			{Name: "since", Type: "string"},
 			{Name: "all", Shorthand: "a", Type: commandtree.TypeBool},
-			{Name: "region", Shorthand: "r", Type: commandtree.TypeString},
+			{Name: "region", Shorthand: "r", Type: "string"},
 			{Name: "verbose", Type: commandtree.TypeBool},
 			{Name: "help", Shorthand: "h", Type: commandtree.TypeBool},
 		}},

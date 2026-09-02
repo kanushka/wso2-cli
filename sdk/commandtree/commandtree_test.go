@@ -33,7 +33,7 @@ func TestNewOrdersCommandsAndFlagsWhateverOrderTheyArriveIn(t *testing.T) {
 	forward := commandtree.New([]commandtree.Command{
 		{Path: []string{"apps"}},
 		{Path: nil, Flags: []commandtree.Flag{
-			{Name: "region", Type: commandtree.TypeString},
+			{Name: "region", Type: "string"},
 			{Name: "all", Type: commandtree.TypeBool},
 		}},
 		{Path: []string{"apps", "list"}},
@@ -42,7 +42,7 @@ func TestNewOrdersCommandsAndFlagsWhateverOrderTheyArriveIn(t *testing.T) {
 		{Path: []string{"apps", "list"}},
 		{Path: nil, Flags: []commandtree.Flag{
 			{Name: "all", Type: commandtree.TypeBool},
-			{Name: "region", Type: commandtree.TypeString},
+			{Name: "region", Type: "string"},
 		}},
 		{Path: []string{"apps"}},
 	})
@@ -136,7 +136,7 @@ func TestOnlyABooleanFlagTakesNoValue(t *testing.T) {
 	if (commandtree.Flag{Name: "all", Type: commandtree.TypeBool}).TakesValue() {
 		t.Error("a boolean flag reports that it takes a value")
 	}
-	for _, kind := range []string{commandtree.TypeString, "int", "stringSlice", ""} {
+	for _, kind := range []string{"string", "int", "stringSlice", ""} {
 		if !(commandtree.Flag{Name: "region", Type: kind}).TakesValue() {
 			t.Errorf("a flag of type %q reports that it takes no value", kind)
 		}

@@ -88,7 +88,7 @@ func TestAReceiptCarriesTheDeclaredTreeThroughEncoding(t *testing.T) {
 	written := validReceipt()
 	written.CommandTree = commandtree.New([]commandtree.Command{
 		{Path: []string{"status"}, Runnable: true, Flags: []commandtree.Flag{
-			{Name: "since", Type: commandtree.TypeString},
+			{Name: "since", Type: "string"},
 		}},
 	})
 

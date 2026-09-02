@@ -53,7 +53,12 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 	// launches no process, needs no context, and needs no login. Before the
 	// declaration the shell had nothing to answer from and had to forward the
 	// question.
-	if line.help {
+	//
+	// A command that groups others and runs nothing is answered the same way,
+	// because that is what Cobra does with one: there is nothing to run, and
+	// help is the useful answer. Launching the module to be told the command
+	// does not exist would be a worse account of a command that plainly does.
+	if declared.Declared() && (line.help || !line.declared.Runnable) {
 		return s.renderProductHelp(namespace, declared, line.declared)
 	}
 	command, arguments := line.command, line.arguments

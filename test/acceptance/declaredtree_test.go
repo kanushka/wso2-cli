@@ -241,3 +241,62 @@ func TestHelpForAProductNamespaceListsItsCommands(t *testing.T) {
 		}
 	}
 }
+
+// TestACommandThatGroupsOthersShowsItsHelp proves the shell answers for a
+// command that runs nothing the way Cobra does, rather than launching the
+// module to be told a command it declares does not exist.
+func TestACommandThatGroupsOthersShowsItsHelp(t *testing.T) {
+	shell := buildShell(t)
+	stateRoot := isolatedStateRoot(t)
+	installGroupingModule(t, stateRoot)
+
+	stdout, stderr, err := runShellWith(shell, shellEnvironment(stateRoot), "reference", "apps")
+
+	if err != nil {
+		t.Fatalf("running a group failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	for _, wanted := range []string{"Work with applications.", "list", "List applications."} {
+		if !strings.Contains(stdout, wanted) {
+			t.Errorf("the group's help does not mention %q:\n%s", wanted, stdout)
+		}
+	}
+}
+
+// installGroupingModule installs the declaring module with apps declared as a
+// group that binds no handler, which is the shape a product CLI's intermediate
+// commands actually have.
+func installGroupingModule(t *testing.T, stateRoot string) {
+	t.Helper()
+	binary := filepath.Join(t.TempDir(), "declaringmodule"+executableSuffix())
+	build(t, repoRoot(t), binary,
+		"-X main.moduleVersion="+testModuleVersion+
+			" -X github.com/wso2/wso2-cli/sdk/protocol.Version="+testProtocolVersion,
+		"./test/acceptance/testdata/declaringmodule")
+
+	tree := extractCommandTree(t, binary)
+	if _, err := fixture.Install(state.ModuleStore(stateRoot), fixture.Module{
+		Namespace:        "reference",
+		Version:          testModuleVersion,
+		ShellRange:       ">=0.1.0 <1.0.0",
+		ProtocolVersions: []int{testProtocolVersionNumber},
+		SourcePath:       binary,
+		AuthAudiences:    []string{referenceAudience},
+		AuthScopes:       []string{referenceReadScope},
+		CommandTree:      withoutHandlerFor(tree, "apps"),
+	}); err != nil {
+		t.Fatalf("fixture.Install returned %v", err)
+	}
+}
+
+// withoutHandlerFor returns the tree with one command declared as a group that
+// runs nothing.
+func withoutHandlerFor(tree commandtree.Tree, name string) commandtree.Tree {
+	commands := make([]commandtree.Command, 0, len(tree.Commands))
+	for _, command := range tree.Commands {
+		if len(command.Path) == 1 && command.Path[0] == name {
+			command.Runnable = false
+		}
+		commands = append(commands, command)
+	}
+	return commandtree.New(commands)
+}

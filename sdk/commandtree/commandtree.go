@@ -36,9 +36,10 @@ import (
 	"strings"
 )
 
-// The flag types this package names. A flag's type reaches the parser for one
-// reason — whether a value follows the flag — so only the boolean case has to
-// be recognised, and every other type is carried through as pflag spells it.
+// The names this package gives to things every declaration carries. A flag's
+// type reaches the parser for one reason — whether a value follows the flag —
+// so only the boolean case is named, and every other type is carried through
+// exactly as pflag spells it.
 const (
 	// TypeBool is the type of a flag that takes no value.
 	TypeBool = "bool"
@@ -50,10 +51,6 @@ const (
 	// HelpFlagShorthand is its single-letter spelling, which a command that
 	// already uses that letter for something else does not get.
 	HelpFlagShorthand = "h"
-	// TypeString is the type of an ordinary string flag. It is named for
-	// tests and callers that build a tree by hand; the parser treats it like
-	// every other non-boolean type.
-	TypeString = "string"
 )
 
 // Tree is the set of commands a module serves.
