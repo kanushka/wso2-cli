@@ -22,6 +22,15 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strings"
+)
+
+// The deployment kinds an identity may declare in its type member.
+const (
+	// TypeCloud marks an identity targeting a WSO2-operated cloud deployment.
+	TypeCloud = "cloud"
+	// TypeOnprem marks an identity targeting a self-hosted deployment.
+	TypeOnprem = "onprem"
 )
 
 // The authentication kinds a schema version 2 document may declare.
@@ -101,6 +110,34 @@ var legalDerivations = map[string]bool{
 // mistake as a failed deployment. One list, one place to add the next product.
 func Providers() []string {
 	return slices.Sorted(maps.Keys(providerDerivation))
+}
+
+// IdentityTypeForIssuer says which deployment kind an issuer URL points at:
+// an issuer on a WSO2-operated cloud host is TypeCloud, and anything else is
+// TypeOnprem, because a host WSO2 does not operate can only be self-hosted.
+//
+// The answer is descriptive today: the type member selects defaults and
+// wording, never structure (docs/examples/authentication-contexts.md), and no
+// logic in this repository branches on it beyond how the login report phrases
+// itself. The derivation exists so the document tells the truth about the
+// deployment kind — a login against Asgardeo must not record WSO2's own cloud
+// as an on-premises deployment.
+//
+// Asgardeo issuers live on api.asgardeo.io, the one cloud host this
+// repository's guides and research name; the whole asgardeo.io zone is
+// recognized so a regional or future Asgardeo host is described the same way.
+// A URL that does not parse yields TypeOnprem — the open-world default — but
+// login refuses such a URL before this question is ever asked.
+func IdentityTypeForIssuer(issuer string) string {
+	parsed, err := url.Parse(issuer)
+	if err != nil {
+		return TypeOnprem
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "asgardeo.io" || strings.HasSuffix(host, ".asgardeo.io") {
+		return TypeCloud
+	}
+	return TypeOnprem
 }
 
 // refPattern constrains a credential reference to one readable word, exactly
@@ -200,7 +237,7 @@ func (i Identity) validate() error {
 	if !namePattern.MatchString(i.Name) {
 		return malformed(fmt.Sprintf("declares an invalid identity name %q", i.Name))
 	}
-	if i.Type != "cloud" && i.Type != "onprem" {
+	if i.Type != TypeCloud && i.Type != TypeOnprem {
 		return malformed(fmt.Sprintf("declares an identity type for %q that is neither cloud nor onprem", i.Name))
 	}
 	if err := i.Auth.validate(i.Name); err != nil {

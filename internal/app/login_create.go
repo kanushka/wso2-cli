@@ -26,16 +26,6 @@ import (
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
-// identityType is what a login writes into a created identity's type member.
-//
-// It is descriptive: the member is validated by internal/contexts and read by
-// no logic in this repository, so nothing branches on it. "onprem" is what the
-// one decided sample this command implements shows
-// (docs/examples/login-walkthroughs.md B.1); "cloud" belongs to the bare
-// zero-flag login, which is out of scope until gap 7 in those walkthroughs has
-// an answer. See #112 D5.
-const identityType = "onprem"
-
 // loginCreating logs in against an issuer named on the command line and writes
 // the identity and the context it authenticated as.
 //
@@ -107,30 +97,22 @@ func (s Shell) loginCreating(flags loginFlags) error {
 
 	written := loginWrite{Identity: name, Context: name}
 	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
-		if _, err := planLogin(document, name, flags.issuer, clientID); err != nil {
+		planned, err := planLogin(document, name, flags.issuer, clientID)
+		if err != nil {
 			return document, err
 		}
 		// A fresh machine yields the zero document, whose schema version is
 		// zero rather than the one the shell writes.
 		document.SchemaVersion = contexts.SchemaVersion
 		if !declaresIdentity(document, name) {
-			document.Identities = append(document.Identities, contexts.Identity{
-				Name: name,
-				Type: identityType,
-				Auth: contexts.IdentityAuth{
-					Kind:     contexts.KindOAuthBrowser,
-					Issuer:   flags.issuer,
-					ClientID: clientID,
-					// The reference is the identity's own name, which is legal
-					// by construction: a credential reference and a name are
-					// held to the same pattern, so a name the document accepts
-					// is a reference it accepts.
-					CredentialRef: name,
-				},
-				// No products. A self-hosted deployment publishes no catalogue
-				// of what it serves, so nothing here could fill this in, and
-				// the report names the command that does.
-			})
+			// The identity planLogin built is written as planned, so what the
+			// report describes and what the document holds cannot disagree.
+			// Its credential reference is the identity's own name, which is
+			// legal by construction: a reference and a name are held to the
+			// same pattern, so a name the document accepts is a reference it
+			// accepts. It carries no products, because this login discovers
+			// none, and the report names the command that records them.
+			document.Identities = append(document.Identities, planned.Identity)
 			written.CreatedIdentity = true
 		}
 		if !declaresContext(document, name) {
@@ -238,7 +220,11 @@ func refuseNonIssuerURL(issuer string) error {
 func planLogin(document contexts.Document, name, issuer, clientID string) (contexts.Selection, error) {
 	identity := contexts.Identity{
 		Name: name,
-		Type: identityType,
+		// Derived from the issuer, not asserted: an issuer on a WSO2-operated
+		// cloud host records "cloud" and anything else records "onprem", so the
+		// document says what kind of deployment was actually logged in to.
+		// contexts.IdentityTypeForIssuer explains why the member is descriptive.
+		Type: contexts.IdentityTypeForIssuer(issuer),
 		Auth: contexts.IdentityAuth{
 			Kind:          contexts.KindOAuthBrowser,
 			Issuer:        issuer,
@@ -368,9 +354,24 @@ func (s Shell) reportLoginWrite(written loginWrite, identity contexts.Identity) 
 	if len(identity.Products) > 0 {
 		return nil
 	}
+	// The justification is picked by the identity's own deployment kind,
+	// because it is only true of one of them: a self-hosted deployment
+	// publishes no catalogue of what it serves, so "not discoverable" is its
+	// honest explanation, while a user who just authenticated against WSO2's
+	// cloud must not be told their deployment is self-hosted. The instruction
+	// is the same either way — this login discovers no products for anyone.
+	if identity.Type == contexts.TypeOnprem {
+		_, err := fmt.Fprintf(s.Streams.Out,
+			"\nNo products are configured for this identity. A self-hosted deployment is not\n"+
+				"discoverable, so each product's endpoint has to be recorded:\n\n"+
+				"  wso2 identity add-product %s <namespace> \\\n"+
+				"      --endpoint <url> --audience <resource-id> --scopes <list>\n",
+			written.Identity)
+		return err
+	}
 	_, err := fmt.Fprintf(s.Streams.Out,
-		"\nNo products are configured for this identity. A self-hosted deployment is not\n"+
-			"discoverable, so each product's endpoint has to be recorded:\n\n"+
+		"\nNo products are configured for this identity yet. Product endpoints are not\n"+
+			"discovered automatically, so each product's endpoint has to be recorded:\n\n"+
 			"  wso2 identity add-product %s <namespace> \\\n"+
 			"      --endpoint <url> --audience <resource-id> --scopes <list>\n",
 		written.Identity)
