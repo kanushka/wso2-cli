@@ -529,8 +529,10 @@ type moduleState int
 const (
 	// stateUpdatable has a newer version on the channel it follows.
 	stateUpdatable moduleState = iota
-	// statePinned is held at an exact version and was not compared with the
-	// catalog at all.
+	// statePinned is held at an exact version. Installer.statuses does resolve
+	// Available and compare it for a pinned module — it suppresses Update
+	// afterwards rather than skipping the comparison — so what is true of a pin
+	// is that the module will not be moved, not that nothing was asked.
 	statePinned
 	// stateUnpublished follows a channel the catalog publishes no version of
 	// this module on, so whether it is current is unknown, not true.
@@ -583,7 +585,7 @@ func listSummary(statuses []install.Status) []string {
 	}
 	if n := counts[statePinned]; n > 0 {
 		lines = append(lines, fmt.Sprintf(
-			"%d module(s) are pinned and were not compared with the catalog.", n))
+			"%d module(s) are pinned and will not be updated.", n))
 	}
 	if n := counts[stateUnpublished]; n > 0 {
 		lines = append(lines, fmt.Sprintf(

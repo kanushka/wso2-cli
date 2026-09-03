@@ -307,7 +307,7 @@ The closing line contradicts the row above it, which is
 > **Fixed 2026-09-03.** The summary is now derived from the same four states the
 > UPDATE column distinguishes, so a pinned or unpublished module is accounted
 > for rather than folded into "current". The same table now closes with
-> `1 module(s) are pinned and were not compared with the catalog.` The block
+> `1 module(s) are pinned and will not be updated.` The block
 > above is left as it was recorded.
 
 ```
