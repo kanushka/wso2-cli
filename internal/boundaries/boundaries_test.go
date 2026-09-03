@@ -336,7 +336,7 @@ const (
 	// sdkPublishedVersion is the newest SDK release. Bump it as part of
 	// publishing one, together with dropping the window replacement from
 	// go.work; the two are the same piece of work.
-	sdkPublishedVersion = "v0.1.0"
+	sdkPublishedVersion = "v0.2.0"
 )
 
 // requiredVersion reports the version at which a go.mod requires the named

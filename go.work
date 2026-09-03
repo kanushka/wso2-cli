@@ -3,20 +3,18 @@ go 1.25.0
 // The workspace composes the SDK and the product modules from source during
 // local development, so a change to the SDK is testable before it is tagged.
 //
-// The replacement below is a release bootstrap and is temporary. The SDK
-// release gate compares its tag against the version modules/reference requires,
-// so that requirement has to name v0.2.0 before sdk/v0.2.0 exists — and the Go
-// tool cannot build a module graph that requires a version with no revision, so
-// without this every build in the repository fails rather than only the ones
-// that exercise the module. The workspace carried exactly this until sdk/v0.1.0
-// was published.
+// It declares no replacements. sdk/v0.2.0 is published, so every module
+// requires a version the module proxy can serve and nothing here has to stand
+// in for it.
 //
-// Drop it once sdk/v0.2.0 is pushed. The window it covers is described in
+// One replacement is permitted, and only while an SDK release is in flight: the
+// release gate compares its tag against the version modules/reference requires,
+// so that requirement names the new version before the tag exists, and the Go
+// tool cannot build a module graph that requires a version with no revision.
+// TestTheWorkspaceReplacesNothingOutsideAnSDKReleaseWindow permits exactly that
+// one and nothing else, and the procedure is in
 // docs/reference/release-artifacts.md under "Releasing a version nothing is
-// built against yet". TestTheReferenceModuleWorksFromAnotherRepository is
-// deliberately not covered by it: that test is defined by GOWORK=off, so it
-// resolves the SDK from the proxy the way a product team's own repository does,
-// and it skips itself until the tag exists.
+// built against yet".
 //
 // Committed replace directives remain prohibited in every go.mod; the workspace
 // is the sanctioned place for one. See docs/plans/first-cli-vertical-slice.md
@@ -26,5 +24,3 @@ use (
 	./modules/reference
 	./sdk
 )
-
-replace github.com/wso2/wso2-cli/sdk v0.2.0 => ./sdk
