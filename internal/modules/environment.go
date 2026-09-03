@@ -33,16 +33,24 @@ import (
 // rule would be two places for it to drift, and the one that drifted would be
 // the one nobody was looking at.
 func SanitizedEnvironment() []string {
-	if runtime.GOOS != "windows" {
-		return []string{}
+	names := []string{CAFileEnvVar}
+	if runtime.GOOS == "windows" {
+		// Windows cannot reliably start a process without these, and neither
+		// carries user or credential data.
+		names = append(names, "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR")
 	}
-	// Windows cannot reliably start a process without these, and neither
-	// carries user or credential data.
-	var environment []string
-	for _, name := range []string{"SYSTEMROOT", "SYSTEMDRIVE", "WINDIR"} {
-		if value, present := os.LookupEnv(name); present {
+	environment := []string{}
+	for _, name := range names {
+		if value, present := os.LookupEnv(name); present && value != "" {
 			environment = append(environment, name+"="+value)
 		}
 	}
 	return environment
 }
+
+// CAFileEnvVar is the one WSO2_ variable a module process is handed. It names a
+// PEM file of certificates to trust beside the system roots, which is public
+// material rather than a credential, and a module calling a self-hosted product
+// over TLS needs the same trust the shell used to reach the issuer. The shell
+// reads it for its own requests in internal/app.
+const CAFileEnvVar = "WSO2_CA_FILE"

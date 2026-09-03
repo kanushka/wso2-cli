@@ -114,6 +114,13 @@ func (s Shell) dispatch(args []string) error {
 	// nothing, which is what an invocation without the flag must produce.
 	s.log = output.NewLogger()
 
+	// Trust is widened before anything reaches the network, because the first
+	// request a login makes is the discovery fetch and a self-signed deployment
+	// fails there. See CAFileEnvVar.
+	if err := installTrust(); err != nil {
+		return err
+	}
+
 	// The preferences diagnostic is surfaced here, once, before any fork this
 	// function makes — rather than in applyShellFlags, Cobra's
 	// PersistentPreRunE, which a product namespace never reaches at all.

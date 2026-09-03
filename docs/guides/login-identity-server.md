@@ -81,18 +81,19 @@ once.
 
 ## 3. Trust the deployment's certificate
 
-A default deployment serves a self-signed certificate, the shell uses the
-process's ordinary HTTP client, and there is no flag anywhere in the shell for a
-custom certificate authority. So until the certificate is in the OS trust store,
-login cannot even reach discovery:
+A default deployment serves a self-signed certificate, and until the
+certificate is trusted, login cannot even reach discovery:
 
 ```text
 tls: failed to verify certificate: x509: certificate signed by unknown authority
 ```
 
-On macOS, note that Go **ignores `SSL_CERT_FILE`**, since `crypto/x509` honors
-it on every Unix except Darwin, so the keychain is the only way in. Take the
-certificate from the port rather than out of a keystore. A container has no
+Two routes exist. `WSO2_CA_FILE` names a PEM file the shell trusts beside the
+system roots, and needs no change to the machine; the operating system's trust
+store makes the certificate trusted for every program. On macOS, note that Go
+**ignores `SSL_CERT_FILE`**, since `crypto/x509` honors it on every Unix except
+Darwin, so those two are the only ways in. Take the certificate from the port
+rather than out of a keystore. A container has no
 keystore on your filesystem to read, and the port is in any case the only place
 that answers what the deployment actually serves:
 
@@ -100,6 +101,10 @@ that answers what the deployment actually serves:
 openssl s_client -connect localhost:9443 -servername localhost </dev/null 2>/dev/null \
   | openssl x509 -outform pem > wso2carbon-localhost.pem
 
+# Either name it for the shell alone:
+export WSO2_CA_FILE=$PWD/wso2carbon-localhost.pem
+
+# Or trust it machine-wide:
 security add-trusted-cert -r trustRoot -p ssl \
   -k ~/Library/Keychains/login.keychain-db wso2carbon-localhost.pem
 ```

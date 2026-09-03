@@ -112,6 +112,19 @@ A browser or device login under `--no-input` is refused with
 client-credentials identity instead, which acquires access inline with no login
 step.
 
+## Trusting a deployment's certificate
+
+Every self-hosted product serves TLS with a self-signed certificate on a fresh
+install, and until it is trusted the shell cannot read the issuer's discovery
+document, so login fails before a browser opens. The operating system's trust
+store is the ordinary answer. Where it cannot be changed, `WSO2_CA_FILE` names
+a PEM file whose certificates the shell trusts beside the system roots, for
+every request the shell itself makes. It never narrows trust. A file that
+cannot be read, or holds no certificate, is refused with
+`shell.ca_file_unreadable` and exit class `64` before anything reaches the
+network. A product module is a separate process; it inherits the variable and
+applies the same trust on its own.
+
 ## Sample output
 
 ### Version

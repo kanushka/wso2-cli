@@ -110,22 +110,28 @@ credentials the recipe set.
 ## 3. Trust the deployment's certificate
 
 Thunder serves TLS with a minimum version of 1.3 and, on a fresh deployment, a
-self-signed certificate. The shell uses the process's ordinary HTTP client and
-has no flag anywhere for a custom certificate authority, so until that
-certificate is trusted, login cannot reach discovery at all:
+self-signed certificate. Until that certificate is trusted, login cannot reach
+discovery at all:
 
 ```text
 tls: failed to verify certificate: x509: certificate signed by unknown authority
 ```
 
-On macOS, note that Go **ignores `SSL_CERT_FILE`**, since `crypto/x509` honors
-it on every Unix except Darwin, so the keychain is the only way in. Take the
-certificate from the port:
+Two routes exist. `WSO2_CA_FILE` names a PEM file the shell trusts beside the
+system roots, and needs no change to the machine; the operating system's trust
+store makes the certificate trusted for every program. On macOS, note that Go
+**ignores `SSL_CERT_FILE`**, since `crypto/x509` honors it on every Unix except
+Darwin, so those two are the only ways in. Either way, take the certificate
+from the port:
 
 ```sh
 openssl s_client -connect localhost:8090 -servername localhost </dev/null 2>/dev/null \
   | openssl x509 -outform pem > thunder-localhost.pem
 
+# Either name it for the shell alone:
+export WSO2_CA_FILE=$PWD/thunder-localhost.pem
+
+# Or trust it machine-wide:
 security add-trusted-cert -r trustRoot -p ssl \
   -k ~/Library/Keychains/login.keychain-db thunder-localhost.pem
 ```
