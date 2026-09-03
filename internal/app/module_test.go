@@ -27,6 +27,7 @@ package app_test
 import (
 	"bytes"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -594,4 +595,90 @@ func TestModuleUpdateOfOneNamedModuleNeedsNoConfirmation(t *testing.T) {
 	if !strings.Contains(out.String(), "reference is current at v0.1.0") {
 		t.Errorf("stdout does not report the outcome:\n%s", out)
 	}
+}
+
+// unreachableCatalogOrigin reports an origin nothing is listening on. The
+// port was bound and released, so it is a refused connection rather than a
+// name that might resolve to somebody else's server.
+func unreachableCatalogOrigin(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserving a port returned %v", err)
+	}
+	origin := "http://" + listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("releasing the port returned %v", err)
+	}
+	return origin
+}
+
+// TestModuleListStillReportsInstalledModulesOffline is fix round 2's F4:
+// what is installed is purely local — wso2 version already answers it with no
+// network — so an unreachable catalog must not take the whole report down.
+// The installed half is rendered, the update column says "unknown" (nothing
+// was asked, which is not the same fact as "not published"), the catalog
+// failure is a warning on stderr, and the run exits 0: the answered half is
+// the result, and the stderr warning is where the degraded half is reported,
+// the same contract a corrupt preferences document already has.
+func TestModuleListStillReportsInstalledModulesOffline(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+	t.Setenv(catalog.OriginEnvVar, unreachableCatalogOrigin(t))
+
+	if code := shell.Run([]string{"module", "list"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	for _, want := range []string{"reference", "v0.1.0", "unknown"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("stdout does not report %q:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(errOut.String(), "warning:") ||
+		!strings.Contains(errOut.String(), "catalog.origin_unreachable") {
+		t.Errorf("stderr does not diagnose the unreachable catalog:\n%s", errOut)
+	}
+	if !strings.Contains(errOut.String(), "update availability is unknown") {
+		t.Errorf("the warning does not say what the failure cost:\n%s", errOut)
+	}
+}
+
+// TestModuleListOfflineNamesTheConfigFixForAConfiguredOrigin is F4 crossed
+// with F3(b): when the unreachable origin came from the "catalog-origin"
+// preference, the offline listing's warning must carry the wso2 config way
+// out, not a suggestion to check the network.
+func TestModuleListOfflineNamesTheConfigFixForAConfiguredOrigin(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+	// Cleared so the preference layer is the one that governs: the acceptance
+	// harness sets this variable, and it outranks any configured preference.
+	t.Setenv(catalog.OriginEnvVar, "")
+	if code := shell.Run([]string{"config", "set", "catalog-origin", unreachableCatalogOrigin(t)}); code != exit.OK {
+		t.Fatalf("config set exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	out.Reset()
+
+	if code := shell.Run([]string{"module", "list"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "reference") {
+		t.Errorf("stdout lost the installed module:\n%s", out)
+	}
+	if !strings.Contains(errOut.String(), "wso2 config unset catalog-origin") {
+		t.Errorf("the warning does not name the config fix for a configured origin:\n%s", errOut)
+	}
+}
+
+// TestModuleAvailableStillFailsWhenTheCatalogIsUnreachable pins the boundary
+// of F4's degradation: wso2 module available's whole question is the catalog,
+// so with the origin unreachable there is no local half to answer and the
+// command keeps failing outright.
+func TestModuleAvailableStillFailsWhenTheCatalogIsUnreachable(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	t.Setenv(catalog.OriginEnvVar, unreachableCatalogOrigin(t))
+
+	if code := shell.Run([]string{"module", "available"}); code != exit.ModuleProcess {
+		t.Fatalf("exit code = %d, want %d; stdout: %s", code, exit.ModuleProcess, out)
+	}
+	requireRefusal(t, errOut.String(), "catalog.origin_unreachable")
 }

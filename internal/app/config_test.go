@@ -456,3 +456,79 @@ func TestConfigSetOutputConfirmsInTheModeItJustWrote(t *testing.T) {
 		})
 	}
 }
+
+// TestConfigUnsetRestoresTheBuiltInDefault is fix round 2's F3(a): a mistyped
+// catalog-origin used to be unrecoverable without knowing the default origin
+// string or hand-editing preferences.json. Unset removes the preference so
+// the built-in default governs again, names that default in its report, and
+// leaves the other key exactly as it was.
+func TestConfigUnsetRestoresTheBuiltInDefault(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	if code := shell.Run([]string{"config", "set", "output", "json"}); code != exit.OK {
+		t.Fatalf("config set output exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if code := shell.Run([]string{"config", "set", "catalog-origin", "https://catalog.invalid.example"}); code != exit.OK {
+		t.Fatalf("config set catalog-origin exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+
+	out.Reset()
+	if code := shell.Run([]string{"config", "unset", "catalog-origin", "--output", "table"}); code != exit.OK {
+		t.Fatalf("config unset exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "governs again") || !strings.Contains(out.String(), catalog.DefaultOrigin) {
+		t.Errorf("the report does not name what the key reverted to:\n%s", out)
+	}
+
+	document, diagnostic := preferences.Load(shell.StateRoot)
+	if diagnostic != nil {
+		t.Fatalf("preferences.Load returned a diagnostic: %v", diagnostic)
+	}
+	if document.CatalogOrigin != "" {
+		t.Errorf("catalogOrigin = %q, want it removed", document.CatalogOrigin)
+	}
+	if document.OutputMode != "json" {
+		t.Errorf("outputMode = %q, want the other key untouched", document.OutputMode)
+	}
+}
+
+// TestConfigUnsetOfANeverSetKeySucceedsWithoutWriting pins the idempotent
+// arm: unsetting a key that was never set asks for the state the machine is
+// already in, which the config family reports as a fact, not a failure (wso2
+// config get already exits 0 for an unset key). Nothing is written: a command
+// that changed nothing must not create a preferences document to say so.
+func TestConfigUnsetOfANeverSetKeySucceedsWithoutWriting(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	if code := shell.Run([]string{"config", "unset", "catalog-origin"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "was not set") || !strings.Contains(out.String(), catalog.DefaultOrigin) {
+		t.Errorf("the report does not say the key was not set, naming the governing default:\n%s", out)
+	}
+	if _, err := os.Stat(preferences.Path(shell.StateRoot)); !os.IsNotExist(err) {
+		t.Errorf("a no-op config unset wrote a preferences document anyway: stat err = %v", err)
+	}
+}
+
+// TestConfigUnsetRefusesAnUnknownKey proves the closed key set is enforced on
+// the unset side too, with the same refusal the other subcommands give.
+func TestConfigUnsetRefusesAnUnknownKey(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	if code := shell.Run([]string{"config", "unset", "access-token"}); code != exit.Usage {
+		t.Fatalf("exit code = %d, want %d (usage); stdout: %s", code, exit.Usage, out)
+	}
+	requireRefusal(t, errOut.String(), "config.unknown_key")
+}
+
+// TestConfigUnknownSubcommandRecoveryNamesUnset keeps the family's own
+// recovery honest: a user who mistypes a config subcommand must learn that
+// unset exists, or F3's unrecoverable-mistake loop comes straight back.
+func TestConfigUnknownSubcommandRecoveryNamesUnset(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	if code := shell.Run([]string{"config", "clear"}); code != exit.Usage {
+		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
+	}
+	requireRefusal(t, errOut.String(), "shell.unknown_command")
+	if !strings.Contains(errOut.String(), "wso2 config unset <key>") {
+		t.Errorf("the recovery does not name config unset:\n%s", errOut)
+	}
+}

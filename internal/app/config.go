@@ -23,6 +23,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/wso2/wso2-cli/internal/catalog"
 	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/internal/preferences"
 	"github.com/wso2/wso2-cli/sdk/problem"
@@ -30,15 +31,17 @@ import (
 
 // The way back from each subcommand's usage refusals.
 const (
-	configListUsage = "Run wso2 config list [--output table|json]."
-	configGetUsage  = "Run wso2 config get <key> [--output table|json]."
-	configSetUsage  = "Run wso2 config set <key> <value> [--output table|json]."
+	configListUsage  = "Run wso2 config list [--output table|json]."
+	configGetUsage   = "Run wso2 config get <key> [--output table|json]."
+	configSetUsage   = "Run wso2 config set <key> <value> [--output table|json]."
+	configUnsetUsage = "Run wso2 config unset <key> [--output table|json]."
 )
 
 // configRecovery is what a refusal from the config command itself, rather
 // than one of its subcommands, points a user at.
 const configRecovery = "Run wso2 config list to show every preference, wso2 config get <key> to " +
-	"show one, or wso2 config set <key> <value> to change one."
+	"show one, wso2 config set <key> <value> to change one, or wso2 config unset <key> to " +
+	"restore one to its built-in default."
 
 // configCommand builds the wso2 config tree.
 //
@@ -78,7 +81,8 @@ func (s Shell) configCommand() *cobra.Command {
 	// nothing to select here. --output is declared on the family so every
 	// subcommand inherits it.
 	declareOutputFlag(command.PersistentFlags())
-	command.AddCommand(s.configListCommand(), s.configGetCommand(), s.configSetCommand())
+	command.AddCommand(s.configListCommand(), s.configGetCommand(), s.configSetCommand(),
+		s.configUnsetCommand())
 	return command
 }
 
@@ -111,6 +115,17 @@ func (s Shell) configSetCommand() *cobra.Command {
 		Args:  exactlyTwoArguments("a preference key and a value", configSetUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.configSet(command, args[0], args[1])
+		},
+	}
+}
+
+func (s Shell) configUnsetCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "unset <key>",
+		Short: "Remove one shell preference, so its built-in default governs again.",
+		Args:  exactlyOneArgument("a preference key", configUnsetUsage),
+		RunE: func(command *cobra.Command, args []string) error {
+			return s.configUnset(command, args[0])
 		},
 	}
 }
@@ -230,18 +245,105 @@ func (s Shell) configSet(command *cobra.Command, rawKey, rawValue string) error 
 	return output.Fields(s.Streams.Out, entry.fields())
 }
 
+// configUnset removes one preference, so the built-in default governs again,
+// refusing a key outside the closed set.
+//
+// Unsetting a key that was never set succeeds: the caller asked for the state
+// the machine is already in, and refusing would make a recovery script check
+// before it clears (the config family already treats "unset" as a fact, not a
+// failure — wso2 config get reports it with exit 0). The two cases render the
+// same rows and differ only in the sentence above them, so a script parses one
+// shape either way. Nothing is written in the already-unset case; a command
+// that changes nothing should not create a preferences document to say so.
+func (s Shell) configUnset(command *cobra.Command, rawKey string) error {
+	mode, err := s.shellOutputMode(command)
+	if err != nil {
+		return err
+	}
+	key, ok := preferences.ParseKey(rawKey)
+	if !ok {
+		return preferences.UnknownKey(rawKey)
+	}
+	root, err := s.stateRoot()
+	if err != nil {
+		return err
+	}
+	document, _ := preferences.Load(root)
+	_, wasSet := document.Get(key)
+	if wasSet {
+		s.log.Debug("unsetting a shell preference",
+			"key", string(key), "document", preferences.Path(root))
+		writeErr := preferences.Update(root, func(document preferences.Document) (preferences.Document, error) {
+			document.SchemaVersion = preferences.SchemaVersion
+			return document.Unset(key)
+		})
+		if writeErr != nil {
+			return writeErr
+		}
+	}
+
+	// Same reasoning as configSet's mode correction, in the other direction:
+	// the confirmation for unsetting the output preference renders in the mode
+	// that governs after the write — the built-in table default — unless an
+	// explicit --output asked for something more specific.
+	if key == preferences.KeyOutputMode && wasSet {
+		if flag := shellFlag(command, outputFlag); flag == nil || !flag.Changed {
+			mode = output.ModeTable
+		}
+	}
+
+	// The Value row carries what governs now — the built-in default — rather
+	// than the empty string wso2 config get would show for the stored
+	// preference: this command's one job is reverting to a value, and a report
+	// that hid it would leave the user no better informed than before F3.
+	// Set is false either way; a caller must read it as "not configured", not
+	// "configured to this value".
+	entry := configEntry{Key: string(key), Value: builtInDefault(key), Set: false}
+	if mode == output.ModeJSON {
+		return encodeConfigJSON(s.Streams.Out, entry)
+	}
+	sentence := fmt.Sprintf("\nUnset %q. The built-in default %q governs again.\n", key, entry.Value)
+	if !wasSet {
+		sentence = fmt.Sprintf("\n%q was not set. The built-in default %q already governs.\n", key, entry.Value)
+	}
+	if _, err := fmt.Fprint(s.Streams.Out, sentence); err != nil {
+		return err
+	}
+	return output.Fields(s.Streams.Out, entry.fields())
+}
+
+// builtInDefault names what governs a key when no preference is set. These
+// literals belong to the consumers — internal/output's default mode and
+// internal/catalog's published origin — and are read from them rather than
+// restated, so this report cannot drift from what the shell actually does.
+// (WSO2_CLI_CATALOG_ORIGIN can still outrank the catalog default, but only
+// the test harness sets it, and naming it here would confuse everyone else.)
+func builtInDefault(key preferences.Key) string {
+	switch key {
+	case preferences.KeyOutputMode:
+		return string(output.ModeTable)
+	case preferences.KeyCatalogOrigin:
+		return catalog.DefaultOrigin
+	default:
+		return ""
+	}
+}
+
 // The results this family reports. Both renderings are driven by the same
 // value and publish no schema discriminator, for the reasons context.go's
 // equivalent comment gives.
 type (
-	// configEntry is what wso2 config get and wso2 config set report.
+	// configEntry is what wso2 config get, wso2 config set, and
+	// wso2 config unset report.
 	configEntry struct {
 		Key   string `json:"key"`
 		Value string `json:"value"`
-		// Set reports whether this key is currently configured. A key that is
-		// not carries an empty Value, which a caller must not mistake for the
-		// key being configured to the empty string: no key this shell defines
-		// accepts one (Document.Set refuses it for both).
+		// Set reports whether this key is currently configured. In get and
+		// list, a key that is not carries an empty Value, which a caller must
+		// not mistake for the key being configured to the empty string: no key
+		// this shell defines accepts one (Document.Set refuses it for both).
+		// unset is the one report where an unset key carries a non-empty
+		// Value — the built-in default now governing — see configUnset.
 		Set bool `json:"set"`
 	}
 

@@ -19,12 +19,15 @@ package catalog
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"syscall"
 
 	"github.com/wso2/wso2-cli/internal/preferences"
 	"github.com/wso2/wso2-cli/sdk/problem"
@@ -69,16 +72,30 @@ const (
 // preferences.Load and output.ColorEnabled's doc comment for why that
 // diagnostic belongs to the shell, once per invocation, and not here.
 func Origin(stateRoot string) string {
-	origin := os.Getenv(OriginEnvVar)
-	if origin == "" {
-		if document, _ := preferences.Load(stateRoot); document.CatalogOrigin != "" {
-			origin = document.CatalogOrigin
-		}
+	origin, _ := resolveOrigin(stateRoot)
+	return origin
+}
+
+// OriginConfigured reports whether the origin Origin would return came from
+// the "catalog-origin" preference — not the environment variable, and not the
+// built-in default. A failure to reach a preference-chosen origin is a
+// different problem from a network outage: the fix is wso2 config, not the
+// network, and the client uses this fact to say so (see originUnreachable).
+func OriginConfigured(stateRoot string) bool {
+	_, configured := resolveOrigin(stateRoot)
+	return configured
+}
+
+// resolveOrigin applies the three-layer precedence Origin documents, and
+// reports whether the middle layer — the preference — is the one that won.
+func resolveOrigin(stateRoot string) (string, bool) {
+	if origin := os.Getenv(OriginEnvVar); origin != "" {
+		return strings.TrimRight(origin, "/"), false
 	}
-	if origin == "" {
-		origin = DefaultOrigin
+	if document, _ := preferences.Load(stateRoot); document.CatalogOrigin != "" {
+		return strings.TrimRight(document.CatalogOrigin, "/"), true
 	}
-	return strings.TrimRight(origin, "/")
+	return DefaultOrigin, false
 }
 
 // Client reads the published catalog. It is the only part of the shell that
@@ -87,8 +104,26 @@ func Origin(stateRoot string) string {
 type Client struct {
 	// Origin is the catalog origin, without a trailing slash.
 	Origin string
+	// OriginConfigured records that Origin came from the "catalog-origin"
+	// preference (see the package function of the same name). A client that
+	// knows this reports a failure to reach the origin as a configuration to
+	// revisit rather than a network to check, because that is the fix.
+	OriginConfigured bool
 	// HTTP is the transport. A nil value is the default client.
 	HTTP *http.Client
+	// Log is where the raw transport detail of a failed request goes. The
+	// user-facing refusal deliberately carries a short cause rather than the
+	// raw Go error (fix round 2, F3); the raw error still matters when the
+	// short cause is not enough, and --verbose is where it lives. A nil Log
+	// drops the detail, which is what --verbose being absent means.
+	Log DebugLog
+}
+
+// DebugLog is the one method the client needs from a diagnostic log. It is
+// satisfied by *output.Logger; declaring it here keeps this package from
+// importing internal/output for a single method.
+type DebugLog interface {
+	Debug(message string, attributes ...any)
 }
 
 // Index reads the bounded index every update check reads.
@@ -178,7 +213,7 @@ func (c Client) Download(ctx context.Context, artifactURL string, report Progres
 func (c Client) get(ctx context.Context, target string, limit int64, report ProgressFunc) ([]byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		return nil, originUnreachable(target, err.Error())
+		return nil, c.unreachable(target, err)
 	}
 	client := c.HTTP
 	if client == nil {
@@ -186,13 +221,13 @@ func (c Client) get(ctx context.Context, target string, limit int64, report Prog
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		return nil, originUnreachable(target, err.Error())
+		return nil, c.unreachable(target, err)
 	}
 	defer func() {
 		_ = response.Body.Close()
 	}()
 	if response.StatusCode != http.StatusOK {
-		return nil, originUnreachable(target, fmt.Sprintf("the origin answered with status %d", response.StatusCode))
+		return nil, c.originUnreachable(target, fmt.Sprintf("the origin answered with status %d", response.StatusCode))
 	}
 	// The counting reader sits inside the limit reader, not outside it: what
 	// is counted and reported is exactly what the limit reader lets through,
@@ -206,10 +241,10 @@ func (c Client) get(ctx context.Context, target string, limit int64, report Prog
 	}
 	body, err := io.ReadAll(io.LimitReader(reader, limit+1))
 	if err != nil {
-		return nil, originUnreachable(target, err.Error())
+		return nil, c.unreachable(target, err)
 	}
 	if int64(len(body)) > limit {
-		return nil, originUnreachable(target, fmt.Sprintf("the origin answered with more than %d bytes", limit))
+		return nil, c.originUnreachable(target, fmt.Sprintf("the origin answered with more than %d bytes", limit))
 	}
 	return body, nil
 }
@@ -265,10 +300,60 @@ func validArtifactURL(artifactURL string) error {
 	return nil
 }
 
-func originUnreachable(target, detail string) problem.Problem {
+// unreachable reports a request the transport itself failed, in the user's
+// terms rather than the transport's. The raw Go error — the `Get "...": dial
+// tcp: ...` chain — never reaches the message (fix round 2, F3): it is logged
+// to the client's diagnostic log, where --verbose surfaces it, and the message
+// carries the short cause shortCause distils instead.
+func (c Client) unreachable(target string, err error) problem.Problem {
+	if c.Log != nil {
+		c.Log.Debug("a catalog request failed", "url", target, "error", err.Error())
+	}
+	return c.originUnreachable(target, shortCause(err))
+}
+
+// shortCause names why a request failed in one short phrase, so the refusal
+// reads as a sentence rather than a Go error chain. Only the causes a user can
+// act on differently are told apart; everything else is a plain "the network
+// request failed", with the raw detail available under --verbose.
+func shortCause(err error) string {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		if dnsErr.IsNotFound {
+			return fmt.Sprintf("no such host %q", dnsErr.Name)
+		}
+		return fmt.Sprintf("the DNS lookup for %q failed", dnsErr.Name)
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return "the connection was refused"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "the request timed out"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "the request timed out"
+	}
+	return "the network request failed"
+}
+
+// originUnreachable reports that the origin could not be read, with the
+// recovery chosen by where the origin came from. When it is the built-in
+// default (or the environment variable, which only the test harness sets),
+// the network is the thing to check; when the "catalog-origin" preference
+// chose it, the preference is the thing to revisit, and blaming the network
+// would send the user away from the actual fix (fix round 2, F3).
+func (c Client) originUnreachable(target, detail string) problem.Problem {
+	recovery := "Check network access to the catalog origin and try again. " +
+		"The module may well exist; this run could not ask."
+	if c.OriginConfigured {
+		recovery = "The catalog origin is set by the \"catalog-origin\" preference; " +
+			"run wso2 config unset catalog-origin to restore the default, or " +
+			"wso2 config set catalog-origin <url> to change it."
+	}
 	return problem.New(problem.CategoryModuleProcess, "catalog.origin_unreachable",
 		fmt.Sprintf("the module catalog at %s could not be read: %s", target, detail)).
-		WithRecovery("Check network access to the catalog origin and try again. The module may well exist; this run could not ask.")
+		WithRecovery(recovery)
 }
 
 func unreadable(published string, err error) problem.Problem {

@@ -87,6 +87,30 @@ func (i Installer) Check(ctx context.Context, namespaces ...string) ([]Status, e
 	return i.statuses(index, installed)
 }
 
+// CheckLocal reports the installed modules from local state alone, with no
+// catalog request: what is installed, the channel each module follows, and
+// whether it is pinned. Available is empty and Update false for every module,
+// because nothing was asked — which is not the same fact as "the catalog
+// publishes nothing", and a caller rendering these must say "unknown" rather
+// than reuse the unpublished wording.
+//
+// It exists so wso2 module list can still answer its local half — what is
+// installed — when the catalog origin cannot be reached (fix round 2, F4):
+// the same question wso2 version already answers offline.
+func (i Installer) CheckLocal() ([]Status, error) {
+	installed, _, err := i.Store.Inventory()
+	if err != nil {
+		return nil, err
+	}
+	if len(installed) == 0 {
+		return nil, nil
+	}
+	// An empty index answers "nothing published on any channel" for every
+	// namespace, which is exactly the zero Available/Update shape documented
+	// above, computed by the same join Check uses so the two cannot drift.
+	return i.statuses(catalog.Index{}, installed)
+}
+
 // NothingWouldMove reports, from local state alone, whether an update run
 // over namespaces could not possibly move anything: nothing named is
 // installed, or every module that is installed is pinned.

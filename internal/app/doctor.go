@@ -256,7 +256,7 @@ func catalogCheck(stateRoot string) (doctorFinding, *problem.Problem) {
 	ctx, cancel := context.WithTimeout(context.Background(), catalogProbeTimeout)
 	defer cancel()
 	origin := catalog.Origin(stateRoot)
-	client := catalog.Client{Origin: origin}
+	client := catalog.Client{Origin: origin, OriginConfigured: catalog.OriginConfigured(stateRoot)}
 	if _, err := client.Index(ctx); err != nil {
 		typed := doctorProblem(err)
 		return failFinding(checkCatalog, typed), &typed

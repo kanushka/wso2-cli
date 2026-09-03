@@ -413,9 +413,19 @@ func (s Shell) installer() (install.Installer, error) {
 		return install.Installer{}, err
 	}
 	return install.Installer{
-		Store:  store,
-		Client: catalog.Client{Origin: catalog.Origin(root), HTTP: &http.Client{}},
-		Shell:  identity,
+		Store: store,
+		Client: catalog.Client{
+			Origin: catalog.Origin(root),
+			// The client is told where its origin came from and given the
+			// diagnostic log so a failure to reach the origin can name the
+			// actual fix (wso2 config, when a preference chose it) and keep
+			// the raw transport error under --verbose. See
+			// catalog.Client.originUnreachable.
+			OriginConfigured: catalog.OriginConfigured(root),
+			HTTP:             &http.Client{},
+			Log:              s.log,
+		},
+		Shell: identity,
 		// The archive's size is known before Download starts (it comes from
 		// the catalog entry, not a response header), so the factory only
 		// needs the namespace being downloaded (for the rendered label, so
@@ -489,7 +499,20 @@ func (s Shell) moduleList() error {
 	defer cancel()
 	statuses, err := installer.Check(ctx)
 	if err != nil {
-		return err
+		var unreachable problem.Problem
+		if !errors.As(err, &unreachable) || unreachable.Code != "catalog.origin_unreachable" {
+			return err
+		}
+		// An unreachable catalog fails only half of this command's question.
+		// What is installed is purely local — wso2 version already answers it
+		// offline — so the installed half is still reported, the update column
+		// says "unknown" rather than guessing, and the catalog failure is
+		// downgraded to a diagnostic (fix round 2, F4). The run exits 0: the
+		// stderr warning, not the exit code, is where the degraded half is
+		// reported, the same contract a corrupt preferences document already
+		// has. wso2 module available, whose whole question is the catalog,
+		// still fails outright.
+		return s.moduleListOffline(installer, unreachable)
 	}
 
 	if len(statuses) == 0 {
@@ -511,6 +534,43 @@ func (s Shell) moduleList() error {
 			return err
 		}
 	}
+	return nil
+}
+
+// moduleListOffline renders the installed modules from local state alone,
+// with the catalog failure that forced it reported as a warning.
+//
+// The update column says "unknown" for every module the catalog would have
+// been asked about: nothing was asked, which is a different fact from "the
+// catalog publishes nothing", and reusing the unpublished wording would claim
+// the catalog answered. A pin is a local fact, so it is still reported. The
+// summary lines are omitted — every one of them is a claim about the catalog's
+// answer — and the warning beneath the table is what accounts for the missing
+// column, carrying the same recovery the hard failure would have (which names
+// wso2 config unset when the "catalog-origin" preference chose the origin).
+func (s Shell) moduleListOffline(installer install.Installer, unreachable problem.Problem) error {
+	statuses, err := installer.CheckLocal()
+	if err != nil {
+		return err
+	}
+	if len(statuses) == 0 {
+		_, err := fmt.Fprintln(s.Streams.Out, "No modules are installed.")
+		return err
+	}
+	table := output.NewTable("module", "installed", "channel", "update")
+	for _, status := range statuses {
+		update := "unknown"
+		if status.Pinned {
+			update = "pinned to v" + status.PinnedVersion
+		}
+		table.Append(status.Namespace, "v"+status.Installed, channelColumn(status), update)
+	}
+	if err := table.Render(s.Streams.Out); err != nil {
+		return err
+	}
+	output.Diagnostic(s.Streams.Err, problem.New(problem.CategoryModuleProcess, unreachable.Code,
+		"the module catalog could not be reached, so update availability is unknown").
+		WithRecovery(unreachable.Recovery))
 	return nil
 }
 

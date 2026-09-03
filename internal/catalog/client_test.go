@@ -20,8 +20,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/wso2/wso2-cli/sdk/problem"
@@ -154,5 +156,118 @@ func TestGetsSharedByIndexAndNamespaceIgnoreANilReport(t *testing.T) {
 	}
 	if len(body) == 0 {
 		t.Fatal("get returned no body")
+	}
+}
+
+// capturedLog records what a client logs, standing in for --verbose's real
+// *output.Logger so a test can prove the raw transport detail still exists
+// somewhere after it was removed from the user-facing message.
+type capturedLog struct {
+	attributes []any
+}
+
+func (l *capturedLog) Debug(message string, attributes ...any) {
+	l.attributes = append(l.attributes, attributes...)
+}
+
+// unreachableTestOrigin reports an origin nothing is listening on: the port
+// was bound and released, so a request to it is a refused connection rather
+// than a name that might resolve to somebody else's server.
+func unreachableTestOrigin(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserving a port returned %v", err)
+	}
+	origin := "http://" + listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("releasing the port returned %v", err)
+	}
+	return origin
+}
+
+// TestUnreachableOriginMessageCarriesNoTransportInternals is fix round 2's
+// F3(c): the refusal a user reads must say the origin could not be read in a
+// short cause of its own, not by embedding the raw Go error chain — no
+// `Get "..."`, no `dial tcp`. The raw error is not lost: it goes to the
+// client's diagnostic log, which --verbose turns on.
+func TestUnreachableOriginMessageCarriesNoTransportInternals(t *testing.T) {
+	log := &capturedLog{}
+	client := Client{Origin: unreachableTestOrigin(t), Log: log}
+
+	_, err := client.Index(context.Background())
+	var typed problem.Problem
+	if !errors.As(err, &typed) || typed.Code != "catalog.origin_unreachable" {
+		t.Fatalf("err = %v, want a catalog.origin_unreachable problem", err)
+	}
+	for _, internals := range []string{`Get "`, "dial tcp"} {
+		if strings.Contains(typed.Message, internals) {
+			t.Errorf("the message leaks transport internals (%s):\n%s", internals, typed.Message)
+		}
+	}
+	if !strings.Contains(typed.Message, "the connection was refused") {
+		t.Errorf("the message does not carry the short cause:\n%s", typed.Message)
+	}
+	var raw string
+	for _, attribute := range log.attributes {
+		if s, ok := attribute.(string); ok && strings.Contains(s, "connection refused") {
+			raw = s
+		}
+	}
+	if raw == "" {
+		t.Errorf("the raw transport error was not logged for --verbose: %v", log.attributes)
+	}
+}
+
+// TestUnreachableOriginRecoveryFollowsWhereTheOriginCameFrom is fix round 2's
+// F3(b): a failure to reach an origin the "catalog-origin" preference chose is
+// a configuration to revisit, and the recovery must name wso2 config rather
+// than blame the network; an origin nobody configured keeps the
+// network-focused recovery.
+func TestUnreachableOriginRecoveryFollowsWhereTheOriginCameFrom(t *testing.T) {
+	origin := unreachableTestOrigin(t)
+
+	t.Run("default origin blames the network", func(t *testing.T) {
+		client := Client{Origin: origin}
+		_, err := client.Index(context.Background())
+		var typed problem.Problem
+		if !errors.As(err, &typed) {
+			t.Fatalf("err = %v, want a problem", err)
+		}
+		if !strings.Contains(typed.Recovery, "Check network access") {
+			t.Errorf("recovery = %q, want the network-focused guidance", typed.Recovery)
+		}
+		if strings.Contains(typed.Recovery, "wso2 config") {
+			t.Errorf("recovery = %q, names wso2 config for an origin no preference chose", typed.Recovery)
+		}
+	})
+
+	t.Run("configured origin names the preference and the fix", func(t *testing.T) {
+		client := Client{Origin: origin, OriginConfigured: true}
+		_, err := client.Index(context.Background())
+		var typed problem.Problem
+		if !errors.As(err, &typed) {
+			t.Fatalf("err = %v, want a problem", err)
+		}
+		for _, want := range []string{`"catalog-origin" preference`,
+			"wso2 config unset catalog-origin", "wso2 config set catalog-origin"} {
+			if !strings.Contains(typed.Recovery, want) {
+				t.Errorf("recovery = %q, want it to contain %q", typed.Recovery, want)
+			}
+		}
+	})
+}
+
+// TestShortCauseNamesADNSFailure pins the one cause the DNS branch exists
+// for — the F3 report's "no such host" — without a test ever asking a real
+// resolver anything.
+func TestShortCauseNamesADNSFailure(t *testing.T) {
+	notFound := &net.DNSError{Name: "catalog.invalid.example", IsNotFound: true}
+	if got, want := shortCause(notFound), `no such host "catalog.invalid.example"`; got != want {
+		t.Errorf("shortCause(not found) = %q, want %q", got, want)
+	}
+	failed := &net.DNSError{Name: "catalog.invalid.example"}
+	if got, want := shortCause(failed), `the DNS lookup for "catalog.invalid.example" failed`; got != want {
+		t.Errorf("shortCause(lookup failure) = %q, want %q", got, want)
 	}
 }
