@@ -304,9 +304,19 @@ func (s Shell) helpTopic(root *cobra.Command, args []string) error {
 		return s.help(root)
 	}
 	if isShellCommand(root, args[0]) {
-		target, _, err := root.Find(args)
+		target, rest, err := root.Find(args)
 		if err != nil || target == nil {
 			return s.help(root)
+		}
+		// Find stops at the deepest command and hands back what it could not
+		// place. A word left over names no command, and rendering the parent's
+		// page for it would tell a script the typo worked — the same silent
+		// success wso2 help <typo> itself used to report (review on #161).
+		if len(rest) > 0 {
+			resolved := strings.Join(args[:len(args)-len(rest)], " ")
+			return problem.New(problem.CategoryUsage, "shell.unknown_command",
+				fmt.Sprintf("%q is not a wso2 %s subcommand", rest[0], resolved)).
+				WithRecovery(fmt.Sprintf("Run wso2 help %s to see what it accepts.", resolved))
 		}
 		return target.Help()
 	}

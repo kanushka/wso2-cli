@@ -40,6 +40,8 @@ func TestIdentityTypeForIssuer(t *testing.T) {
 			"https://api.eu.asgardeo.io/t/acme/oauth2/token", contexts.TypeCloud},
 		{"upper-case letters in the host",
 			"https://API.ASGARDEO.IO/t/acme/oauth2/token", contexts.TypeCloud},
+		{"a fully-qualified host with the DNS root dot",
+			"https://api.asgardeo.io./t/acme/oauth2/token", contexts.TypeCloud},
 		{"a self-hosted issuer",
 			"https://idp.customer.example", contexts.TypeOnprem},
 		{"a host that ends in asgardeo.io without the label boundary",
@@ -70,6 +72,8 @@ func TestTenantForIssuer(t *testing.T) {
 	}{
 		{"an Asgardeo tenant issuer",
 			"https://api.asgardeo.io/t/acme/oauth2/token", "acme"},
+		{"a fully-qualified host with the DNS root dot",
+			"https://api.asgardeo.io./t/acme/oauth2/token", "acme"},
 		{"a deeper asgardeo.io host",
 			"https://api.eu.asgardeo.io/t/globex/oauth2/token", "globex"},
 		{"the tenant as the whole path",

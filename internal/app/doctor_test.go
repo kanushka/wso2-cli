@@ -447,9 +447,16 @@ func TestDoctorOnlineChecksCatalogReachability(t *testing.T) {
 		// An otherwise healthy, unconfigured machine still exits nonzero once
 		// --online adds a failing catalog check: catalog decides the exit
 		// status like any other check when it is the only one that failed.
-		if code := shell.Run([]string{"doctor", "--online", "--output", "json"}); code != exit.ModuleProcess {
+		if code := shell.Run([]string{"doctor", "--online", "--verbose", "--output", "json"}); code != exit.ModuleProcess {
 			t.Fatalf("exit code = %d, want %d (module process, the catalog client's own class); stderr: %s",
 				code, exit.ModuleProcess, errOut)
+		}
+		// The probe shares the module commands' diagnostic log, so --verbose
+		// surfaces the raw transport detail here exactly as wso2 module list
+		// would. Without the wiring this line is absent and the raw cause is
+		// dropped for good.
+		if !strings.Contains(errOut.String(), "a catalog request failed") {
+			t.Errorf("doctor --online --verbose dropped the catalog transport detail:\n%s", errOut)
 		}
 		report := decodeDoctorReport(t, out.Bytes())
 		if finding := report.findingFor(t, "catalog"); finding.Status != "fail" {

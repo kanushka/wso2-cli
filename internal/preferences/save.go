@@ -114,6 +114,16 @@ func Update(stateRoot string, change func(Document) (Document, error)) error {
 // fallback they had just been refused had happened. The code is the part that
 // identifies what is wrong with the document, and it is also what ties this
 // refusal to the diagnostic printed just above it.
+// UnreadableForUpdate is the same refusal, exported for a command that must
+// make it before deciding a write is a no-op: wso2 config unset consults the
+// document to skip writing when the key is already unset, and a document Load
+// had to diagnose cannot answer that question — reporting "already unset"
+// against it would claim knowledge of a file nobody could read, while the
+// file stayed exactly as broken as before (review on #161).
+func UnreadableForUpdate(cause problem.Problem) error {
+	return unreadableForUpdate(cause)
+}
+
 func unreadableForUpdate(cause problem.Problem) error {
 	return preferenceProblem("preferences.document_unreadable_for_update",
 		fmt.Sprintf("the existing WSO2 CLI preferences document could not be read cleanly (%s), "+

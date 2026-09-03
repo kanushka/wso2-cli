@@ -142,8 +142,13 @@ func IdentityTypeForIssuer(issuer string) string {
 // asgardeoHost reports whether a host lies in the asgardeo.io zone. It is the
 // one place the zone is spelled, shared by the deployment-kind and tenant
 // derivations so the two cannot disagree about what counts as Asgardeo.
+//
+// A fully-qualified spelling with the DNS root dot — api.asgardeo.io. — names
+// the same host, so one terminal dot is trimmed before matching; without that,
+// an issuer a user wrote in the fully-qualified form would be recorded as
+// self-hosted (review on #161).
 func asgardeoHost(host string) bool {
-	host = strings.ToLower(host)
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
 	return host == "asgardeo.io" || strings.HasSuffix(host, ".asgardeo.io")
 }
 

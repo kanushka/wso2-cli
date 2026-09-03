@@ -631,6 +631,19 @@ func TestHelpForAnUnknownTopicIsRefusedLikeAnyUnknownCommand(t *testing.T) {
 	}
 }
 
+// TestHelpForAShellCommandRefusesALeftoverWord proves a word Find could not
+// place below a shell command is refused rather than shrugged into the
+// resolved command's page — wso2 help config bogus must not render config's
+// help and report success, for the same reason wso2 help bogus must not.
+func TestHelpForAShellCommandRefusesALeftoverWord(t *testing.T) {
+	stderr := runForStderr(t, []string{"help", "config", "bogus"})
+
+	if !strings.Contains(stderr, "shell.unknown_command") ||
+		!strings.Contains(stderr, `"bogus" is not a wso2 config subcommand`) {
+		t.Errorf("a leftover help word is not refused as an unknown subcommand:\n%s", stderr)
+	}
+}
+
 // TestHelpForAnUnknownProductSubcommandIsRefused proves the walk below a
 // namespace refuses a word the module does not serve, exactly as invoking it
 // would, rather than shrugging it into the namespace's own page.

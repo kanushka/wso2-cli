@@ -133,7 +133,7 @@ type DebugLog interface {
 // different answers, and collapsing them leaves a user unable to tell which
 // they have.
 func (c Client) Index(ctx context.Context) (Index, error) {
-	body, err := c.get(ctx, c.Origin+"/"+IndexPath, maxDocumentBytes, nil)
+	body, err := c.get(ctx, c.Origin+"/"+IndexPath, maxDocumentBytes, nil, c.originUnreachable)
 	if err != nil {
 		return Index{}, err
 	}
@@ -166,7 +166,7 @@ func (c Client) Namespace(ctx context.Context, entry IndexModule) (NamespaceFile
 	if err := validPublishedPath(entry.Path); err != nil {
 		return NamespaceFile{}, err
 	}
-	body, err := c.get(ctx, c.Origin+"/"+entry.Path, maxDocumentBytes, nil)
+	body, err := c.get(ctx, c.Origin+"/"+entry.Path, maxDocumentBytes, nil, c.originUnreachable)
 	if err != nil {
 		return NamespaceFile{}, err
 	}
@@ -205,15 +205,18 @@ func (c Client) Download(ctx context.Context, artifactURL string, report Progres
 	if err := validArtifactURL(artifactURL); err != nil {
 		return nil, err
 	}
-	return c.get(ctx, artifactURL, maxArtifactBytes, report)
+	return c.get(ctx, artifactURL, maxArtifactBytes, report, c.artifactUnreachable)
 }
 
 // get reads one URL, mapping every way a read can fail onto the one problem
-// that says the origin could not be read.
-func (c Client) get(ctx context.Context, target string, limit int64, report ProgressFunc) ([]byte, error) {
+// its caller's kind of URL deserves. An index or namespace document lives at
+// the catalog origin, so its refusal may talk about the "catalog-origin"
+// preference; an artifact lives wherever the catalog points, which the
+// preference does not govern, so its refusal must not (review on #161).
+func (c Client) get(ctx context.Context, target string, limit int64, report ProgressFunc, refuse refusal) ([]byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		return nil, c.unreachable(target, err)
+		return nil, c.unreachable(target, err, refuse)
 	}
 	client := c.HTTP
 	if client == nil {
@@ -221,13 +224,13 @@ func (c Client) get(ctx context.Context, target string, limit int64, report Prog
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		return nil, c.unreachable(target, err)
+		return nil, c.unreachable(target, err, refuse)
 	}
 	defer func() {
 		_ = response.Body.Close()
 	}()
 	if response.StatusCode != http.StatusOK {
-		return nil, c.originUnreachable(target, fmt.Sprintf("the origin answered with status %d", response.StatusCode))
+		return nil, refuse(target, fmt.Sprintf("the server answered with status %d", response.StatusCode))
 	}
 	// The counting reader sits inside the limit reader, not outside it: what
 	// is counted and reported is exactly what the limit reader lets through,
@@ -241,10 +244,10 @@ func (c Client) get(ctx context.Context, target string, limit int64, report Prog
 	}
 	body, err := io.ReadAll(io.LimitReader(reader, limit+1))
 	if err != nil {
-		return nil, c.unreachable(target, err)
+		return nil, c.unreachable(target, err, refuse)
 	}
 	if int64(len(body)) > limit {
-		return nil, c.originUnreachable(target, fmt.Sprintf("the origin answered with more than %d bytes", limit))
+		return nil, refuse(target, fmt.Sprintf("the server answered with more than %d bytes", limit))
 	}
 	return body, nil
 }
@@ -305,11 +308,11 @@ func validArtifactURL(artifactURL string) error {
 // tcp: ...` chain — never reaches the message (fix round 2, F3): it is logged
 // to the client's diagnostic log, where --verbose surfaces it, and the message
 // carries the short cause shortCause distils instead.
-func (c Client) unreachable(target string, err error) problem.Problem {
+func (c Client) unreachable(target string, err error, refuse refusal) problem.Problem {
 	if c.Log != nil {
 		c.Log.Debug("a catalog request failed", "url", target, "error", err.Error())
 	}
-	return c.originUnreachable(target, shortCause(err))
+	return refuse(target, shortCause(err))
 }
 
 // shortCause names why a request failed in one short phrase, so the refusal
@@ -335,6 +338,25 @@ func shortCause(err error) string {
 		return "the request timed out"
 	}
 	return "the network request failed"
+}
+
+// refusal renders one failed read as the typed problem for its caller's kind
+// of URL. originUnreachable serves the two catalog documents; a download
+// passes artifactUnreachable instead, because the advice the two give differs.
+type refusal func(target, detail string) problem.Problem
+
+// artifactUnreachable reports that a module artifact could not be downloaded.
+//
+// It never mentions the "catalog-origin" preference, whatever OriginConfigured
+// says: the catalog answered — that is where the artifact URL came from — and
+// the preference does not govern where an artifact lives, so pointing a user
+// at wso2 config would send them to a knob that cannot turn this (review on
+// #161).
+func (c Client) artifactUnreachable(target, detail string) problem.Problem {
+	return problem.New(problem.CategoryModuleProcess, "catalog.artifact_unreachable",
+		fmt.Sprintf("the module artifact at %s could not be downloaded: %s", target, detail)).
+		WithRecovery("Check network access to the artifact's host and try again. " +
+			"The catalog itself answered; only this download failed.")
 }
 
 // originUnreachable reports that the origin could not be read, with the

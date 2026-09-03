@@ -69,8 +69,34 @@ func TestDownloadRefusesAnArchiveOverTheByteLimit(t *testing.T) {
 		t.Fatal("Download succeeded for a body one byte over maxArtifactBytes, want a refusal")
 	}
 	var typed problem.Problem
-	if !errors.As(err, &typed) || typed.Code != "catalog.origin_unreachable" {
-		t.Fatalf("err = %v, want a catalog.origin_unreachable problem", err)
+	if !errors.As(err, &typed) || typed.Code != "catalog.artifact_unreachable" {
+		t.Fatalf("err = %v, want a catalog.artifact_unreachable problem", err)
+	}
+}
+
+// TestADownloadFailureNeverBlamesTheCatalogOriginPreference proves the two
+// kinds of URL refuse differently: an artifact lives wherever the catalog
+// points, which the "catalog-origin" preference does not govern, so a failed
+// download on a preference-configured client must not send the user to
+// wso2 config — that knob cannot turn this.
+func TestADownloadFailureNeverBlamesTheCatalogOriginPreference(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	server.Close() // closed before use: nothing answers this host.
+
+	client := Client{Origin: server.URL, OriginConfigured: true}
+	_, err := client.Download(context.Background(), server.URL+"/archive.tar.gz", nil)
+	if err == nil {
+		t.Fatal("Download against a closed host succeeded, want a refusal")
+	}
+	var typed problem.Problem
+	if !errors.As(err, &typed) || typed.Code != "catalog.artifact_unreachable" {
+		t.Fatalf("err = %v, want a catalog.artifact_unreachable problem", err)
+	}
+	if strings.Contains(typed.Recovery, "catalog-origin") {
+		t.Errorf("the download refusal points at the catalog-origin preference:\n%s", typed.Recovery)
+	}
+	if !strings.Contains(typed.Message, "artifact") {
+		t.Errorf("the download refusal does not say an artifact failed:\n%s", typed.Message)
 	}
 }
 
@@ -150,7 +176,7 @@ func TestGetsSharedByIndexAndNamespaceIgnoreANilReport(t *testing.T) {
 	defer server.Close()
 
 	client := Client{Origin: server.URL, HTTP: server.Client()}
-	body, err := client.get(context.Background(), server.URL+"/doc.json", maxDocumentBytes, nil)
+	body, err := client.get(context.Background(), server.URL+"/doc.json", maxDocumentBytes, nil, client.originUnreachable)
 	if err != nil {
 		t.Fatalf("get with a nil report panicked or failed: %v", err)
 	}

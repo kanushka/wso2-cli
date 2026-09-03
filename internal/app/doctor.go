@@ -251,7 +251,7 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 	}
 
 	if online {
-		finding, catalogErr := catalogCheck(root)
+		finding, catalogErr := catalogCheck(root, s.log)
 		findings = append(findings, finding)
 		if catalogErr != nil {
 			failures[checkCatalog] = *catalogErr
@@ -280,11 +280,14 @@ func renderDoctorReport(w io.Writer, mode output.Mode, findings []doctorFinding)
 // return value is non-nil exactly when the finding is a failure, so the
 // caller can add it to doctor's failures map without re-deriving the outcome
 // from the finding's Status string.
-func catalogCheck(stateRoot string) (doctorFinding, *problem.Problem) {
+func catalogCheck(stateRoot string, log catalog.DebugLog) (doctorFinding, *problem.Problem) {
 	ctx, cancel := context.WithTimeout(context.Background(), catalogProbeTimeout)
 	defer cancel()
 	origin := catalog.Origin(stateRoot)
-	client := catalog.Client{Origin: origin, OriginConfigured: catalog.OriginConfigured(stateRoot)}
+	// The log is the same one --verbose turns on for module commands, so a
+	// probe that fails for transport reasons surfaces the raw detail there
+	// exactly as wso2 module list would (review on #161).
+	client := catalog.Client{Origin: origin, OriginConfigured: catalog.OriginConfigured(stateRoot), Log: log}
 	if _, err := client.Index(ctx); err != nil {
 		typed := doctorProblem(err)
 		return failFinding(checkCatalog, typed), &typed

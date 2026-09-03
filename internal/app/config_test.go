@@ -509,6 +509,33 @@ func TestConfigUnsetOfANeverSetKeySucceedsWithoutWriting(t *testing.T) {
 	}
 }
 
+// TestConfigUnsetRefusesADiagnosedDocument proves the no-op branch cannot
+// swallow a corrupt document: a file Load had to diagnose cannot say whether
+// the key is set, so reporting "was not set" against it would be a success
+// that left the file exactly as broken as before. The unset is refused the
+// way every write against such a document is.
+func TestConfigUnsetRefusesADiagnosedDocument(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	path := preferences.Path(shell.StateRoot)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := shell.Run([]string{"config", "unset", "catalog-origin"}); code != exit.Usage {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.Usage, errOut)
+	}
+	if !strings.Contains(errOut.String(), "preferences.document_unreadable_for_update") {
+		t.Errorf("the refusal does not carry the update refusal's code:\n%s", errOut)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "{not json" {
+		t.Errorf("the diagnosed document was changed by a refused unset: %q, %v", data, err)
+	}
+}
+
 // TestConfigUnsetRefusesAnUnknownKey proves the closed key set is enforced on
 // the unset side too, with the same refusal the other subcommands give.
 func TestConfigUnsetRefusesAnUnknownKey(t *testing.T) {

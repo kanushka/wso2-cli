@@ -268,7 +268,14 @@ func (s Shell) configUnset(command *cobra.Command, rawKey string) error {
 	if err != nil {
 		return err
 	}
-	document, _ := preferences.Load(root)
+	document, diagnostic := preferences.Load(root)
+	if diagnostic != nil {
+		// The no-op decision below reads the document. One that Load had to
+		// diagnose cannot say whether the key is set, so the unset is refused
+		// the way Update refuses every write against it, rather than reported
+		// as a success that left the file exactly as broken as before.
+		return preferences.UnreadableForUpdate(*diagnostic)
+	}
 	_, wasSet := document.Get(key)
 	if wasSet {
 		s.log.Debug("unsetting a shell preference",
