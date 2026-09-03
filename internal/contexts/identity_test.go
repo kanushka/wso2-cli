@@ -57,3 +57,39 @@ func TestIdentityTypeForIssuer(t *testing.T) {
 		})
 	}
 }
+
+// TestTenantForIssuer pins the tenant derivation: an Asgardeo issuer names its
+// tenant in the /t/<tenant>/ path, and every other issuer — off the zone, or
+// on it without the prefix — derives nothing, because the derivation fails
+// closed rather than guessing.
+func TestTenantForIssuer(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		issuer string
+		want   string
+	}{
+		{"an Asgardeo tenant issuer",
+			"https://api.asgardeo.io/t/acme/oauth2/token", "acme"},
+		{"a deeper asgardeo.io host",
+			"https://api.eu.asgardeo.io/t/globex/oauth2/token", "globex"},
+		{"the tenant as the whole path",
+			"https://api.asgardeo.io/t/acme", "acme"},
+		{"an Asgardeo issuer without the tenant prefix",
+			"https://api.asgardeo.io/oauth2/token", ""},
+		{"a /t/ path with nothing after it",
+			"https://api.asgardeo.io/t/", ""},
+		{"a self-hosted issuer whose path looks tenant-qualified",
+			"https://idp.customer.example/t/acme/oauth2/token", ""},
+		{"a host that ends in asgardeo.io without the label boundary",
+			"https://notasgardeo.io/t/acme", ""},
+		{"an issuer that does not parse",
+			"://not a url", ""},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := contexts.TenantForIssuer(testCase.issuer); got != testCase.want {
+				t.Errorf("TenantForIssuer(%q) = %q, want %q",
+					testCase.issuer, got, testCase.want)
+			}
+		})
+	}
+}

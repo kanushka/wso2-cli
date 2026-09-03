@@ -133,11 +133,50 @@ func IdentityTypeForIssuer(issuer string) string {
 	if err != nil {
 		return TypeOnprem
 	}
-	host := strings.ToLower(parsed.Hostname())
-	if host == "asgardeo.io" || strings.HasSuffix(host, ".asgardeo.io") {
+	if asgardeoHost(parsed.Hostname()) {
 		return TypeCloud
 	}
 	return TypeOnprem
+}
+
+// asgardeoHost reports whether a host lies in the asgardeo.io zone. It is the
+// one place the zone is spelled, shared by the deployment-kind and tenant
+// derivations so the two cannot disagree about what counts as Asgardeo.
+func asgardeoHost(host string) bool {
+	host = strings.ToLower(host)
+	return host == "asgardeo.io" || strings.HasSuffix(host, ".asgardeo.io")
+}
+
+// asgardeoTenantPath matches the tenant-qualified path an Asgardeo issuer
+// carries: /t/<tenant>, followed by the rest of the issuer's path.
+var asgardeoTenantPath = regexp.MustCompile(`^/t/([^/]+)(?:/|$)`)
+
+// TenantForIssuer says which Asgardeo tenant an issuer URL belongs to, and
+// answers the empty string for every other issuer.
+//
+// Asgardeo qualifies its issuers by tenant in the URL path —
+// https://api.asgardeo.io/t/<tenant>/oauth2/token — so on that host the path,
+// not the host, says whose organization a login lands in. Every tenant shares
+// the host, which is why anything derived from the host alone describes the
+// vendor rather than the tenant. The tenant is read here, once, so the name a
+// login derives and the organization it records come from the same parse.
+//
+// The derivation fails closed. An issuer off the Asgardeo zone keeps its path
+// to itself — a self-hosted deployment may put anything there, including a
+// /t/<something> that is not a tenant claim this shell can stand behind — and
+// an Asgardeo issuer without the /t/<tenant> prefix names no tenant to derive.
+// Both answer empty, and empty means everything behaves as it did before this
+// function existed.
+func TenantForIssuer(issuer string) string {
+	parsed, err := url.Parse(issuer)
+	if err != nil || !asgardeoHost(parsed.Hostname()) {
+		return ""
+	}
+	match := asgardeoTenantPath.FindStringSubmatch(parsed.Path)
+	if match == nil {
+		return ""
+	}
+	return match[1]
 }
 
 // refPattern constrains a credential reference to one readable word, exactly

@@ -113,3 +113,71 @@ func TestTheProductlessLoginReportMatchesTheDeploymentKind(t *testing.T) {
 		})
 	}
 }
+
+// TestPlanLoginRecordsTheAsgardeoTenantAsTheOrganization pins the two members
+// finding N4 was about: an Asgardeo login records the tenant from the issuer's
+// /t/<tenant>/ path as the identity's home tenant and the context's
+// organization, so wso2 org current has an answer and the broker is handed the
+// organization the session was minted in. Any other issuer records neither,
+// because the derivation fails closed. It calls planLogin directly for the
+// reason the tests above state — the fake issuer lives on localhost, so an
+// Asgardeo-shaped login cannot be run end to end.
+func TestPlanLoginRecordsTheAsgardeoTenantAsTheOrganization(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		issuer string
+		want   string
+	}{
+		{"an Asgardeo issuer records its tenant",
+			"https://api.asgardeo.io/t/acme/oauth2/token", "acme"},
+		{"a self-hosted issuer records no organization",
+			"https://idp.customer.example", ""},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			selected, err := planLogin(contexts.Document{}, "customer", testCase.issuer, "wso2-cli")
+			if err != nil {
+				t.Fatalf("planLogin: %v", err)
+			}
+			if selected.Context.Organization != testCase.want {
+				t.Errorf("planned context organization = %q, want %q",
+					selected.Context.Organization, testCase.want)
+			}
+			if selected.Identity.Auth.Tenant != testCase.want {
+				t.Errorf("planned identity tenant = %q, want %q",
+					selected.Identity.Auth.Tenant, testCase.want)
+			}
+		})
+	}
+}
+
+// TestPlanLoginKeepsADeclaredContextsOrganization pins the re-login case: a
+// context that already stands keeps what it says, so logging in again does not
+// undo an organization wso2 org use recorded.
+func TestPlanLoginKeepsADeclaredContextsOrganization(t *testing.T) {
+	document := contexts.Document{
+		SchemaVersion: contexts.SchemaVersion,
+		Identities: []contexts.Identity{{
+			Name: "acme-asgardeo", Type: contexts.TypeCloud,
+			Auth: contexts.IdentityAuth{
+				Kind:          contexts.KindOAuthBrowser,
+				Issuer:        "https://api.asgardeo.io/t/acme/oauth2/token",
+				ClientID:      "wso2-cli",
+				CredentialRef: "acme-asgardeo",
+			},
+		}},
+		Contexts: []contexts.Context{{
+			Name: "acme-asgardeo", Identity: "acme-asgardeo",
+			Organization: "acme-partner",
+		}},
+		DefaultContext: "acme-asgardeo",
+	}
+	selected, err := planLogin(document, "acme-asgardeo",
+		"https://api.asgardeo.io/t/acme/oauth2/token", "wso2-cli")
+	if err != nil {
+		t.Fatalf("planLogin: %v", err)
+	}
+	if selected.Context.Organization != "acme-partner" {
+		t.Errorf("planned context organization = %q, want the declared acme-partner",
+			selected.Context.Organization)
+	}
+}

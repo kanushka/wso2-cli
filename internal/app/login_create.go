@@ -116,8 +116,11 @@ func (s Shell) loginCreating(flags loginFlags) error {
 			written.CreatedIdentity = true
 		}
 		if !declaresContext(document, name) {
-			document.Contexts = append(document.Contexts,
-				contexts.Context{Name: name, Identity: name})
+			// The context planLogin resolved, for the same reason the identity
+			// is written as planned: it carries the organization the identity's
+			// home tenant names, and what the report describes and what the
+			// document holds cannot disagree.
+			document.Contexts = append(document.Contexts, planned.Context)
 			written.CreatedContext = true
 		}
 		if document.DefaultContext == "" {
@@ -230,6 +233,11 @@ func planLogin(document contexts.Document, name, issuer, clientID string) (conte
 			Issuer:        issuer,
 			ClientID:      clientID,
 			CredentialRef: name,
+			// The tenant an Asgardeo issuer carries in its path is the home
+			// tenant of the session this login establishes, so it is recorded
+			// rather than discarded. Empty for every other issuer, which is the
+			// derivation failing closed (contexts.TenantForIssuer).
+			Tenant: contexts.TenantForIssuer(issuer),
 		},
 	}
 	for _, declared := range document.Identities {
@@ -247,13 +255,27 @@ func planLogin(document contexts.Document, name, issuer, clientID string) (conte
 		// what decides whether this login has a step at all.
 		identity = declared
 	}
+	// The context runs within the identity's home tenant, which is the one
+	// organization its session can already act in — the broker refuses a
+	// context that names any other (internal/auth/source.go's checkHomeTenant).
+	// Taken from the identity after the loop above, so a reused identity that
+	// recorded no tenant yields a context naming no organization, exactly as
+	// its earlier logins did.
+	selected := contexts.Context{Name: name, Identity: name,
+		Organization: identity.Auth.Tenant}
 	for _, declared := range document.Contexts {
-		if declared.Name == name && declared.Identity != name {
+		if declared.Name != name {
+			continue
+		}
+		if declared.Identity != name {
 			return contexts.Selection{}, contextExists(name)
 		}
+		// The declared context, because what it says stands: a login refreshes
+		// a session, and must not undo an organization wso2 org use recorded.
+		selected = declared
 	}
 	return contexts.Selection{
-		Context:  contexts.Context{Name: name, Identity: name},
+		Context:  selected,
 		Identity: identity,
 	}, nil
 }
