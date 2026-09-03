@@ -197,7 +197,7 @@ func TestAModuleOutsideTheProofNamespaceIsNeverBrokeredAccess(t *testing.T) {
 
 func TestAnInvocationWithoutAContextIsDenied(t *testing.T) {
 	broker := broker(t)
-	broker.Selection = contexts.Selection{Context: contexts.Context{Name: contexts.DefaultName}}
+	broker.Selection = contexts.Selection{}
 
 	refusal := denied(t, broker, declaredRequest())
 
@@ -418,7 +418,7 @@ func TestAnUnselectedContextIsRefusedBeforeTheProofNamespaceGuard(t *testing.T) 
 	// selected — rather than that its namespace is not brokered.
 	broker := broker(t)
 	broker.Namespace = "api"
-	broker.Selection = contexts.Selection{Context: contexts.Context{Name: contexts.DefaultName}}
+	broker.Selection = contexts.Selection{}
 
 	refusal := denied(t, broker, declaredRequest())
 

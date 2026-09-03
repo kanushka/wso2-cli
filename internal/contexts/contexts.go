@@ -53,12 +53,6 @@ const SchemaVersion = 2
 // FileName is the context document's fixed name inside the shell state tree.
 const FileName = "contexts.json"
 
-// DefaultName is the context a command runs against when the shell has no
-// context document. It targets nothing and carries no authentication, so a
-// command that needs access is refused by the broker rather than run against a
-// guess.
-const DefaultName = "default"
-
 // MethodDevelopmentCredential is the architecture proof's only authentication
 // method: the shell reads a development credential from a named environment
 // variable and exchanges it for a short-lived fixture token.
@@ -232,12 +226,19 @@ func (d Document) compatibilityRead() bool {
 
 // Select resolves the named context and its identity. An empty name selects
 // the document's default context.
+//
+// A shell with no contexts configured runs against the empty selection: no
+// name, no target, no authentication. Its empty name is deliberate — a context
+// name must match namePattern, which admits nothing shorter than one letter —
+// so nothing downstream can mistake the fallback for a context a user could
+// list, select, or be told to use. A command that needs access is refused by
+// the broker rather than run against a guess.
 func (d Document) Select(name string) (Selection, error) {
 	if len(d.Contexts) == 0 {
 		if name != "" {
-			return Selection{}, unknownContext(name)
+			return Selection{}, noContextConfigured(name)
 		}
-		return Selection{Context: Context{Name: DefaultName}}, nil
+		return Selection{}, nil
 	}
 	wanted := name
 	if wanted == "" {
@@ -291,7 +292,19 @@ func (d Document) identity(name string) Identity {
 func unknownContext(name string) problem.Problem {
 	return contextProblem("contexts.unknown_context",
 		fmt.Sprintf("no context named %q is configured", name),
-		"Select a configured context, or remove the context document to run without one.")
+		"Run wso2 context list to see the configured contexts, then wso2 context use <name> "+
+			"to select one.")
+}
+
+// noContextConfigured refuses a named selection on a shell that has no
+// contexts at all. It is a separate refusal from unknownContext because the
+// recovery differs: there is no list to consult and nothing to select, so the
+// only way forward is to create a context.
+func noContextConfigured(name string) problem.Problem {
+	return contextProblem("contexts.unknown_context",
+		fmt.Sprintf("no context named %q is configured, and no contexts exist", name),
+		"Run wso2 login --url <issuer> --client-id <id> to create an identity and a context, "+
+			"or wso2 context create <name> --identity <identity> if you already have one.")
 }
 
 // validate proves the document is internally consistent before any command

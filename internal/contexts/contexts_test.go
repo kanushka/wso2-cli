@@ -261,10 +261,12 @@ func TestAWrittenDocumentCarriesNoCredentialValue(t *testing.T) {
 	}
 }
 
-func TestAMissingContextDocumentSelectsAnEmptyDefaultContext(t *testing.T) {
+func TestAMissingContextDocumentSelectsTheEmptySelection(t *testing.T) {
 	// A shell with no context store still runs a command. A module that needs
 	// access is refused by the broker, with guidance; one that does not is
-	// unaffected.
+	// unaffected. The fallback carries no name at all: a name here would be
+	// reported to users and modules as a context that wso2 context list does
+	// not show and wso2 context use cannot select.
 	loaded, err := contexts.Load(t.TempDir())
 	if err != nil {
 		t.Fatalf("Load returned %v", err)
@@ -274,11 +276,45 @@ func TestAMissingContextDocumentSelectsAnEmptyDefaultContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Select returned %v", err)
 	}
-	if selection.Context.Name != contexts.DefaultName {
-		t.Errorf("the fallback context is named %q, want %q", selection.Context.Name, contexts.DefaultName)
+	if selection.Context.Name != "" {
+		t.Errorf("the fallback selection carries the name %q, want none", selection.Context.Name)
 	}
 	if selection.Context.Organization != "" || selection.Identity.Name != "" || selection.Identity.Auth.Kind != "" {
 		t.Errorf("the fallback selection is not empty: %+v", selection)
+	}
+	// The properties the empty name rests on: no creatable context can share
+	// it, and no creatable context can share the "(none)" marker the reference
+	// module renders in its place.
+	if contexts.ValidName("") {
+		t.Error("the empty string is a creatable context name, so the fallback collides with it")
+	}
+	if contexts.ValidName("(none)") {
+		t.Error(`"(none)" is a creatable context name, so a rendered empty selection collides with it`)
+	}
+}
+
+func TestNamingAContextWhenNoneExistPointsAtCreatingOne(t *testing.T) {
+	// With no contexts configured there is nothing to select, so the refusal
+	// must not send the user to wso2 context use — the recovery that fits a
+	// mistyped name among existing contexts.
+	loaded, err := contexts.Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load returned %v", err)
+	}
+
+	_, err = loaded.Select("default")
+	assertProblemCode(t, err, "contexts.unknown_context")
+	var refusal problem.Problem
+	if !errors.As(err, &refusal) {
+		t.Fatalf("the refusal is not a typed problem: %v", err)
+	}
+	if !strings.Contains(refusal.Message, "no contexts exist") {
+		t.Errorf("the refusal does not say no contexts exist: %q", refusal.Message)
+	}
+	for _, command := range []string{"wso2 login", "wso2 context create"} {
+		if !strings.Contains(refusal.Recovery, command) {
+			t.Errorf("the recovery does not name %s: %q", command, refusal.Recovery)
+		}
 	}
 }
 

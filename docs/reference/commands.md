@@ -100,6 +100,13 @@ parsing any output.
 An unrecognized problem category is reported as a module process failure, `70`,
 rather than as success.
 
+One command opts out of the `77` class on purpose: `wso2 reference status`
+reports a broker refusal as fields of its result and exits `0`, because
+whether access was granted is the question it exists to answer, and a report
+that cannot say "no" cannot answer it. A gate that must fail without access
+runs `wso2 reference call` or `wso2 reference whoami`, which keep the `77`
+class for the same refusal.
+
 ## Non-interactive use
 
 `--no-input` declares that nothing may prompt, open a browser, or wait for a
