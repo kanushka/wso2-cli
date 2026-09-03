@@ -199,36 +199,69 @@ func TestTheWorkspaceReplacesNothingOutsideAnSDKReleaseWindow(t *testing.T) {
 	// other. See docs/adr/0009-sdk-versioning-and-publication.md and
 	// docs/reference/release-artifacts.md.
 	for _, replacement := range workspaceReplacements(t) {
-		if replacement != sdkReleaseWindowReplacement(t) {
-			t.Errorf("go.work declares the replacement %q; the only replacement "+
-				"permitted is %q, the SDK release window", replacement,
-				sdkReleaseWindowReplacement(t))
+		if !isSDKReleaseWindow(t, replacement) {
+			t.Errorf("go.work declares %s; the only replacement permitted is %s, "+
+				"the SDK release window", replacement, sdkReleaseWindowDescription(t))
 		}
 	}
+}
+
+// workspaceReplacement is one replace directive go.work declares.
+type workspaceReplacement struct {
+	Old struct{ Path, Version string }
+	New struct{ Path, Version string }
+}
+
+func (r workspaceReplacement) String() string {
+	old := r.Old.Path
+	if r.Old.Version != "" {
+		old += " " + r.Old.Version
+	}
+	return "replace " + old + " => " + r.New.Path
 }
 
 // workspaceReplacements reports every replace directive go.work declares.
-func workspaceReplacements(t *testing.T) []string {
+//
+// It reads them through `go work edit -json` rather than by matching text, for
+// the reason requiredVersion reads a requirement that way: only the toolchain
+// is guaranteed to read every spelling the file permits. A replacement inside a
+// parenthesised block is the case a line-by-line reader gets wrong, and getting
+// it wrong here would reject a legitimate release window rather than admit an
+// illegitimate replacement.
+func workspaceReplacements(t *testing.T) []workspaceReplacement {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(repoRoot(t), "go.work"))
+	command := exec.Command("go", "work", "edit", "-json")
+	command.Dir = repoRoot(t)
+	output, err := command.Output()
 	if err != nil {
-		t.Fatalf("cannot read go.work: %v", err)
+		t.Fatalf("go work edit -json: %v", err)
 	}
-	var replacements []string
-	for _, line := range strings.Split(string(data), "\n") {
-		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "replace") {
-			replacements = append(replacements, trimmed)
-		}
+	var parsed struct {
+		Replace []workspaceReplacement
 	}
-	return replacements
+	if err := json.Unmarshal(output, &parsed); err != nil {
+		t.Fatalf("cannot parse go work edit -json output: %v", err)
+	}
+	return parsed.Replace
 }
 
-// sdkReleaseWindowReplacement is the one replacement a release window may
-// declare: the SDK, at the version the product modules require, from this
-// checkout. Reading the version from the requirement rather than naming it here
-// is what ties the two halves together — a requirement bumped without the
-// replacement, or a replacement left behind after the tag, fails.
-func sdkReleaseWindowReplacement(t *testing.T) string {
+// isSDKReleaseWindow reports whether a replacement is the one a release window
+// may declare: the SDK, at exactly the version the product modules require,
+// from this checkout.
+//
+// Reading the version from the requirement rather than naming it here is what
+// ties the two halves together — a requirement bumped without the replacement,
+// or a replacement left behind after the tag, fails.
+func isSDKReleaseWindow(t *testing.T, replacement workspaceReplacement) bool {
+	t.Helper()
+	return replacement.Old.Path == sdkModulePath &&
+		replacement.Old.Version == requiredSDKVersion(t) &&
+		replacement.New.Path == "./sdk"
+}
+
+// sdkReleaseWindowDescription names the permitted replacement for a failure
+// message.
+func sdkReleaseWindowDescription(t *testing.T) string {
 	t.Helper()
 	return fmt.Sprintf("replace %s %s => ./sdk", sdkModulePath, requiredSDKVersion(t))
 }
@@ -280,19 +313,20 @@ func TestEveryProductModuleRequiresAResolvableSDKVersion(t *testing.T) {
 	if required == sdkPublishedVersion {
 		if replacements := workspaceReplacements(t); len(replacements) > 0 {
 			t.Errorf("the product modules require the published SDK %s, so go.work "+
-				"needs no replacement, but it declares %q", sdkPublishedVersion, replacements[0])
+				"needs no replacement, but it declares %s", sdkPublishedVersion, replacements[0])
 		}
 		return
 	}
 
 	// Not the published version, so this must be a release window: the
 	// workspace has to be carrying the matching replacement.
-	window := sdkReleaseWindowReplacement(t)
-	if !slices.Contains(workspaceReplacements(t), window) {
+	if !slices.ContainsFunc(workspaceReplacements(t), func(replacement workspaceReplacement) bool {
+		return isSDKReleaseWindow(t, replacement)
+	}) {
 		t.Errorf("the product modules require %s %s, which is not the published SDK %s, "+
-			"and go.work does not declare %q; a requirement on an unpublished version "+
+			"and go.work does not declare %s; a requirement on an unpublished version "+
 			"resolves only inside this workspace",
-			sdkModulePath, required, sdkPublishedVersion, window)
+			sdkModulePath, required, sdkPublishedVersion, sdkReleaseWindowDescription(t))
 	}
 }
 
