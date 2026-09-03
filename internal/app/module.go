@@ -496,24 +496,101 @@ func (s Shell) moduleList() error {
 		_, err := fmt.Fprintln(s.Streams.Out, "No modules are installed.")
 		return err
 	}
-	updates := 0
 	table := output.NewTable("module", "installed", "channel", "update")
 	for _, status := range statuses {
 		table.Append(status.Namespace, "v"+status.Installed, channelColumn(status), updateColumn(status))
-		if status.Update {
-			updates++
-		}
 	}
 	if err := table.Render(s.Streams.Out); err != nil {
 		return err
 	}
-	if updates == 0 {
-		_, err := fmt.Fprintln(s.Streams.Out, "\nEvery installed module is current.")
+	if _, err := fmt.Fprintln(s.Streams.Out); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(s.Streams.Out,
-		"\n%d module(s) have an update available. Run wso2 module update --all to take them.\n", updates)
-	return err
+	for _, line := range listSummary(statuses) {
+		if _, err := fmt.Fprintln(s.Streams.Out, line); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// moduleState is the one classification wso2 module list reports.
+//
+// The UPDATE column and the summary beneath the table both derive from it, so
+// they cannot disagree. They used to disagree: the column distinguished four
+// states and the summary was driven by the Update boolean alone, which is false
+// for three of them. A pinned module has Update false because a pin holds it
+// where the user put it, and an unpublished one has it false because there is
+// nothing to compare against; neither is a statement that the installed version
+// is current, and the summary called both current. #143, and #135 one layer
+// down.
+type moduleState int
+
+const (
+	// stateUpdatable has a newer version on the channel it follows.
+	stateUpdatable moduleState = iota
+	// statePinned is held at an exact version and was not compared with the
+	// catalog at all.
+	statePinned
+	// stateUnpublished follows a channel the catalog publishes no version of
+	// this module on, so whether it is current is unknown, not true.
+	stateUnpublished
+	// stateCurrent is at the newest version its channel publishes.
+	stateCurrent
+)
+
+// stateOf classifies one module. The order matters: a pin overrides the channel
+// (catalog.Policy documents that), so it is asked about first.
+func stateOf(status install.Status) moduleState {
+	switch {
+	case status.Pinned:
+		return statePinned
+	case status.Update:
+		return stateUpdatable
+	case status.Available == "":
+		return stateUnpublished
+	default:
+		return stateCurrent
+	}
+}
+
+// listSummary accounts for every installed module beneath the table.
+//
+// It returns one line per state that has any modules in it, so nothing is
+// folded into a claim that is not true of it, and it names a command wherever
+// there is something to run. A pin names none on purpose: a pinned module is
+// where the user put it, and there is nothing to do about it.
+//
+// The short, reassuring line survives for the case it is right for — every
+// module genuinely at the newest version its channel publishes — because that
+// case is the common one.
+func listSummary(statuses []install.Status) []string {
+	counts := map[moduleState]int{}
+	for _, status := range statuses {
+		counts[stateOf(status)]++
+	}
+	if counts[stateCurrent] == len(statuses) {
+		return []string{"Every installed module is current."}
+	}
+
+	var lines []string
+	if n := counts[stateUpdatable]; n > 0 {
+		lines = append(lines, fmt.Sprintf(
+			"%d module(s) have an update available. Run wso2 module update --all to take them.", n))
+	}
+	if n := counts[stateCurrent]; n > 0 {
+		lines = append(lines, fmt.Sprintf("%d module(s) are current.", n))
+	}
+	if n := counts[statePinned]; n > 0 {
+		lines = append(lines, fmt.Sprintf(
+			"%d module(s) are pinned and were not compared with the catalog.", n))
+	}
+	if n := counts[stateUnpublished]; n > 0 {
+		lines = append(lines, fmt.Sprintf(
+			"%d module(s) are not published on the channel they follow, so whether they are "+
+				"current is unknown. Run wso2 module available to see what the catalog publishes.", n))
+	}
+	return lines
 }
 
 // channelColumn says which channel a module follows, or says nothing when it
@@ -534,12 +611,12 @@ func channelColumn(status install.Status) string {
 // it: an update to take, a pin holding it where it is, or a channel the catalog
 // publishes nothing on.
 func updateColumn(status install.Status) string {
-	switch {
-	case status.Pinned:
+	switch stateOf(status) {
+	case statePinned:
 		return "pinned to v" + status.PinnedVersion
-	case status.Update:
+	case stateUpdatable:
 		return "v" + status.Available + " available"
-	case status.Available == "":
+	case stateUnpublished:
 		return "not published"
 	default:
 		return "current"
