@@ -435,3 +435,67 @@ func TestEveryCommandFamilyRefusesAnUnknownSubcommand(t *testing.T) {
 		})
 	}
 }
+
+// TestBothSpellingsOfARefusedFlagAgree pins #154: a shell flag a command does
+// not declare is refused the same way whether it is written long or short.
+//
+// pflag words the two failures differently — "unknown flag: --output" against
+// "unknown shorthand flag: 'o' in -o" — and unknownFlagName read only the
+// first. So the long spelling reached the shell's own refusal and the short one
+// fell through to the verbatim parser message, giving one request two problem
+// codes and leaking pflag's vocabulary into user-facing text. The recovery
+// differed too: the long form named the command's own help, the short form
+// named the whole shell tree.
+func TestBothSpellingsOfARefusedFlagAgree(t *testing.T) {
+	for _, command := range [][]string{
+		{"version"},
+		{"login"},
+		{"module", "list"},
+		{"module", "available"},
+	} {
+		t.Run(strings.Join(command, " "), func(t *testing.T) {
+			long := runForStderr(t, append(append([]string{}, command...), "--output", "json"))
+			short := runForStderr(t, append(append([]string{}, command...), "-o", "json"))
+
+			if long != short {
+				t.Errorf("the two spellings of --output are refused differently:\n"+
+					"  --output: %s\n  -o      : %s", long, short)
+			}
+			if !strings.Contains(short, "shell.unsupported_flag") {
+				t.Errorf("-o is not reported as an unsupported shell flag:\n%s", short)
+			}
+			// pflag's own wording must not survive into what the user reads.
+			if strings.Contains(short, "unknown shorthand flag") {
+				t.Errorf("the refusal leaks pflag's wording:\n%s", short)
+			}
+		})
+	}
+}
+
+// TestAShorthandThatIsNotAShellFlagKeepsTheOrdinaryRefusal pins the other half
+// of #154's fix. Reading the shorthand must not turn every unknown letter into
+// "does not take the flag --something": a letter the root does not declare is a
+// typo, not a shell flag named on the wrong command, and the distinction
+// ownsShellFlag draws is the reason shell.unsupported_flag exists at all.
+func TestAShorthandThatIsNotAShellFlagKeepsTheOrdinaryRefusal(t *testing.T) {
+	stderr := runForStderr(t, []string{"module", "list", "-z"})
+
+	if strings.Contains(stderr, "shell.unsupported_flag") {
+		t.Errorf("an unknown shorthand is reported as a shell flag the command refuses:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "shell.unknown_flag") {
+		t.Errorf("an unknown shorthand is not reported as an unknown flag:\n%s", stderr)
+	}
+}
+
+// runForStderr runs the shell and returns what it wrote to standard error,
+// failing the test when the command did not report a usage problem.
+func runForStderr(t *testing.T, args []string) string {
+	t.Helper()
+	shell, _, errOut := newShell(t)
+	if code := shell.Run(args); code != exit.Usage {
+		t.Fatalf("wso2 %s exited %d, want the usage class %d; stderr: %s",
+			strings.Join(args, " "), code, exit.Usage, errOut)
+	}
+	return errOut.String()
+}
