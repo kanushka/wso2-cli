@@ -17,6 +17,7 @@
 package acceptance_test
 
 import (
+	"encoding/json"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -94,6 +95,7 @@ func relocateReferenceModule(t *testing.T) string {
 	// of what this test now proves. It needs a warm or reachable module cache,
 	// like every other build in this repository.
 	environment := []string{"GOWORK=off"}
+	skipUntilTheRequiredSDKIsPublished(t, destination, environment)
 	// The SDK's own dependencies are recorded here, because a module outside a
 	// workspace has to carry its own checksums.
 	runGoIn(t, destination, environment, "mod", "tidy")
@@ -182,3 +184,101 @@ func runGoIn(t *testing.T, directory string, environment []string, args ...strin
 		t.Fatalf("go %s in %s failed: %v\n%s", strings.Join(args, " "), directory, err, output)
 	}
 }
+
+// skipUntilTheRequiredSDKIsPublished skips this test while the SDK version the
+// reference module requires has no tag yet.
+//
+// This is the release bootstrap, and it has a precedent. Until sdk/v0.1.0 the
+// workspace carried a replace for an SDK version that had never been published,
+// because the Go tool cannot build a module graph that requires a version with
+// no revision, and go.work says so. That replace covers every build in this
+// repository except this one: the relocation is defined by GOWORK=off, so it
+// resolves the SDK from the module proxy and cannot see the workspace at all.
+//
+// The window is narrow and self-closing. Bumping modules/reference/go.mod is
+// what the SDK release gate compares its tag against, so the requirement has to
+// name the new version before the tag exists, and the tag makes it fetchable
+// moments later. What this skip buys is that the commit in between builds and
+// its suite is honest, rather than red for a reason unrelated to the change.
+//
+// A proxy that cannot be reached is a failure rather than an empty answer, on
+// the same reasoning scripts/previous-protocol.sh states: reading a network
+// blip as "nothing is published" would turn this into a test that skips itself
+// whenever it is inconvenient, which is the opposite of what it is for.
+func skipUntilTheRequiredSDKIsPublished(t *testing.T, moduleDirectory string, environment []string) {
+	t.Helper()
+	required := requiredSDKVersion(t, moduleDirectory)
+	for _, published := range publishedSDKVersions(t, environment) {
+		if published == required {
+			return
+		}
+	}
+	t.Skipf("the reference module requires SDK %s, which is not published yet: "+
+		"relocation resolves the SDK from the module proxy, so it cannot be "+
+		"proven until the tag exists. Push sdk/%s to close this window.",
+		required, required)
+}
+
+// requiredSDKVersion reads the SDK version the relocated module requires.
+//
+// It is read through go rather than by matching text, for the reason the SDK
+// release gate reads it that way: a go.mod spells a single requirement on one
+// line and a grouped one over several, and only go itself reads both the way
+// the toolchain does.
+func requiredSDKVersion(t *testing.T, moduleDirectory string) string {
+	t.Helper()
+	command := exec.Command("go", "mod", "edit", "-json")
+	command.Dir = moduleDirectory
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("reading the relocated module's requirements failed: %v", err)
+	}
+	var parsed struct {
+		Require []struct {
+			Path    string
+			Version string
+		}
+	}
+	if err := json.Unmarshal(output, &parsed); err != nil {
+		t.Fatalf("the relocated module's requirements are unreadable: %v", err)
+	}
+	for _, requirement := range parsed.Require {
+		if requirement.Path == sdkModulePath {
+			return requirement.Version
+		}
+	}
+	t.Fatalf("the relocated module requires no %s version", sdkModulePath)
+	return ""
+}
+
+// publishedSDKVersions asks the module proxy what the SDK has published.
+//
+// The question is asked from a probe module rather than from the relocated copy
+// because the copy is what may require an unpublished version, and go cannot
+// load a module graph it cannot resolve. The probe requires nothing, so the
+// listing succeeds whatever the copy asks for.
+func publishedSDKVersions(t *testing.T, environment []string) []string {
+	t.Helper()
+	probe := t.TempDir()
+	if err := os.WriteFile(filepath.Join(probe, "go.mod"),
+		[]byte("module probe\n\ngo 1.25.0\n"), 0o644); err != nil {
+		t.Fatalf("writing the probe module failed: %v", err)
+	}
+	command := exec.Command("go", "list", "-m", "-versions", sdkModulePath)
+	command.Dir = probe
+	command.Env = append(os.Environ(), environment...)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("the module proxy could not be asked what the SDK has published, "+
+			"so whether the relocated module can resolve it is unknown: %v\n%s", err, output)
+	}
+	// The answer is the module path followed by every version, space separated.
+	fields := strings.Fields(string(output))
+	if len(fields) == 0 {
+		return nil
+	}
+	return fields[1:]
+}
+
+// sdkModulePath is the published SDK a relocated module resolves by version.
+const sdkModulePath = "github.com/wso2/wso2-cli/sdk"

@@ -192,6 +192,43 @@ constraints hold on every pull request. A tag is a bad place to learn either of
 them for the first time, because the module proxy keeps a version forever and
 there is no withdrawing one.
 
+### Releasing a version nothing is built against yet
+
+The gate compares the tag against the SDK version the reference module
+requires, so `modules/reference/go.mod` has to name the new version *before* the
+tag exists. Nothing can resolve that version until the tag is pushed, which
+leaves a window where the checkout requires a version the proxy cannot serve.
+Two things cover it, and both are narrow and self-closing.
+
+**The workspace replaces the unpublished version.** The Go tool cannot build a
+module graph that requires a version with no revision, so every build in the
+repository fails, not just the ones that exercise the module. Add a versioned
+replace to `go.work` for the duration:
+
+```
+replace github.com/wso2/wso2-cli/sdk v0.2.0 => ./sdk
+```
+
+`go.work` carried exactly this before `sdk/v0.1.0` and says so. Remove it once
+the tag is pushed. A committed `replace` in any `go.mod` stays prohibited; the
+workspace is the sanctioned place for one.
+
+**The relocation test skips.** `TestTheReferenceModuleWorksFromAnotherRepository`
+is defined by `GOWORK=off`, so the workspace replace is invisible to it by
+design — it resolves the SDK from the proxy the way a product team's own
+repository does. It skips while the required version is unpublished, and names
+the tag that closes the window. A proxy that cannot be reached is still a
+failure: an unreachable proxy read as "nothing is published" would make the test
+skip itself whenever it was inconvenient.
+
+`scripts/previous-protocol.sh` needs nothing. It already substitutes a published
+version for the committed requirement, because the committed graph is the local
+one.
+
+The order is therefore: commit the requirement bump, push `sdk/vX.Y.Z`, then
+drop the workspace replace. The gate runs on the tag and decides whether the tag
+that already exists should have existed.
+
 The SDK's version is not a compatibility contract. Which shells can launch a
 module is decided by the protocol version, which is versioned separately,
 declared in `module.json`, and checked by the module release gate below. See
