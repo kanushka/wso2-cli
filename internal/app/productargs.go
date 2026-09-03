@@ -217,13 +217,37 @@ func parseUndeclaredProductArgs(namespace string, args []string) (productLine, e
 		command = append(command, remaining[0])
 		remaining = remaining[1:]
 	}
-	// Help is not answered for a module that declares nothing: there is no
-	// declaration to answer from, so --help travels to the module as it always
-	// did.
+	// There is no declaration to answer help from, but an explicit request for
+	// it is still recognised: the first flag the shell stopped at being one of
+	// pflag's spellings of help is unambiguous whatever the module's own flag
+	// set looks like, and invokeModule refuses it truthfully rather than
+	// launching a module that will call the command unknown. Anything less
+	// plain — help buried behind a module flag that might take it as a value —
+	// travels to the module as it always did.
+	help := len(remaining) > 0 && (remaining[0] == "--help" || remaining[0] == "-h")
 	return productLine{
 		command: command, arguments: remaining,
 		mode: flags.mode, contextName: flags.contextName,
+		help: help,
 	}, nil
+}
+
+// undeclaredModuleHelp refuses a request for help about a module that declares
+// no command tree, instead of launching it.
+//
+// An installed build published before declarations existed cannot be asked
+// what it accepts without running it, and forwarding --help made the module
+// refuse the flag as an unknown command — a false statement about a command it
+// plainly serves, and with the root help silent about modules there was no way
+// left to discover anything (F6). Saying what is actually missing, and where a
+// build that declares its commands can be had, is the only truthful help
+// available. Ordinary commands still pass through unparsed; the fallback
+// contract on parsetree.Tree.Declared is unchanged.
+func undeclaredModuleHelp(namespace string) problem.Problem {
+	return problem.New(problem.CategoryUsage, "shell.module_help_undeclared",
+		fmt.Sprintf("the installed %s module does not describe its commands to the shell", namespace)).
+		WithRecovery(fmt.Sprintf("Run wso2 module install %s --channel stable to install a build that does, "+
+			"or see the module's own documentation.", namespace))
 }
 
 // readLongFlag reads one of the module's long flags and the value it carries.

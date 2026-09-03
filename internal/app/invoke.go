@@ -61,6 +61,14 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 	if declared.Declared() && (line.help || !line.declared.Runnable) {
 		return s.renderProductHelp(namespace, declared, line.declared)
 	}
+	// A module that declares no tree cannot have the question answered for it,
+	// and forwarding it launched a module that refused its own --help as an
+	// unknown command. The refusal here names what is missing instead. Only an
+	// explicit -h or --help is caught: a bare namespace may be a legitimate
+	// invocation under the old protocol, so it keeps forwarding.
+	if !declared.Declared() && line.help {
+		return undeclaredModuleHelp(namespace)
+	}
 	command, arguments := line.command, line.arguments
 	mode, contextName := line.mode, line.contextName
 	selection, err := s.selection(contextName)

@@ -27,6 +27,8 @@ import (
 	"github.com/wso2/wso2-cli/internal/exit"
 	"github.com/wso2/wso2-cli/internal/modules/fixture"
 	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/internal/state"
+	"github.com/wso2/wso2-cli/sdk/commandtree"
 )
 
 func TestCommandNamesAreDerivedFromTheShellCommandTree(t *testing.T) {
@@ -498,4 +500,209 @@ func runForStderr(t *testing.T, args []string) string {
 			strings.Join(args, " "), code, exit.Usage, errOut)
 	}
 	return errOut.String()
+}
+
+// referenceTree is the declared command tree the help tests install: a
+// namespace that groups one runnable subcommand, which is the smallest shape
+// the reference module itself has.
+func referenceTree() commandtree.Tree {
+	return commandtree.New([]commandtree.Command{
+		{Path: nil, Short: "Explore the reference product."},
+		{Path: []string{"status"}, Runnable: true, Short: "Report the product status."},
+	})
+}
+
+// TestHelpListsTheInstalledModuleNamespaces pins the fix for the highest-rated
+// usability finding: a user who has just installed a module looks at help
+// first, and a footer that never mentioned the installation read as the
+// installation having failed.
+func TestHelpListsTheInstalledModuleNamespaces(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+
+	if code := shell.Run([]string{"help"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "Installed: reference") {
+		t.Errorf("help does not name the installed namespace:\n%s", out)
+	}
+	if !strings.Contains(out.String(), "wso2 <namespace> --help") {
+		t.Errorf("help does not say how to see a module's commands:\n%s", out)
+	}
+}
+
+// TestHelpSaysWhenNoModuleIsInstalled proves the footer stays truthful in the
+// empty state and points at the way out of it.
+func TestHelpSaysWhenNoModuleIsInstalled(t *testing.T) {
+	shell, out, errOut := newShell(t)
+
+	if code := shell.Run([]string{"help"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "None are installed") {
+		t.Errorf("help does not say no modules are installed:\n%s", out)
+	}
+	if !strings.Contains(out.String(), "wso2 module available") {
+		t.Errorf("help does not point at wso2 module available:\n%s", out)
+	}
+}
+
+// TestHelpStillRendersWhenTheStateRootIsUnusable proves the footer degrades
+// rather than taking the help page with it: a broken environment must never
+// make help itself fail.
+func TestHelpStillRendersWhenTheStateRootIsUnusable(t *testing.T) {
+	t.Setenv(state.RootEnvVar, "relative/not-absolute")
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	shell := app.Shell{Streams: output.Streams{Out: out, Err: errOut}}
+
+	if code := shell.Run([]string{"help"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "Product commands are provided by installed modules.") {
+		t.Errorf("help lost its product-commands footer:\n%s", out)
+	}
+}
+
+// TestHelpForAnInstalledNamespaceRendersTheModulesDeclaredHelp proves
+// wso2 help <namespace> answers the same page wso2 <namespace> --help does,
+// instead of the root page it used to print.
+func TestHelpForAnInstalledNamespaceRendersTheModulesDeclaredHelp(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{
+		Namespace: "reference", Version: "0.1.0", CommandTree: referenceTree(),
+	})
+
+	if code := shell.Run([]string{"help", "reference"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "wso2 reference") {
+		t.Errorf("the page is not about the reference namespace:\n%s", out)
+	}
+	if !strings.Contains(out.String(), "status") {
+		t.Errorf("the page does not list the declared subcommand:\n%s", out)
+	}
+	if strings.Contains(out.String(), "Shell commands") {
+		t.Errorf("the root page was printed instead of the module's:\n%s", out)
+	}
+}
+
+// TestHelpForANamespaceSubcommandRendersThatCommandsPage proves the topic walk
+// goes below the namespace, so wso2 help reference status is the status page.
+func TestHelpForANamespaceSubcommandRendersThatCommandsPage(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{
+		Namespace: "reference", Version: "0.1.0", CommandTree: referenceTree(),
+	})
+
+	if code := shell.Run([]string{"help", "reference", "status"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "wso2 reference status") {
+		t.Errorf("the page is not about the status command:\n%s", out)
+	}
+	if !strings.Contains(out.String(), "Report the product status.") {
+		t.Errorf("the page does not carry the command's summary:\n%s", out)
+	}
+}
+
+// TestHelpForAShellCommandStillRendersItsOwnPage pins that routing product
+// namespaces through the help command took nothing from the built-ins.
+func TestHelpForAShellCommandStillRendersItsOwnPage(t *testing.T) {
+	shell, out, errOut := newShell(t)
+
+	if code := shell.Run([]string{"help", "module"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "install") {
+		t.Errorf("wso2 help module does not describe the module family:\n%s", out)
+	}
+}
+
+// TestHelpForAnUnknownTopicIsRefusedLikeAnyUnknownCommand pins that the help
+// command stopped printing the root page for a topic it does not recognise.
+// Exit 0 with the wrong page told a script the typo had worked, which is the
+// same silent wrong answer the families refuse in
+// TestEveryCommandFamilyRefusesAnUnknownSubcommand.
+func TestHelpForAnUnknownTopicIsRefusedLikeAnyUnknownCommand(t *testing.T) {
+	stderr := runForStderr(t, []string{"help", "bogus"})
+
+	if !strings.Contains(stderr, "shell.unknown_command") {
+		t.Errorf("an unknown help topic is not refused as an unknown command:\n%s", stderr)
+	}
+}
+
+// TestHelpForAnUnknownProductSubcommandIsRefused proves the walk below a
+// namespace refuses a word the module does not serve, exactly as invoking it
+// would, rather than shrugging it into the namespace's own page.
+func TestHelpForAnUnknownProductSubcommandIsRefused(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{
+		Namespace: "reference", Version: "0.1.0", CommandTree: referenceTree(),
+	})
+
+	if code := shell.Run([]string{"help", "reference", "bogus"}); code != exit.Usage {
+		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
+	}
+	if !strings.Contains(errOut.String(), "shell.unknown_product_command") {
+		t.Errorf("the unknown subcommand is not named:\n%s", errOut)
+	}
+}
+
+// TestHelpAboutAnUndeclaredModuleIsRefusedTruthfully pins F6's help-command
+// half: a module installed from a build that predates command-tree declaration
+// has no declaration to answer from, and the shell says that instead of
+// launching a process that will call the command unknown.
+func TestHelpAboutAnUndeclaredModuleIsRefusedTruthfully(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+
+	if code := shell.Run([]string{"help", "reference"}); code != exit.Usage {
+		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
+	}
+	if !strings.Contains(errOut.String(), "shell.module_help_undeclared") {
+		t.Errorf("the missing declaration is not named:\n%s", errOut)
+	}
+	if !strings.Contains(errOut.String(), "wso2 module install reference --channel stable") {
+		t.Errorf("the recovery does not point at a build that declares its commands:\n%s", errOut)
+	}
+}
+
+// TestAHelpFlagOnAnUndeclaredModuleDoesNotLaunchIt pins F6 itself: the
+// installed fixture cannot speak the contract, so the usage class — rather
+// than the module-process class every launched invocation of it ends in — is
+// the proof nothing was launched.
+func TestAHelpFlagOnAnUndeclaredModuleDoesNotLaunchIt(t *testing.T) {
+	for _, args := range [][]string{
+		{"reference", "--help"},
+		{"reference", "-h"},
+		{"reference", "status", "--help"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			shell, _, errOut := newShell(t)
+			installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+
+			if code := shell.Run(args); code != exit.Usage {
+				t.Fatalf("exit code = %d, want the usage class %d; stderr: %s",
+					code, exit.Usage, errOut)
+			}
+			if !strings.Contains(errOut.String(), "shell.module_help_undeclared") {
+				t.Errorf("the refusal does not name the missing declaration:\n%s", errOut)
+			}
+		})
+	}
+}
+
+// TestABareUndeclaredNamespaceStillForwardsToTheModule pins the boundary of
+// F6's fix: under the old protocol a module may serve its namespace's own bare
+// invocation, so only an explicit help flag is caught. The fixture does not
+// speak the contract, so reaching the contract failure is the evidence the
+// invocation was still forwarded.
+func TestABareUndeclaredNamespaceStillForwardsToTheModule(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+
+	if code := shell.Run([]string{"reference"}); code != exit.ModuleProcess {
+		t.Fatalf("exit code = %d, want the module process class %d; stderr: %s",
+			code, exit.ModuleProcess, errOut)
+	}
 }

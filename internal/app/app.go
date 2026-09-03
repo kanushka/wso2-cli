@@ -34,6 +34,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/exit"
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/internal/parsetree"
 	"github.com/wso2/wso2-cli/internal/preferences"
 	"github.com/wso2/wso2-cli/internal/state"
 	"github.com/wso2/wso2-cli/internal/version"
@@ -209,13 +210,7 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 		return err
 	}
 	if !slices.Contains(namespaces, namespace) {
-		recovery := "Run wso2 help to see the shell commands, or wso2 version to see the installed modules."
-		if suggestion := suggestionFor(root, namespace); suggestion != "" {
-			recovery = suggestion + " " + recovery
-		}
-		return problem.New(problem.CategoryUsage, "shell.unknown_command",
-			fmt.Sprintf("%q is not a shell command and no installed module owns that namespace", namespace)).
-			WithRecovery(recovery)
+		return unknownNamespace(root, namespace)
 	}
 
 	identity, err := s.identity()
@@ -278,4 +273,73 @@ func (s Shell) stateRoot() (string, error) {
 // that a command cannot exist without being listed.
 func (s Shell) help(root *cobra.Command) error {
 	return root.Help()
+}
+
+// unknownNamespace reports a name that neither the shell nor any installed
+// module answers to. Dispatch and the help command refuse with it alike, so a
+// typo costs the same message whichever way it was asked about.
+func unknownNamespace(root *cobra.Command, namespace string) error {
+	recovery := "Run wso2 help to see the shell commands, or wso2 version to see the installed modules."
+	if suggestion := suggestionFor(root, namespace); suggestion != "" {
+		recovery = suggestion + " " + recovery
+	}
+	return problem.New(problem.CategoryUsage, "shell.unknown_command",
+		fmt.Sprintf("%q is not a shell command and no installed module owns that namespace", namespace)).
+		WithRecovery(recovery)
+}
+
+// helpTopic answers wso2 help and wso2 help <topic>, where a topic is a shell
+// command or an installed product namespace.
+//
+// Cobra's own help command answered any topic it did not recognise with the
+// root page and success, which told a user asking about an installed module —
+// the one place product commands could have been discovered — that their
+// question meant nothing, and told a script that a typo had worked. A shell
+// command still renders its own page. An installed namespace renders the
+// module's declared help, the same page invoking it with --help shows, and the
+// words after it walk the declaration so wso2 help <namespace> <subcommand>
+// answers too. Anything else is refused exactly as dispatch refuses it.
+func (s Shell) helpTopic(root *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return s.help(root)
+	}
+	if isShellCommand(root, args[0]) {
+		target, _, err := root.Find(args)
+		if err != nil || target == nil {
+			return s.help(root)
+		}
+		return target.Help()
+	}
+	namespace := args[0]
+	store, err := s.store()
+	if err != nil {
+		return err
+	}
+	namespaces, err := store.Namespaces()
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(namespaces, namespace) {
+		return unknownNamespace(root, namespace)
+	}
+	identity, err := s.identity()
+	if err != nil {
+		return err
+	}
+	resolved, err := store.Resolve(namespace, identity)
+	if err != nil {
+		return err
+	}
+	declared := parsetree.FromReceipt(resolved.Receipt)
+	if !declared.Declared() {
+		return undeclaredModuleHelp(namespace)
+	}
+	routed := declared.Route(args[1:])
+	// The same refusal parseProductArgs makes for the same words: a plain word
+	// the namespace does not serve is reported, not shrugged into the page for
+	// the whole namespace.
+	if routed.Unrouted != "" && len(routed.Command.Path) == 0 && declared.RootHasChildren() {
+		return unknownProductCommand(namespace, routed.Unrouted, declared)
+	}
+	return s.renderProductHelp(namespace, declared, routed.Command)
 }
