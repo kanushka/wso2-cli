@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
@@ -48,7 +49,7 @@ type brokeredAccess struct {
 // material conveys is the audience that verifies it. Introspecting the token
 // here would work for the one token format this fixture mints and would be the
 // wrong shape for every real one.
-func readWhoami(ctx context.Context, endpoint, invocationID, token string) (brokeredAccess, error) {
+func readWhoami(ctx context.Context, endpoint, invocationID, token string, timeout time.Duration) (brokeredAccess, error) {
 	if endpoint == "" {
 		return brokeredAccess{}, problem.New(problem.CategoryUsage, "reference.no_endpoint",
 			"the selected context does not name a reference status service").
@@ -61,7 +62,7 @@ func readWhoami(ctx context.Context, endpoint, invocationID, token string) (brok
 			WithRecovery("Select a context whose endpoint is an absolute HTTP URL.")
 	}
 
-	call, cancel := context.WithTimeout(ctx, statusTimeout)
+	call, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	request, err := http.NewRequestWithContext(call, http.MethodGet, target, nil)
 	if err != nil {

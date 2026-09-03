@@ -265,20 +265,32 @@ where they are and only the ending changes: a handler returns typed fields
 instead of printing.
 
 ```go
-func commands() []module.Command {
+func commandTree() *cobratree.Tree {
 	root := &cobra.Command{Use: namespace}
 	statusCommand := &cobra.Command{Use: "status", Short: "Report service status."}
 	statusCommand.Flags().String("env", "", "Target environment.")
 	root.AddCommand(statusCommand)
 
-	return cobratree.New(root).Handle(statusCommand, status).Commands()
+	return cobratree.New(root).Handle(statusCommand, status)
 }
 ```
 
-Pass the result to `module.Serve` in place of the individual commands. The
-adapter parses the module's own arguments with the matched command's flag set
-before the handler runs, so a handler reads its flags from the command it was
-written beside.
+Serve it with `cobratree.Tree.Serve` in place of `module.Serve`:
+
+```go
+err := commandTree().Serve(context.Background(), options)
+```
+
+Return the tree rather than the commands it serves, and let `Serve` do both.
+It declares the tree as well as serving it, and that declaration is what lets
+the shell answer `wso2 <namespace> --help`, name a mistyped command, and parse
+your flags before your module is launched. A module that hands `module.Serve` a
+command list alone declares nothing, and the shell falls back to parsing a
+product line without knowing what the module accepts.
+
+The adapter parses the module's own arguments with the matched command's flag
+set before the handler runs, so a handler reads its flags from the command it
+was written beside.
 
 Two things the adapter guarantees without being asked. Every writer in the tree
 points at standard error, and Cobra prints neither errors nor usage itself, so

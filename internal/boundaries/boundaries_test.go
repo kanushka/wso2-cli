@@ -24,6 +24,7 @@ package boundaries_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -178,50 +179,131 @@ func TestNoCommittedModuleReplacesALocalCheckout(t *testing.T) {
 	}
 }
 
-func TestTheWorkspaceDeclaresNoReplacements(t *testing.T) {
-	// The workspace replaced an SDK version that had never been published,
-	// because the Go tool cannot build a module graph that requires a version
-	// with no revision. sdk/v0.1.0 exists now, so every module requires a
-	// version the module proxy can serve and the replacement is gone.
-	//
+func TestTheWorkspaceReplacesNothingOutsideAnSDKReleaseWindow(t *testing.T) {
 	// A replacement here would let the workspace conceal a dependency a
-	// released build would not have, and there is no longer a reason to allow
-	// one. See docs/adr/0009-sdk-versioning-and-publication.md.
+	// released build would not have, so the only one permitted is the one that
+	// cannot be avoided.
+	//
+	// The SDK release gate compares its tag against the version the product
+	// modules require, so that requirement has to name the new version before
+	// the tag exists — and the Go tool cannot build a module graph that
+	// requires a version with no revision, so without a replacement every build
+	// in the repository fails. The workspace carried exactly this until
+	// sdk/v0.1.0 was published.
+	//
+	// One replacement is allowed, and only in the shape that window has: the
+	// SDK, at exactly the version every product module requires, pointing at
+	// this checkout. Anything else is the concealment this test exists to
+	// prevent. TestEveryProductModuleRequiresAResolvableSDKVersion is the other
+	// half — neither the requirement nor the replacement can move without the
+	// other. See docs/adr/0009-sdk-versioning-and-publication.md and
+	// docs/reference/release-artifacts.md.
+	for _, replacement := range workspaceReplacements(t) {
+		if replacement != sdkReleaseWindowReplacement(t) {
+			t.Errorf("go.work declares the replacement %q; the only replacement "+
+				"permitted is %q, the SDK release window", replacement,
+				sdkReleaseWindowReplacement(t))
+		}
+	}
+}
+
+// workspaceReplacements reports every replace directive go.work declares.
+func workspaceReplacements(t *testing.T) []string {
+	t.Helper()
 	data, err := os.ReadFile(filepath.Join(repoRoot(t), "go.work"))
 	if err != nil {
 		t.Fatalf("cannot read go.work: %v", err)
 	}
-
+	var replacements []string
 	for _, line := range strings.Split(string(data), "\n") {
 		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "replace") {
-			t.Errorf("go.work declares the replacement %q; the published SDK needs none", trimmed)
+			replacements = append(replacements, trimmed)
 		}
 	}
+	return replacements
 }
 
-func TestEveryProductModuleRequiresAPublishedSDKVersion(t *testing.T) {
-	// The placeholder was never published, so a module requiring it builds only
-	// where a workspace or a replacement resolves it. Requiring the version this
-	// release actually published is what makes a module an ordinary consumer of
-	// the SDK, and therefore what makes it something a product team can own and
-	// release.
-	//
-	// Every product module is checked rather than the reference module alone, so
-	// a scaffolded module that reintroduced the placeholder, or drifted to some
-	// other unpublished version, would be caught.
-	const (
-		sdkModule    = "github.com/wso2/wso2-cli/sdk"
-		sdkPublished = "v0.1.0"
-	)
+// sdkReleaseWindowReplacement is the one replacement a release window may
+// declare: the SDK, at the version the product modules require, from this
+// checkout. Reading the version from the requirement rather than naming it here
+// is what ties the two halves together — a requirement bumped without the
+// replacement, or a replacement left behind after the tag, fails.
+func sdkReleaseWindowReplacement(t *testing.T) string {
+	t.Helper()
+	return fmt.Sprintf("replace %s %s => ./sdk", sdkModulePath, requiredSDKVersion(t))
+}
 
+// requiredSDKVersion reports the SDK version the product modules require,
+// failing when they disagree: they are released together and a split
+// requirement has no meaning for the gate that compares a tag against it.
+func requiredSDKVersion(t *testing.T) string {
+	t.Helper()
+	var agreed string
 	for _, module := range productModules(t) {
 		path := filepath.Join(repoRoot(t), module, "go.mod")
-		requirement := requiredVersion(t, path, sdkModule)
-		if requirement != sdkPublished {
-			t.Errorf("%s requires %s %s; the published SDK is %s", path, sdkModule, requirement, sdkPublished)
+		requirement := requiredVersion(t, path, sdkModulePath)
+		if agreed == "" {
+			agreed = requirement
+			continue
+		}
+		if requirement != agreed {
+			t.Fatalf("%s requires %s %s, but another product module requires %s; "+
+				"product modules are released against one SDK version",
+				path, sdkModulePath, requirement, agreed)
 		}
 	}
+	if agreed == "" {
+		t.Fatal("no product module requires the SDK, so there is no version to check")
+	}
+	return agreed
 }
+
+func TestEveryProductModuleRequiresAResolvableSDKVersion(t *testing.T) {
+	// Requiring the version this release actually published is what makes a
+	// module an ordinary consumer of the SDK, and therefore what makes it
+	// something a product team can own and release. A module requiring a version
+	// nothing published builds only where a workspace resolves it, which is the
+	// dependency on this repository the boundary exists to prevent.
+	//
+	// The one exception is the SDK release window, and it is not an exception to
+	// the rule so much as the moment the rule is being satisfied: the release
+	// gate compares its tag against this requirement, so the requirement names
+	// the new version first and the tag makes it resolvable moments later. The
+	// window is only open while go.work replaces exactly that version — see
+	// TestTheWorkspaceReplacesNothingOutsideAnSDKReleaseWindow — so a
+	// requirement on an unpublished version with no replacement behind it still
+	// fails, and so does a replacement left behind after the tag.
+	//
+	// Every product module is checked rather than the reference module alone, so
+	// a scaffolded module that drifted to some other version would be caught.
+	required := requiredSDKVersion(t)
+	if required == sdkPublishedVersion {
+		if replacements := workspaceReplacements(t); len(replacements) > 0 {
+			t.Errorf("the product modules require the published SDK %s, so go.work "+
+				"needs no replacement, but it declares %q", sdkPublishedVersion, replacements[0])
+		}
+		return
+	}
+
+	// Not the published version, so this must be a release window: the
+	// workspace has to be carrying the matching replacement.
+	window := sdkReleaseWindowReplacement(t)
+	if !slices.Contains(workspaceReplacements(t), window) {
+		t.Errorf("the product modules require %s %s, which is not the published SDK %s, "+
+			"and go.work does not declare %q; a requirement on an unpublished version "+
+			"resolves only inside this workspace",
+			sdkModulePath, required, sdkPublishedVersion, window)
+	}
+}
+
+const (
+	// sdkModulePath is the published SDK every product module consumes.
+	sdkModulePath = "github.com/wso2/wso2-cli/sdk"
+	// sdkPublishedVersion is the newest SDK release. Bump it as part of
+	// publishing one, together with dropping the window replacement from
+	// go.work; the two are the same piece of work.
+	sdkPublishedVersion = "v0.1.0"
+)
 
 // requiredVersion reports the version at which a go.mod requires the named
 // module, via `go mod edit -json` rather than a text match, so a require

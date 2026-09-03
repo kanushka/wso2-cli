@@ -93,7 +93,7 @@ func main() {
 	// Standard output now carries protocol frames only. Anything this process
 	// wants to say goes to standard error, where the shell captures it as
 	// bounded diagnostics.
-	err := module.Serve(context.Background(), options, commands()...)
+	err := commandTree().Serve(context.Background(), options)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "wso2-module-reference: %v\n", err)
 		os.Exit(1)
@@ -110,14 +110,19 @@ func moduleOptions() module.Options {
 	}
 }
 
-// commands builds this module's command tree and binds each command to its
+// commandTree builds this module's command tree and binds each command to its
 // handler.
 //
 // The tree is a Cobra tree because a product CLI being migrated already has one:
 // its commands, its flags, and its help are declared here exactly as they would
 // be in a standalone CLI. What changes is the ending — a handler returns typed
 // fields instead of printing, because the shell owns rendering.
-func commands() []module.Command {
+//
+// It returns the tree rather than the commands it serves, so that Serve can
+// declare it as well as serve it. A module that hands module.Serve a command
+// list alone declares nothing, and the shell then falls back to parsing a
+// product line without knowing what the module accepts (#153).
+func commandTree() *cobratree.Tree {
 	root := &cobra.Command{
 		Use:   "reference",
 		Short: "Reference product module for the WSO2 CLI.",
@@ -130,17 +135,36 @@ func commands() []module.Command {
 		Use:   "call",
 		Short: "Read the reference status service with brokered access.",
 	}
+	// A real flag, declared the way a product module declares one, so the
+	// contract is exercised end to end rather than only for command paths: the
+	// shell reads this off the declared tree, parses "wso2 reference call
+	// --timeout 2s" against it, and forwards it here. Until a module declared
+	// its tree, test/acceptance/testdata/declaringmodule was the only thing
+	// proving that path.
+	timeout := callCommand.Flags().Duration("timeout", defaultStatusTimeout,
+		"Give up on the reference status service after this long.")
 	whoamiCommand := &cobra.Command{
 		Use:   "whoami",
 		Short: "Report the access the shell brokered for this invocation.",
 	}
+	// whoami reads the same service under the same deadline, so it takes the
+	// same flag. One of the two carrying it and the other a constant would be a
+	// difference with no reason behind it.
+	whoamiTimeout := whoamiCommand.Flags().Duration("timeout", defaultStatusTimeout,
+		"Give up on the reference status service after this long.")
 	root.AddCommand(statusCommand, callCommand, whoamiCommand)
 
 	return cobratree.New(root).
 		Handle(statusCommand, status).
-		Handle(callCommand, call).
-		Handle(whoamiCommand, whoami).
-		Commands()
+		Handle(callCommand, func(ctx context.Context, request module.Request) (result.Result, error) {
+			// cobratree parses the command's flags before it calls the handler,
+			// so this dereference reads what the invocation asked for rather
+			// than the declared default.
+			return call(ctx, request, *timeout)
+		}).
+		Handle(whoamiCommand, func(ctx context.Context, request module.Request) (result.Result, error) {
+			return whoami(ctx, request, *whoamiTimeout)
+		})
 }
 
 // status answers "wso2 reference status".
@@ -207,7 +231,7 @@ func status(ctx context.Context, request module.Request) (result.Result, error) 
 // the declared audience, so it needs a reference status service to call and
 // cannot succeed without one. It carried the name "status" until #147, which
 // gave that name to the command a developer can actually run.
-func call(ctx context.Context, request module.Request) (result.Result, error) {
+func call(ctx context.Context, request module.Request, timeout time.Duration) (result.Result, error) {
 	access, err := request.Access.Acquire(ctx, module.AccessRequest{
 		Audience: StatusAudience,
 		Scopes:   []string{StatusScope},
@@ -218,7 +242,7 @@ func call(ctx context.Context, request module.Request) (result.Result, error) {
 		return result.Result{}, err
 	}
 
-	status, err := readStatus(ctx, request.Context.Endpoint, request.InvocationID, access.Token)
+	status, err := readStatus(ctx, request.Context.Endpoint, request.InvocationID, access.Token, timeout)
 	if err != nil {
 		return result.Result{}, err
 	}
@@ -240,7 +264,7 @@ func call(ctx context.Context, request module.Request) (result.Result, error) {
 // handler holds the same opaque string status does and has no more ability to
 // read it. The token itself is never part of the result: a claim is not secret,
 // the material that carries it is.
-func whoami(ctx context.Context, request module.Request) (result.Result, error) {
+func whoami(ctx context.Context, request module.Request, timeout time.Duration) (result.Result, error) {
 	access, err := request.Access.Acquire(ctx, module.AccessRequest{
 		Audience: StatusAudience,
 		Scopes:   []string{StatusScope},
@@ -249,7 +273,7 @@ func whoami(ctx context.Context, request module.Request) (result.Result, error) 
 		return result.Result{}, err
 	}
 
-	granted, err := readWhoami(ctx, request.Context.Endpoint, request.InvocationID, access.Token)
+	granted, err := readWhoami(ctx, request.Context.Endpoint, request.InvocationID, access.Token, timeout)
 	if err != nil {
 		return result.Result{}, err
 	}

@@ -67,7 +67,7 @@ func runCall(t *testing.T, endpoint string, access *testkit.Access) testkit.Outc
 	// The whole tree is served, as the shell serves it, so the test exercises
 	// the routing the module actually ships rather than one handler in
 	// isolation.
-	return testkit.Run(t.Context(), moduleOptions(), commands(),
+	return testkit.Run(t.Context(), moduleOptions(), commandTree().Commands(),
 		testkit.Invocation{
 			Command:      []string{"call"},
 			InvocationID: invocationID,
@@ -266,7 +266,7 @@ func terminalProblem(t *testing.T, outcome testkit.Outcome) problem.Problem {
 // answers with the context deliberately naming no service is the point (#147).
 func runReport(t *testing.T, access *testkit.Access) testkit.Outcome {
 	t.Helper()
-	return testkit.Run(t.Context(), moduleOptions(), commands(),
+	return testkit.Run(t.Context(), moduleOptions(), commandTree().Commands(),
 		testkit.Invocation{
 			Command:      []string{"status"},
 			InvocationID: invocationID,

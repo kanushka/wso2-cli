@@ -42,10 +42,12 @@ const (
 	invocationHeader = "X-WSO2-Invocation-Id"
 )
 
-// statusTimeout bounds one call to the status service. It is well inside the
-// shell's invocation deadline, so a slow service produces this module's typed
-// problem rather than the shell terminating the process.
-const statusTimeout = 5 * time.Second
+// defaultStatusTimeout bounds one call to the status service when the
+// invocation names no other. It is well inside the shell's invocation deadline,
+// so a slow service produces this module's typed problem rather than the shell
+// terminating the process. "wso2 reference call --timeout" overrides it, which
+// is what gives this module a declared flag to exercise (#153).
+const defaultStatusTimeout = 5 * time.Second
 
 // serviceStatus is the status service's answer.
 type serviceStatus struct {
@@ -60,7 +62,7 @@ type serviceStatus struct {
 // Everything that can go wrong becomes a typed problem the shell can render and
 // map to an exit class. None of them repeats the token: a problem is rendered
 // verbatim, and access material has no place in user-facing text.
-func readStatus(ctx context.Context, endpoint, invocationID, token string) (serviceStatus, error) {
+func readStatus(ctx context.Context, endpoint, invocationID, token string, timeout time.Duration) (serviceStatus, error) {
 	if endpoint == "" {
 		return serviceStatus{}, problem.New(problem.CategoryUsage, "reference.no_endpoint",
 			"the selected context does not name a reference status service").
@@ -73,7 +75,7 @@ func readStatus(ctx context.Context, endpoint, invocationID, token string) (serv
 			WithRecovery("Select a context whose endpoint is an absolute HTTP URL.")
 	}
 
-	call, cancel := context.WithTimeout(ctx, statusTimeout)
+	call, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	request, err := http.NewRequestWithContext(call, http.MethodGet, target, nil)
 	if err != nil {

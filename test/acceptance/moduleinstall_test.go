@@ -129,13 +129,7 @@ func TestInstallingAModuleActivatesTheNewestCompatibleVersion(t *testing.T) {
 	}
 
 	// The installed module is the one the archive carried, and it launches.
-	stdout, stderr, err = runShellWith(shell, shellEnvironment(stateRoot), catalogNamespace, "nosuchcommand")
-	if err == nil {
-		t.Fatalf("an unknown module command succeeded:\n%s", stdout)
-	}
-	if !strings.Contains(stderr, catalogNamespace+".unknown_command") {
-		t.Fatalf("the installed module did not answer:\n%s", stderr)
-	}
+	requireLaunchable(t, shell, stateRoot, catalogNamespace)
 }
 
 // A shell speaking only the older protocol installs the newest version it can
@@ -340,9 +334,14 @@ func TestNormalWorkMakesNoCatalogRequest(t *testing.T) {
 	origin.forget()
 	// A product command and a version report both use the installed module, and
 	// neither selects a version.
-	if _, _, err := runShellWith(shell, shellEnvironment(stateRoot, catalog.OriginEnvVar+"="+origin.server.URL),
-		catalogNamespace, "nosuchcommand"); err == nil {
-		t.Error("an unknown module command succeeded")
+	//
+	// The command has to be one the module answers. An unknown one is answered
+	// by the shell from the declared tree without launching anything (#153), so
+	// it would make no catalog request whether or not the module was usable,
+	// and this assertion would hold vacuously.
+	if _, stderr, err := runShellWith(shell, shellEnvironment(stateRoot, catalog.OriginEnvVar+"="+origin.server.URL),
+		catalogNamespace, "status"); err != nil {
+		t.Errorf("the installed module did not answer: %v\n%s", err, stderr)
 	}
 	runShell(t, shell, stateRoot, "version")
 
