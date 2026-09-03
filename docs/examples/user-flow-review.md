@@ -685,6 +685,13 @@ the real `wso2` shell" with the run half dead-ending.
 
 ### F7. `-o` and `--output` are refused with different errors, and one of them is pflag's
 
+> **Fixed 2026-09-03** by [#154](https://github.com/wso2/wso2-cli/issues/154).
+> `unknownFlagName` reads pflag's shorthand wording as well as its long one and
+> resolves the letter to its flag name against the root's flag sets, so both
+> spellings now produce the same problem code, message, and recovery. A
+> shorthand the root does not declare still keeps the ordinary unknown-flag
+> refusal, which is the distinction `ownsShellFlag` exists to draw.
+
 New, and introduced by the F1 fix in this branch. A command that does not accept
 `--output` no longer declares the flag at all, so the long spelling reaches the
 shell's own refusal and the short one never gets there — it fails inside pflag

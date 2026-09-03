@@ -415,7 +415,7 @@ func forwardToNamespace(command *cobra.Command, args []string) []string {
 // naming the family sent the user to a help page for a command they had not
 // typed (#147).
 func flagProblem(command *cobra.Command, err error) error {
-	name, ok := unknownFlagName(err)
+	name, ok := unknownFlagName(command.Root(), err)
 	if !ok {
 		return usageProblem(err)
 	}
@@ -430,7 +430,7 @@ func flagProblem(command *cobra.Command, err error) error {
 // cannot act on keeps flagProblem's recovery, which names the help that lists
 // what it does accept.
 func flagProblemWithRecovery(command *cobra.Command, err error, recovery string) error {
-	if name, ok := unknownFlagName(err); ok && ownsShellFlag(command.Root(), name) {
+	if name, ok := unknownFlagName(command.Root(), err); ok && ownsShellFlag(command.Root(), name) {
 		return unsupportedFlag(command, name)
 	}
 	return usageProblemWithRecovery(err, recovery)
@@ -460,21 +460,56 @@ func ownsShellFlag(root *cobra.Command, name string) bool {
 // name is recovered from the message. A message this does not recognize falls
 // back to usageProblem, which reports it verbatim: a worse message, never a
 // wrong one.
-func unknownFlagName(err error) (string, bool) {
-	const prefix = "unknown flag: --"
+//
+// Both spellings are read, because pflag words them differently and reading
+// only the long one meant a flag refused by its shorthand never reached the
+// shell's own refusal. "wso2 module list --output json" was answered with
+// shell.unsupported_flag and "wso2 module list -o json" with pflag's own
+// "unknown shorthand flag: 'o' in -o" — one request, two problem codes, and the
+// second leaking the parser's vocabulary into user-facing text. #154.
+//
+// The shorthand is resolved to its name against the root's own flag sets, which
+// is also what decides the question: a letter the root declares is a shell flag
+// named on a command that did not declare it, and a letter it does not is an
+// ordinary typo that keeps pflag's message.
+func unknownFlagName(root *cobra.Command, err error) (string, bool) {
 	message := err.Error()
+	if name, ok := after(message, "unknown flag: --"); ok {
+		return cutAt(name, "= "), true
+	}
+	shorthand, ok := after(message, "unknown shorthand flag: '")
+	if !ok {
+		return "", false
+	}
+	shorthand = cutAt(shorthand, "'")
+	if shorthand == "" {
+		return "", false
+	}
+	flag := root.PersistentFlags().ShorthandLookup(shorthand)
+	if flag == nil {
+		flag = root.Flags().ShorthandLookup(shorthand)
+	}
+	if flag == nil {
+		return "", false
+	}
+	return flag.Name, true
+}
+
+// after returns what follows the first occurrence of prefix in message.
+func after(message, prefix string) (string, bool) {
 	index := strings.Index(message, prefix)
 	if index < 0 {
 		return "", false
 	}
-	name := message[index+len(prefix):]
-	if cut := strings.IndexAny(name, "= "); cut >= 0 {
-		name = name[:cut]
+	return message[index+len(prefix):], true
+}
+
+// cutAt truncates text at the first byte in cutset, or leaves it whole.
+func cutAt(text, cutset string) string {
+	if cut := strings.IndexAny(text, cutset); cut >= 0 {
+		return text[:cut]
 	}
-	if name == "" {
-		return "", false
-	}
-	return name, true
+	return text
 }
 
 // loginCommand declares its own flags directly, and reads the two the shell
