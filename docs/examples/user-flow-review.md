@@ -174,19 +174,18 @@ session        pass     a stored session exists for the selected context
 exit=0
 ```
 
-Against the context that has none, the table renders first and the failing
-check is then re-stated as the process error, so a human sees the whole report
-and a script gets a non-zero status:
+Against the context that has none, being logged out is reported as `none`
+rather than as a failure — it is the state a completed `wso2 logout` leaves
+behind — so the login pointer stays in the `RECOVERY` column and a script
+watching the exit status does not alert on a deliberate action:
 
 ```
 $ wso2 --context local-ci doctor
-CHECK          STATUS   DETAIL                                                    RECOVERY
+CHECK          STATUS   DETAIL                                                RECOVERY
 context        pass     the context document is valid
 secure-store   pass     the OS secure store is reachable
-session        fail     no stored login session exists for the selected context   Run wso2 login to establish a session for this context.
-error: no stored login session exists for the selected context (auth.login_required)
-  Run wso2 login to establish a session for this context.
-exit=77
+session        none     no login session is stored for the selected context   Run wso2 login to establish a session for this context.
+exit=0
 ```
 
 `--output json` carries the same structure:
@@ -799,7 +798,8 @@ the dotted problem code most useful to a script is the part left unparseable.
   77 authentication — with F5's classification the open question.
 - **`whoami` and `doctor`** remain the clearest surfaces in the CLI: empty
   fields are not errors, and the next command to type is always stated.
-- **`doctor` renders its full report *and* exits non-zero.**
+- **`doctor` renders its full report *and* exits non-zero on a failing
+  check** — while a logged-out context is `none`, not a failure.
 - **`--verbose` keeps diagnostics on stderr**, and now carries the invocation
   id, context, and organization.
 - **`module update --dry-run` explains the pin** instead of reasoning about a

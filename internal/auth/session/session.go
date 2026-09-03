@@ -87,6 +87,27 @@ func (s Store) Load(ref string) (Session, error) {
 	return stored, nil
 }
 
+// Stored reports whether any entry exists for a credential reference, without
+// judging whether the entry is usable.
+//
+// Load cannot answer this: it reports a stale or foreign entry with the same
+// auth.login_required a missing one gets, because both recover by logging in
+// again. wso2 doctor needs the two told apart anyway — a machine with no entry
+// is the state wso2 logout deliberately leaves behind, while an entry that
+// exists but cannot be used is a fault — so existence is its own question,
+// asked before Load judges usability.
+func (s Store) Stored(ref string) (bool, error) {
+	_, err := keyring.Get(Service, ref)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, keyring.ErrNotFound):
+		return false, nil
+	default:
+		return false, keyringUnavailable()
+	}
+}
+
 // ProbeCredentialRef is the reserved reference Probe reads under.
 //
 // It contains a period, a character the credentialRef pattern

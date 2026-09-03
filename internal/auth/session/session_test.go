@@ -409,6 +409,38 @@ func TestDeleteReportsRemovingAnUnreadableEntry(t *testing.T) {
 	}
 }
 
+// Stored answers existence, not usability: an entry Load would refuse as
+// unreadable is still stored, and a missing one is not, without either answer
+// being an error.
+func TestStoredDistinguishesAbsenceFromPresence(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	stored, err := store.Stored("never-logged-in")
+	if err != nil {
+		t.Fatalf("stored of a missing entry: %v", err)
+	}
+	if stored {
+		t.Error("an entry that was never written is reported as stored")
+	}
+	if err := keyring.Set(session.Service, "acme-cloud-login", "not json"); err != nil {
+		t.Fatalf("seed foreign entry: %v", err)
+	}
+	stored, err = store.Stored("acme-cloud-login")
+	if err != nil {
+		t.Fatalf("stored of an unreadable entry: %v", err)
+	}
+	if !stored {
+		t.Error("an unreadable entry is still an entry, and is not reported as stored")
+	}
+}
+
+func TestKeyringUnavailableOnStoredIsTyped(t *testing.T) {
+	keyring.MockInitWithError(errors.New("no secret service"))
+	store := session.Store{StateRoot: t.TempDir()}
+	_, err := store.Stored("acme-cloud-login")
+	assertProblemCode(t, err, "auth.keyring_unavailable")
+}
+
 // Deleting one reference leaves every other session alone. Two identities on
 // one machine share the service name and are separated only by the reference.
 func TestDeleteLeavesOtherReferences(t *testing.T) {

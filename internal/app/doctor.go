@@ -50,10 +50,18 @@ const (
 )
 
 // The outcomes a check reports.
+//
+// none is the session check's word for a configured context nobody is logged
+// in to. That state needed a fourth word because the other three each say
+// something untrue of it: pass claims a session exists, fail claims the
+// machine is broken when being logged out is the state a confirmed
+// wso2 logout deliberately leaves behind, and not-applicable claims the check
+// could not be asked, when in fact it ran and established the absence.
 const (
 	statusPass          = "pass"
 	statusFail          = "fail"
 	statusNotApplicable = "not-applicable"
+	statusNone          = "none"
 )
 
 // severityRank orders the checks whose failure can decide the exit status,
@@ -213,12 +221,32 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 			// folded into the report. See this function's doc comment.
 			return selErr
 		}
-		if _, sessionErr := store.Load(selected.Identity.Auth.CredentialRef); sessionErr != nil {
-			typed := doctorProblem(sessionErr)
+		ref := selected.Identity.Auth.CredentialRef
+		stored, storedErr := store.Stored(ref)
+		switch {
+		case storedErr != nil:
+			typed := doctorProblem(storedErr)
 			failures[checkSession] = typed
 			findings = append(findings, failFinding(checkSession, typed))
-		} else {
-			findings = append(findings, passFinding(checkSession, "a stored session exists for the selected context"))
+		case !stored:
+			// A context nobody is logged in to is a normal state, not a
+			// health fault: a confirmed wso2 logout leaves exactly this
+			// machine behind, and reporting it as fail made a wrapper
+			// watching doctor alert on a deliberate action. The login
+			// pointer stays in the recovery column, but the run exits 0.
+			// Only absence is normal: an entry that exists but cannot be
+			// used still fails below.
+			findings = append(findings, noneFinding(checkSession,
+				"no login session is stored for the selected context",
+				"Run wso2 login to establish a session for this context."))
+		default:
+			if _, sessionErr := store.Load(ref); sessionErr != nil {
+				typed := doctorProblem(sessionErr)
+				failures[checkSession] = typed
+				findings = append(findings, failFinding(checkSession, typed))
+			} else {
+				findings = append(findings, passFinding(checkSession, "a stored session exists for the selected context"))
+			}
 		}
 	}
 
@@ -299,6 +327,10 @@ func passFinding(check, detail string) doctorFinding {
 
 func notApplicableFinding(check, detail string) doctorFinding {
 	return doctorFinding{Check: check, Status: statusNotApplicable, Detail: detail}
+}
+
+func noneFinding(check, detail, recovery string) doctorFinding {
+	return doctorFinding{Check: check, Status: statusNone, Detail: detail, Recovery: recovery}
 }
 
 func failFinding(check string, typed problem.Problem) doctorFinding {
