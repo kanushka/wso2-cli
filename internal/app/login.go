@@ -116,6 +116,10 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 	if err := loginKindGate.check(selected); err != nil {
 		return oauthflow.Result{}, err
 	}
+	root, err := s.stateRoot()
+	if err != nil {
+		return oauthflow.Result{}, err
+	}
 	// nonInteractiveControl is the same check resolveClientID's mayPrompt
 	// consults, kept to one implementation (prompt.go) so a login's browser
 	// gate and a text prompt's gate cannot drift into two different answers to
@@ -131,16 +135,18 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 		if selected.Identity.Auth.Kind == contexts.KindOAuthDevice {
 			mode = "device login"
 		}
+		// The recovery does not name a command, because no command creates
+		// the identity automation needs: wso2 login writes browser identities
+		// only. What does work today is declaring one by hand — the schema
+		// carries the kind, the broker serves it, and the CI example in the
+		// docs is written that way — so the honest advice names the file.
 		return oauthflow.Result{}, problem.New(problem.CategoryAuthPolicy, "auth.non_interactive",
 			mode+" cannot run in non-interactive mode, which "+control+" asked for").
-			WithRecovery("Use a client-credentials identity for automation; it acquires access " +
-				"inline without a login step.")
+			WithRecovery(fmt.Sprintf("Automation uses a client-credentials identity, which "+
+				"acquires access inline without a login step. No command creates one yet: "+
+				"declare it in the context document at %s.", contexts.Path(root)))
 	}
 
-	root, err := s.stateRoot()
-	if err != nil {
-		return oauthflow.Result{}, err
-	}
 	// Recorded before the flow starts, because the commonest login failure is a
 	// deployment that answers a request the user cannot see. Who the issuer is,
 	// which grant was chosen, and which application asked are the three facts

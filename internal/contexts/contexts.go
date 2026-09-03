@@ -133,8 +133,8 @@ func Load(stateRoot string) (Document, error) {
 		return Document{}, nil
 	case err != nil:
 		return Document{}, contextProblem("contexts.document_unreadable",
-			"the WSO2 CLI context document cannot be read",
-			"Check that the context document is readable, or remove it to run without a context.")
+			fmt.Sprintf("the WSO2 CLI context document at %s cannot be read", Path(stateRoot)),
+			"Check that the file is readable, or remove it to run without a context.")
 	}
 	return Decode(data)
 }
@@ -160,7 +160,7 @@ func Decode(data []byte) (Document, error) {
 	default:
 		return Document{}, contextProblem("contexts.schema_unsupported",
 			fmt.Sprintf("context document schema version %d is not supported by this shell", probe.SchemaVersion),
-			"Update the WSO2 CLI, or write a context document this shell owns.")
+			"Update the WSO2 CLI, or run the WSO2 CLI version that manages this document.")
 	}
 }
 
@@ -313,7 +313,7 @@ func (d Document) validate() error {
 	if d.SchemaVersion != SchemaVersion {
 		return contextProblem("contexts.schema_unsupported",
 			fmt.Sprintf("context document schema version %d is not supported by this shell", d.SchemaVersion),
-			"Update the WSO2 CLI, or write a context document this shell owns.")
+			"Update the WSO2 CLI, or run the WSO2 CLI version that manages this document.")
 	}
 
 	identities := make(map[string]struct{}, len(d.Identities))
@@ -359,7 +359,8 @@ func (d Document) validate() error {
 // It is exported so a writer can tell this generic advice from a refusal that
 // carries specific advice of its own, which several do. See
 // CarriesDefaultDocumentRecovery.
-const DefaultDocumentRecovery = "Correct the context document, or remove it to run without a context."
+const DefaultDocumentRecovery = "Correct the context document (the cli/contexts.json file under " +
+	"the WSO2 CLI state directory), or remove it to run without a context."
 
 // CarriesDefaultDocumentRecovery reports whether err offers only the generic
 // document recovery above, rather than advice specific to what was wrong.

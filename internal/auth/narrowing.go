@@ -149,8 +149,8 @@ const narrowingRecovery = "Check the deployment's API resource registration and 
 // accept.
 const indicatorRecovery = "This deployment binds access to one named resource and will not issue " +
 	"any without being told which. Name the deployment's identity provider on this identity in " +
-	"the context document, or set its derivation to " + contexts.DerivationTokenResource +
-	" explicitly, then retry."
+	"the context document (the cli/contexts.json file under the WSO2 CLI state directory), or " +
+	"set its derivation to " + contexts.DerivationTokenResource + " explicitly, then retry."
 
 // unknownResourceRecovery is the way back from a deployment that was told which
 // protected resource, and does not know the one it was told.

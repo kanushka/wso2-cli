@@ -359,6 +359,27 @@ func TestADocumentThisShellCannotReadFailsClosed(t *testing.T) {
 	}
 }
 
+func TestAnUnreadableDocumentIsRefusedWithItsPath(t *testing.T) {
+	// A user told their file cannot be read needs to know which file. A
+	// directory where the document belongs is the portable way to make the
+	// read fail for a reason other than absence.
+	root := t.TempDir()
+	if err := os.MkdirAll(contexts.Path(root), 0o755); err != nil {
+		t.Fatalf("cannot occupy the document path with a directory: %v", err)
+	}
+
+	_, err := contexts.Load(root)
+
+	assertProblemCode(t, err, "contexts.document_unreadable")
+	var typed problem.Problem
+	if !errors.As(err, &typed) {
+		t.Fatalf("the refusal is not a typed problem: %v", err)
+	}
+	if !strings.Contains(typed.Message, contexts.Path(root)) {
+		t.Errorf("the refusal %q does not name the document's path", typed.Message)
+	}
+}
+
 func TestAnEndpointThatEmbedsCredentialsIsRefused(t *testing.T) {
 	// The endpoint reaches the module. A credential written into its URL would
 	// hand one over through the member nobody thinks of as carrying

@@ -215,8 +215,8 @@ func refuseFrozenDocument(stateRoot string) error {
 		// file is there and the shell cannot see it, and neither the cause nor
 		// the remedy depends on which of the two was trying to read it.
 		return contextProblem("contexts.document_unreadable",
-			"the WSO2 CLI context document cannot be read",
-			"Check that the context document is readable, or remove it to run without a context.")
+			fmt.Sprintf("the WSO2 CLI context document at %s cannot be read", path),
+			"Check that the file is readable, or remove it to run without a context.")
 	}
 	var probe struct {
 		SchemaVersion int `json:"schemaVersion"`

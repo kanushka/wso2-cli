@@ -255,7 +255,7 @@ func (s Shell) contextCreate(command *cobra.Command, name, identity, organizatio
 			return document, contextExists(name)
 		}
 		if !declaresIdentity(document, identity) {
-			return document, unknownIdentity(identity)
+			return document, unknownIdentity(identity, len(document.Identities) > 0)
 		}
 		// A fresh machine yields the zero document, whose schema version is
 		// zero rather than the one the shell writes.
@@ -606,11 +606,22 @@ func contextExists(name string) problem.Problem {
 // The recovery names wso2 login because login is the only thing that creates an
 // identity: there is no wso2 identity create, by decision (#112 D3), so any
 // other advice would send the user looking for a command that does not exist.
-func unknownIdentity(name string) problem.Problem {
+// Which recovery depends on whether any identity exists at all: a document with
+// identities offers wso2 identity list, because the likeliest fault is a
+// mistyped name, and a document with none offers nothing to list, so pointing
+// at the list would send a first-run user in a circle back to login.
+func unknownIdentity(name string, anyDeclared bool) problem.Problem {
+	if !anyDeclared {
+		return problem.New(problem.CategoryUsage, "contexts.unknown_identity",
+			fmt.Sprintf("no identity named %q is configured, and no identities exist", name)).
+			WithRecovery("Run wso2 login --url <issuer> --client-id <id> to log in and create " +
+				"one. Logging in is the only thing that creates an identity.")
+	}
 	return problem.New(problem.CategoryUsage, "contexts.unknown_identity",
-		fmt.Sprintf("no identity named %q is declared in the context document", name)).
-		WithRecovery("Check the name against the document's identities, or run wso2 login to " +
-			"create one. Logging in is the only thing that creates an identity.")
+		fmt.Sprintf("no identity named %q is configured", name)).
+		WithRecovery("Run wso2 identity list to see the identities login created, or wso2 login " +
+			"--url <issuer> --client-id <id> to create one. Logging in is the only thing that " +
+			"creates an identity.")
 }
 
 // selectionMark marks the row a command would run against.
