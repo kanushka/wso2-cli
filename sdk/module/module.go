@@ -35,6 +35,7 @@
 package module
 
 import (
+	"github.com/wso2/wso2-cli/sdk/commandtree"
 	"github.com/wso2/wso2-cli/sdk/protocol"
 )
 
@@ -73,6 +74,13 @@ type Options struct {
 	Version       string
 	AuthAudiences []string
 	AuthScopes    []string
+	// CommandTree is the module's declared command tree, which the shell reads
+	// to parse a product command line as precisely as this module would. A
+	// module built on Cobra fills it with cobratree.Tree.Declare; leaving it
+	// empty is supported and means the shell parses as it did before
+	// declarations existed. It is not part of the Descriptor because it
+	// describes what the module accepts rather than what it is.
+	CommandTree commandtree.Tree
 }
 
 // Describe builds the runtime identity for a module.

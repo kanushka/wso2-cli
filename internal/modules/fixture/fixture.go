@@ -31,6 +31,7 @@ import (
 
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/state"
+	"github.com/wso2/wso2-cli/sdk/commandtree"
 )
 
 // Module describes one module installation to create.
@@ -70,6 +71,10 @@ type Module struct {
 	// Inactive installs the version without activating it, leaving the
 	// namespace with no active-version pointer.
 	Inactive bool
+	// CommandTree is the command tree the receipt declares. A test that
+	// leaves it empty installs a module that declares none, which is what
+	// the shell's positional-passthrough fallback is for.
+	CommandTree commandtree.Tree
 }
 
 // Install writes one module version and, unless the module is inactive, the
@@ -118,6 +123,7 @@ func Install(storeRoot string, module Module) (modules.Receipt, error) {
 			AuthScopes:    module.AuthScopes,
 		},
 		ExecutableSHA256: modules.BytesDigest(contents),
+		CommandTree:      module.CommandTree,
 	}
 	if err := WriteReceipt(storeRoot, receipt); err != nil {
 		return modules.Receipt{}, err

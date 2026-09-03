@@ -30,12 +30,21 @@ import (
 	"strings"
 
 	"github.com/wso2/wso2-cli/internal/semver"
+	"github.com/wso2/wso2-cli/sdk/commandtree"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
 // ReceiptSchemaVersion is the only module-receipt schema this shell reads. An
 // unknown schema version fails closed rather than being partially interpreted.
-const ReceiptSchemaVersion = 1
+//
+// Version 2 added the declared command tree. Because a receipt from version 1
+// carries no tree, and the tree is what the shell parses a product command line
+// with, an old receipt is refused rather than read without one: a module
+// installed before declarations existed would otherwise parse by one rule and
+// help by another. The recovery is to reinstall, which is what the refusal
+// already says. The shell is pre-release, so no installation this breaks is one
+// anybody was promised would keep working.
+const ReceiptSchemaVersion = 2
 
 // ReceiptFileName is the receipt's fixed name inside a module version
 // directory.
@@ -79,6 +88,20 @@ type Receipt struct {
 	// ExecutableSHA256 is the hex-encoded SHA-256 digest of the executable,
 	// recomputed before every launch.
 	ExecutableSHA256 string `json:"executableSha256"`
+	// CommandTree is the command tree the installed executable declared at
+	// install time, and the only tree the shell parses a product command line
+	// from.
+	//
+	// It is read from the executable rather than copied from the catalog. The
+	// catalog is fetched over the network and is not signed, and a tree decides
+	// how a user's command line is interpreted; a remote file must not be able
+	// to do that. Because the receipt is digest-pinned to the executable and
+	// the digest is recomputed before every launch, the tree parsed from here
+	// is the tree of the binary that is about to run.
+	//
+	// It is empty for a module that declares none. The shell then parses for
+	// that module the way it did before declarations existed.
+	CommandTree commandtree.Tree `json:"commandTree,omitzero"`
 }
 
 // Compatibility declares the shell and protocol versions a module supports.

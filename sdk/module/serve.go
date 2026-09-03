@@ -109,6 +109,13 @@ type Command struct {
 // standard error and never writes user-facing output. See
 // docs/adr/0002-module-transport.md.
 func Serve(ctx context.Context, options Options, commands ...Command) error {
+	// Asked to declare itself, a module reports what it accepts and exits
+	// without opening the protocol. This is how the shell learns a module's
+	// command tree from the executable it installed rather than from the
+	// catalog it downloaded, which it cannot authenticate.
+	if path := os.Getenv(CommandTreeEnv); path != "" {
+		return declare(path, options)
+	}
 	return ServeStreams(ctx, os.Stdin, os.Stdout, options, commands...)
 }
 

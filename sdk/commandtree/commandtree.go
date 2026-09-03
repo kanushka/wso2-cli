@@ -1,0 +1,243 @@
+// Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// Package commandtree carries a module's declared command tree: the commands it
+// serves, the flags each one accepts, and enough about each flag for a parser to
+// know where its value ends.
+//
+// The shell cannot otherwise tell where its own flags stop and a module's begin.
+// Without a declaration it consumes the flags it recognises and hands everything
+// from the first unrecognised one onward to the module untouched, so a flag's
+// position silently changes its meaning. A declared tree is what lets the shell
+// parse a product command line as precisely as the module would.
+//
+// This package is data and queries only. It builds nothing, reads no file, and
+// executes nothing, so both the shell and a module can depend on it without
+// either depending on the other. Where a tree may be read from is not this
+// package's business to enforce; see internal/parsetree for the boundary that
+// keeps a remotely fetched tree away from the parser.
+package commandtree
+
+import (
+	"slices"
+	"strings"
+)
+
+// The names this package gives to things every declaration carries. A flag's
+// type reaches the parser for one reason — whether a value follows the flag —
+// so only the boolean case is named, and every other type is carried through
+// exactly as pflag spells it.
+const (
+	// TypeBool is the type of a flag that takes no value.
+	TypeBool = "bool"
+	// HelpFlagName is the flag every Cobra command answers to, whoever built
+	// the tree. It is named here rather than in either the extractor or the
+	// parser because both have to mean the same flag: one emits it into a
+	// declaration and the other reads a line asking for it.
+	HelpFlagName = "help"
+	// HelpFlagShorthand is its single-letter spelling, which a command that
+	// already uses that letter for something else does not get.
+	HelpFlagShorthand = "h"
+)
+
+// Tree is the set of commands a module serves.
+//
+// The zero Tree is a module that declares nothing, which is a supported state
+// rather than an error: a module built against an older SDK, or one that does
+// not use Cobra, has no tree to declare. The shell falls back to passing its
+// arguments through, which is what it did for every module before declarations
+// existed.
+type Tree struct {
+	// Commands are every command in the tree, ordered canonically by path.
+	Commands []Command `json:"commands,omitempty"`
+}
+
+// Command is one command a module declares.
+type Command struct {
+	// Path is the command path within the namespace, such as
+	// []string{"apps", "list"}. The empty path is the namespace's own root.
+	Path []string `json:"path,omitempty"`
+	// Short is the one-line description, as the module's own help renders it.
+	Short string `json:"short,omitempty"`
+	// Runnable reports whether the module serves this command or only groups
+	// others beneath it. A group is declared so that its path parses and its
+	// help is reachable, and refused as a command to run.
+	Runnable bool `json:"runnable,omitempty"`
+	// Hidden reports whether this command should be offered to a user. It is
+	// what the module marked hidden in its own tree.
+	Hidden bool `json:"hidden,omitempty"`
+	// Aliases are the other names this command answers to at its own level.
+	//
+	// They are carried here rather than given paths of their own because Cobra
+	// treats an alias as equal to the name while it walks: "a list" reaches
+	// "apps list" when apps is aliased "a". Giving each alias its own path
+	// would multiply with every aliased ancestor, and would send the alias to
+	// the module, which binds its handler to the canonical path and would not
+	// find one.
+	Aliases []string `json:"aliases,omitempty"`
+	// Flags are every flag this command accepts, including the ones it
+	// inherits from its parents. They are flattened at extraction so that
+	// answering "does this command take this flag" never walks the tree.
+	Flags []Flag `json:"flags,omitempty"`
+}
+
+// Flag is one flag a command accepts.
+type Flag struct {
+	// Name is the flag's long spelling, without leading dashes.
+	Name string `json:"name"`
+	// Shorthand is the single-letter spelling, empty when the flag has none.
+	Shorthand string `json:"shorthand,omitempty"`
+	// Usage is the flag's one-line description.
+	Usage string `json:"usage,omitempty"`
+	// Type is the flag's value type as pflag names it. It reaches a reader as
+	// part of the flag's spelling in help; TakesValue is what the parser asks.
+	Type string `json:"type,omitempty"`
+	// NoOptDefault is pflag's NoOptDefVal: the value the flag takes when it is
+	// written bare. A flag that has one never consumes the argument after it.
+	//
+	// This is the property, not the type. Every boolean has one, which is why
+	// a boolean stands alone — but so does a counter, whose type is "count"
+	// and whose NoOptDefVal is "+1", and reading the type alone would have the
+	// shell swallow the word after "--verbose" as its value.
+	NoOptDefault string `json:"noOptDefault,omitempty"`
+}
+
+// New builds a canonical tree from commands in any order.
+//
+// A declaration is written into a receipt at install, published in a catalog by
+// the release pipeline, and compared between the two. Two extractions of the
+// same tree therefore have to produce identical bytes, and the order Cobra hands
+// its commands back in is not stable enough to rely on. Ordering here rather
+// than at each call site is what makes that a property of the type.
+func New(commands []Command) Tree {
+	ordered := make([]Command, len(commands))
+	for index, command := range commands {
+		ordered[index] = command.canonical()
+	}
+	slices.SortFunc(ordered, func(a, b Command) int {
+		return slices.Compare(a.Path, b.Path)
+	})
+	return Tree{Commands: ordered}
+}
+
+// canonical returns the command with its own slices ordered and copied, so that
+// a tree does not alias the caller's memory and two equal commands serialize
+// alike.
+func (c Command) canonical() Command {
+	c.Path = slices.Clone(c.Path)
+	c.Aliases = slices.Clone(c.Aliases)
+	c.Flags = slices.Clone(c.Flags)
+	for index, flag := range c.Flags {
+		// A boolean written bare is true, which is pflag's own rule and the
+		// reason it never reads the next argument. Filling it in here means a
+		// tree built by hand cannot declare a boolean that the parser then
+		// treats as taking a value.
+		if flag.Type == TypeBool && flag.NoOptDefault == "" {
+			c.Flags[index].NoOptDefault = "true"
+		}
+	}
+	slices.SortFunc(c.Flags, func(a, b Flag) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	return c
+}
+
+// Empty reports whether the tree declares no commands. A module with an empty
+// tree is one the shell parses for as it always has.
+func (t Tree) Empty() bool {
+	return len(t.Commands) == 0
+}
+
+// Root reports the namespace's own command, the one at the empty path.
+func (t Tree) Root() (Command, bool) {
+	for _, command := range t.Commands {
+		if len(command.Path) == 0 {
+			return command, true
+		}
+	}
+	return Command{}, false
+}
+
+// Child reports the command named directly beneath parent, if the module
+// declares one.
+//
+// Resolving one level at a time is what lets a caller walk a command line the
+// way Cobra does: a word is a subcommand only where the command in hand has one
+// by that name, and anywhere else it is that command's own argument.
+func (t Tree) Child(parent []string, name string) (Command, bool) {
+	for _, command := range t.Commands {
+		if len(command.Path) != len(parent)+1 {
+			continue
+		}
+		if !slices.Equal(command.Path[:len(parent)], parent) {
+			continue
+		}
+		// An alias is equal to the name here, as it is in Cobra's own walk,
+		// and the command that comes back carries its canonical path. That is
+		// what reaches the module, which binds its handler to that path and
+		// would not recognise the alias.
+		if command.Path[len(parent)] == name || slices.Contains(command.Aliases, name) {
+			return command, true
+		}
+	}
+	return Command{}, false
+}
+
+// HasChildren reports whether the tree declares any command beneath this path.
+func (t Tree) HasChildren(path []string) bool {
+	for _, command := range t.Commands {
+		if len(command.Path) > len(path) && slices.Equal(command.Path[:len(path)], path) {
+			return true
+		}
+	}
+	return false
+}
+
+// LookupFlag reports the flag a command accepts under its long spelling.
+func (c Command) LookupFlag(name string) (Flag, bool) {
+	for _, flag := range c.Flags {
+		if flag.Name == name {
+			return flag, true
+		}
+	}
+	return Flag{}, false
+}
+
+// LookupShorthand reports the flag a command accepts under a single-letter
+// spelling.
+func (c Command) LookupShorthand(letter rune) (Flag, bool) {
+	for _, flag := range c.Flags {
+		if flag.Shorthand != "" && []rune(flag.Shorthand)[0] == letter {
+			return flag, true
+		}
+	}
+	return Flag{}, false
+}
+
+// TakesValue reports whether a value follows this flag on the command line.
+//
+// pflag settles this with NoOptDefVal rather than with the type: a flag that has
+// one stands alone and leaves the next argument to whoever comes next. Booleans
+// are the common case, counters are the one that catches a parser reading types
+// instead — "--verbose status" leaves status alone, because a counter written
+// bare is "+1".
+//
+// Getting this backwards is what makes "--all list" swallow a command path as a
+// flag's argument, so the parser asks the declaration rather than guessing from
+// the shape of what follows.
+func (f Flag) TakesValue() bool {
+	return f.NoOptDefault == ""
+}

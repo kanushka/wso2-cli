@@ -112,3 +112,26 @@ as missing information, which is worse than offering none.
 On Windows the graph also carries `github.com/inconshreveable/mousetrap`, which
 Cobra uses to detect a binary started from Explorer. It is build-tagged, so it
 is not linked on other platforms.
+
+## Amendment: modules now declare their command trees
+
+Two of the costs recorded above were stated as standing, and are not any more.
+[ADR 0013](0013-a-command-tree-is-parsed-only-from-the-local-receipt.md)
+records how a module declares its command tree and where the shell is allowed
+to read one from.
+
+**Command suggestions no longer cover built-in commands only.** For a module
+that declares a tree, the shell names a mistyped product command and offers the
+declared command nearest to it. A module that declares none, and a module that
+is not installed, are both still outside what the shell can suggest.
+
+**Parsing at the namespace boundary is no longer limited to the flags the shell
+recognises.** Where a declaration exists the shell reads the whole line against
+it, so a shell flag written after a product flag is the shell's, and a flag the
+command does not declare is named rather than forwarded. The passthrough
+described above remains exactly as written for a module with no declaration.
+
+Shell completion is still not delivered, and the reasoning above still holds
+for it: the declaration reaches only installed modules, so a completion built on
+it today would still be silent about every product command a user has not
+installed.

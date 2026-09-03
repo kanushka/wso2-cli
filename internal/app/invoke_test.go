@@ -25,12 +25,26 @@ import (
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/contexts/fixture"
 	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/internal/parsetree"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
-func TestTheShellParsesOnlyItsOwnFlags(t *testing.T) {
-	// Everything the shell does not own belongs to the module, so a module can
-	// add flags without the shell being released.
+// TestAModuleThatDeclaresNoTreeIsParsedAsItAlwaysWas covers the fallback, and
+// is what protects a module the shell cannot ask about.
+//
+// A module built before command declarations existed, or one not built on
+// Cobra, installs a receipt with no tree. For it the shell can only do what it
+// did before: read the flags it owns, take the leading run of plain words as the
+// command, and hand everything from the first flag it does not recognise to the
+// module to interpret or refuse. Every case here passes the zero tree, so this
+// is that path and not the declared one.
+//
+// The cost of the fallback is visible in the last two cases: a shell flag
+// written after an unrecognised one reaches the module instead of the shell.
+// That is the defect declaring a tree removes, and
+// TestTheOutputFlagMeansTheSameWhereverItIsWritten is where it is pinned as
+// fixed for a module that declares one.
+func TestAModuleThatDeclaresNoTreeIsParsedAsItAlwaysWas(t *testing.T) {
 	tests := map[string]struct {
 		args        []string
 		command     string
@@ -83,14 +97,24 @@ func TestTheShellParsesOnlyItsOwnFlags(t *testing.T) {
 		"no command at all": {
 			args: nil, command: "", mode: output.ModeTable,
 		},
+		"an output flag written after a module flag reaches the module": {
+			args:    []string{"status", "--since", "1h", "--output", "json"},
+			command: "status", arguments: "--since 1h --output json", mode: output.ModeTable,
+		},
+		"a context flag written after a module flag reaches the module": {
+			args:    []string{"status", "--since", "1h", "--context", "second"},
+			command: "status", arguments: "--since 1h --context second", mode: output.ModeTable,
+		},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			command, arguments, mode, contextName, err := parseProductArgs("reference", test.args)
+			line, err := parseProductArgs("reference", parsetree.Tree{}, test.args)
 			if err != nil {
 				t.Fatalf("parsing %v failed: %v", test.args, err)
 			}
+			command, arguments := line.command, line.arguments
+			mode, contextName := line.mode, line.contextName
 			if got := strings.Join(command, " "); got != test.command {
 				t.Errorf("command path is %q, want %q", got, test.command)
 			}
@@ -113,7 +137,7 @@ func TestAnUnsupportedOutputModeIsAUsageProblem(t *testing.T) {
 		{"status", "--output=yaml"},
 		{"status", "-o", "yaml"},
 	} {
-		_, _, _, _, err := parseProductArgs("reference", args)
+		_, err := parseProductArgs("reference", parsetree.Tree{}, args)
 		if code := usageProblemCode(t, err); code != "shell.unknown_output_mode" {
 			t.Errorf("parsing %v gave problem %q, want %q", args, code, "shell.unknown_output_mode")
 		}
@@ -121,7 +145,7 @@ func TestAnUnsupportedOutputModeIsAUsageProblem(t *testing.T) {
 }
 
 func TestAnOutputFlagWithoutAValueIsAUsageProblem(t *testing.T) {
-	_, _, _, _, err := parseProductArgs("reference", []string{"status", "--output"})
+	_, err := parseProductArgs("reference", parsetree.Tree{}, []string{"status", "--output"})
 	if code := usageProblemCode(t, err); code != "shell.missing_flag_value" {
 		t.Errorf("problem code is %q, want %q", code, "shell.missing_flag_value")
 	}
@@ -136,7 +160,7 @@ func TestAnAttachedOutputFlagWithAnEmptyValueIsAUsageProblem(t *testing.T) {
 		{"status", "--output="},
 		{"status", "-o="},
 	} {
-		_, _, _, _, err := parseProductArgs("reference", args)
+		_, err := parseProductArgs("reference", parsetree.Tree{}, args)
 		if code := usageProblemCode(t, err); code != "shell.unknown_output_mode" {
 			t.Errorf("parsing %v gave problem %q, want %q", args, code, "shell.unknown_output_mode")
 		}
@@ -157,7 +181,7 @@ func TestMissingContextFlagValue(t *testing.T) {
 		"the next option at the end of the line": {"status", "--context", "--output"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, _, _, _, err := parseProductArgs("reference", args)
+			_, err := parseProductArgs("reference", parsetree.Tree{}, args)
 			if code := usageProblemCode(t, err); code != "shell.missing_flag_value" {
 				t.Errorf("problem code is %q, want %q", code, "shell.missing_flag_value")
 			}
@@ -210,11 +234,11 @@ func TestContextSelectionOrder(t *testing.T) {
 			shell := installSelectionDocument(t)
 			t.Setenv("WSO2_CONTEXT", testCase.env)
 
-			_, _, _, contextName, err := parseProductArgs("reference", testCase.args)
+			line, err := parseProductArgs("reference", parsetree.Tree{}, testCase.args)
 			if err != nil {
 				t.Fatalf("parsing %v failed: %v", testCase.args, err)
 			}
-			selected, err := shell.selection(contextName)
+			selected, err := shell.selection(line.contextName)
 			if err != nil {
 				t.Fatalf("selection returned %v", err)
 			}
