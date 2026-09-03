@@ -682,3 +682,48 @@ func TestModuleAvailableStillFailsWhenTheCatalogIsUnreachable(t *testing.T) {
 	}
 	requireRefusal(t, errOut.String(), "catalog.origin_unreachable")
 }
+
+// TestModuleUpdateOfAPinnedModuleNamesTheClearingCommand pins the escape
+// hatch at the command seam: an update run that passes a pinned module over
+// tells the user how to release it, because a plain wso2 module install being
+// the way to clear a pin is documented nowhere else the user would be looking
+// at that moment (F7).
+func TestModuleUpdateOfAPinnedModuleNamesTheClearingCommand(t *testing.T) {
+	shell, out, errOut := newModuleShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+	pinModule(t, shell, "reference", "0.1.0")
+	shell.Reader = failIfReadReader{t}
+	catalogServing(t, `{"schemaVersion":1,"modules":[`+
+		`{"namespace":"reference","path":"reference","channels":`+
+		`[{"channel":"stable","version":"0.2.0"}]}]}`)
+
+	if code := shell.Run([]string{"module", "update", "reference"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	want := "reference is pinned to v0.1.0 and was not updated. " +
+		"Run wso2 module install reference to clear the pin."
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("stdout does not report the pin with its way out:\n%s", out)
+	}
+}
+
+// TestModuleListCountsAPinnedModuleInAFinishedSentence drives the summary's
+// pluralization through the real command: one pinned module reads "1 module
+// is pinned", not the unfinished "1 module(s) are pinned" (F7). The both-ways
+// agreement lives in module_internal_test.go, where every count is cheap to
+// state; this proves the corrected line is what the command prints.
+func TestModuleListCountsAPinnedModuleInAFinishedSentence(t *testing.T) {
+	shell, out, errOut := newModuleShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+	pinModule(t, shell, "reference", "0.1.0")
+	catalogServing(t, `{"schemaVersion":1,"modules":[`+
+		`{"namespace":"reference","path":"reference","channels":`+
+		`[{"channel":"stable","version":"0.2.0"}]}]}`)
+
+	if code := shell.Run([]string{"module", "list"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "1 module is pinned and will not be updated.") {
+		t.Errorf("stdout does not count the pinned module in a finished sentence:\n%s", out)
+	}
+}

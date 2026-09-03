@@ -504,3 +504,45 @@ func TestVerboseInstallKeepsProgressOffStdout(t *testing.T) {
 		t.Errorf("--verbose did not report download progress on stderr:\n%s", verboseStderr)
 	}
 }
+
+// A pinned install says a pin was created and how to clear it, and the plain
+// install that clears it says so too. The pin is a side effect of how the
+// module was named, and a plain install being the way out is written nowhere
+// else, so the two runs that change the pin are the two that must name it (F7).
+func TestAnInstallReportsThePinItCreatesAndThePinItClears(t *testing.T) {
+	shell := buildShell(t)
+	origin := newCatalogOrigin(t, hostPlatformOptions(), catalogOlderStable, catalogStable)
+	stateRoot := isolatedStateRoot(t)
+
+	stdout, stderr, err := installModuleFrom(shell, stateRoot, origin.server.URL, catalogNamespace+"@4.4.0")
+	if err != nil {
+		t.Fatalf("the pinning install returned %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "Pinned reference to v4.4.0.") {
+		t.Errorf("the pinning install does not say a pin was created:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "run wso2 module install reference to clear it") {
+		t.Errorf("the pinning install does not name the command that clears the pin:\n%s", stdout)
+	}
+
+	stdout, stderr, err = installModuleFrom(shell, stateRoot, origin.server.URL, catalogNamespace)
+	if err != nil {
+		t.Fatalf("the clearing install returned %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "The pin to v4.4.0 was cleared") {
+		t.Errorf("the clearing install does not say the pin was cleared:\n%s", stdout)
+	}
+	if got := installedVersion(t, stateRoot, catalogNamespace); got != "4.5.0" {
+		t.Errorf("the active version is %s, want the newest stable 4.5.0 once the pin is cleared", got)
+	}
+
+	// A third, plain install of the now-unpinned module claims nothing about
+	// pins either way.
+	stdout, stderr, err = installModuleFrom(shell, stateRoot, origin.server.URL, catalogNamespace)
+	if err != nil {
+		t.Fatalf("the repeated install returned %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	if strings.Contains(stdout, "pin") || strings.Contains(stdout, "Pinned") {
+		t.Errorf("an install of an unpinned module talks about pins:\n%s", stdout)
+	}
+}

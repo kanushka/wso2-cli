@@ -206,3 +206,100 @@ func TestTheListSummaryAndTheUpdateColumnCannotDisagree(t *testing.T) {
 		})
 	}
 }
+
+// TestAPinnedUpdateSkipNamesTheClearingCommand pins the escape hatch onto
+// both renderings of a passed-over module: a plain wso2 module install clears
+// a pin, and that fact is written nowhere else a user watching an update run
+// would look (F7). The two lines are asserted together for the same reason
+// TestTheThreeUpdateRenderingsAgreeOnAnUnpublishedModule holds its three
+// together: a dry run that omitted the way out would contradict the run it
+// predicts.
+func TestAPinnedUpdateSkipNamesTheClearingCommand(t *testing.T) {
+	status := install.Status{
+		Namespace: "reference", Installed: "0.1.0",
+		Pinned: true, PinnedVersion: "0.1.0",
+	}
+	outcome := install.Outcome{
+		Namespace: "reference",
+		Action:    install.ActionPinned,
+		From:      "0.1.0",
+		To:        "0.1.0",
+	}
+
+	dryRun := dryRunUpdateLine(status)
+	real, err := updateLine(outcome)
+	if err != nil {
+		t.Fatalf("updateLine returned %v, want a pinned module not to be a refusal", err)
+	}
+
+	for name, line := range map[string]string{"dry run": dryRun, "real run": real} {
+		if !strings.Contains(line, "wso2 module install reference to clear the pin") {
+			t.Errorf("the %s does not name the command that clears the pin: %q", name, line)
+		}
+	}
+}
+
+// TestTheListSummaryCountsReadAsFinishedSentences pins the pluralization of
+// every summary line: "1 module(s) are pinned" reads as unfinished output, so
+// each line agrees with its count in both directions (F7).
+func TestTheListSummaryCountsReadAsFinishedSentences(t *testing.T) {
+	pinned := install.Status{Namespace: "a", Installed: "1.0.0", Pinned: true, PinnedVersion: "1.0.0"}
+	unpublished := install.Status{Namespace: "b", Installed: "1.0.0", Channel: "stable"}
+	updatable := install.Status{Namespace: "c", Installed: "1.0.0", Channel: "stable",
+		Available: "1.1.0", Update: true}
+	current := install.Status{Namespace: "d", Installed: "1.0.0", Channel: "stable", Available: "1.0.0"}
+	second := func(status install.Status) install.Status {
+		status.Namespace += "2"
+		return status
+	}
+
+	for name, test := range map[string]struct {
+		statuses []install.Status
+		want     string
+	}{
+		"one pinned": {
+			statuses: []install.Status{pinned, current},
+			want:     "1 module is pinned and will not be updated.",
+		},
+		"two pinned": {
+			statuses: []install.Status{pinned, second(pinned)},
+			want:     "2 modules are pinned and will not be updated.",
+		},
+		"one updatable": {
+			statuses: []install.Status{updatable, pinned},
+			want:     "1 module has an update available. Run wso2 module update --all to take it.",
+		},
+		"two updatable": {
+			statuses: []install.Status{updatable, second(updatable)},
+			want:     "2 modules have an update available. Run wso2 module update --all to take them.",
+		},
+		"one current beside a pin": {
+			statuses: []install.Status{current, pinned},
+			want:     "1 module is current.",
+		},
+		"two current beside a pin": {
+			statuses: []install.Status{current, second(current), pinned},
+			want:     "2 modules are current.",
+		},
+		"one unpublished": {
+			statuses: []install.Status{unpublished, current},
+			want: "1 module is not published on the channel it follows, " +
+				"so whether it is current is unknown.",
+		},
+		"two unpublished": {
+			statuses: []install.Status{unpublished, second(unpublished)},
+			want: "2 modules are not published on the channel they follow, " +
+				"so whether they are current is unknown.",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			summary := strings.Join(listSummary(test.statuses), "\n")
+			if !strings.Contains(summary, test.want) {
+				t.Errorf("summary does not read %q:\n%s", test.want, summary)
+			}
+			if strings.Contains(summary, "(s)") {
+				t.Errorf("summary still synthesizes a plural with \"(s)\":\n%s", summary)
+			}
+		})
+	}
+}

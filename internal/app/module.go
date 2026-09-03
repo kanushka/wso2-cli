@@ -40,9 +40,10 @@ const catalogTimeout = 10 * time.Minute
 const (
 	moduleAvailableUsage = "Run wso2 module available."
 	moduleListUsage      = "Run wso2 module list."
-	moduleInstallUsage   = "Run wso2 module install <module> [--channel <channel>]."
-	moduleRemoveUsage    = "Run wso2 module remove <module> [--yes] [--dry-run] [--no-input]."
-	moduleUpdateUsage    = "Run wso2 module update <module> [--yes] [--dry-run] [--no-input], " +
+	moduleInstallUsage   = "Run wso2 module install <module> [--channel <channel>], " +
+		"or wso2 module install <module>@<version> to pin an exact version."
+	moduleRemoveUsage = "Run wso2 module remove <module> [--yes] [--dry-run] [--no-input]."
+	moduleUpdateUsage = "Run wso2 module update <module> [--yes] [--dry-run] [--no-input], " +
 		"or wso2 module update --all [--yes] [--dry-run] [--no-input]."
 )
 
@@ -132,9 +133,17 @@ func (s Shell) moduleListCommand() *cobra.Command {
 func (s Shell) moduleInstallCommand() *cobra.Command {
 	var channel string
 	command := &cobra.Command{
-		Use:   "install <module>",
+		Use:   "install <module>[@<version>]",
 		Short: "Install one product module from the catalog.",
-		Args:  exactlyOneArgument("a module to install", moduleInstallUsage),
+		// The @<version> form is accepted, acted on, and until now appeared
+		// nowhere in this command's help: a user could create a pin without
+		// being told the syntax exists, let alone how to undo it (F7).
+		Long: "Install one product module from the catalog.\n\n" +
+			"Without a version, the newest version on the chosen release channel that this " +
+			"shell can launch is installed. Naming the module as <module>@<version> installs " +
+			"that exact version and pins it: wso2 module update passes a pinned module over " +
+			"until a plain wso2 module install <module> clears the pin.",
+		Args: exactlyOneArgument("a module to install", moduleInstallUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			// The module may be named as "<module>@<version>" to pin an exact
 			// version; Cut on an absent "@" leaves version empty, which is
@@ -390,10 +399,29 @@ func (s Shell) moduleInstall(namespace string, policy catalog.Policy) error {
 		"selected_version", installed.Version,
 		"platform", installed.Platform.String())
 
-	_, err = fmt.Fprintf(s.Streams.Out,
+	if _, err := fmt.Fprintf(s.Streams.Out,
 		"Installed %s v%s for %s.\nThe artifact was checked against the digest the catalog publishes. "+
 			"Artifacts are integrity-checked, not signed.\n",
-		installed.Namespace, installed.Version, installed.Platform)
+		installed.Namespace, installed.Version, installed.Platform); err != nil {
+		return err
+	}
+	// A pin is created and cleared as a side effect of how the module was
+	// named, so both are reported here rather than discovered later when an
+	// update run passes the module over — and the report names the way out,
+	// because a plain install being the way to clear a pin is written nowhere
+	// a user would otherwise look (F7).
+	switch {
+	case installed.PinnedVersion != "":
+		_, err = fmt.Fprintf(s.Streams.Out,
+			"Pinned %s to v%s. It will not be updated until the pin is cleared; "+
+				"run wso2 module install %s to clear it.\n",
+			installed.Namespace, installed.PinnedVersion, installed.Namespace)
+	case installed.ClearedPinnedVersion != "":
+		_, err = fmt.Fprintf(s.Streams.Out,
+			"The pin to v%s was cleared; %s follows its release channel again "+
+				"and wso2 module update can move it.\n",
+			installed.ClearedPinnedVersion, installed.Namespace)
+	}
 	return err
 }
 
@@ -638,21 +666,38 @@ func listSummary(statuses []install.Status) []string {
 	var lines []string
 	if n := counts[stateUpdatable]; n > 0 {
 		lines = append(lines, fmt.Sprintf(
-			"%d module(s) have an update available. Run wso2 module update --all to take them.", n))
+			"%d %s an update available. Run wso2 module update --all to take %s.",
+			n, pluralize(n, "module has", "modules have"), pluralize(n, "it", "them")))
 	}
 	if n := counts[stateCurrent]; n > 0 {
-		lines = append(lines, fmt.Sprintf("%d module(s) are current.", n))
+		lines = append(lines, fmt.Sprintf("%d %s current.",
+			n, pluralize(n, "module is", "modules are")))
 	}
 	if n := counts[statePinned]; n > 0 {
 		lines = append(lines, fmt.Sprintf(
-			"%d module(s) are pinned and will not be updated.", n))
+			"%d %s pinned and will not be updated.",
+			n, pluralize(n, "module is", "modules are")))
 	}
 	if n := counts[stateUnpublished]; n > 0 {
 		lines = append(lines, fmt.Sprintf(
-			"%d module(s) are not published on the channel they follow, so whether they are "+
-				"current is unknown. Run wso2 module available to see what the catalog publishes.", n))
+			"%d %s not published on the channel %s, so whether %s current is unknown. "+
+				"Run wso2 module available to see what the catalog publishes.",
+			n, pluralize(n, "module is", "modules are"),
+			pluralize(n, "it follows", "they follow"),
+			pluralize(n, "it is", "they are")))
 	}
 	return lines
+}
+
+// pluralize chooses the clause that agrees with a count. Each summary line
+// above spells out both of its readings rather than synthesizing one with a
+// "(s)", because "1 module(s) are pinned" reads as a sentence nobody finished
+// writing (F7).
+func pluralize(n int, singular, plural string) string {
+	if n == 1 {
+		return singular
+	}
+	return plural
 }
 
 // channelColumn says which channel a module follows, or says nothing when it
@@ -823,7 +868,9 @@ func (s Shell) reportUpdatePlan(installer install.Installer, namespaces []string
 func dryRunUpdateLine(status install.Status) string {
 	switch {
 	case status.Pinned:
-		return fmt.Sprintf("%s is pinned to v%s and would not be updated.", status.Namespace, status.PinnedVersion)
+		return fmt.Sprintf("%s is pinned to v%s and would not be updated. "+
+			"Run wso2 module install %s to clear the pin.",
+			status.Namespace, status.PinnedVersion, status.Namespace)
 	case status.Available == "":
 		return fmt.Sprintf("The catalog publishes no version of %s on the %s channel, "+
 			"so whether v%s is up to date is unknown. Run wso2 module available to see what it publishes.",
@@ -842,7 +889,12 @@ func updateLine(outcome install.Outcome) (string, error) {
 	case install.ActionUpdated:
 		return fmt.Sprintf("Updated %s from v%s to v%s.", outcome.Namespace, outcome.From, outcome.To), nil
 	case install.ActionPinned:
-		return fmt.Sprintf("%s is pinned to v%s and was not updated.", outcome.Namespace, outcome.From), nil
+		// The escape hatch is named because it lives nowhere the user could
+		// otherwise find it: a plain install clearing a pin is a side effect
+		// of the install path, not a command of its own (F7).
+		return fmt.Sprintf("%s is pinned to v%s and was not updated. "+
+			"Run wso2 module install %s to clear the pin.",
+			outcome.Namespace, outcome.From, outcome.Namespace), nil
 	case install.ActionFailed:
 		return fmt.Sprintf("%s could not be updated. v%s is still active.",
 			outcome.Namespace, outcome.From), outcome.Err

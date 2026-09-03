@@ -100,6 +100,17 @@ type Installed struct {
 	Namespace string
 	Version   string
 	Platform  modules.Platform
+	// PinnedVersion is the exact version this install pinned the module at,
+	// and is empty when the install left the module free to move. It is
+	// reported so the caller can say a pin was created, rather than leaving
+	// the user to discover it when an update run passes the module over.
+	PinnedVersion string
+	// ClearedPinnedVersion is the pin this install replaced with no pin: a
+	// plain install of a previously pinned module is the documented way to
+	// clear a pin, and clearing one silently would leave the user unsure
+	// whether the module can move again. It is empty when there was no pin,
+	// and when this install created one.
+	ClearedPinnedVersion string
 }
 
 // Run installs one module version and activates it.
@@ -156,14 +167,34 @@ func (i Installer) runWithIndex(ctx context.Context, index catalog.Index, reques
 		return Installed{}, err
 	}
 
+	// The pin this install replaces is read before activate overwrites the
+	// policy document. A policy that cannot be read counts as recording no
+	// pin, the same tolerance activate extends when it snapshots the document
+	// for rollback: this install replaces the document either way, and
+	// refusing to install over a corrupt policy would leave no way to repair
+	// it.
+	previous, err := i.Store.ReadPolicy(request.Namespace)
+	if err != nil {
+		previous = modules.Policy{}
+	}
+
 	if err := i.activate(ctx, request.Namespace, selection, request.Policy, archive); err != nil {
 		return Installed{}, err
 	}
-	return Installed{
+	installed := Installed{
 		Namespace: request.Namespace,
 		Version:   selection.Version.Version,
 		Platform:  i.Shell.Platform,
-	}, nil
+	}
+	if request.Policy.Version != "" {
+		// The selected version rather than the string the user typed, for the
+		// same reason recordPolicy pins the selected one: it is the version
+		// the store holds.
+		installed.PinnedVersion = selection.Version.Version
+	} else if previous.Pinned() {
+		installed.ClearedPinnedVersion = previous.PinnedVersion
+	}
+	return installed, nil
 }
 
 // verify checks the downloaded archive against the entry that named it, before
