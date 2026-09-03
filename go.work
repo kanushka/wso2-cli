@@ -3,15 +3,28 @@ go 1.25.0
 // The workspace composes the SDK and the product modules from source during
 // local development, so a change to the SDK is testable before it is tagged.
 //
-// It declares no replacements. It used to replace an SDK version that had never
-// been published, because the Go tool cannot build a module graph that requires
-// a version with no revision. sdk/v0.1.0 exists now, so a module requires a
-// version the module proxy can serve and the replacement is gone. Committed
-// replace directives remain prohibited in every go.mod; see
-// docs/plans/first-cli-vertical-slice.md section 4 and
-// docs/adr/0009-sdk-versioning-and-publication.md.
+// The replacement below is a release bootstrap and is temporary. The SDK
+// release gate compares its tag against the version modules/reference requires,
+// so that requirement has to name v0.2.0 before sdk/v0.2.0 exists — and the Go
+// tool cannot build a module graph that requires a version with no revision, so
+// without this every build in the repository fails rather than only the ones
+// that exercise the module. The workspace carried exactly this until sdk/v0.1.0
+// was published.
+//
+// Drop it once sdk/v0.2.0 is pushed. The window it covers is described in
+// docs/reference/release-artifacts.md under "Releasing a version nothing is
+// built against yet". TestTheReferenceModuleWorksFromAnotherRepository is
+// deliberately not covered by it: that test is defined by GOWORK=off, so it
+// resolves the SDK from the proxy the way a product team's own repository does,
+// and it skips itself until the tag exists.
+//
+// Committed replace directives remain prohibited in every go.mod; the workspace
+// is the sanctioned place for one. See docs/plans/first-cli-vertical-slice.md
+// section 4 and docs/adr/0009-sdk-versioning-and-publication.md.
 use (
 	.
 	./modules/reference
 	./sdk
 )
+
+replace github.com/wso2/wso2-cli/sdk v0.2.0 => ./sdk

@@ -45,17 +45,28 @@ func moduleCommandFrom(shell, stateRoot, origin string, args ...string) (string,
 // requireLaunchable proves an installed module is not merely present but works:
 // the shell resolves it, launches it, and the module itself answers.
 //
-// A refusal from the module is what proves the module ran. A missing or broken
-// installation fails in the shell instead, and says so with a shell problem
-// code, so the two cannot be confused.
+// It probes with a real command, because an unknown one no longer reaches the
+// module. Since the reference module declares its command tree (#153), the
+// shell answers "namespace nosuchcommand" itself from the receipt, with
+// shell.unknown_product_command and without launching anything — which is the
+// point of declaring a tree, and which made the old probe prove only that the
+// shell had routed.
+//
+// "status" is the command that suits this: it answers from the invocation
+// alone and calls no service, so it works with nothing deployed, and it reports
+// an access refusal as a field rather than a failure. A result carrying the
+// module's own namespace is therefore proof the module process ran and
+// produced it. A missing or broken installation fails in the shell instead,
+// before any of that.
 func requireLaunchable(t *testing.T, shell, stateRoot, namespace string) {
 	t.Helper()
-	stdout, stderr, err := runShellWith(shell, shellEnvironment(stateRoot), namespace, "nosuchcommand")
-	if err == nil {
-		t.Fatalf("an unknown %s command succeeded:\n%s", namespace, stdout)
+	stdout, stderr, err := runShellWith(shell, shellEnvironment(stateRoot), namespace, "status")
+	if err != nil {
+		t.Fatalf("the installed %s module did not answer: %v\nstdout:\n%s\nstderr:\n%s",
+			namespace, err, stdout, stderr)
 	}
-	if !strings.Contains(stderr, namespace+".unknown_command") {
-		t.Fatalf("the installed %s module did not answer:\n%s", namespace, stderr)
+	if !strings.Contains(stdout, namespace) {
+		t.Fatalf("the installed %s module answered without naming itself:\n%s", namespace, stdout)
 	}
 }
 
