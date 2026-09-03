@@ -107,3 +107,102 @@ func TestChannelColumnNamesARecordedChannel(t *testing.T) {
 			"for a module that is free to move", column)
 	}
 }
+
+// TestTheListSummaryNeverCallsANonCurrentModuleCurrent pins #143: the summary
+// beneath wso2 module list's table used to be driven by the Update boolean
+// alone, which is false for a pinned module and for one the catalog does not
+// publish as well as for a current one. So a table whose UPDATE column said
+// "pinned to v0.1.0" was followed three lines later by "Every installed module
+// is current."
+//
+// Each case below is a table the old summary got wrong, except the last, which
+// is the one it got right and which must keep its short wording.
+func TestTheListSummaryNeverCallsANonCurrentModuleCurrent(t *testing.T) {
+	pinned := install.Status{
+		Namespace: "reference", Installed: "0.1.0",
+		Pinned: true, PinnedVersion: "0.1.0",
+	}
+	unpublished := install.Status{
+		Namespace: "orphan", Installed: "1.2.3", Channel: "stable",
+	}
+	current := install.Status{
+		Namespace: "gateway", Installed: "2.0.0", Channel: "stable", Available: "2.0.0",
+	}
+	updatable := install.Status{
+		Namespace: "apim", Installed: "1.0.0", Channel: "stable",
+		Available: "1.1.0", Update: true,
+	}
+
+	for name, test := range map[string]struct {
+		statuses []install.Status
+		// wantCurrentClaim is whether the summary may claim every module is
+		// current.
+		wantCurrentClaim bool
+		mustName         []string
+	}{
+		"a pinned module alone": {
+			statuses: []install.Status{pinned},
+			mustName: []string{"pinned"},
+		},
+		"an unpublished module alone": {
+			statuses: []install.Status{unpublished},
+			mustName: []string{"not published", "wso2 module available"},
+		},
+		"a pinned module beside a current one": {
+			statuses: []install.Status{pinned, current},
+			mustName: []string{"pinned"},
+		},
+		"an update beside a pin": {
+			statuses: []install.Status{updatable, pinned},
+			mustName: []string{"update available", "wso2 module update --all", "pinned"},
+		},
+		"every module genuinely current": {
+			statuses:         []install.Status{current},
+			wantCurrentClaim: true,
+			mustName:         []string{"Every installed module is current."},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			summary := strings.Join(listSummary(test.statuses), "\n")
+
+			claims := strings.Contains(summary, "Every installed module is current")
+			if claims != test.wantCurrentClaim {
+				t.Errorf("summary claims every module is current = %v, want %v:\n%s",
+					claims, test.wantCurrentClaim, summary)
+			}
+			for _, named := range test.mustName {
+				if !strings.Contains(summary, named) {
+					t.Errorf("summary does not name %q:\n%s", named, summary)
+				}
+			}
+		})
+	}
+}
+
+// TestTheListSummaryAndTheUpdateColumnCannotDisagree pins the structural half
+// of #143's fix: both readings derive from stateOf, so a module the column
+// calls pinned cannot be counted as current by the line below it. A summary
+// built from a second, parallel classification would pass the wording tests
+// above and still drift the next time a state is added.
+func TestTheListSummaryAndTheUpdateColumnCannotDisagree(t *testing.T) {
+	for name, status := range map[string]install.Status{
+		"pinned":      {Namespace: "a", Installed: "1.0.0", Pinned: true, PinnedVersion: "1.0.0"},
+		"unpublished": {Namespace: "b", Installed: "1.0.0", Channel: "stable"},
+		"updatable":   {Namespace: "c", Installed: "1.0.0", Channel: "stable", Available: "1.1.0", Update: true},
+		"current":     {Namespace: "d", Installed: "1.0.0", Channel: "stable", Available: "1.0.0"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			column := updateColumn(status)
+			summary := strings.Join(listSummary([]install.Status{status}), "\n")
+
+			// A one-module table: whatever the column says it is, the summary
+			// has to be about that same state and no other.
+			currentColumn := column == "current"
+			currentSummary := strings.Contains(summary, "Every installed module is current")
+			if currentColumn != currentSummary {
+				t.Errorf("the column says %q and the summary says %q; they disagree about current",
+					column, summary)
+			}
+		})
+	}
+}

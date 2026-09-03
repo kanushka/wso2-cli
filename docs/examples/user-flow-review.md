@@ -304,6 +304,12 @@ exit=0
 The closing line contradicts the row above it, which is
 [#143](https://github.com/wso2/wso2-cli/issues/143), reproduced again here.
 
+> **Fixed 2026-09-03.** The summary is now derived from the same four states the
+> UPDATE column distinguishes, so a pinned or unpublished module is accounted
+> for rather than folded into "current". The same table now closes with
+> `1 module(s) are pinned and will not be updated.` The block
+> above is left as it was recorded.
+
 ```
 $ wso2 module available
 MODULE      CHANNEL      VERSION
