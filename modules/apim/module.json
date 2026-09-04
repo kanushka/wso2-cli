@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "namespace": "apim",
+  "compatibility": {
+    "shell": ">=0.1.0 <2.0.0",
+    "protocolVersions": [2]
+  },
+  "capabilities": {
+    "authAudiences": ["apim-publisher"],
+    "authScopes": ["apim:api_view", "apim:api_create", "apim:api_publish", "apim:subscribe", "apim:app_manage", "apim:admin"]
+  }
+}
