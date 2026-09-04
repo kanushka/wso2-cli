@@ -292,16 +292,33 @@ func apisPublish(command *cobra.Command) module.Handler {
 	}
 }
 
+// The publisher answers a lookup from its search index, which lags the
+// database by a few seconds after an API is created. A command that follows
+// an import would otherwise report the API absent, so a miss is retried.
+var (
+	lookupRetries  = 5
+	lookupInterval = 2 * time.Second
+)
+
 // findAPI looks an API up by name and version on a plane.
 func findAPI(ctx context.Context, client *apim.Client, plane, name, version string) (api, bool, error) {
-	var listed apiList
-	if err := client.Get(ctx, plane+"/apis?query="+url.QueryEscape("name:"+name), &listed); err != nil {
-		return api{}, false, apim.Problem(err, "the API lookup")
-	}
-	for _, candidate := range listed.List {
-		if candidate.Name == name && candidate.Version == version {
-			return candidate, true, nil
+	for attempt := 1; ; attempt++ {
+		var listed apiList
+		if err := client.Get(ctx, plane+"/apis?query="+url.QueryEscape("name:"+name), &listed); err != nil {
+			return api{}, false, apim.Problem(err, "the API lookup")
+		}
+		for _, candidate := range listed.List {
+			if candidate.Name == name && candidate.Version == version {
+				return candidate, true, nil
+			}
+		}
+		if attempt >= lookupRetries {
+			return api{}, false, nil
+		}
+		select {
+		case <-ctx.Done():
+			return api{}, false, ctx.Err()
+		case <-time.After(lookupInterval):
 		}
 	}
-	return api{}, false, nil
 }

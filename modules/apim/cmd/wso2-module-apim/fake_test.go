@@ -54,6 +54,9 @@ type fakeAPIM struct {
 	mapKeysRefusals int
 	// deployPolls counts GET deployments before reporting success.
 	deployPolls int
+	// listLag hides every API from this many listings, as the search index does
+	// for a few seconds after a creation.
+	listLag int
 }
 
 func newFakeAPIM(t *testing.T) *fakeAPIM {
@@ -110,6 +113,12 @@ func newFakeAPIM(t *testing.T) *fakeAPIM {
 		record(r)
 		query := r.URL.Query().Get("query")
 		var matching []map[string]any
+		if fake.listLag > 0 {
+			// The search index has not caught up yet.
+			fake.listLag--
+			list(w, matching)
+			return
+		}
 		for _, api := range fake.apis {
 			if query == "" || query == "name:"+api["name"].(string) {
 				matching = append(matching, api)

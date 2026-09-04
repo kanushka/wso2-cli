@@ -69,6 +69,8 @@ func TestImportDeployPublishInOrder(t *testing.T) {
 		t.Error("a second import was not idempotent")
 	}
 
+	lookupInterval = 10 * time.Millisecond
+	fake.listLag = 2
 	deployed := fake.run(t, []string{"apis", "deploy"}, "MockAPI/1.0.0")
 	if deployed.Problem != nil {
 		t.Fatalf("deploy: %+v", deployed.Problem)
