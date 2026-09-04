@@ -21,6 +21,7 @@ go 1.25.0
 // section 4 and docs/adr/0009-sdk-versioning-and-publication.md.
 use (
 	.
+	./modules/iam
 	./modules/reference
 	./sdk
 )

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "namespace": "iam",
+  "compatibility": {
+    "shell": ">=0.1.0 <2.0.0",
+    "protocolVersions": [2]
+  },
+  "capabilities": {
+    "authAudiences": ["thunder-system"],
+    "authScopes": ["system"]
+  }
+}
