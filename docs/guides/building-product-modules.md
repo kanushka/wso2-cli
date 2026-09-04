@@ -348,6 +348,11 @@ take the value as a flag: it would land in shell history and in the
 diagnostics the shell records. A module cannot prompt, because its standard
 streams carry the protocol.
 
+Two flag names never reach a module: `--context`, which selects the shell's
+context, and `--output`, which selects the rendering. A product concept that
+shares the word needs another name; the `apim` module calls an API's
+context path `--api-context`.
+
 The following request flow is what the module must preserve:
 
 ```mermaid
