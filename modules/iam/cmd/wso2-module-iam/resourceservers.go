@@ -136,18 +136,22 @@ func ensureResourceServer(ctx context.Context, client *thunder.Client, name stri
 }
 
 // ensurePermission walks a:b:c down the resource tree, creating what is
-// missing and reusing what exists.
+// missing and reusing what exists. ThunderID lists one level at a time: the
+// top level without a parent, children by parentId.
 func ensurePermission(ctx context.Context, client *thunder.Client, serverID, permission string) error {
-	var listed thunder.ResourceList
-	path := "/resource-servers/" + serverID + "/resources?limit=200"
-	if err := client.Get(ctx, path, &listed); err != nil {
-		return thunder.Problem(err, "the resource listing")
-	}
 	parent := ""
 	for _, handle := range strings.Split(permission, ":") {
+		path := "/resource-servers/" + serverID + "/resources?limit=100"
+		if parent != "" {
+			path += "&parentId=" + parent
+		}
+		var listed thunder.ResourceList
+		if err := client.Get(ctx, path, &listed); err != nil {
+			return thunder.Problem(err, "the resource listing")
+		}
 		found := ""
 		for _, resource := range listed.Resources {
-			if resource.Handle == handle && resource.Parent == parent {
+			if resource.Handle == handle {
 				found = resource.ID
 				break
 			}
@@ -159,7 +163,6 @@ func ensurePermission(ctx context.Context, client *thunder.Client, serverID, per
 				return thunder.Problem(err, fmt.Sprintf("creating the resource %q of %q", handle, permission))
 			}
 			found = created.ID
-			listed.Resources = append(listed.Resources, thunder.Resource{ID: found, Handle: handle, Parent: parent})
 		}
 		parent = found
 	}

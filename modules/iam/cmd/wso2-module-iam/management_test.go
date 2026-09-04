@@ -80,7 +80,21 @@ func newFakeManagement(t *testing.T) *fakeManagement {
 		_ = json.NewEncoder(w).Encode(body)
 	}))
 	mux.HandleFunc("GET /resource-servers/{rs}/resources", guard(func(w http.ResponseWriter, r *http.Request) {
-		list(w, "resources", fake.res[r.PathValue("rs")])
+		// One level at a time, as the deployment does: top level without a
+		// parent, children by parentId. A limit above 100 is refused.
+		if limit := r.URL.Query().Get("limit"); limit == "" || limit > "100" && len(limit) > 2 {
+			http.Error(w, `{"code":"RES-1011"}`, http.StatusBadRequest)
+			return
+		}
+		parent := r.URL.Query().Get("parentId")
+		var level []map[string]any
+		for _, resource := range fake.res[r.PathValue("rs")] {
+			p, _ := resource["parent"].(string)
+			if p == parent {
+				level = append(level, resource)
+			}
+		}
+		list(w, "resources", level)
 	}))
 	mux.HandleFunc("POST /resource-servers/{rs}/resources", guard(func(w http.ResponseWriter, r *http.Request) {
 		body := read(r)
