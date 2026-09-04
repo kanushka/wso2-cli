@@ -322,25 +322,28 @@ which is the same for all three products.
 
 ---
 
-## 9. Log in, and check what it wrote
+## 9. Declare the identity, then log in
 
-With the issuer and client ID from the section above, one command creates
-the identity and the context and signs you in:
+A Thunder login is bound to one protected resource from the moment it is
+established, so the shell has to know the resource before the browser
+opens. Declare the identity first, naming the provider and the one product
+it reaches, then log in:
 
 ```console
-$ wso2 login --url https://thunder.example.com \
-    --client-id <client-id> --context thunder-local
+$ wso2 identity create thunder-local --issuer https://thunder.example.com \
+    --client-id <client-id> --provider thunder \
+    --product reference --endpoint https://localhost:8090 \
+    --audience https://localhost:8090/reference-status --scope read --scope write
+
+$ wso2 login --context thunder-local
 ```
 
-It reports the names it assigned, and `wso2 context list` shows them.
-What it writes is deliberately spare: the issuer and client ID you passed,
-`"type": "onprem"`, a `credentialRef` equal to the identity name, and no
-products. Everything from here is [the main login guide](login.md), from
-section 2.
-
-The record below is the fuller shape, not what login leaves: add the product
-with `wso2 identity add-product`, and set the two Thunder-specific members by
-hand. Login writes neither, and a Thunder deployment needs both:
+`identity create` writes the identity, a same-named context, and selects it
+when nothing else is selected; its last line is the login to run. What it
+writes is spare: the issuer and client ID, `"type": "onprem"`, a
+`credentialRef` equal to the identity name, `"provider": "thunder"`, and the
+product. That is the document below. Everything from here is
+[the main login guide](login.md), from section 2.
 
 ```json
 {
@@ -351,7 +354,7 @@ hand. Login writes neither, and a Thunder deployment needs both:
     "provider": "thunder",
     "issuer": "https://localhost:8090",
     "clientId": "wso2-cli",
-    "credentialRef": "thunder-local-login"
+    "credentialRef": "thunder-local"
   },
   "products": {
     "reference": {
@@ -363,14 +366,17 @@ hand. Login writes neither, and a Thunder deployment needs both:
 }
 ```
 
-`provider` is what makes the shell send the resource indicator. Without it the
-login is refused with `invalid_target` and no session is established.
+`provider` is what makes the shell send the resource indicator. Without it,
+`wso2 login --url … --client-id …` on a deployment with no default resource
+server is refused by Thunder with `invalid_target` before any sign-in page
+appears, and no session is established. That is why the first-login form
+that creates the identity as it logs in does not fit Thunder.
 
-You may also write `narrowing` explicitly, as `scoped-refresh` or
-`token-resource`, for a deployment that does not behave the way its product
-ordinarily does. An explicit `narrowing` wins over what `provider` implies. A
-Thunder deployment with a default resource server configured is the case this
-exists for.
+You may also write `narrowing` explicitly in the document, as
+`scoped-refresh` or `token-resource`, for a deployment that does not behave
+the way its product ordinarily does. An explicit `narrowing` wins over what
+`provider` implies. A Thunder deployment with a default resource server
+configured is the case this exists for.
 
 ---
 

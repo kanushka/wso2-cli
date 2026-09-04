@@ -76,7 +76,7 @@ func (s Shell) identityCommand() *cobra.Command {
 	// alongside "wso2 identity list" would be a second answer to a question
 	// nothing asked.
 	declareOutputFlag(command.PersistentFlags())
-	command.AddCommand(s.identityAddProductCommand(), s.identityListCommand())
+	command.AddCommand(s.identityCreateCommand(), s.identityAddProductCommand(), s.identityListCommand())
 	return command
 }
 
