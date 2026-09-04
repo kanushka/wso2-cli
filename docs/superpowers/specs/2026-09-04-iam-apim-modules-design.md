@@ -118,6 +118,24 @@ protocol frames.
 Documented in `docs/reference/commands.md` beside `WSO2_CA_FILE`, and in
 `docs/guides/building-product-modules.md` as the rule for module secrets.
 
+### 3.3 A next-step line on every module result
+
+Every result the two modules return ends with a field named `next` whose
+value is the one command a user most likely runs next, written out with
+its flags, or the reason there is none. Bootstrap's `next` is the
+`wso2 identity create` line; `identity create`'s own output ends with the
+`wso2 login` or first product command; `apis import` points at `apis
+deploy`, `deploy` at `publish`, `publish` at `apps subscribe`, and so on
+down the journey in §1. A listing's `next` names the matching `create`.
+
+The shell renders it: in table mode `output.resultTable` leaves a field
+named `next` out of the table and prints it after a blank line as
+`Next  <value>`, so a wide command does not stretch every column; in JSON
+mode it is the ordinary `"next"` member, which a script can ignore. The
+rule is by field name only, so any module can use it and the result
+contract does not change. The shell's own `identity create` output
+follows the same shape through `output.Fields`.
+
 ## 4. `iam` module
 
 Namespace `iam`, executable `wso2-module-iam`, SDK v0.2.0, declaring tree
