@@ -39,8 +39,16 @@ func Report(w io.Writer, mode Mode, produced result.Result) error {
 		return resultJSON(w, produced)
 	}
 	pairs := make([][2]string, 0, len(produced.Fields))
+	next := ""
 	for _, field := range produced.Fields {
+		if field.Name == NextField {
+			next = field.Value
+			continue
+		}
 		pairs = append(pairs, [2]string{field.DisplayLabel(), field.Value})
 	}
-	return Fields(w, pairs)
+	if err := Fields(w, pairs); err != nil {
+		return err
+	}
+	return nextLine(w, next)
 }
