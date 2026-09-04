@@ -167,12 +167,21 @@ func (b *Broker) checkDeclared(request Request) error {
 			fmt.Sprintf("the %q module asked for access its installation does not declare", b.namespace()),
 			"Reinstall the module. The shell grants only the access a module receipt declares.")
 	}
+	// A scope is declared by the module receipt, or by the user: the product
+	// entry an identity records for this namespace lists the permissions the
+	// shell may request for it, and a module that calls the user's own API
+	// through a product (a gateway, say) cannot know those in advance. Either
+	// party naming the scope for this namespace is consent; a scope neither
+	// named is refused.
+	recorded := b.Selection.Identity.Products[b.Namespace].Scopes
 	for _, scope := range request.Scopes {
-		if !slices.Contains(b.Capabilities.AuthScopes, scope) {
+		if !slices.Contains(b.Capabilities.AuthScopes, scope) && !slices.Contains(recorded, scope) {
 			return denial("auth.scope_not_declared",
-				fmt.Sprintf("the %q module asked for a permission its installation does not declare",
-					b.namespace()),
-				"Reinstall the module. The shell grants only the permissions a module receipt declares.")
+				fmt.Sprintf("the %q module asked for a permission neither its installation nor the "+
+					"identity's product entry declares", b.namespace()),
+				"Reinstall the module, or record the permission on this identity's product entry "+
+					"with wso2 identity add-product --replace. The shell grants only the permissions "+
+					"a module receipt or the product entry declares.")
 		}
 	}
 	return nil

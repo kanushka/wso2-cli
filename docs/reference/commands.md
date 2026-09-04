@@ -126,6 +126,18 @@ cannot be read, or holds no certificate, is refused with
 network. A product module is a separate process; it is handed the variable and
 applies the same trust on its own.
 
+## What a module may ask the broker for
+
+A module asks the shell for access by audience and scopes. The audience must
+be one its receipt declares. A scope must be declared by the receipt, or be
+recorded on the selected identity's product entry for that module's
+namespace: the entry is the user's own statement of what the shell may
+request for that product, and a module that calls the user's API through a
+product, such as a gateway, cannot know that API's permissions in advance.
+A scope neither the receipt nor the entry names is refused with
+`auth.scope_not_declared`. The product entry's scopes remain the ceiling
+for every request, whichever party declared them.
+
 ## What a module process can see
 
 A product module runs with an environment built from nothing. Two things
