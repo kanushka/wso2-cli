@@ -63,7 +63,10 @@ Out of scope, recorded for later: a WSO2-seeded `wso2cli` public client in
 ThunderID (would remove `iam bootstrap`; needs a design discussion with the
 Thunder team); a public client on API Manager's resident key manager (not
 supported by the product); tenants and organization units; `apictl` parity
-beyond the commands above; named endpoints per product.
+beyond the commands above; named endpoints per product; single sign-on
+between the products (API Manager's management plane accepts only its own
+key manager's tokens, measured; whether that key manager can federate its
+login to ThunderID is an APIM-side question not yet measured).
 
 ## 2. Three pieces, built in this order
 
