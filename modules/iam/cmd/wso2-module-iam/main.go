@@ -80,10 +80,22 @@ func commands() *cobratree.Tree {
 		Short: "Report this module's own status and what to run first.",
 	}
 	bootstrapCommand, bootstrapFlags := bootstrapCommand()
-	root.AddCommand(statusCommand, bootstrapCommand)
+	resourceServers, resourceServersListCommand, resourceServersCreateCommand, resourceServerFlags := resourceServerCommands()
+	users, usersListCommand, usersCreateCommand, userFlags := userCommands()
+	apps, appsListCommand, appsCreateCommand, appFlags := appCommands()
+	roles, rolesListCommand, rolesCreateCommand, roleFlags := roleCommands()
+	root.AddCommand(statusCommand, bootstrapCommand, resourceServers, users, apps, roles)
 	return cobratree.New(root).
 		Handle(statusCommand, status).
-		Handle(bootstrapCommand, bootstrap(bootstrapFlags))
+		Handle(bootstrapCommand, bootstrap(bootstrapFlags)).
+		Handle(resourceServersListCommand, resourceServersList).
+		Handle(resourceServersCreateCommand, resourceServersCreate(resourceServersCreateCommand, resourceServerFlags)).
+		Handle(usersListCommand, usersList).
+		Handle(usersCreateCommand, usersCreate(usersCreateCommand, userFlags)).
+		Handle(appsListCommand, appsList).
+		Handle(appsCreateCommand, appsCreate(appsCreateCommand, appFlags)).
+		Handle(rolesListCommand, rolesList).
+		Handle(rolesCreateCommand, rolesCreate(rolesCreateCommand, roleFlags))
 }
 
 func status(ctx context.Context, request module.Request) (result.Result, error) {

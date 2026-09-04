@@ -134,7 +134,7 @@ func Problem(err error, doing string) problem.Problem {
 	switch {
 	case errors.As(err, &refusal):
 		return problem.New(problem.CategoryProductService, "iam.refused",
-			fmt.Sprintf("ThunderID answered %s to %s", refusal.Error(), doing)).
+			fmt.Sprintf("ThunderID refused %s: %s", doing, refusal.Error())).
 			WithRecovery("Read the deployment's answer above; it names what it did not accept.")
 	case errors.As(err, &bad):
 		return problem.New(problem.CategoryProductService, "iam.unreadable",
