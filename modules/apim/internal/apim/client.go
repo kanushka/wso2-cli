@@ -131,3 +131,13 @@ func Problem(err error, doing string) problem.Problem {
 			WithRecovery("Check that the deployment is running and the endpoint on this identity reaches it.")
 	}
 }
+
+// IsRefusalContaining reports whether err is a refusal whose body carries the
+// phrase, filling refusal when it is. It is how a handler tells "already
+// exists" from a real failure without parsing the deployment's error shapes.
+func IsRefusalContaining(err error, refusal **Refusal, phrase string) bool {
+	if !errors.As(err, refusal) {
+		return false
+	}
+	return strings.Contains((*refusal).Body, phrase)
+}

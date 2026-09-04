@@ -1,0 +1,186 @@
+// Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestEveryListAsksForItsOwnScopeAndEndsWithNext(t *testing.T) {
+	fake := newFakeAPIM(t)
+	for command, scope := range map[string]string{
+		"apis": ScopeAPIView, "apps": ScopeSubscribe, "key-managers": ScopeAdmin,
+	} {
+		outcome := fake.run(t, []string{command, "list"})
+		if outcome.Problem != nil {
+			t.Fatalf("%s list: %+v", command, outcome.Problem)
+		}
+		if scopesAsked(outcome) != scope || outcome.AccessRequests[0].Audience != PublisherAudience {
+			t.Errorf("%s list asked for %+v", command, outcome.AccessRequests)
+		}
+		assertEndsWithNext(t, outcome)
+	}
+}
+
+func TestImportDeployPublishInOrder(t *testing.T) {
+	fake := newFakeAPIM(t)
+	deployInterval = 10 * time.Millisecond
+	fake.deployPolls = 2
+	spec := filepath.Join(t.TempDir(), "mockapi.yaml")
+	if err := os.WriteFile(spec, []byte("openapi: 3.0.3\ninfo: {title: Mock, version: 1.0.0}\npaths: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	imported := fake.run(t, []string{"apis", "import"}, "--file", spec, "--name", "MockAPI", "--version", "1.0.0",
+		"--context", "/mockapi", "--backend", "http://host.docker.internal:18080")
+	if imported.Problem != nil {
+		t.Fatalf("import: %+v", imported.Problem)
+	}
+	uploads := fake.requestsTo("POST /api/am/publisher/v4/apis/import-openapi")
+	if len(uploads) != 1 || !strings.Contains(uploads[0], "mockapi.yaml openapi: 3.0.3") ||
+		!strings.Contains(uploads[0], `"production_endpoints":{"url":"http://host.docker.internal:18080"}`) ||
+		!strings.Contains(uploads[0], `"policies":["Unlimited"]`) {
+		t.Errorf("upload = %v", uploads)
+	}
+	if fields := fieldsOf(imported); fields["created"] != "true" || scopesAsked(imported) != ScopeAPICreate+" "+ScopeAPIView ||
+		!strings.Contains(fields["next"], "apis deploy MockAPI/1.0.0") {
+		t.Errorf("import fields = %+v scopes %q", fields, scopesAsked(imported))
+	}
+	if fieldsOf(fake.run(t, []string{"apis", "import"}, "--file", spec, "--name", "MockAPI", "--version", "1.0.0",
+		"--context", "/mockapi", "--backend", "http://x"))["created"] != "false" {
+		t.Error("a second import was not idempotent")
+	}
+
+	deployed := fake.run(t, []string{"apis", "deploy"}, "MockAPI/1.0.0")
+	if deployed.Problem != nil {
+		t.Fatalf("deploy: %+v", deployed.Problem)
+	}
+	if len(fake.requestsTo("POST /api/am/publisher/v4/apis/id-1/revisions")) != 1 ||
+		!strings.Contains(fake.requestsTo("POST /api/am/publisher/v4/apis/id-1/deploy-revision")[0], `"vhost":"localhost"`) ||
+		len(fake.requestsTo("GET /api/am/publisher/v4/apis/id-1/deployments")) != 3 {
+		t.Errorf("deploy requests = %v", fake.requests)
+	}
+	if fields := fieldsOf(deployed); fields["status"] != "live" || fields["revision"] != "rev-id-1" ||
+		scopesAsked(deployed) != ScopeAPIPublish+" "+ScopeAPIView {
+		t.Errorf("deploy fields = %+v", fields)
+	}
+
+	published := fake.run(t, []string{"apis", "publish"}, "MockAPI/1.0.0")
+	if fields := fieldsOf(published); published.Problem != nil || fields["state"] != "PUBLISHED" || fields["changed"] != "true" {
+		t.Errorf("publish = %+v %+v", published.Problem, fields)
+	}
+	if fieldsOf(fake.run(t, []string{"apis", "publish"}, "MockAPI/1.0.0"))["changed"] != "false" {
+		t.Error("a second publish was not idempotent")
+	}
+	if missing := fake.run(t, []string{"apis", "publish"}, "Nope/1"); missing.Problem == nil || missing.Problem.Code != "apim.not_found" {
+		t.Errorf("unknown api: %+v", missing.Problem)
+	}
+	if bad := fake.run(t, []string{"apis", "deploy"}, "MockAPI"); bad.Problem == nil || bad.Problem.Code != "apim.missing_argument" {
+		t.Errorf("bad reference: %+v", bad.Problem)
+	}
+}
+
+func TestAppsCreateSubscribeKeysAndMapKeys(t *testing.T) {
+	fake := newFakeAPIM(t)
+	mapKeysInterval = 10 * time.Millisecond
+	fake.apis = append(fake.apis, map[string]any{"id": "api-1", "name": "MockAPI", "version": "1.0.0",
+		"context": "/mockapi", "lifeCycleStatus": "PUBLISHED"})
+
+	created := fake.run(t, []string{"apps", "create"}, "CliApp")
+	if fields := fieldsOf(created); created.Problem != nil || fields["created"] != "true" ||
+		!strings.Contains(fake.requestsTo("POST /api/am/devportal/v3/applications ")[0], `"tokenType":"JWT"`) {
+		t.Errorf("create = %+v %+v", created.Problem, fields)
+	}
+	if fieldsOf(fake.run(t, []string{"apps", "create"}, "CliApp"))["created"] != "false" {
+		t.Error("a second create was not idempotent")
+	}
+
+	subscribed := fake.run(t, []string{"apps", "subscribe"}, "CliApp", "MockAPI/1.0.0")
+	if fields := fieldsOf(subscribed); subscribed.Problem != nil || fields["status"] != "UNBLOCKED" || fields["created"] != "true" ||
+		!strings.Contains(fake.requestsTo("POST /api/am/devportal/v3/subscriptions")[0], `"apiId":"api-1"`) {
+		t.Errorf("subscribe = %+v %+v", subscribed.Problem, fields)
+	}
+	if again := fake.run(t, []string{"apps", "subscribe"}, "CliApp", "MockAPI/1.0.0"); again.Problem != nil ||
+		fieldsOf(again)["created"] != "false" {
+		t.Errorf("second subscribe = %+v %+v", again.Problem, fieldsOf(again))
+	}
+
+	keys := fake.run(t, []string{"apps", "keys"}, "CliApp")
+	if fields := fieldsOf(keys); keys.Problem != nil || fields["consumerKey"] != "ck-1" || fields["verified"] != "true" ||
+		len(fake.requestsTo("POST /oauth2/token")) != 1 ||
+		!strings.Contains(fake.requestsTo("POST /api/am/devportal/v3/applications/id-1/generate-keys")[0], `"keyManager":"Resident Key Manager"`) {
+		t.Errorf("keys = %+v %+v", keys.Problem, fields)
+	}
+
+	fake.mapKeysRefusals = 2
+	mapped := fake.run(t, []string{"apps", "map-keys"}, "CliApp", "--key-manager", "Thunder", "--client-id", "wso2-cli-ci")
+	if fields := fieldsOf(mapped); mapped.Problem != nil || fields["mode"] != "MAPPED" ||
+		len(fake.requestsTo("POST /api/am/devportal/v3/applications/id-1/map-keys")) != 3 {
+		t.Errorf("map-keys = %+v %+v requests %d", mapped.Problem, fields,
+			len(fake.requestsTo("POST /api/am/devportal/v3/applications/id-1/map-keys")))
+	}
+	if missing := fake.run(t, []string{"apps", "map-keys"}, "CliApp"); missing.Problem == nil || missing.Problem.Code != "apim.missing_flag" {
+		t.Errorf("map-keys without flags: %+v", missing.Problem)
+	}
+	if missing := fake.run(t, []string{"apps", "subscribe"}, "Nope", "MockAPI/1.0.0"); missing.Problem == nil ||
+		missing.Problem.Code != "apim.not_found" {
+		t.Errorf("unknown app: %+v", missing.Problem)
+	}
+}
+
+func TestKeyManagersAddDiscoversAndOverrides(t *testing.T) {
+	fake := newFakeAPIM(t)
+	added := fake.run(t, []string{"key-managers", "add"}, "Thunder", "--well-known", fake.server.URL+"/issuer",
+		"--jwks", "http://host.docker.internal:8490/oauth2/jwks")
+	if added.Problem != nil {
+		t.Fatalf("%+v", added.Problem)
+	}
+	posts := fake.requestsTo("POST /api/am/admin/v4/key-managers")
+	if len(posts) != 1 || !strings.Contains(posts[0], `"value":"http://host.docker.internal:8490/oauth2/jwks"`) ||
+		!strings.Contains(posts[0], `"tokenEndpoint":"`+fake.server.URL+`/issuer/oauth2/token"`) ||
+		!strings.Contains(posts[0], `"revokeEndpoint":"`+fake.server.URL+`/issuer/oauth2/revoke"`) ||
+		!strings.Contains(posts[0], `"type":"CustomKeyManager"`) || !strings.Contains(posts[0], `"consumerKeyClaim":"client_id"`) {
+		t.Errorf("key manager body = %v", posts)
+	}
+	if fields := fieldsOf(added); fields["created"] != "true" || scopesAsked(added) != ScopeAdmin ||
+		!strings.Contains(fields["next"], "map-keys <app> --key-manager Thunder") {
+		t.Errorf("fields = %+v", fields)
+	}
+	if fieldsOf(fake.run(t, []string{"key-managers", "add"}, "Thunder", "--well-known", "http://unused"))["created"] != "false" {
+		t.Error("a second add was not idempotent")
+	}
+}
+
+func TestGatewayInvokeCallsThePathWithTheBrokeredToken(t *testing.T) {
+	fake := newFakeAPIM(t)
+	outcome := fake.run(t, []string{"gateway", "invoke"}, "/mockapi/1.0.0/status", "--scope", "reference:status:read")
+	if outcome.Problem != nil {
+		t.Fatalf("%+v", outcome.Problem)
+	}
+	fields := fieldsOf(outcome)
+	if fields["status"] != "200" || fields["body"] != `{"status":"ok"}` || fields["method"] != "GET" ||
+		scopesAsked(outcome) != "reference:status:read" || fields["next"] != "(done)" {
+		t.Errorf("fields = %+v scopes %q", fields, scopesAsked(outcome))
+	}
+	if bad := fake.run(t, []string{"gateway", "invoke"}, "mockapi"); bad.Problem == nil || bad.Problem.Code != "apim.missing_argument" {
+		t.Errorf("bad path: %+v", bad.Problem)
+	}
+}

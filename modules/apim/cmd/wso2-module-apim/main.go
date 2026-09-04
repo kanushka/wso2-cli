@@ -88,10 +88,26 @@ func commands() *cobratree.Tree {
 		Short: "Report this module's own status and what to run first.",
 	}
 	bootstrapCommand, bootstrapFlags := bootstrapCommand()
-	root.AddCommand(statusCommand, bootstrapCommand)
+	apis, apisListCommand, apisImportCommand, apisDeployCommand, apisPublishCommand, importFlags, deployFlags := apiCommands()
+	apps, appsListCommand, appsCreateCommand, appsSubscribeCommand, appsKeysCommand, appsMapKeysCommand, appFlags := appCommands()
+	keyManagers, keyManagersListCommand, keyManagersAddCommand, keyManagerFlags := keyManagerCommands()
+	gateway, gatewayInvokeCommand, gatewayFlags := gatewayCommands()
+	root.AddCommand(statusCommand, bootstrapCommand, apis, apps, keyManagers, gateway)
 	return cobratree.New(root).
+		Handle(keyManagersListCommand, keyManagersList).
+		Handle(keyManagersAddCommand, keyManagersAdd(keyManagersAddCommand, keyManagerFlags)).
+		Handle(gatewayInvokeCommand, gatewayInvoke(gatewayInvokeCommand, gatewayFlags)).
 		Handle(statusCommand, status).
-		Handle(bootstrapCommand, bootstrap(bootstrapFlags))
+		Handle(bootstrapCommand, bootstrap(bootstrapFlags)).
+		Handle(apisListCommand, apisList).
+		Handle(apisImportCommand, apisImport(importFlags)).
+		Handle(apisDeployCommand, apisDeploy(apisDeployCommand, deployFlags)).
+		Handle(apisPublishCommand, apisPublish(apisPublishCommand)).
+		Handle(appsListCommand, appsList).
+		Handle(appsCreateCommand, appsCreate(appsCreateCommand, appFlags)).
+		Handle(appsSubscribeCommand, appsSubscribe(appsSubscribeCommand, appFlags)).
+		Handle(appsKeysCommand, appsKeys(appsKeysCommand, appFlags)).
+		Handle(appsMapKeysCommand, appsMapKeys(appsMapKeysCommand, appFlags))
 }
 
 func status(ctx context.Context, request module.Request) (result.Result, error) {
