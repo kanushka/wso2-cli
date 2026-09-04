@@ -169,6 +169,13 @@ func TestKeyManagersAddDiscoversAndOverrides(t *testing.T) {
 	if fieldsOf(fake.run(t, []string{"key-managers", "add"}, "Thunder", "--well-known", "http://unused"))["created"] != "false" {
 		t.Error("a second add was not idempotent")
 	}
+	// The same issuer under another name is refused: the gateway cannot
+	// choose between two key managers for one issuer.
+	duplicate := fake.run(t, []string{"key-managers", "add"}, "Thunder2", "--well-known", fake.server.URL+"/issuer")
+	if duplicate.Problem == nil || duplicate.Problem.Code != "apim.issuer_registered" ||
+		!strings.Contains(duplicate.Problem.Message, `"Thunder"`) || len(fake.requestsTo("POST /api/am/admin/v4/key-managers")) != 1 {
+		t.Errorf("duplicate issuer: %+v", duplicate.Problem)
+	}
 }
 
 func TestGatewayInvokeCallsThePathWithTheBrokeredToken(t *testing.T) {

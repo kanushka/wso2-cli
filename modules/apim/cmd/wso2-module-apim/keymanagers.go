@@ -25,6 +25,7 @@ import (
 
 	"github.com/wso2/wso2-cli/modules/apim/internal/apim"
 	"github.com/wso2/wso2-cli/sdk/module"
+	"github.com/wso2/wso2-cli/sdk/problem"
 	"github.com/wso2/wso2-cli/sdk/result"
 )
 
@@ -122,6 +123,27 @@ func keyManagersAdd(command *cobra.Command, flags *keyManagerFlags) module.Handl
 		}
 		if err := apim.New(issuer, "").Get(ctx, "/.well-known/openid-configuration", &discovered); err != nil {
 			return result.Result{}, apim.Problem(err, "reading the issuer's discovery document")
+		}
+		// Two key managers with one issuer leave the gateway unable to tell
+		// which validates a token, and it then rejects every token from that
+		// issuer (measured). The listing carries no issuer, so each custom
+		// key manager is read in full.
+		for _, manager := range listed.List {
+			if manager.Type != "CustomKeyManager" {
+				continue
+			}
+			var full struct {
+				Issuer string `json:"issuer"`
+			}
+			if err := client.Get(ctx, adminPath+"/key-managers/"+manager.ID, &full); err != nil {
+				return result.Result{}, apim.Problem(err, "reading the key manager "+manager.Name)
+			}
+			if strings.TrimRight(full.Issuer, "/") == firstOf(strings.TrimRight(discovered.Issuer, "/"), issuer) {
+				return result.Result{}, problem.New(problem.CategoryUsage, "apim.issuer_registered",
+					fmt.Sprintf("the key manager %q already validates tokens from %s", manager.Name, full.Issuer)).
+					WithRecovery(fmt.Sprintf("Use --key-manager %s on wso2 apim apps map-keys. A second key manager "+
+						"for the same issuer makes the gateway reject every token from it.", manager.Name))
+			}
 		}
 		jwks, token, revoke := firstOf(flags.jwks, discovered.JWKS), firstOf(flags.tokenEndpoint, discovered.Token),
 			firstOf(flags.revokeEndpoint, discovered.Revocation, issuer+"/oauth2/revoke")

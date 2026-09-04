@@ -229,6 +229,16 @@ func newFakeAPIM(t *testing.T) *fakeAPIM {
 		record(r)
 		list(w, fake.kms)
 	}))
+	mux.HandleFunc("GET /api/am/admin/v4/key-managers/{id}", bearer(func(w http.ResponseWriter, r *http.Request) {
+		record(r)
+		for _, manager := range fake.kms {
+			if manager["id"] == r.PathValue("id") {
+				_ = json.NewEncoder(w).Encode(manager)
+				return
+			}
+		}
+		http.Error(w, `{"code":404}`, http.StatusNotFound)
+	}))
 	mux.HandleFunc("POST /api/am/admin/v4/key-managers", bearer(func(w http.ResponseWriter, r *http.Request) {
 		body := record(r)
 		if body["tokenEndpoint"] == nil || body["revokeEndpoint"] == nil {
