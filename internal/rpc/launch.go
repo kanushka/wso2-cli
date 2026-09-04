@@ -70,7 +70,7 @@ func (l Launcher) Invoke(ctx context.Context, invocation Invocation) (Outcome, e
 	// credential source the broker reads. Access reaches a module only as a
 	// short-lived token inside the protocol, so there is no ambient value for
 	// it to find, log, or pass on.
-	command.Env = modules.SanitizedEnvironment()
+	command.Env = modules.SanitizedEnvironment(l.Resolved.Receipt.Namespace)
 
 	toModule, err := command.StdinPipe()
 	if err != nil {

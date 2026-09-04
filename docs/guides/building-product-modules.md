@@ -335,6 +335,19 @@ The access token is opaque to the module. Do not parse it, log it, return it,
 persist it, or pass it in command-line arguments. A module can spend access on
 its product API but cannot refresh or broaden it.
 
+Brokered access is the only credential a module is meant to hold, and the
+shell launches a module with an environment built from nothing to keep it
+that way. Two things are added back: `WSO2_CA_FILE`, the certificate file the
+shell itself trusts, and every variable named `WSO2_<NAMESPACE>_*` for the
+module's own namespace, upper-cased. When a command genuinely needs a secret
+the broker cannot supply, a one-time bootstrap that registers the CLI with a
+product administrator's password, say, take the variable's *name* as a flag
+(`--password-variable`, defaulting to something like
+`WSO2_IAM_ADMIN_PASSWORD`) and read the value from the environment. Never
+take the value as a flag: it would land in shell history and in the
+diagnostics the shell records. A module cannot prompt, because its standard
+streams carry the protocol.
+
 The following request flow is what the module must preserve:
 
 ```mermaid

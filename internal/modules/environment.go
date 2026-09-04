@@ -19,20 +19,28 @@ package modules
 import (
 	"os"
 	"runtime"
+	"strings"
 )
 
 // SanitizedEnvironment builds a module process's environment from nothing.
 //
 // The shell decides what a module may see rather than filtering what it must
-// not: a deny list would leak every variable nobody thought of. Only the
-// entries an operating system needs to start a process at all are added back.
+// not: a deny list would leak every variable nobody thought of. Three things
+// are added back: the entries an operating system needs to start a process
+// at all, the certificate file the shell itself trusts (CAFileEnvVar), and
+// the variables a user exported under this module's own prefix, WSO2_IAM_ for
+// the iam module. The prefix is how a secret a command needs, such as an
+// administrator password for a one-time bootstrap, reaches a module that
+// cannot prompt: the user names the module in the variable, and no other
+// module sees it. Empty values are not passed; an unset variable and an
+// empty one mean the same thing to a module.
 //
 // It lives here rather than beside either caller because there are two, and a
 // module process is launched twice in a module's life — once at install, to ask
 // what commands it serves, and again for every invocation. Two copies of this
 // rule would be two places for it to drift, and the one that drifted would be
 // the one nobody was looking at.
-func SanitizedEnvironment() []string {
+func SanitizedEnvironment(namespace string) []string {
 	names := []string{CAFileEnvVar}
 	if runtime.GOOS == "windows" {
 		// Windows cannot reliably start a process without these, and neither
@@ -45,7 +53,20 @@ func SanitizedEnvironment() []string {
 			environment = append(environment, name+"="+value)
 		}
 	}
+	prefix := NamespaceEnvPrefix(namespace)
+	for _, entry := range os.Environ() {
+		name, value, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(name, prefix) && value != "" {
+			environment = append(environment, entry)
+		}
+	}
 	return environment
+}
+
+// NamespaceEnvPrefix is the prefix of the variables a module of this namespace
+// is handed: WSO2_IAM_ for iam.
+func NamespaceEnvPrefix(namespace string) string {
+	return "WSO2_" + strings.ToUpper(namespace) + "_"
 }
 
 // CAFileEnvVar is the one WSO2_ variable a module process is handed. It names a

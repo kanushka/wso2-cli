@@ -18,6 +18,7 @@ package modules
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -30,19 +31,40 @@ func TestAModuleSeesOnlyTheCertificateFile(t *testing.T) {
 	t.Setenv("WSO2_HOME", "/nowhere")
 	t.Setenv(CAFileEnvVar, "")
 
-	for _, entry := range SanitizedEnvironment() {
+	for _, entry := range SanitizedEnvironment("reference") {
 		if entry == CAFileEnvVar+"=" || slices.Contains([]string{"WSO2_SOME_SECRET=not-for-modules", "WSO2_HOME=/nowhere"}, entry) {
 			t.Errorf("a module was handed %q", entry)
 		}
 	}
 
 	t.Setenv(CAFileEnvVar, "/certs/deployment.pem")
-	environment := SanitizedEnvironment()
+	environment := SanitizedEnvironment("reference")
 	if !slices.Contains(environment, CAFileEnvVar+"=/certs/deployment.pem") {
 		t.Errorf("the certificate file was withheld from the module: %q", environment)
 	}
 	for _, entry := range environment {
 		if entry == "WSO2_SOME_SECRET=not-for-modules" || entry == "WSO2_HOME=/nowhere" {
+			t.Errorf("a module was handed %q", entry)
+		}
+	}
+}
+
+// TestAModuleSeesItsOwnNamespaceVariablesOnly pins the one deliberate leak: a
+// secret a user exports under the module's own prefix reaches that module and
+// no other, so a bootstrap can be handed an administrator password.
+func TestAModuleSeesItsOwnNamespaceVariablesOnly(t *testing.T) {
+	t.Setenv("WSO2_IAM_ADMIN_PASSWORD", "secret-for-iam")
+	t.Setenv("WSO2_APIM_ADMIN_PASSWORD", "secret-for-apim")
+	t.Setenv("WSO2_IAM_EMPTY", "")
+	t.Setenv("WSO2_HOME", "/nowhere")
+
+	environment := SanitizedEnvironment("iam")
+	if !slices.Contains(environment, "WSO2_IAM_ADMIN_PASSWORD=secret-for-iam") {
+		t.Errorf("the module's own variable was withheld: %q", environment)
+	}
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, "WSO2_APIM_") || strings.HasPrefix(entry, "WSO2_HOME") ||
+			entry == "WSO2_IAM_EMPTY=" {
 			t.Errorf("a module was handed %q", entry)
 		}
 	}

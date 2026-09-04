@@ -122,8 +122,19 @@ a PEM file whose certificates the shell trusts beside the system roots, for
 every request the shell itself makes. It never narrows trust. A file that
 cannot be read, or holds no certificate, is refused with
 `shell.ca_file_unreadable` and exit class `64` before anything reaches the
-network. A product module is a separate process; it inherits the variable and
+network. A product module is a separate process; it is handed the variable and
 applies the same trust on its own.
+
+## What a module process can see
+
+A product module runs with an environment built from nothing. Two things
+are added back: `WSO2_CA_FILE`, and every variable named
+`WSO2_<NAMESPACE>_*` for that module's namespace, upper-cased: `WSO2_IAM_`
+for `iam`. That is how a secret a command needs, such as an administrator
+password for a one-time bootstrap, reaches the module: the user exports it
+under the module's prefix and names it on the command line. A module never
+sees another module's variables, and nothing else a CI runner exported. An
+empty variable is not passed at all.
 
 ## Sample output
 
