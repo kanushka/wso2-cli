@@ -79,9 +79,11 @@ func commands() *cobratree.Tree {
 		Use:   "status",
 		Short: "Report this module's own status and what to run first.",
 	}
-	root.AddCommand(statusCommand)
-	tree := cobratree.New(root).Handle(statusCommand, status)
-	return tree
+	bootstrapCommand, bootstrapFlags := bootstrapCommand()
+	root.AddCommand(statusCommand, bootstrapCommand)
+	return cobratree.New(root).
+		Handle(statusCommand, status).
+		Handle(bootstrapCommand, bootstrap(bootstrapFlags))
 }
 
 func status(ctx context.Context, request module.Request) (result.Result, error) {
