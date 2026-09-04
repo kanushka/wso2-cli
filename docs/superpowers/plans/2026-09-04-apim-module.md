@@ -77,7 +77,7 @@ Test: fake DCR asserts basic auth header and body; unset password →
 ### Task 4: `apim apis list|import|deploy|publish`
 - `list` (scope `apim:api_view`): GET `/api/am/publisher/v4/apis` →
   `count`, `apis` ("name/version context (state)"), `next` = import.
-- `import --file --name --version --context --backend [--policy Unlimited]`
+- `import --file --name --version --api-context --backend [--policy Unlimited]`
   (`apim:api_create`): multipart `file` + `additionalProperties` JSON
   `{"name","version","context","policies":[policy],"endpointConfig":{"endpoint_type":"http","production_endpoints":{"url":backend},"sandbox_endpoints":{"url":backend}}}`
   to `/apis/import-openapi`; if an API with that name/version exists

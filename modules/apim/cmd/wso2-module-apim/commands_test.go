@@ -50,7 +50,7 @@ func TestImportDeployPublishInOrder(t *testing.T) {
 	}
 
 	imported := fake.run(t, []string{"apis", "import"}, "--file", spec, "--name", "MockAPI", "--version", "1.0.0",
-		"--context", "/mockapi", "--backend", "http://host.docker.internal:18080")
+		"--api-context", "/mockapi", "--backend", "http://host.docker.internal:18080")
 	if imported.Problem != nil {
 		t.Fatalf("import: %+v", imported.Problem)
 	}
@@ -65,7 +65,7 @@ func TestImportDeployPublishInOrder(t *testing.T) {
 		t.Errorf("import fields = %+v scopes %q", fields, scopesAsked(imported))
 	}
 	if fieldsOf(fake.run(t, []string{"apis", "import"}, "--file", spec, "--name", "MockAPI", "--version", "1.0.0",
-		"--context", "/mockapi", "--backend", "http://x"))["created"] != "false" {
+		"--api-context", "/mockapi", "--backend", "http://x"))["created"] != "false" {
 		t.Error("a second import was not idempotent")
 	}
 

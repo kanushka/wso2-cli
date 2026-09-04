@@ -74,14 +74,16 @@ func apiCommands() (family, list, importCommand, deploy, publish *cobra.Command,
 	list = &cobra.Command{Use: "list", Short: "List the APIs."}
 	importFlags = &apiImportFlags{}
 	importCommand = &cobra.Command{
-		Use:   "import --file <openapi> --name <name> --version <v> --context </path> --backend <url>",
+		Use:   "import --file <openapi> --name <name> --version <v> --api-context </path> --backend <url>",
 		Short: "Create an API from an OpenAPI definition.",
 	}
 	f := importCommand.Flags()
 	f.StringVar(&importFlags.file, "file", "", "The OpenAPI definition, YAML or JSON.")
 	f.StringVar(&importFlags.name, "name", "", "The API's name.")
 	f.StringVar(&importFlags.version, "version", "", "The API's version.")
-	f.StringVar(&importFlags.context, "context", "", "The API's context path on the gateway, such as /mockapi.")
+	// --api-context rather than --context, which is the shell's own flag for
+	// selecting a context and never reaches a module.
+	f.StringVar(&importFlags.context, "api-context", "", "The API's context path on the gateway, such as /mockapi.")
 	f.StringVar(&importFlags.backend, "backend", "", "The backend URL the gateway forwards to.")
 	f.StringVar(&importFlags.policy, "policy", "Unlimited", "The subscription throttling policy.")
 	deployFlags = &apiDeployFlags{}
@@ -113,16 +115,16 @@ func apisList(ctx context.Context, request module.Request) (result.Result, error
 		With("count", "Count", fmt.Sprintf("%d", listed.Count)).
 		With("apis", "APIs", joined(names)).
 		With(NextField, "Next", "Run wso2 apim apis import --file <openapi> --name <name> --version <v> "+
-			"--context </path> --backend <url> to create one."), nil
+			"--api-context </path> --backend <url> to create one."), nil
 }
 
 func apisImport(flags *apiImportFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		for flag, value := range map[string]string{"--file": flags.file, "--name": flags.name,
-			"--version": flags.version, "--context": flags.context, "--backend": flags.backend} {
+			"--version": flags.version, "--api-context": flags.context, "--backend": flags.backend} {
 			if value == "" {
 				return result.Result{}, missingFlag("apis import", flag,
-					"Pass --file, --name, --version, --context and --backend; --policy defaults to Unlimited.")
+					"Pass --file, --name, --version, --api-context and --backend; --policy defaults to Unlimited.")
 			}
 		}
 		definition, err := os.Open(flags.file)

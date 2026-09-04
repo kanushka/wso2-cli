@@ -42,7 +42,7 @@ wso2 identity create apim-admin --issuer https://localhost:9443/oauth2/token \
 
 # API Manager: publish the API, subscribe, wire ThunderID in.
 wso2 apim apis import --file mockapi-openapi.yaml --name MockAPI --version 1.0.0 \
-  --context /mockapi --backend http://host.docker.internal:18080 --context apim-admin
+  --api-context /mockapi --backend http://host.docker.internal:18080 --context apim-admin
 wso2 apim apis deploy MockAPI/1.0.0 --context apim-admin
 wso2 apim apis publish MockAPI/1.0.0 --context apim-admin
 wso2 apim key-managers add Thunder --well-known http://localhost:8490 \
@@ -181,7 +181,7 @@ devportal/v3, admin/v4}/…`.
 | --- | --- | --- |
 | `apim status` | none | none |
 | `apim bootstrap --url <base> [--admin-user admin] [--client-name wso2-cli]` | none (basic auth with `WSO2_APIM_ADMIN_PASSWORD`) | DCR `POST /client-registration/v0.17/register` with `tokenType: JWT`, all four grants, the loopback callback. Prints the secret once with an `export` line, and the `wso2 identity create` line whose audience is the client id. Idempotent: an existing client of that name is reported, not re-registered, and the secret is not shown again. |
-| `apim apis list \| import --file <openapi> --name --version --context --backend <url> \| deploy <name/version> [--gateway Default] \| publish <name/version>` | `apim:api_view`, `apim:api_create`, `apim:api_publish` | `import-openapi`, `revisions` + `deploy-revision`, `change-lifecycle` |
+| `apim apis list \| import --file <openapi> --name --version --api-context --backend <url> \| deploy <name/version> [--gateway Default] \| publish <name/version>` | `apim:api_view`, `apim:api_create`, `apim:api_publish` | `import-openapi`, `revisions` + `deploy-revision`, `change-lifecycle` |
 | `apim apps list \| create <name> \| subscribe <app> <name/version> \| keys generate <app> \| map-keys <app> --key-manager <km> --client-id <id>` | `apim:subscribe`, `apim:app_manage` | devportal `applications`, `subscriptions`, `generate-keys`, `map-keys` |
 | `apim key-managers list \| add <name> --well-known <issuer> [--jwks <url>] [--token-endpoint] [--revoke-endpoint]` | `apim:admin` | admin `key-managers`, type `CustomKeyManager`; endpoints derived from the issuer's discovery document, overridable because the gateway sees the host from inside a container |
 | `apim gateway invoke <path> [--method GET]` | the identity's own scopes | `{endpoint}{path}` with a token the broker minted for the identity's product audience: run under a ThunderID identity whose `apim` product points at the gateway, this is the user's API called with a ThunderID token |

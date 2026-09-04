@@ -26,7 +26,7 @@ make install-module NAMESPACE=apim
 | --- | --- | --- |
 | `wso2 apim status` | none | Version, endpoint, what to run first. |
 | `wso2 apim bootstrap --url <base>` | none | Registers the client (JWT token type) and prints the secret once with the `wso2 identity create` line. |
-| `wso2 apim apis list \| import --file <openapi> --name --version --context --backend \| deploy <name/version> \| publish <name/version>` | `apim:api_view`, `apim:api_create`, `apim:api_publish` | Create from OpenAPI, deploy a revision and wait until the gateway has it, publish. |
+| `wso2 apim apis list \| import --file <openapi> --name --version --api-context --backend \| deploy <name/version> \| publish <name/version>` | `apim:api_view`, `apim:api_create`, `apim:api_publish` | Create from OpenAPI, deploy a revision and wait until the gateway has it, publish. |
 | `wso2 apim apps list \| create <name> \| subscribe <app> <name/version> \| keys <app> \| map-keys <app> --key-manager <km> --client-id <id>` | `apim:subscribe`, `apim:app_manage` | Applications, subscriptions, keys on the resident key manager (verified with one token request), and out-of-band keys from another issuer. |
 | `wso2 apim key-managers list \| add <name> --well-known <issuer> [--jwks <url>]` | `apim:admin` | Register an external issuer as a custom key manager whose JWTs the gateway validates. |
 | `wso2 apim gateway invoke </context/version/path>` | the identity's own | Call an API through the gateway with a token brokered for the selected identity's `apim` product. Under a ThunderID identity whose `apim` product names the API's resource server and the gateway, that is the user's API called with a ThunderID token. |
