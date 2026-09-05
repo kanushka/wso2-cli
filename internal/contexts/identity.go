@@ -190,7 +190,55 @@ type Product struct {
 	Audience string `json:"audience,omitempty"`
 	// Scopes are the permissions the shell may request for this product.
 	Scopes []string `json:"scopes,omitempty"`
+	// Grant says how access for this product is obtained from the identity's
+	// session when the product's issuer is not the identity's. Absent, the
+	// session itself is narrowed to the product, as it always was.
+	Grant *Grant `json:"grant,omitempty"`
 }
+
+// GrantJWTBearer presents an identity token from the session to the product's
+// own token endpoint under RFC 7523's JWT bearer grant, as a public client.
+const GrantJWTBearer = "jwt-bearer"
+
+// legalGrants are the grant kinds this shell implements.
+var legalGrants = map[string]bool{GrantJWTBearer: true}
+
+// Grant is one way of deriving a product's access from the session. It names
+// where the assertion goes and what the assertion must carry; like everything
+// else in a document it holds no credential, and the type has nowhere to put
+// one.
+type Grant struct {
+	// Kind names the grant. Only GrantJWTBearer is read.
+	Kind string `json:"kind"`
+	// Issuer is the product's own OpenID issuer, whose token endpoint takes
+	// the assertion.
+	Issuer string `json:"issuer"`
+	// ClientID is the public client the shell presents at that issuer.
+	ClientID string `json:"clientId"`
+	// Scopes are what the identity's issuer is asked for when the session is
+	// refreshed for the assertion: the scopes that make the identity token
+	// carry the claims the product maps. openid is always among them.
+	Scopes []string `json:"scopes,omitempty"`
+}
+
+// AssertionScopes are the scopes the session is refreshed with to obtain the
+// assertion: the grant's own, with openid added when absent, sorted and
+// de-duplicated. An identity token is issued only under openid, so a grant
+// that omits it would ask for an assertion the issuer never mints.
+func (g Grant) AssertionScopes() []string {
+	scopes := []string{"openid"}
+	for _, scope := range g.Scopes {
+		if !slices.Contains(scopes, scope) {
+			scopes = append(scopes, scope)
+		}
+	}
+	slices.Sort(scopes)
+	return scopes
+}
+
+// Direct reports whether the identity's own session answers for this product.
+// A product with a grant is derived instead, at another issuer.
+func (p Product) Direct() bool { return p.Grant == nil }
 
 // Synthetic reports whether this identity was manufactured by the v1
 // compatibility read. A synthetic identity is readable but never written back.
@@ -240,12 +288,25 @@ func (i Identity) validateDerivation() error {
 	// the resource from the identity's product, so an identity with none has
 	// nothing to name: login would send no indicator and be refused, which is
 	// the failure this whole validation exists to move earlier.
-	if len(i.Products) != 1 {
+	//
+	// Only the products the login itself binds count. A product reached by a
+	// grant is derived at its own issuer from the session the one resource
+	// established, so it neither needs a second indicator nor could have one.
+	direct := 0
+	for _, product := range i.Products {
+		if product.Direct() {
+			direct++
+		}
+	}
+	if direct != 1 {
 		return malformed(fmt.Sprintf(
 			"declares the identity %q against a deployment that binds one login to one product, "+
-				"and gives it %d", i.Name, len(i.Products)))
+				"and gives it %d", i.Name, direct))
 	}
 	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
+		if !i.Products[namespace].Direct() {
+			continue
+		}
 		audience := i.Products[namespace].Audience
 		if audience == "" {
 			return malformed(fmt.Sprintf(
@@ -358,6 +419,44 @@ func (p Product) validate(identity string) error {
 		return contextProblem("contexts.document_malformed",
 			fmt.Sprintf("a product endpoint on the identity %q embeds credentials in its URL", identity),
 			"Remove the user information from the endpoint. A context names a credential source; "+
+				"it never carries a credential.")
+	}
+	if p.Grant != nil {
+		// A derived token is proved bound to the product's audience, exactly as
+		// a narrowed one is. Without an audience there is nothing to prove it
+		// against, and the refusal belongs here rather than at the first
+		// command that needs the product.
+		if p.Audience == "" {
+			return malformed(fmt.Sprintf(
+				"declares a product with a grant on the identity %q without the audience the "+
+					"derived access is proved against", identity))
+		}
+		return p.Grant.validate(identity)
+	}
+	return nil
+}
+
+// validate refuses a grant this shell could not carry out as written. The
+// issuer URL is never echoed: like an endpoint, it is where a credential is
+// likeliest to have been typed by mistake.
+func (g Grant) validate(identity string) error {
+	if !legalGrants[g.Kind] {
+		return malformed(fmt.Sprintf(
+			"declares a product grant on the identity %q of a kind this shell does not implement", identity))
+	}
+	if g.ClientID == "" {
+		return malformed(fmt.Sprintf(
+			"declares a product grant on the identity %q without the client it presents", identity))
+	}
+	parsed, err := url.Parse(g.Issuer)
+	if g.Issuer == "" || err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return malformed(fmt.Sprintf(
+			"declares a product grant on the identity %q whose issuer this shell cannot read", identity))
+	}
+	if parsed.User != nil {
+		return contextProblem("contexts.document_malformed",
+			fmt.Sprintf("a product grant on the identity %q embeds credentials in its issuer URL", identity),
+			"Remove the user information from the issuer. A context names a credential source; "+
 				"it never carries a credential.")
 	}
 	return nil
