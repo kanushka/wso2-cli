@@ -140,6 +140,7 @@ func TestBootstrapLogsInAsTheAdministratorAndRegistersTheCLI(t *testing.T) {
 	inbound := app["inboundAuthConfig"].([]any)[0].(map[string]any)
 	config := inbound["config"].(map[string]any)
 	if app["type"] != "custom" || app["authFlowId"] != DefaultAuthFlow || app["ouId"] != DefaultOU ||
+		app["registrationFlowId"] != DefaultRegistrationFlow || app["recoveryFlowId"] != DefaultRecoveryFlow ||
 		config["clientId"] != "wso2-cli" || config["publicClient"] != true || config["pkceRequired"] != true ||
 		config["tokenEndpointAuthMethod"] != "none" || len(config["redirectUris"].([]any)) != 4 {
 		t.Errorf("application body = %+v", app)

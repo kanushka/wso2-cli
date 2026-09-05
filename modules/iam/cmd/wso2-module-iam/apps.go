@@ -111,6 +111,8 @@ func appsCreate(command *cobra.Command, flags *appCreateFlags) module.Handler {
 		secret := ""
 		if flags.kind == "public" {
 			body.Type, body.AuthFlowID, body.URL = "custom", flags.authFlow, "http://127.0.0.1:10425"
+			body.RegistrationFlow = companionFlow(flags.authFlow, DefaultRegistrationFlow)
+			body.RecoveryFlow = companionFlow(flags.authFlow, DefaultRecoveryFlow)
 			body.InboundAuth = []thunder.InboundAuth{{Type: "oauth2", Config: thunder.OAuthConfig{
 				ClientID: clientID, RedirectURIs: loopbackRedirects,
 				GrantTypes: []string{"authorization_code", "refresh_token"}, ResponseTypes: []string{"code"},

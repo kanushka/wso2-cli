@@ -28,7 +28,7 @@ not print to standard output. Both are asserted by `internal/boundaries`.
 | Command | What it does |
 | --- | --- |
 | `wso2 iam status` | This module's version and endpoint, and what to run first. |
-| `wso2 iam bootstrap --url <issuer>` | Logs in as the administrator (password in `WSO2_IAM_ADMIN_PASSWORD`) through the seeded console client, registers the public client `wso2-cli` with the shell's loopback callbacks if absent, and prints the `wso2 identity create` line. |
+| `wso2 iam bootstrap --url <issuer>` | Logs in as the administrator (password in `WSO2_IAM_ADMIN_PASSWORD`) through the seeded console client, registers the public client `wso2-cli` with the shell's loopback callbacks if absent, on the console's authentication flow so that logins for different resource servers share one browser session, and prints the `wso2 identity create` line. |
 | `wso2 iam resource-servers list \| create <name> --identifier <uri> --permission a:b:c...` | An API ThunderID issues tokens for, with its permission tree; parents are reused. |
 | `wso2 iam users list \| create <username> --email <address> [--password-variable WSO2_IAM_USER_PASSWORD]` | A person; the password is read from the environment, never a flag. |
 | `wso2 iam apps list \| create <client-id> --type m2m\|public` | An OAuth client. An m2m client's generated secret is shown once. |

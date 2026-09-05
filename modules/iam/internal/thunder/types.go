@@ -76,6 +76,8 @@ type Application struct {
 	Type             string        `json:"type,omitempty"`
 	Description      string        `json:"description,omitempty"`
 	AuthFlowID       string        `json:"authFlowId,omitempty"`
+	RegistrationFlow string        `json:"registrationFlowId,omitempty"`
+	RecoveryFlow     string        `json:"recoveryFlowId,omitempty"`
 	URL              string        `json:"url,omitempty"`
 	AllowedUserTypes []string      `json:"allowedUserTypes,omitempty"`
 	ClientID         string        `json:"clientId,omitempty"`

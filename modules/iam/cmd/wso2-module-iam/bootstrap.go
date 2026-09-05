@@ -49,6 +49,11 @@ const (
 	// credentials again when logging in for another (measured on 1.0.0-beta
 	// and 1.0.1). Every application on the flow shares its session cookie.
 	DefaultAuthFlow = "01900000-0000-7000-8000-000000000068"
+	// The console flow's registration and recovery companions. ThunderID
+	// refuses an application whose flows reference different families
+	// ("Conflicting flow references"), so the three travel together.
+	DefaultRegistrationFlow = "01900000-0000-7000-8000-000000000069"
+	DefaultRecoveryFlow     = "01900000-0000-7000-8000-000000000070"
 )
 
 // loopbackRedirects are the callbacks the shell's browser login listens on.
@@ -143,6 +148,8 @@ func ensurePublicApplication(ctx context.Context, client *thunder.Client, flags 
 		OUID: flags.ou, Name: "WSO2 CLI", Type: "custom",
 		Description:      "The wso2 command line, registered by wso2 iam bootstrap",
 		AuthFlowID:       flags.authFlow,
+		RegistrationFlow: companionFlow(flags.authFlow, DefaultRegistrationFlow),
+		RecoveryFlow:     companionFlow(flags.authFlow, DefaultRecoveryFlow),
 		URL:              "http://127.0.0.1:10425",
 		AllowedUserTypes: []string{"Person"},
 		InboundAuth: []thunder.InboundAuth{{Type: "oauth2", Config: thunder.OAuthConfig{
@@ -169,4 +176,14 @@ func secretFromEnvironment(variable, what string) (string, error) {
 				"only the WSO2_IAM_ variables, and never a value given as a flag.", variable))
 	}
 	return value, nil
+}
+
+// companionFlow pairs the seeded console authentication flow with its own
+// registration and recovery flows; any other flow is left to the
+// deployment's defaults.
+func companionFlow(authFlow, companion string) string {
+	if authFlow == DefaultAuthFlow {
+		return companion
+	}
+	return ""
 }
