@@ -66,7 +66,11 @@ supported by the product); tenants and organization units; `apictl` parity
 beyond the commands above; named endpoints per product; single sign-on
 between the products (API Manager's management plane accepts only its own
 key manager's tokens, measured; whether that key manager can federate its
-login to ThunderID is an APIM-side question not yet measured).
+login to ThunderID is an APIM-side question not yet measured). Measured
+2026-09-05: ThunderID shows its sign-in page again for a second
+authorization in the same browser, and its token exchange rebinds the
+audience but never widens scopes, so one Thunder identity per resource
+server is the product's rule, not a shell limitation.
 
 ## 2. Three pieces, built in this order
 
