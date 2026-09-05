@@ -141,3 +141,61 @@ present the assertion to. The design is in
 - Logout and revocation propagation to the APIM-issued tokens.
 - Tenants other than `carbon.super`, organization units other than the
   root.
+
+## Live run through the shell, 2026-09-06
+
+The derived grant was built into the shell (a product may name a
+`jwt-bearer` grant; the broker refreshes the session for an identity token
+and presents it to the product's issuer) and run against `cli-thunder3`
+and `cli-apim`. Findings:
+
+- **One login, `wso2 iam users list` works.** The Thunder session
+  answers the direct `iam` product; the command listed both users after a
+  single browser sign-in.
+- **`wso2 apim apis list` fails in the same session**, and the cause is a
+  Thunder property, not the grant. Thunder mandates a resource indicator
+  on every authorization ("No resource parameter supplied and no default
+  resource server is configured"), and the shell sends that indicator on
+  the authorization-code token exchange as well as the authorization
+  request. Thunder then binds the refresh token's grant to that one
+  resource server's scopes. The System resource server defines only
+  `system`, so the stored refresh token can re-issue only `system`, and
+  the assertion refresh for `openid email groups` is refused with
+  `invalid_scope`.
+- **Not sending the indicator on the token exchange is not enough.** A
+  refresh token that keeps the full authorized set still shrinks on first
+  use: Thunder rotates the refresh token on every refresh and binds the
+  new one's grant to the scopes that refresh requested. So the first
+  per-command narrowing (`system` for iam, or `openid email groups` for
+  apim) leaves a refresh token that cannot serve the other product.
+- **A resource-less Thunder session is impossible.** An identity
+  configured for scoped refresh cannot even log in against Thunder,
+  because the authorization is refused without a resource.
+
+The protocol route in the sections above still holds: one Thunder login
+does yield both a Thunder management call and a scoped API Manager
+Publisher call, when each token is obtained without narrowing the shared
+refresh token. What the live run establishes is that the shell's
+per-command scoped-refresh model, with Thunder's mandatory resource
+binding and narrow-and-rotate refresh, cannot keep one Thunder session
+usable for two different scope sets.
+
+### What this means
+
+The derived-grant mechanism is correct and unit-tested, and it is the
+right shape for a login provider whose refresh token is not
+resource-bound and does not narrow on rotation — WSO2 Identity Server and
+Asgardeo, the documented federation route, neither of which was running
+to test here. With **Thunder as the login provider**, single login across
+a direct product and a derived product is blocked by the product's
+refresh behavior. The resolutions are the ones already on record:
+
+1. One Thunder identity, and so one login, per resource server — the
+   product's own rule, measured on 2026-09-05.
+2. Change the shell's Thunder derivation to refresh with the full granted
+   scope union every time and bind only the audience per command, giving
+   up per-command scope narrowing on Thunder. This is an architecture
+   decision, recorded in the design spec's open questions, not made here.
+
+No shell regression: the existing single-product Thunder journey
+(`wso2 iam …` after one login) still works unchanged.

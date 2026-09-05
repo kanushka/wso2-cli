@@ -170,6 +170,29 @@ list` show the grant issuer beside a product that has one.
   `wso2 apim apis list` after `wso2 logout`, after a CLI restart, and as
   `cliuser`. Recorded in the research document.
 
+## 7a. Known limitation: Thunder as the login provider
+
+Measured live 2026-09-06 (see the proof document). Thunder mandates a
+resource indicator on every authorization and binds the refresh token to
+that one resource server's scopes, and it rotates the refresh token on
+every refresh, binding the new one to the scopes that refresh requested.
+Two consequences for this design:
+
+- A Thunder session's refresh token can re-issue only its resource
+  server's scopes, so it cannot yield the `openid`-bearing identity token
+  the assertion needs unless that resource defines those scopes.
+- Even a full-scope refresh token shrinks on first per-command use, so one
+  Thunder session cannot serve two different scope sets.
+
+So with Thunder as the login provider the derived grant does not deliver
+single login across a direct product and a derived one. It is correct for
+a provider whose refresh is not resource-bound and does not narrow on
+rotation — Identity Server and Asgardeo, the documented federation route,
+untested here. Open question, not decided in this spec: whether the
+Thunder derivation should refresh with the full granted union and bind
+only the audience per command, giving up per-command scope narrowing on
+Thunder to make one session serve several products.
+
 ## 8. Security notes
 
 - The assertion route adds no credential. The shell already holds the
