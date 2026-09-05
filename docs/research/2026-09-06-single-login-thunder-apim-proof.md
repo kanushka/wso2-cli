@@ -199,3 +199,81 @@ refresh behavior. The resolutions are the ones already on record:
 
 No shell regression: the existing single-product Thunder journey
 (`wso2 iam …` after one login) still works unchanged.
+
+## Live run through the shell with Identity Server as the login provider, 2026-09-06
+
+The derived grant was then tested against the provider it is designed for:
+WSO2 Identity Server 7.1.0 (`cli-is`, https on 9444, http on 9764) as the
+login authority, federating to API Manager 4.7.0 (`cli-apim`). Unlike
+Thunder, Identity Server's authorization takes no resource indicator and
+its refresh token is not bound to one resource server's scopes.
+
+### Result
+
+One `wso2 login` against Identity Server, then `wso2 apim apis list`
+returns the two published APIs — through the shell, with the APIM token
+derived from the login session by the JWT bearer grant, no client secret,
+no second browser window. The command was run three times in a row from
+the same session and worked every time; the session is not consumed, which
+is the behaviour that failed on Thunder. A non-administrator user
+(`cliuser`, in no group) logs in the same way but is refused:
+`the "apim" module asked for the permissions apim:api_view and the
+deployment issued default`, because Identity Server maps the user to no
+role that carries `apim:` scopes. Certificate-expiry enforcement on API
+Manager's JWT validator was on for the final run.
+
+### Configuration applied
+
+Identity Server (`cli-is`):
+
+- A public OIDC application `wso2-cli`: authorization code, refresh,
+  mandatory S256 PKCE, JWT access tokens, the four loopback callbacks,
+  login consent skipped.
+- Its requested-claims set includes `http://wso2.org/claims/groups`
+  (optional), so the id_token carries `groups` for a user that has any.
+  With the claim marked mandatory, a user with no group fails
+  post-authentication (`claim.request.missing`), so it must be optional.
+- A non-admin user `cliuser` for the denied case.
+
+API Manager (`cli-apim`):
+
+- A public OAuth application `wso2-cli-is` (through DCR, then made public
+  with mandatory PKCE and JWT tokens over the admin service), which the
+  shell presents at the JWT bearer endpoint.
+- A trusted identity provider `ISLocal`: `idpIssuerName`
+  `https://localhost:9444/oauth2/token`, `jwksUri`
+  `http://host.docker.internal:9764/oauth2/jwks` (Identity Server's http
+  JWKS, so no cross-container TLS is needed), alias the Identity Server CLI
+  client id, and a role mapping from the remote group `admin` to the local
+  `admin` role.
+
+Shell identity: issuer `https://localhost:9444/oauth2/token`, provider
+`identity-server` (scoped refresh, no resource indicator), one product
+`apim` reached by a `jwt-bearer` grant whose issuer is API Manager's token
+endpoint and whose client is the public API Manager CLI application.
+
+### Two obstacles met and fixed
+
+- **Published port.** Identity Server publishes its OIDC endpoints on its
+  internal port, so a container mapped to a different host port fails
+  discovery. Running it with a port offset so the published port matches
+  the host port fixes it.
+- **Expired demo certificate.** The 17-month-old image ships a signing and
+  TLS certificate that expired in January 2026. Two symptoms followed: API
+  Manager's JWT validator rejected the assertion (`X509Certificate has
+  expired`), and the shell could not complete the TLS handshake for
+  discovery. Renewing Identity Server's primary key with a fresh validity
+  **and a subjectAltName for `localhost`** fixes both — the SAN matters
+  because Go's TLS stack, unlike curl, ignores a certificate's common name.
+  With a valid certificate, API Manager's expiry enforcement can stay on.
+
+### What this establishes
+
+The derived-grant mechanism delivers single login across products when the
+login provider's refresh token is not resource-bound and does not narrow
+on rotation. Identity Server is such a provider, and the shell's
+per-command derivation works against it unchanged. The Thunder limitation
+recorded above is a property of Thunder's refresh behaviour, not of the
+design. Not tested: Asgardeo (the hosted equivalent), and a direct
+Identity Server management product in the same session alongside the
+derived one.
