@@ -64,7 +64,20 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 		if err := b.checkHomeTenant(); err != nil {
 			return nil, err
 		}
+		product := b.Selection.Identity.Products[b.Namespace]
 		if kind == contexts.KindClientCredentials {
+			if !product.Direct() {
+				// The derivation refreshes a session for an identity token.
+				// An automated identity has no session and no identity token,
+				// so it has nothing to present; a client-credentials grant at
+				// the product's own issuer would be its route, and that is a
+				// different registration this release does not read.
+				return nil, denial("auth.kind_not_implemented",
+					fmt.Sprintf("the %q context derives the %q product by a grant, which this release "+
+						"implements only for identities that log in", b.Selection.Context.Name, b.namespace()),
+					"Select a context whose identity logs in through the browser or through a device "+
+						"code, or register the product directly on this identity.")
+			}
 			return b.inlineSource()
 		}
 		// Both interactive kinds land here, and deliberately on the same
@@ -72,13 +85,20 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 		// already happened; what is left behind is a refresh token, and every
 		// step from here — the rotation lock, the scoped refresh, the proof
 		// that the narrowing held — reads that and nothing else.
-		return sessionSource{
+		source := sessionSource{
 			namespace: b.namespace(),
 			identity:  b.Selection.Identity,
 			audience:  b.productAudience(),
 			sessions:  session.Store{StateRoot: b.StateRoot},
 			client:    b.httpClient(),
-		}, nil
+		}
+		if !product.Direct() {
+			// The product's own issuer answers, from an assertion the session
+			// yields. Everything the session source knows about renewing and
+			// rotating still applies; what changes is what the renewal is for.
+			return assertionSource{session: source, grant: *product.Grant}, nil
+		}
+		return source, nil
 	case contexts.KindPAT:
 		return nil, denial("auth.kind_not_implemented",
 			fmt.Sprintf("the %q context uses an authentication kind this release does not implement",
