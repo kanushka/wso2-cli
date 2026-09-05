@@ -43,7 +43,12 @@ const (
 	DefaultConsoleClient    = "CONSOLE"
 	DefaultSystemResource   = "https://localhost:8090/mcp"
 	DefaultOU               = "01900000-0000-7000-8000-000000000001"
-	DefaultAuthFlow         = "01900000-0000-7000-8000-000000000061"
+	// DefaultAuthFlow is the seeded console application's authentication
+	// flow rather than the plain default flow: it carries the two SSO nodes,
+	// so a user who logged in for one resource server is not asked for
+	// credentials again when logging in for another (measured on 1.0.0-beta
+	// and 1.0.1). Every application on the flow shares its session cookie.
+	DefaultAuthFlow = "01900000-0000-7000-8000-000000000068"
 )
 
 // loopbackRedirects are the callbacks the shell's browser login listens on.

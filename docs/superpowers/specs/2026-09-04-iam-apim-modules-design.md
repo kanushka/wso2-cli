@@ -67,10 +67,13 @@ beyond the commands above; named endpoints per product; single sign-on
 between the products (API Manager's management plane accepts only its own
 key manager's tokens, measured; whether that key manager can federate its
 login to ThunderID is an APIM-side question not yet measured). Measured
-2026-09-05: ThunderID shows its sign-in page again for a second
-authorization in the same browser, and its token exchange rebinds the
-audience but never widens scopes, so one Thunder identity per resource
-server is the product's rule, not a shell limitation.
+2026-09-05: ThunderID's token exchange rebinds the audience but never
+widens scopes, so one Thunder identity per resource server is the
+product's rule, not a shell limitation. Single sign-on between those
+logins does exist: it is a pair of flow nodes, present on the seeded
+console flow and absent from the default flow, so `iam bootstrap`
+registers the CLI on the console flow and a second login asks for no
+credentials.
 
 ## 2. Three pieces, built in this order
 
