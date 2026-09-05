@@ -33,6 +33,24 @@ import (
 	"github.com/wso2/wso2-cli/sdk/protocol"
 )
 
+// productGrantKind names the grant a product is derived by, empty when the
+// identity's own session answers for it. It is a scheme name, never a secret.
+func productGrantKind(identity contexts.Identity, namespace string) string {
+	if grant := identity.Products[namespace].Grant; grant != nil {
+		return grant.Kind
+	}
+	return ""
+}
+
+// productGrantIssuer names the issuer a product's assertion is presented to,
+// empty for a directly served product. The issuer URL is public.
+func productGrantIssuer(identity contexts.Identity, namespace string) string {
+	if grant := identity.Products[namespace].Grant; grant != nil {
+		return grant.Issuer
+	}
+	return ""
+}
+
 // invokeModule runs one product command in the resolved module and renders its
 // outcome.
 //
@@ -100,7 +118,9 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 		"grant_kind", selection.Identity.Auth.Kind,
 		"declared_audiences", strings.Join(resolved.Receipt.Capabilities.AuthAudiences, " "),
 		"declared_scopes", strings.Join(resolved.Receipt.Capabilities.AuthScopes, " "),
-		"narrowing", selection.Identity.Auth.Derivation())
+		"narrowing", selection.Identity.Auth.Derivation(),
+		"grant_kind", productGrantKind(selection.Identity, namespace),
+		"grant_issuer", productGrantIssuer(selection.Identity, namespace))
 
 	launcher := rpc.Launcher{
 		Resolved: resolved,

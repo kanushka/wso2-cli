@@ -295,11 +295,25 @@ func productNamespaces(identity contexts.Identity) string {
 // would mean one browser login per product.
 func productScopeUnion(identity contexts.Identity) []string {
 	var union []string
+	add := func(scope string) {
+		if !slices.Contains(union, scope) {
+			union = append(union, scope)
+		}
+	}
 	for _, namespace := range slices.Sorted(maps.Keys(identity.Products)) {
-		for _, scope := range identity.Products[namespace].Scopes {
-			if !slices.Contains(union, scope) {
-				union = append(union, scope)
+		product := identity.Products[namespace]
+		// A grant product's own scopes are asked of its own issuer at command
+		// time, not of this login. What this login must be authorized for is
+		// the assertion the grant presents there: the scopes that make the
+		// session yield an identity token carrying the claims the product maps.
+		if !product.Direct() {
+			for _, scope := range product.Grant.AssertionScopes() {
+				add(scope)
 			}
+			continue
+		}
+		for _, scope := range product.Scopes {
+			add(scope)
 		}
 	}
 	slices.Sort(union)
@@ -321,7 +335,9 @@ func productResource(identity contexts.Identity) string {
 		return ""
 	}
 	for _, namespace := range slices.Sorted(maps.Keys(identity.Products)) {
-		return identity.Products[namespace].Audience
+		if identity.Products[namespace].Direct() {
+			return identity.Products[namespace].Audience
+		}
 	}
 	return ""
 }
