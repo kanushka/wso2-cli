@@ -438,14 +438,9 @@ func TestNoIdentitySubcommandOpensANetworkConnection(t *testing.T) {
 	}
 }
 
-// TestASecondProductOnAResourceBoundIdentityIsRefusedIntelligibly pins what a
-// user is told when the document's own validation refuses the write.
-//
-// A token-resource identity binds one login to one product, so a second product
-// cannot be added to it at all. The refusal is the document's and is correct;
-// what this pins is that it arrives as a usage problem about the command that
-// was run, and not as advice to remove a document nothing wrong ever reached.
-func TestASecondProductOnAResourceBoundIdentityIsRefusedIntelligibly(t *testing.T) {
+// TestASecondProductOnAResourceBoundIdentityIsRecorded asserts that a second
+// product can be recorded on a resource-bound Thunder identity.
+func TestASecondProductOnAResourceBoundIdentityIsRecorded(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := selfHostedDocument()
 	seeded.Identities[0].Auth.Narrowing = contexts.DerivationTokenResource
@@ -460,29 +455,15 @@ func TestASecondProductOnAResourceBoundIdentityIsRefusedIntelligibly(t *testing.
 	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "integration",
 		"--endpoint", "https://esb.customer.example",
 		"--audience", "https://esb.customer.example"})
-	if code != exit.Usage {
-		t.Fatalf("exit code = %d, want the usage class %d; stdout: %s stderr: %s",
-			code, exit.Usage, out, errOut)
+	if code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stdout: %s stderr: %s",
+			code, exit.OK, out, errOut)
 	}
-	if strings.Contains(errOut.String(), "remove it to run without a context") {
-		t.Errorf("the refusal offers to remove a document nothing wrong reached:\n%s", errOut)
+	if !strings.Contains(out.String(), "integration") {
+		t.Errorf("the output does not name the product namespace:\n%s", out)
 	}
-	if !strings.Contains(errOut.String(), "was not changed") {
-		t.Errorf("the refusal does not say the document is unchanged:\n%s", errOut)
-	}
-	// No correction of this command succeeds: the constraint is on the
-	// identity rather than on any flag, so advice to correct the command and
-	// re-run it would be false. What does work has to be named instead.
-	if strings.Contains(errOut.String(), "correct the command and run it again") {
-		t.Errorf("the refusal offers a correction of a command no correction fixes:\n%s", errOut)
-	}
-	for _, want := range []string{"--replace", "wso2 login"} {
-		if !strings.Contains(errOut.String(), want) {
-			t.Errorf("the refusal does not name %s, which does work:\n%s", want, errOut)
-		}
-	}
-	if products := identityNamed(t, loadDocument(t, shell), "idp-customer-example").Products; len(products) != 1 {
-		t.Errorf("the refused write reached the document: %+v", products)
+	if products := identityNamed(t, loadDocument(t, shell), "idp-customer-example").Products; len(products) != 2 {
+		t.Errorf("recorded %d products, want 2: %+v", len(products), products)
 	}
 }
 

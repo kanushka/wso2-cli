@@ -112,7 +112,8 @@ func (s Shell) identityAddProductCommand() *cobra.Command {
 		"Replace the namespace's existing record instead of refusing.")
 	command.Flags().StringVar(&grant.kind, "grant", "",
 		"How access for this product is derived when its issuer is not the identity's: "+
-			contexts.GrantJWTBearer+" presents an identity token from the login session.")
+			contexts.GrantJWTBearer+" presents an identity token from the login session; "+
+			contexts.GrantFederated+" signs in at the product's own issuer as the named client.")
 	command.Flags().StringVar(&grant.issuer, "grant-issuer", "",
 		"The product's own OpenID issuer, whose token endpoint takes the assertion.")
 	command.Flags().StringVar(&grant.clientID, "grant-client-id", "",
@@ -120,28 +121,36 @@ func (s Shell) identityAddProductCommand() *cobra.Command {
 	command.Flags().StringSliceVar(&grant.scopes, "grant-scopes", nil,
 		"The scopes the login session is refreshed with for the assertion, comma-separated; "+
 			"openid is always among them.")
+	command.Flags().StringVar(&grant.resource, "grant-resource", "",
+		"The resource indicator the grant's session is authorized under, when its issuer requires one.")
 	return command
 }
 
-// grantFlags are the four flags that describe a derived product. They are
+// grantFlags are the flags that describe a derived product. They are
 // legal only together: a grant is one arrangement, and half of one names
 // nothing the broker could carry out.
 type grantFlags struct {
-	kind, issuer, clientID string
-	scopes                 []string
+	kind, issuer, clientID, resource string
+	scopes                           []string
 }
 
 // product turns the flags into the grant a product records, or nil when none
 // was given.
 func (g grantFlags) product() (*contexts.Grant, error) {
-	if g.kind == "" && g.issuer == "" && g.clientID == "" && len(g.scopes) == 0 {
+	if g.kind == "" && g.issuer == "" && g.clientID == "" && len(g.scopes) == 0 && g.resource == "" {
 		return nil, nil
 	}
-	if g.kind != contexts.GrantJWTBearer {
+	if g.kind == "" {
+		return nil, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
+			"wso2 identity add-product needs --grant with --grant-issuer and --grant-client-id").
+			WithRecovery("Pass --grant " + contexts.GrantJWTBearer + " or --grant " + contexts.GrantFederated +
+				" to derive this product's access. " + identityAddProductUsage)
+	}
+	if g.kind != contexts.GrantJWTBearer && g.kind != contexts.GrantFederated {
 		return nil, problem.New(problem.CategoryUsage, "shell.invalid_argument",
 			fmt.Sprintf("%q is not a grant this shell implements", g.kind)).
-			WithRecovery("Pass --grant " + contexts.GrantJWTBearer + ", which presents an identity " +
-				"token from the login session to the product's own issuer. " + identityAddProductUsage)
+			WithRecovery("Pass --grant " + contexts.GrantJWTBearer + " or --grant " + contexts.GrantFederated + ". " +
+				identityAddProductUsage)
 	}
 	if g.issuer == "" || g.clientID == "" {
 		return nil, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
@@ -149,7 +158,13 @@ func (g grantFlags) product() (*contexts.Grant, error) {
 			WithRecovery("Name the product's own issuer and the public client the shell presents " +
 				"there. " + identityAddProductUsage)
 	}
-	return &contexts.Grant{Kind: g.kind, Issuer: g.issuer, ClientID: g.clientID, Scopes: g.scopes}, nil
+	if g.kind == contexts.GrantFederated && len(g.scopes) > 0 {
+		return nil, problem.New(problem.CategoryUsage, "shell.invalid_argument",
+			"--grant-scopes belongs to a jwt-bearer grant, not to federated").
+			WithRecovery("Omit --grant-scopes or pass --grant " + contexts.GrantJWTBearer + ". " +
+				identityAddProductUsage)
+	}
+	return &contexts.Grant{Kind: g.kind, Issuer: g.issuer, ClientID: g.clientID, Scopes: g.scopes, Resource: g.resource}, nil
 }
 
 func (s Shell) identityListCommand() *cobra.Command {
