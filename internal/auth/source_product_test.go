@@ -173,3 +173,46 @@ func TestAFederatedProductIsRefreshedAtItsOwnIssuerAsItsOwnClient(t *testing.T) 
 }
 
 func containsText(text, want string) bool { return len(want) > 0 && strings.Contains(text, want) }
+
+// TestALoginProductDriftIsRefused covers F1: a product whose namespace sorts
+// before the identity's current login product silently becomes the login
+// product itself, once it is recorded. Without a guard, the session stored
+// for the old login product — established for a different client or a
+// different scope set — would be presented as the new one's.
+func TestALoginProductDriftIsRefused(t *testing.T) {
+	deployment := seedBrowserSession(t, fakeissuer.Options{RefreshScopeMode: "honor"})
+	// The stored session records what an ordinary login for "reference" —
+	// today's login product — would have left behind.
+	store := session.Store{StateRoot: deployment.stateRoot}
+	if err := store.Save(sessionRef, session.Session{
+		Issuer: deployment.issuer.URL, RefreshToken: deployment.seeded,
+		Strategy: contexts.StrategyDirect, ClientID: "wso2cli", Scopes: []string{readScope, writeScope},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	broker := deployment.broker(t)
+	// "apim" sorts before "reference", so recording it as a second direct
+	// product makes it the login product LoginAccess picks, and Access("apim")
+	// would otherwise inherit the bare session ref the "reference" login
+	// established, with "reference"'s scopes rather than apim's own.
+	const apimAudience = "apim-status"
+	const apimScope = "apim:view"
+	broker.Selection.Identity.Products["apim"] = contexts.Product{
+		Endpoint: "https://apim.example.test", Audience: apimAudience, Scopes: []string{apimScope},
+	}
+	broker.Namespace = "apim"
+	broker.Capabilities.AuthAudiences = []string{apimAudience}
+	broker.Capabilities.AuthScopes = []string{apimScope}
+
+	_, err := broker.Acquire(auth.Request{Audience: apimAudience, Scopes: []string{apimScope}})
+	var denial auth.Denial
+	if !errors.As(err, &denial) || denial.Problem.Code != "auth.login_required" {
+		t.Fatalf("got %v, want auth.login_required", err)
+	}
+	if !containsText(denial.Problem.Recovery, "wso2 login --only apim") {
+		t.Fatalf("recovery %q does not name the login to run", denial.Problem.Recovery)
+	}
+	if stored, loadErr := store.Load(sessionRef); loadErr != nil || stored.RefreshToken != deployment.seeded {
+		t.Fatalf("the drift refusal touched the stored session: %v %+v", loadErr, stored)
+	}
+}

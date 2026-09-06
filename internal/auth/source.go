@@ -80,6 +80,7 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 			issuer:    access.Issuer,
 			clientID:  access.ClientID,
 			audience:  access.Audience,
+			scopes:    access.Scopes,
 			sessions:  session.Store{StateRoot: b.StateRoot},
 			client:    b.httpClient(),
 		}

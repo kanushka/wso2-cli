@@ -58,10 +58,15 @@ type Session struct {
 	SessionExpiresAt time.Time `json:"sessionExpiresAt,omitempty"`
 	// Strategy is how this session was obtained (a contexts.Strategy* value),
 	// ClientID the client it was obtained as, and Scopes what it was
-	// authorized for. All three are informational: wso2 whoami reports them
-	// and nothing grants access from them. omitempty, so an entry written
-	// before they existed decodes with them empty rather than failing to decode:
-	// encoding/json leaves an absent JSON member as the Go zero value.
+	// authorized for. wso2 whoami reports the document's own strategy for a
+	// product, not this field; what these three guard is drift instead — a
+	// product whose namespace sorts ahead of the current login product can
+	// become the login product itself the moment it is recorded, and
+	// sessionSource.renew refuses to present a session recorded here for a
+	// different client or scope set as if it belonged to the product now
+	// asking. omitempty, so an entry written before they existed decodes with
+	// them empty rather than failing to decode: encoding/json leaves an
+	// absent JSON member as the Go zero value.
 	Strategy string   `json:"strategy,omitempty"`
 	ClientID string   `json:"clientId,omitempty"`
 	Scopes   []string `json:"scopes,omitempty"`
@@ -98,10 +103,12 @@ func (s Store) Load(ref string) (Session, error) {
 
 // ProbeCredentialRef is the reserved reference Probe reads under.
 //
-// It contains a period, a character the credentialRef pattern
-// (^[a-z][a-z0-9-]{0,63}$) never allows, so no identity a document declares can
-// ever be assigned this reference. That is what lets Probe read the secure
-// store without risking a collision with, or a read of, a real session.
+// The key is reserved by convention, not by a pattern this package enforces:
+// a credential reference of "probe" paired with a product namespace of
+// "reachability" would form this same string through ProductSessionRef. That
+// collision is harmless, because Probe never reads what a real session would
+// have written there — it only asks the backend whether the key is known,
+// and treats "not found" and "found" identically. See Probe.
 const ProbeCredentialRef = "probe.reachability"
 
 // Probe reports whether the OS secure store answers a read at all, without

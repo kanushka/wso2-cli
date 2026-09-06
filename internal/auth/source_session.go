@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -56,6 +57,12 @@ type sessionSource struct {
 	// audience is the concrete audience the identity registers for this
 	// namespace, and the one an issued token is proved to be bound to.
 	audience string
+	// scopes is the scope set this access was established for: what a
+	// direct or sibling session was authorized with, or the assertion
+	// scopes a derived one was. renew compares it against what the stored
+	// session actually recorded, to catch a login-product change from
+	// under it (see renew).
+	scopes []string
 	// sessions reads and rotates the stored session.
 	sessions session.Store
 	// client serves the issuer traffic.
@@ -144,9 +151,23 @@ func (s sessionSource) renew(ctx context.Context, scopes []string, now time.Time
 		// was minted by. Refreshing against it would present one deployment's
 		// token to another, so the session is treated as belonging to nobody.
 		return tokenResponse{}, denial("auth.session_issuer_mismatch",
-			fmt.Sprintf("the stored session for the %q identity was established against a different "+
+			fmt.Sprintf("the stored session for the %q product was established against a different "+
 				"identity provider than the context now names", s.namespace),
-			"Run wso2 login to establish a session against the issuer this context names.")
+			fmt.Sprintf("Run wso2 login --only %s to authorize this product against the issuer this "+
+				"context names, or wso2 login to authorize every product.", s.namespace))
+	}
+	if driftedProduct := s.productDrifted(stored); driftedProduct {
+		// A product whose namespace sorts before the one this session was
+		// established for can become the login product without anyone
+		// touching the session: LoginAccess picks the first direct product by
+		// sorted namespace. The stored session then answers for scopes and a
+		// client it was never authorized for, and presenting it here would
+		// hand this product another product's authority.
+		return tokenResponse{}, denial("auth.login_required",
+			fmt.Sprintf("the stored session for the %q product was established for a different "+
+				"product", s.namespace),
+			fmt.Sprintf("Run wso2 login --only %s to authorize this product, or wso2 login to "+
+				"authorize every product.", s.namespace))
 	}
 
 	endpoint, err := tokenEndpoint(ctx, s.client, s.issuer)
@@ -194,6 +215,36 @@ func (s sessionSource) renew(ctx context.Context, scopes []string, now time.Time
 		}
 	}
 	return issued, nil
+}
+
+// productDrifted reports whether the stored session was established for a
+// different product than this access, judging by client ID and scope set.
+//
+// A legacy entry, written before session.Session recorded either field,
+// carries both empty; there is nothing to compare it against, so it is
+// trusted exactly as it was before this check existed. Scopes are compared
+// as sets, sorted, because narrowing never depends on the order they were
+// requested in.
+func (s sessionSource) productDrifted(stored session.Session) bool {
+	if stored.ClientID != "" && stored.ClientID != s.clientID {
+		return true
+	}
+	if len(stored.Scopes) == 0 {
+		return false
+	}
+	return !scopeSetsEqual(stored.Scopes, s.scopes)
+}
+
+// scopeSetsEqual compares two scope lists as sets, ignoring order.
+func scopeSetsEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	sortedA := slices.Clone(a)
+	sortedB := slices.Clone(b)
+	slices.Sort(sortedA)
+	slices.Sort(sortedB)
+	return slices.Equal(sortedA, sortedB)
 }
 
 // refresh exchanges the stored refresh token for access narrowed to scopes.
