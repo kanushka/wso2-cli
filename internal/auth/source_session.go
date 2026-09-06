@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/wso2/wso2-cli/internal/auth/session"
-	"github.com/wso2/wso2-cli/internal/contexts"
+	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
 // sessionSource derives one module's access from the stored login session.
@@ -48,9 +48,11 @@ import (
 type sessionSource struct {
 	// namespace is the module asking, named in refusals.
 	namespace string
-	// identity is the logged-in identity: issuer, client, and the secure-store
-	// reference its session lives under. It holds no credential.
-	identity contexts.Identity
+	// ref is the secure-store entry this product's session lives under: the
+	// identity's own for a direct product, the product's for every other.
+	ref string
+	// issuer and clientID are where and as whom the session is renewed.
+	issuer, clientID string
 	// audience is the concrete audience the identity registers for this
 	// namespace, and the one an issued token is proved to be bound to.
 	audience string
@@ -58,6 +60,9 @@ type sessionSource struct {
 	sessions session.Store
 	// client serves the issuer traffic.
 	client *http.Client
+	// establish obtains the session when none is stored. nil for the login
+	// session, which only wso2 login establishes.
+	establish func() error
 }
 
 // mint derives access, holding the session's rotation lock throughout.
@@ -67,8 +72,11 @@ type sessionSource struct {
 // invocations refreshing the same session concurrently would leave one of them
 // holding a token the issuer has already replaced.
 func (s sessionSource) mint(request Request, now time.Time) (Grant, error) {
+	if err := s.ensureSession(); err != nil {
+		return Grant{}, err
+	}
 	var granted Grant
-	err := s.sessions.WithLock(s.identity.Auth.CredentialRef, func() error {
+	err := s.sessions.WithLock(s.ref, func() error {
 		issued, err := s.derive(request, now)
 		if err != nil {
 			return err
@@ -80,6 +88,27 @@ func (s sessionSource) mint(request Request, now time.Time) (Grant, error) {
 		return Grant{}, err
 	}
 	return granted, nil
+}
+
+// ensureSession establishes the product's own session when it is absent,
+// before the rotation lock is taken: a browser round trip must not hold the
+// lock other invocations wait on.
+func (s sessionSource) ensureSession() error {
+	if s.establish == nil {
+		return nil
+	}
+	_, err := s.sessions.Load(s.ref)
+	if err == nil || !isLoginRequired(err) {
+		return err
+	}
+	return s.establish()
+}
+
+// isLoginRequired reports whether err is the session store's own refusal for
+// no stored session, the one case ensureSession fills in rather than passes on.
+func isLoginRequired(err error) bool {
+	var typed problem.Problem
+	return errors.As(err, &typed) && typed.Code == "auth.login_required"
 }
 
 // derive runs one scoped refresh under the lock mint holds.
@@ -106,21 +135,21 @@ func (s sessionSource) derive(request Request, now time.Time) (Grant, error) {
 // stored before anything else happens with the answer, and this is the one
 // place that stores it.
 func (s sessionSource) renew(ctx context.Context, scopes []string, now time.Time) (tokenResponse, error) {
-	stored, err := s.sessions.Load(s.identity.Auth.CredentialRef)
+	stored, err := s.sessions.Load(s.ref)
 	if err != nil {
 		return tokenResponse{}, err
 	}
-	if stored.Issuer != s.identity.Auth.Issuer {
+	if stored.Issuer != s.issuer {
 		// The context now names a different issuer than the one this session
 		// was minted by. Refreshing against it would present one deployment's
 		// token to another, so the session is treated as belonging to nobody.
 		return tokenResponse{}, denial("auth.session_issuer_mismatch",
 			fmt.Sprintf("the stored session for the %q identity was established against a different "+
-				"identity provider than the context now names", s.identity.Name),
+				"identity provider than the context now names", s.namespace),
 			"Run wso2 login to establish a session against the issuer this context names.")
 	}
 
-	endpoint, err := tokenEndpoint(ctx, s.client, s.identity.Auth.Issuer)
+	endpoint, err := tokenEndpoint(ctx, s.client, s.issuer)
 	if err != nil {
 		return tokenResponse{}, err
 	}
@@ -160,7 +189,7 @@ func (s sessionSource) renew(ctx context.Context, scopes []string, now time.Time
 		if issued.RefreshTokenExpiresIn > 0 {
 			stored.SessionExpiresAt = now.Add(time.Duration(issued.RefreshTokenExpiresIn) * time.Second).UTC()
 		}
-		if err := s.sessions.Save(s.identity.Auth.CredentialRef, stored); err != nil {
+		if err := s.sessions.Save(s.ref, stored); err != nil {
 			return tokenResponse{}, err
 		}
 	}
@@ -175,7 +204,7 @@ func (s sessionSource) refresh(
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {refreshToken},
 		"scope":         {strings.Join(scopes, " ")},
-	}, clientAuth{id: s.identity.Auth.ClientID})
+	}, clientAuth{id: s.clientID})
 	if err != nil {
 		return tokenResponse{}, s.refusedGrant(err)
 	}

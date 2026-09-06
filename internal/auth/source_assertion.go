@@ -60,8 +60,11 @@ type assertionSource struct {
 // lock's own deadline is what other invocations wait against and it has to
 // outlast the whole of this.
 func (s assertionSource) mint(request Request, now time.Time) (Grant, error) {
+	if err := s.session.ensureSession(); err != nil {
+		return Grant{}, err
+	}
 	var granted Grant
-	err := s.session.sessions.WithLock(s.session.identity.Auth.CredentialRef, func() error {
+	err := s.session.sessions.WithLock(s.session.ref, func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), grantDeadline)
 		defer cancel()
 		issued, err := s.derive(ctx, request, now)
@@ -135,7 +138,7 @@ func (s assertionSource) refusedGrant(err error) error {
 			fmt.Sprintf("Check that %s trusts %s as an identity provider, registers %q as the audience "+
 				"it accepts assertions for, and maps this user's groups to a role that carries the "+
 				"permissions asked for; then retry the command.",
-				s.grant.Issuer, s.session.identity.Auth.Issuer, s.session.identity.Auth.ClientID))
+				s.grant.Issuer, s.session.issuer, s.session.clientID))
 	default:
 		return issuerUnreachable()
 	}

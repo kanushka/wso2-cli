@@ -85,14 +85,23 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 		// already happened; what is left behind is a refresh token, and every
 		// step from here — the rotation lock, the scoped refresh, the proof
 		// that the narrowing held — reads that and nothing else.
+		access, _ := b.Selection.Identity.Access(b.Namespace)
 		source := sessionSource{
 			namespace: b.namespace(),
-			identity:  b.Selection.Identity,
-			audience:  b.productAudience(),
+			ref:       access.SessionRef,
+			issuer:    access.Issuer,
+			clientID:  access.ClientID,
+			audience:  access.Audience,
 			sessions:  session.Store{StateRoot: b.StateRoot},
 			client:    b.httpClient(),
 		}
-		if !product.Direct() {
+		if access.Strategy != contexts.StrategyDirect {
+			// A product beside the login one, or one derived from it, may
+			// have no session yet: this is the first invocation reaching it.
+			// The login session itself is never established here.
+			source.establish = b.establishFor(access)
+		}
+		if access.Strategy == contexts.StrategyDerived {
 			// The product's own issuer answers, from an assertion the session
 			// yields. Everything the session source knows about renewing and
 			// rotating still applies; what changes is what the renewal is for.
@@ -110,6 +119,17 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 			fmt.Sprintf("the %q context uses an authentication method this shell does not implement",
 				b.Selection.Context.Name),
 			"Select a context with a supported authentication kind.")
+	}
+}
+
+// establishFor is what a source calls when the product's own session is
+// absent: the shell's login hook, or a refusal naming the login to run.
+func (b *Broker) establishFor(access contexts.ProductAccess) func() error {
+	return func() error {
+		if b.EstablishSession == nil {
+			return SessionRequired(b.namespace())
+		}
+		return b.EstablishSession(access)
 	}
 }
 

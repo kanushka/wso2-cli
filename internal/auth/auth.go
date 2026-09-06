@@ -122,6 +122,11 @@ type Broker struct {
 	HTTPClient *http.Client
 	// Now reads the current time. It defaults to time.Now.
 	Now func() time.Time
+	// EstablishSession obtains a product's own session when a command finds
+	// none. The shell supplies it with the login flow; nil refuses with
+	// auth.session_required. It is never asked for the login session itself:
+	// that is wso2 login's, and a command that finds none is told to run it.
+	EstablishSession func(access contexts.ProductAccess) error
 
 	// granted records that this invocation already has access, so the module
 	// cannot come back for more.
@@ -263,6 +268,15 @@ func asDenial(err error) error {
 		return Denial{Problem: typed}
 	}
 	return err
+}
+
+// SessionRequired refuses a product whose own session is absent and cannot
+// be established in this invocation.
+func SessionRequired(namespace string) Denial {
+	return denial("auth.session_required",
+		fmt.Sprintf("the %q product has no session under this identity yet", namespace),
+		fmt.Sprintf("Run wso2 login --only %s to authorize it, or wso2 login to authorize every product.",
+			namespace))
 }
 
 // denial reports a broker refusal the module and the user can both be told in
