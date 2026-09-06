@@ -86,6 +86,19 @@ type loginFlags struct {
 // token goes straight into the OS secure store, and what reaches the terminal
 // is who the login proved you are and which products that identity reaches.
 func (s Shell) login(flags loginFlags) error {
+	if flags.only != "" && flags.noProducts {
+		// Each asks for a different subset of one identity's accesses, and
+		// together they ask for two different subsets at once, which is not a
+		// request this login can honour. Checked ahead of both paths below,
+		// creating and configured alike: the conflict is in the flags
+		// themselves, not in what they would otherwise do, and the creating
+		// path must never open a browser to reach a refusal that needed no
+		// issuer at all.
+		return problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
+			"--only and --no-products both narrow which sessions this login establishes").
+			WithRecovery("Pass --only <namespace> to authorize one product, " +
+				"or --no-products to authorize the login session alone, not both.")
+	}
 	if flags.issuer != "" {
 		return s.loginCreating(flags)
 	}
@@ -98,15 +111,6 @@ func (s Shell) login(flags loginFlags) error {
 		return problem.New(problem.CategoryUsage, "shell.missing_required_flag",
 			"wso2 login takes --client-id only with --url, which names the issuer the client is registered with").
 			WithRecovery(loginUsageRecovery)
-	}
-	if flags.only != "" && flags.noProducts {
-		// Each asks for a different subset of one identity's accesses, and
-		// together they ask for two different subsets at once, which is not a
-		// request this login can honour.
-		return problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
-			"--only and --no-products both narrow which sessions this login establishes").
-			WithRecovery("Pass --only <namespace> to authorize one product, " +
-				"or --no-products to authorize the login session alone, not both.")
 	}
 	selected, err := s.selection(flags.contextName)
 	if err != nil {
@@ -254,10 +258,37 @@ func (s Shell) loginAccesses(selected contexts.Selection, flags loginFlags) ([]c
 		}
 		return []contexts.ProductAccess{access}, nil
 	case flags.noProducts:
+		if err := checkLoginAccessBinds(selected.Identity); err != nil {
+			return nil, err
+		}
 		return []contexts.ProductAccess{selected.Identity.LoginAccess()}, nil
 	default:
+		if err := checkLoginAccessBinds(selected.Identity); err != nil {
+			return nil, err
+		}
 		return selected.Identity.Accesses(), nil
 	}
+}
+
+// checkLoginAccessBinds refuses a login whose first authorization has nothing
+// to bind to on a deployment that requires it.
+//
+// An interactive identity whose products are all reached through a grant
+// records no direct product at all, so LoginAccess names no namespace and
+// binds no resource. On a scoped-refresh deployment that authorization is
+// still legal: it is the bare session every module narrows from. On a
+// deployment that binds a login to one protected resource, RFC 8707 gives it
+// nothing to name, and sending the authorization anyway would ask an issuer
+// that requires a resource indicator for one this identity cannot supply.
+func checkLoginAccessBinds(identity contexts.Identity) error {
+	if identity.Auth.Derivation() != contexts.DerivationTokenResource ||
+		len(identity.Products) == 0 || identity.LoginAccess().Namespace != "" {
+		return nil
+	}
+	return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
+		fmt.Sprintf("the %q identity records no product its login can bind to; every product it "+
+			"records is reached by a grant", identity.Name)).
+		WithRecovery("Record a direct product with wso2 identity add-product, then run wso2 login.")
 }
 
 // checkDerivedResource refuses to open a browser for a derived access this

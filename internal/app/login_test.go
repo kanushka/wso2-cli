@@ -243,6 +243,35 @@ func TestLoginRefusesUnknownArguments(t *testing.T) {
 	}
 }
 
+// TestLoginRefusesOnlyAndNoProductsTogether covers M1: the flags conflict
+// whether or not the identity already exists, and the check has to run ahead
+// of the creating path — --url and --client-id together open a browser
+// before any --only/--no-products conflict downstream could catch it.
+func TestLoginRefusesOnlyAndNoProductsTogether(t *testing.T) {
+	t.Run("a configured context", func(t *testing.T) {
+		shell, _, errOut := newLoginShell(t)
+		installLogin(t, shell, browserDoc("https://issuer.example.test"))
+
+		if code := shell.Run([]string{"login", "--only", "a", "--no-products"}); code != exit.Usage {
+			t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
+		}
+		requireRefusal(t, errOut.String(), "shell.conflicting_arguments")
+	})
+
+	t.Run("the creating path", func(t *testing.T) {
+		// newLoginShell's OpenBrowser fails the test if the creating path
+		// gets far enough to reach it: the conflict is in the flags
+		// themselves and must be caught before an issuer is ever contacted.
+		shell, _, errOut := newLoginShell(t)
+
+		if code := shell.Run([]string{"login", "--url", "https://issuer.example.test",
+			"--client-id", "x", "--only", "a", "--no-products"}); code != exit.Usage {
+			t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
+		}
+		requireRefusal(t, errOut.String(), "shell.conflicting_arguments")
+	})
+}
+
 func TestLoginHappyPathStoresSessionAndReportsIdentity(t *testing.T) {
 	keyring.MockInit()
 	// No AllowAnyLoopbackPort: the shell must land on one of the four

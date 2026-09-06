@@ -119,7 +119,7 @@ func TestLoginNoProductsEstablishesTheLoginSessionAlone(t *testing.T) {
 	keyring.MockInit()
 	login := fakeissuer.New(t, fakeissuer.Options{RequireResource: true})
 	product := fakeissuer.New(t, fakeissuer.Options{Audience: "apim-cli"})
-	shell, _, errOut := newLoginShell(t)
+	shell, out, errOut := newLoginShell(t)
 	installLogin(t, shell, thunderDoc(login.URL, product.URL))
 	followBrowser(&shell)
 	if code := shell.Run([]string{"login", "--no-products"}); code != exit.OK {
@@ -127,6 +127,35 @@ func TestLoginNoProductsEstablishesTheLoginSessionAlone(t *testing.T) {
 	}
 	if got := strings.Count(errOut.String(), "/authorize?"); got != 1 {
 		t.Fatalf("printed %d authorization URLs, want 1", got)
+	}
+	// thunderDoc's login product is "gateway" — the first direct product by
+	// sorted namespace ("apim" is a grant, so "gateway" is first) — and
+	// --no-products establishes that one session alone.
+	for _, line := range []string{"gateway", "direct, established"} {
+		if !strings.Contains(out.String(), line) {
+			t.Fatalf("report lacks %q:\n%s", line, out)
+		}
+	}
+}
+
+// TestLoginWithNoProductsReportsTheBareSession covers D4: an identity that
+// records no product at all still has a login session, and the report
+// labels it "Session" rather than naming a namespace it does not have.
+func TestLoginWithNoProductsReportsTheBareSession(t *testing.T) {
+	keyring.MockInit()
+	login := fakeissuer.New(t, fakeissuer.Options{RefreshScopeMode: "honor"})
+	document := browserDoc(login.URL)
+	document.Identities[0].Products = nil
+	shell, out, errOut := newLoginShell(t)
+	installLogin(t, shell, document)
+	followBrowser(&shell)
+	if code := shell.Run([]string{"login"}); code != exit.OK {
+		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
+	}
+	for _, line := range []string{"Session", "direct, established"} {
+		if !strings.Contains(out.String(), line) {
+			t.Fatalf("report lacks %q:\n%s", line, out)
+		}
 	}
 }
 
@@ -183,5 +212,31 @@ func TestLoginNamesWhichSessionsSurviveAMidLoginFailure(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "gateway") {
 		t.Fatalf("stderr does not mention the established login session (gateway):\n%s", errOut)
+	}
+}
+
+// TestLoginRefusesWhenEveryProductIsReachedByAGrant covers M3: a
+// resource-bound identity whose products are all reached through a grant
+// records no direct product, so LoginAccess names no namespace and binds no
+// resource. Sending that authorization to a deployment that requires a
+// resource indicator asks for one this identity has nothing to supply, so the
+// login is refused before a browser opens rather than sent to the issuer.
+func TestLoginRefusesWhenEveryProductIsReachedByAGrant(t *testing.T) {
+	keyring.MockInit()
+	login := fakeissuer.New(t, fakeissuer.Options{RequireResource: true})
+	document := browserDoc(login.URL)
+	document.Identities[0].Auth.Provider = contexts.ProviderThunder
+	document.Identities[0].Products = map[string]contexts.Product{
+		"apim": {Endpoint: login.URL, Audience: "apim-cli", Scopes: []string{"apim:api_view"},
+			Grant: &contexts.Grant{Kind: contexts.GrantFederated, Issuer: login.URL, ClientID: "apim-cli"}},
+	}
+	shell, _, errOut := newLoginShell(t)
+	installLogin(t, shell, document)
+
+	if code := shell.Run([]string{"login"}); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d (auth policy); stderr %s", code, exit.AuthPolicy, errOut)
+	}
+	if !strings.Contains(errOut.String(), "auth.product_not_configured") {
+		t.Fatalf("stderr does not name auth.product_not_configured:\n%s", errOut)
 	}
 }
