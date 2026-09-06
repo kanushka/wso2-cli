@@ -776,8 +776,8 @@ On a browser login: the flow ended without producing tokens. You closed the
 browser, someone denied the consent, or the deployment redirected back with an
 error.
 
-The browser reached "Login complete" and the code exchange succeeded, but the
-identity token that came back was not one the shell would accept. The message
+The browser reached "You are signed in" and the code exchange succeeded, but
+the identity token that came back was not one the shell would accept. The message
 says which kind of failure it was:
 
 | The message says | What it means | What to change |

@@ -432,6 +432,7 @@ func (s Shell) establishSession(selected contexts.Selection, access contexts.Pro
 		ClientID:    access.ClientID,
 		Scopes:      access.Scopes,
 		Resource:    access.Resource,
+		Label:       access.Namespace,
 		OpenBrowser: s.OpenBrowser,
 		Out:         s.Streams.Err,
 	}.Run(ctx)
