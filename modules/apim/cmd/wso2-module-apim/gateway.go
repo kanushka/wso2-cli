@@ -39,22 +39,19 @@ const gatewayBodyLimit = 4096
 
 type gatewayFlags struct {
 	method string
-	scopes []string
 }
 
 func gatewayCommands() (family, invoke *cobra.Command, flags *gatewayFlags) {
 	flags = &gatewayFlags{}
 	family = &cobra.Command{Use: "gateway", Short: "Call published APIs through the gateway."}
 	invoke = &cobra.Command{
-		Use:   "invoke </context/version/path> [--method GET] [--scope <s>]...",
+		Use:   "invoke </context/version/path> [--method GET]",
 		Short: "Call an API through the gateway with a token the shell brokers for this identity's product.",
 		Long: "The token is minted for the audience and scopes the selected identity records for the apim " +
 			"product. Under a ThunderID identity whose apim product names the API's resource server and " +
 			"the gateway as its endpoint, that is the user's own API called with a ThunderID token.",
 	}
 	invoke.Flags().StringVar(&flags.method, "method", http.MethodGet, "The HTTP method.")
-	invoke.Flags().StringArrayVar(&flags.scopes, "scope", nil,
-		"A scope to ask the shell for; defaults to the scopes the identity's apim product records.")
 	family.AddCommand(invoke)
 	return family, invoke, flags
 }
@@ -76,10 +73,9 @@ func gatewayInvoke(command *cobra.Command, flags *gatewayFlags) module.Handler {
 				WithRecovery("Create an identity whose apim product has the gateway URL as its endpoint and the API's " +
 					"resource server as its audience, then select its context.")
 		}
-		access, err := request.Access.Acquire(ctx, module.AccessRequest{
-			Audience: PublisherAudience,
-			Scopes:   flags.scopes,
-		})
+		// No scopes: the shell answers with the scopes the identity's apim
+		// product records, which for a gateway call are the user's own API's.
+		access, err := request.Access.Acquire(ctx, module.AccessRequest{Audience: PublisherAudience})
 		if err != nil {
 			return result.Result{}, err
 		}

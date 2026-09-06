@@ -143,6 +143,13 @@ func (b *Broker) Acquire(request Request) (Grant, error) {
 			fmt.Sprintf("the %q module asked for access twice in one command", b.namespace()),
 			"Retry the command. A module is granted access once per command and cannot renew it.")
 	}
+	// A request naming no scopes asks for the product's recorded scopes: the
+	// permissions the identity's product entry already consents to, which
+	// is what a module calling the user's own API through a product cannot
+	// know in advance. The record stays the ceiling either way.
+	if len(request.Scopes) == 0 {
+		request.Scopes = slices.Clone(b.Selection.Identity.Products[b.Namespace].Scopes)
+	}
 	if err := b.checkDeclared(request); err != nil {
 		return Grant{}, err
 	}

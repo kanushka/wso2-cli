@@ -18,6 +18,7 @@ package auth_test
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -361,5 +362,21 @@ func TestAReauthorizationThatStillCannotServeIsRefusedOnce(t *testing.T) {
 		!containsText(denial.Problem.Recovery, "map this user's group to a role that carries apim:api_view") ||
 		!containsText(denial.Problem.Recovery, "wso2 login --only apim") {
 		t.Fatalf("refusal reads: %s / %s", denial.Problem.Message, denial.Problem.Recovery)
+	}
+}
+
+// TestARequestWithNoScopesMeansTheProductsRecordedScopes is what lets a module
+// stop carrying a --scope flag on every command: the record consents to the
+// scopes, and a request naming none asks for exactly those.
+func TestARequestWithNoScopesMeansTheProductsRecordedScopes(t *testing.T) {
+	deployment := thunderLikeDeployment(t, true)
+	broker := siblingBroker(t, deployment)
+	grant, err := broker.Acquire(auth.Request{Audience: siblingAudience})
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	active, scopes, audience := deployment.issuer.Introspect(t, grant.Token)
+	if !active || !slices.Equal(scopes, []string{siblingScope}) || !slices.Equal(audience, []string{siblingAudience}) {
+		t.Fatalf("token: active %v scopes %q audience %q", active, scopes, audience)
 	}
 }

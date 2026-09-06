@@ -180,13 +180,13 @@ func TestKeyManagersAddDiscoversAndOverrides(t *testing.T) {
 
 func TestGatewayInvokeCallsThePathWithTheBrokeredToken(t *testing.T) {
 	fake := newFakeAPIM(t)
-	outcome := fake.run(t, []string{"gateway", "invoke"}, "/mockapi/1.0.0/status", "--scope", "reference:status:read")
+	outcome := fake.run(t, []string{"gateway", "invoke"}, "/mockapi/1.0.0/status")
 	if outcome.Problem != nil {
 		t.Fatalf("%+v", outcome.Problem)
 	}
 	fields := fieldsOf(outcome)
 	if fields["status"] != "200" || fields["body"] != `{"status":"ok"}` || fields["method"] != "GET" ||
-		scopesAsked(outcome) != "reference:status:read" || fields["next"] != "(done)" {
+		scopesAsked(outcome) != "" || fields["next"] != "(done)" {
 		t.Errorf("fields = %+v scopes %q", fields, scopesAsked(outcome))
 	}
 	if bad := fake.run(t, []string{"gateway", "invoke"}, "mockapi"); bad.Problem == nil || bad.Problem.Code != "apim.missing_argument" {
