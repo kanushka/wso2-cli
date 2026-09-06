@@ -112,9 +112,27 @@ func (s sessionSource) mint(request Request, now time.Time) (Grant, error) {
 	}
 	granted, err = s.mintUnderLock(request, now)
 	if errors.As(err, &again) {
-		return Grant{}, again.refusal
+		return Grant{}, s.notAuthorizedForProduct(request)
 	}
 	return granted, err
+}
+
+// notAuthorizedForProduct is the refusal for a product whose issuer signed
+// the user in again and still issued none of the permissions asked for.
+//
+// It replaces the narrowing refusal at this point because the narrowing is
+// no longer the news: the issuer was given every chance to grant the
+// permissions and declined, which on a federated product means the user's
+// groups map to no role that carries them. The recovery names the issuer and
+// the permissions, which is what an administrator needs; nothing about the
+// token reaches it.
+func (s sessionSource) notAuthorizedForProduct(request Request) error {
+	return denial("auth.narrowing_unavailable",
+		fmt.Sprintf("the %q product's identity provider signed this user in again but issued none of "+
+			"the permissions the module asked for (%s), so the user is not authorized for the product",
+			s.namespace, scopeList(request.Scopes)),
+		fmt.Sprintf("Ask an administrator of %s to map this user's group to a role that carries %s, "+
+			"then run wso2 login --only %s.", s.issuer, scopeList(request.Scopes), s.namespace))
 }
 
 // mintUnderLock derives access under the session's rotation lock.

@@ -355,4 +355,11 @@ func TestAReauthorizationThatStillCannotServeIsRefusedOnce(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("hook called %d times, want exactly once", calls)
 	}
+	// The refusal says what an administrator has to do, not what the
+	// protocol did: the user is not authorized for the product.
+	if !containsText(denial.Problem.Message, "not authorized for the product") ||
+		!containsText(denial.Problem.Recovery, "map this user's group to a role that carries apim:api_view") ||
+		!containsText(denial.Problem.Recovery, "wso2 login --only apim") {
+		t.Fatalf("refusal reads: %s / %s", denial.Problem.Message, denial.Problem.Recovery)
+	}
 }
