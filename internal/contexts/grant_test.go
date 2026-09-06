@@ -36,7 +36,8 @@ func withGrantProduct(document, grant string) string {
 }
 
 const validGrant = `{"kind": "jwt-bearer", "issuer": "https://apim.example.test/oauth2/token", ` +
-	`"clientId": "apim-client", "scopes": ["email", "groups"]}`
+	`"clientId": "apim-client", "scopes": ["email", "groups"], ` +
+	`"resource": "https://apim.example.test/oauth2/token"}`
 
 func TestAProductMayNameAGrantAtAnotherIssuer(t *testing.T) {
 	document, err := contexts.Decode([]byte(withGrantProduct(validV2(), validGrant)))
@@ -84,6 +85,10 @@ func TestAMalformedGrantIsRefused(t *testing.T) {
 		"no issuer":               `{"kind": "jwt-bearer", "clientId": "c"}`,
 		"issuer without a scheme": `{"kind": "jwt-bearer", "issuer": "apim.example.test", "clientId": "c"}`,
 		"issuer with credentials": `{"kind": "jwt-bearer", "issuer": "https://admin:secret@apim.example.test/oauth2/token", "clientId": "c"}`,
+		"jwt-bearer resource that is not an absolute URI": `{"kind": "jwt-bearer", ` +
+			`"issuer": "https://apim.example.test/oauth2/token", "clientId": "c", "resource": "not-a-uri"}`,
+		"federated resource that is not an absolute URI": `{"kind": "federated", ` +
+			`"issuer": "https://apim.example.test/oauth2/token", "clientId": "c", "resource": "not-a-uri"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := contexts.Decode([]byte(withGrantProduct(validV2(), grant)))
@@ -117,11 +122,12 @@ func TestAThunderIdentityMayServeASecondProductByGrant(t *testing.T) {
 	if len(document.Identities[0].Products) != 2 {
 		t.Fatalf("read %d products, want 2", len(document.Identities[0].Products))
 	}
-	// Two direct products stay refused: the grant product does not lift the
-	// one-resource rule for the products the login itself binds.
+	// A second direct product is a sibling session under its own resource
+	// indicator, exactly as it is without a grant product alongside it: the
+	// grant does not change how many direct products the identity may record.
 	_, err = contexts.Decode([]byte(withGrantProduct(
 		withSecondProduct(withProvider(contexts.ProviderThunder)), validGrant)))
-	if err == nil {
-		t.Fatal("two direct products on a Thunder identity were accepted")
+	if err != nil {
+		t.Fatalf("a second direct product alongside a grant product was refused: %v", err)
 	}
 }

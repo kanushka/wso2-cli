@@ -222,8 +222,8 @@ func TestAContextRecordsNoCredentialValue(t *testing.T) {
 	}
 	// grant says where a product's access is derived and which public client
 	// asks for it: an issuer, a client identifier and scope names, no secret.
-	allowedProduct := []string{"endpoint", "audience", "scopes", "grant"}
-	allowedGrant := []string{"kind", "issuer", "clientId", "scopes"}
+	allowedProduct := []string{"endpoint", "audience", "scopes", "grant", "clientIdVariable", "clientSecretVariable"}
+	allowedGrant := []string{"kind", "issuer", "clientId", "scopes", "resource"}
 
 	if got := jsonMembers(t, contexts.Context{}); !slices.Equal(got, allowedContext) {
 		t.Errorf("a context records %v; it may record only %v", got, allowedContext)

@@ -194,14 +194,25 @@ type Product struct {
 	// session when the product's issuer is not the identity's. Absent, the
 	// session itself is narrowed to the product, as it always was.
 	Grant *Grant `json:"grant,omitempty"`
+	// ClientIDVariable and ClientSecretVariable name the environment
+	// variables holding a credential of the product's own, for a
+	// client-credentials identity whose machine client the product cannot
+	// map to its roles. Both or neither; names, never values.
+	ClientIDVariable     string `json:"clientIdVariable,omitempty"`
+	ClientSecretVariable string `json:"clientSecretVariable,omitempty"`
 }
 
 // GrantJWTBearer presents an identity token from the session to the product's
 // own token endpoint under RFC 7523's JWT bearer grant, as a public client.
 const GrantJWTBearer = "jwt-bearer"
 
+// GrantFederated obtains the product's session at the product's own issuer,
+// as the public client the grant names, through the login provider's
+// sign-on. The session is the product issuer's own refresh token.
+const GrantFederated = "federated"
+
 // legalGrants are the grant kinds this shell implements.
-var legalGrants = map[string]bool{GrantJWTBearer: true}
+var legalGrants = map[string]bool{GrantJWTBearer: true, GrantFederated: true}
 
 // Grant is one way of deriving a product's access from the session. It names
 // where the assertion goes and what the assertion must carry; like everything
@@ -219,6 +230,11 @@ type Grant struct {
 	// refreshed for the assertion: the scopes that make the identity token
 	// carry the claims the product maps. openid is always among them.
 	Scopes []string `json:"scopes,omitempty"`
+	// Resource is the RFC 8707 resource indicator the authorization for this
+	// grant's session carries, when the issuer it runs at requires one. For a
+	// jwt-bearer grant that issuer is the identity's; for a federated grant it
+	// is the product's own. Optional.
+	Resource string `json:"resource,omitempty"`
 }
 
 // AssertionScopes are the scopes the session is refreshed with to obtain the
@@ -266,6 +282,11 @@ func (i Identity) validate() error {
 		if err := i.Products[namespace].validate(i.Name); err != nil {
 			return err
 		}
+		if i.Products[namespace].ClientSecretVariable != "" && i.Auth.Kind != KindClientCredentials {
+			return malformed(fmt.Sprintf(
+				"declares a product credential on the interactive identity %q; a product credential "+
+					"belongs to a client-credentials identity", i.Name))
+		}
 	}
 	return nil
 }
@@ -274,34 +295,21 @@ func (i Identity) validate() error {
 // as written.
 //
 // A resource-bound derivation names the protected resource it binds to, and
-// takes that name from the product the module asks for. Two consequences
-// follow, and both are refused here rather than at the end of a browser
-// sign-in: a product that names no audience leaves nothing to bind to, and an
-// identity serving several products cannot be served by one session at all,
-// because the deployments that require a resource indicator accept only one per
-// authorization.
+// takes that name from the product the module asks for. What follows is
+// refused here rather than at the end of a browser sign-in: a product that
+// names no audience leaves nothing to bind to, and an identity naming none at
+// all has nothing to name either. An identity may still record several direct
+// products — each becomes its own resource-bound session, the login's or a
+// sibling's, since the deployments this derivation serves accept only one
+// resource indicator per authorization, not one product per identity.
 func (i Identity) validateDerivation() error {
 	if i.Auth.Derivation() != DerivationTokenResource {
 		return nil
 	}
-	// Exactly one, not at most one. A deployment that binds by resource takes
-	// the resource from the identity's product, so an identity with none has
-	// nothing to name: login would send no indicator and be refused, which is
-	// the failure this whole validation exists to move earlier.
-	//
-	// Only the products the login itself binds count. A product reached by a
-	// grant is derived at its own issuer from the session the one resource
-	// established, so it neither needs a second indicator nor could have one.
-	direct := 0
-	for _, product := range i.Products {
-		if product.Direct() {
-			direct++
-		}
-	}
-	if direct != 1 {
+	if len(i.Products) == 0 {
 		return malformed(fmt.Sprintf(
-			"declares the identity %q against a deployment that binds one login to one product, "+
-				"and gives it %d", i.Name, direct))
+			"declares the identity %q against a deployment that binds a login to a product, "+
+				"and gives it none", i.Name))
 	}
 	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
 		if !i.Products[namespace].Direct() {
@@ -325,14 +333,36 @@ func (i Identity) validateDerivation() error {
 		// permits — a URN names a resource server perfectly well — and this
 		// shell never dereferences the value, so it has no reason to hold an
 		// opinion the specification does not.
-		parsed, err := url.Parse(audience)
-		if err != nil || parsed.Scheme == "" || parsed.Fragment != "" {
+		if !absoluteURI(audience) {
 			return malformed(fmt.Sprintf(
 				"declares the %q product on the identity %q with an audience that is not an "+
 					"absolute URI, which is what its deployment binds access by", namespace, i.Name))
 		}
 	}
+	// A jwt-bearer grant's assertion session runs at the identity's own
+	// issuer, which this derivation binds by resource exactly as the login
+	// session is bound. Naming none, or naming one that is not an absolute
+	// URI, describes a request the deployment will refuse.
+	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
+		grant := i.Products[namespace].Grant
+		if grant == nil || grant.Kind != GrantJWTBearer {
+			continue
+		}
+		if !absoluteURI(grant.Resource) {
+			return malformed(fmt.Sprintf(
+				"declares the %q product on the identity %q with a jwt-bearer grant and no "+
+					"resource for its assertion session, which its deployment binds access by",
+				namespace, i.Name))
+		}
+	}
 	return nil
+}
+
+// absoluteURI reports whether value is an absolute URI carrying no fragment,
+// which is what RFC 8707 section 2 requires of a resource indicator.
+func absoluteURI(value string) bool {
+	parsed, err := url.Parse(value)
+	return err == nil && parsed.Scheme != "" && parsed.Fragment == ""
 }
 
 func (a IdentityAuth) validate(identity string) error {
@@ -421,6 +451,17 @@ func (p Product) validate(identity string) error {
 			"Remove the user information from the endpoint. A context names a credential source; "+
 				"it never carries a credential.")
 	}
+	if (p.ClientIDVariable == "") != (p.ClientSecretVariable == "") {
+		return malformed(fmt.Sprintf(
+			"declares a product credential on the identity %q with one variable and not the other", identity))
+	}
+	if p.ClientIDVariable != "" {
+		if !variablePattern.MatchString(p.ClientIDVariable) || !variablePattern.MatchString(p.ClientSecretVariable) {
+			return contextProblem("contexts.document_malformed",
+				fmt.Sprintf("a product on the identity %q does not name environment variables as its credential source", identity),
+				"Name the environment variables holding the product's client id and secret, not the values.")
+		}
+	}
 	if p.Grant != nil {
 		// A derived token is proved bound to the product's audience, exactly as
 		// a narrowed one is. Without an audience there is nothing to prove it
@@ -458,6 +499,11 @@ func (g Grant) validate(identity string) error {
 			fmt.Sprintf("a product grant on the identity %q embeds credentials in its issuer URL", identity),
 			"Remove the user information from the issuer. A context names a credential source; "+
 				"it never carries a credential.")
+	}
+	if g.Resource != "" && !absoluteURI(g.Resource) {
+		return malformed(fmt.Sprintf(
+			"declares a product grant on the identity %q with a resource that is not an absolute URI",
+			identity))
 	}
 	return nil
 }
