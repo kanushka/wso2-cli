@@ -89,7 +89,7 @@ func TestTheSessionEstablisherRefusesUnderNoInput(t *testing.T) {
 		},
 	}
 
-	establish := shell.sessionEstablisher(contexts.Selection{}, "iam")
+	establish := shell.sessionEstablisher(contexts.Selection{}, "iam", false)
 	err := establish(contexts.ProductAccess{Namespace: "iam"})
 
 	var refusal auth.Denial
@@ -104,6 +104,12 @@ func TestTheSessionEstablisherRefusesUnderNoInput(t *testing.T) {
 	}
 	if !strings.Contains(refusal.Guidance, "WSO2_NO_INPUT") {
 		t.Fatalf("guidance does not name the control that refused:\n%s", refusal.Guidance)
+	}
+	// The flag, written on the product line, is named as the control instead.
+	t.Setenv("WSO2_NO_INPUT", "")
+	err = shell.sessionEstablisher(contexts.Selection{}, "iam", true)(contexts.ProductAccess{Namespace: "iam"})
+	if !errors.As(err, &refusal) || !strings.Contains(refusal.Guidance, "--no-input") {
+		t.Fatalf("under the flag: %v", err)
 	}
 	if errOut.Len() != 0 {
 		t.Fatalf("stderr = %q, want nothing written before the refusal", errOut.String())
@@ -148,7 +154,7 @@ func TestTheSessionEstablisherAnnouncesThenAuthorizesTheProduct(t *testing.T) {
 		t.Fatal("iam is not a recorded product")
 	}
 
-	establish := shell.sessionEstablisher(selection, "iam")
+	establish := shell.sessionEstablisher(selection, "iam", false)
 	if err := establish(access); err != nil {
 		t.Fatalf("establish returned %v", err)
 	}

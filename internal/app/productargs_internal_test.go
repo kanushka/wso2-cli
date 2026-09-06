@@ -418,3 +418,28 @@ func TestTheShellsOwnShorthandInsideAModuleRunIsExplained(t *testing.T) {
 		t.Errorf("the same flag written separately rendered %s", line.mode)
 	}
 }
+
+// TestTheNoInputFlagIsTakenOffAProductLineWhereverItIsWritten pins the
+// spec's section 7: --no-input is the shell's on a product line, read before
+// the command is routed, like --verbose, so the module never sees it.
+func TestTheNoInputFlagIsTakenOffAProductLineWhereverItIsWritten(t *testing.T) {
+	for name, args := range map[string][]string{
+		"after the command":  {"status", "--no-input"},
+		"before the command": {"--no-input", "status"},
+		"with a value":       {"status", "--no-input=true"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			remaining, asked, err := takeNoInput(args)
+			if err != nil || !asked || strings.Join(remaining, " ") != "status" {
+				t.Fatalf("remaining %v asked %v err %v", remaining, asked, err)
+			}
+		})
+	}
+	if remaining, asked, err := takeNoInput([]string{"status", "--no-input=false"}); err != nil || asked ||
+		len(remaining) != 1 {
+		t.Fatalf("--no-input=false: %v %v %v", remaining, asked, err)
+	}
+	if _, _, err := takeNoInput([]string{"status", "--no-input=maybe"}); err == nil {
+		t.Fatal("--no-input=maybe was accepted")
+	}
+}

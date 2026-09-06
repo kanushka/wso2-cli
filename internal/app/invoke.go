@@ -69,7 +69,7 @@ func productStrategy(identity contexts.Identity, namespace string) string {
 // broker binds access to, launches the module, renders the result, attributes
 // the module's diagnostics, and returns a typed problem for the exit class. The
 // module contributes semantics only.
-func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []string) error {
+func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []string, noInput bool) error {
 	// The tree comes from the receipt the resolver already verified, and from
 	// nowhere else. See internal/parsetree.
 	declared := parsetree.FromReceipt(resolved.Receipt)
@@ -146,7 +146,7 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 		InvocationID: invocationID,
 		StateRoot:    root,
 	}
-	broker.EstablishSession = s.sessionEstablisher(selection, namespace)
+	broker.EstablishSession = s.sessionEstablisher(selection, namespace, noInput)
 
 	launcher := rpc.Launcher{
 		Resolved: resolved,
@@ -156,6 +156,12 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 		},
 		InvocationID: invocationID,
 		Broker:       broker,
+	}
+	// The module is told that nothing may prompt through the one variable
+	// it already reads, whichever of the flag and the variable asked, so a
+	// module needs no second spelling of the shell's flag.
+	if s.nonInteractiveControl(noInput) != "" {
+		launcher.Environment = []string{NoInputEnvVar + "=1"}
 	}
 	outcome, invokeErr := launcher.Invoke(context.Background(), rpc.Invocation{
 		Namespace:  namespace,
@@ -187,9 +193,9 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 // invocation serves has no session of its own yet, or when the issuer will
 // not renew the one it has: the login flow for that one product, announced
 // first, and refused outright when nothing may open a browser.
-func (s Shell) sessionEstablisher(selection contexts.Selection, namespace string) func(contexts.ProductAccess) error {
+func (s Shell) sessionEstablisher(selection contexts.Selection, namespace string, noInput bool) func(contexts.ProductAccess) error {
 	return func(access contexts.ProductAccess) error {
-		if control := s.nonInteractiveControl(false); control != "" {
+		if control := s.nonInteractiveControl(noInput); control != "" {
 			refusal := auth.SessionRequired(namespace)
 			refusal.Guidance = fmt.Sprintf("Run wso2 login --only %s before this command; %s asked that no browser open.",
 				namespace, control)

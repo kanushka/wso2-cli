@@ -197,6 +197,12 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 	if err != nil {
 		return err
 	}
+	// --no-input is taken the same way and for the same reason; connect
+	// never prompts, so for it the flag is accepted and means nothing.
+	args, noInput, err := takeNoInput(args)
+	if err != nil {
+		return err
+	}
 	if verbose {
 		// The module's own --output governs, because these diagnostics
 		// interleave with the result the module renders under it.
@@ -248,7 +254,7 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 	if len(args) > 0 && args[0] == connectSubcommand {
 		return s.connect(namespace, resolved.Receipt, args[1:])
 	}
-	return s.invokeModule(namespace, resolved, args)
+	return s.invokeModule(namespace, resolved, args, noInput)
 }
 
 // identity reports the shell-side facts an installed module must be compatible
