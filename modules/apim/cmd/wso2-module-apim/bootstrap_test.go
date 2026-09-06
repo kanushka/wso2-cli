@@ -43,8 +43,8 @@ func TestBootstrapRegistersAJWTClientAndPrintsTheIdentityLine(t *testing.T) {
 	if fields["clientId"] != "client-1" || fields["clientSecret"] != "secret-1" ||
 		fields["issuer"] != fake.server.URL+"/oauth2/token" ||
 		!strings.Contains(fields["next"], "export WSO2_APIM_CLIENT_SECRET=secret-1") ||
-		!strings.Contains(fields["next"], "--client-id client-1 --client-secret-variable WSO2_APIM_CLIENT_SECRET") ||
-		!strings.Contains(fields["next"], "--audience client-1") || !strings.Contains(fields["next"], "--scope apim:admin") {
+		!strings.Contains(fields["next"], "wso2 apim connect "+fake.server.URL+
+			" --client-id client-1 --client-secret-variable WSO2_APIM_CLIENT_SECRET") {
 		t.Errorf("fields = %+v", fields)
 	}
 	assertEndsWithNext(t, outcome)

@@ -74,7 +74,7 @@ func bootstrapCommand() (*cobra.Command, *bootstrapFlags) {
 		Short: "Register this CLI as a public client in a ThunderID deployment, once.",
 		Long: "Logs in as the administrator through the seeded console client, creates the " +
 			"public OAuth application the shell's browser login uses if it is absent, and prints " +
-			"the wso2 identity create line to run next. The administrator password is read from the " +
+			"the wso2 iam connect line to run next. The administrator password is read from the " +
 			"environment variable --password-variable names; it is never a flag value.",
 	}
 	f := command.Flags()
@@ -119,10 +119,8 @@ func bootstrap(flags *bootstrapFlags) module.Handler {
 		if err != nil {
 			return result.Result{}, err
 		}
-		next := fmt.Sprintf("Run wso2 identity create thunder-admin --issuer %s --client-id %s "+
-			"--provider thunder --product %s --endpoint %s --audience %s --scope %s, "+
-			"then wso2 login --context thunder-admin.",
-			issuer, flags.clientID, Namespace, issuer, flags.systemResource, SystemScope)
+		next := fmt.Sprintf("Run wso2 %s connect %s%s, then wso2 login.", Namespace, issuer,
+			connectOverrides(flags))
 		return result.New(BootstrapSchema).
 			With("issuer", "Issuer", issuer).
 			With("clientId", "Client ID", flags.clientID).
@@ -186,4 +184,18 @@ func companionFlow(authFlow, companion string) string {
 		return companion
 	}
 	return ""
+}
+
+// connectOverrides names on the connect line whatever this bootstrap
+// registered differently from the module's descriptor defaults, so the
+// line printed is the one that records what was actually registered.
+func connectOverrides(flags *bootstrapFlags) string {
+	overrides := ""
+	if flags.clientID != DefaultClientID {
+		overrides += " --client-id " + flags.clientID
+	}
+	if flags.systemResource != DefaultSystemResource {
+		overrides += " --audience " + flags.systemResource
+	}
+	return overrides
 }

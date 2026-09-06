@@ -150,8 +150,8 @@ func TestBootstrapLogsInAsTheAdministratorAndRegistersTheCLI(t *testing.T) {
 		fields[field.Name] = field.Value
 	}
 	if fields["created"] != "true" || fields["clientId"] != "wso2-cli" ||
-		!strings.Contains(fields["next"], "wso2 identity create thunder-admin --issuer "+fake.server.URL) ||
-		!strings.Contains(fields["next"], "--audience https://localhost:8090/mcp --scope system") {
+		!strings.Contains(fields["next"], "wso2 iam connect "+fake.server.URL+", then wso2 login") ||
+		strings.Contains(fields["next"], "--audience") {
 		t.Errorf("fields = %+v", fields)
 	}
 	assertEndsWithNext(t, outcome)

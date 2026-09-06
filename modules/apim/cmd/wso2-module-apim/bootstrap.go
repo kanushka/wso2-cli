@@ -52,8 +52,9 @@ func bootstrapCommand() (*cobra.Command, *bootstrapFlags) {
 		Short: "Register this CLI on API Manager's resident key manager, once.",
 		Long: "Registers an OAuth client through dynamic client registration with the administrator " +
 			"password read from the environment variable --password-variable names, then prints the " +
-			"client secret once and the wso2 identity create line to run next. API Manager's key manager " +
-			"has no public client, so the identity it creates is a client-credentials one.",
+			"client secret once and the wso2 apim connect line to run next. The client is confidential, " +
+			"so it serves a client-credentials identity; a browser identity needs a public client " +
+			"federated to its login provider instead.",
 	}
 	f := command.Flags()
 	f.StringVar(&flags.url, "url", "", "The API Manager base URL, such as https://localhost:9443.")
@@ -94,12 +95,15 @@ func bootstrap(flags *bootstrapFlags) module.Handler {
 			return result.Result{}, apim.Problem(err, "the client registration")
 		}
 		issuer := base + "/oauth2/token"
-		next := fmt.Sprintf("export %s=%s (shown once); then wso2 identity create apim-admin --issuer %s "+
-			"--client-id %s --client-secret-variable %s --product %s --endpoint %s --audience %s "+
-			"--scope %s --scope %s --scope %s --scope %s --scope %s --scope %s",
-			ClientSecretVariable, registered.ClientSecret, issuer, registered.ClientID, ClientSecretVariable,
-			Namespace, base, registered.ClientID,
-			ScopeAPIView, ScopeAPICreate, ScopeAPIPublish, ScopeSubscribe, ScopeAppManage, ScopeAdmin)
+		// The client registered here is confidential, so it serves a
+		// client-credentials identity: the machine client at the login
+		// provider, or the product's own credential on one. A browser
+		// identity reaches API Manager through a public client federated to
+		// its login provider instead, which this registration does not make.
+		next := fmt.Sprintf("export %s=%s (shown once); then wso2 %s connect %s --client-id %s "+
+			"--client-secret-variable %s, on a client-credentials identity",
+			ClientSecretVariable, registered.ClientSecret, Namespace, base, registered.ClientID,
+			ClientSecretVariable)
 		return result.New(BootstrapSchema).
 			With("issuer", "Issuer", issuer).
 			With("clientId", "Client ID", registered.ClientID).
