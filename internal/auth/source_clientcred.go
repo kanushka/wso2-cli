@@ -25,7 +25,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -49,12 +48,19 @@ type clientCredentialsSource struct {
 	namespace string
 	// contextName is the selected context, named in refusals.
 	contextName string
-	// identity names the issuer and the OAuth client to present. It holds no
-	// credential.
-	identity contexts.Identity
+	// issuer is where the grant is presented: the identity's own issuer, or
+	// the product's own issuer when the product is reached through a grant.
+	issuer string
+	// clientID is the OAuth client presented at issuer: the identity's own,
+	// or the product's own when the product records a credential of its own.
+	clientID string
+	// resource is the RFC 8707 resource indicator to send, empty when the
+	// access plan carries none. The access plan has already decided whether
+	// one is owed, so mint sends exactly what it names rather than rederiving
+	// the decision from the identity's provider.
+	resource string
 	// audience is the concrete audience the identity registers for this
-	// namespace: what a resource indicator names, and what an issued token is
-	// proved to be bound to.
+	// namespace: what an issued token is proved to be bound to.
 	audience string
 	// secret is the client secret, in process memory for the length of one
 	// grant.
@@ -70,7 +76,7 @@ type clientCredentialsSource struct {
 func (s clientCredentialsSource) mint(request Request, now time.Time) (Grant, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), grantDeadline)
 	defer cancel()
-	endpoint, err := tokenEndpoint(ctx, s.client, s.identity.Auth.Issuer)
+	endpoint, err := tokenEndpoint(ctx, s.client, s.issuer)
 	if err != nil {
 		return Grant{}, err
 	}
@@ -83,17 +89,16 @@ func (s clientCredentialsSource) mint(request Request, now time.Time) (Grant, er
 		"grant_type": {"client_credentials"},
 		"scope":      {strings.Join(request.Scopes, " ")},
 	}
-	// A deployment that decides the audience per request is told which one, and
-	// the identity's registration for this product is what names it. There is
-	// no earlier authorization for this grant to inherit a binding from, so the
-	// indicator is the only thing that can bind the token at all. It carries the
-	// registered value rather than the module's logical name because the
-	// indicator has to be a resource this deployment knows.
-	if s.identity.Auth.Derivation() == contexts.DerivationTokenResource {
-		form.Set("resource", s.audience)
+	// The access plan has already decided whether a resource indicator is
+	// owed and, when it is, which resource it names — the product's own
+	// grant, or the identity's provider convention. There is no earlier
+	// authorization for this grant to inherit a binding from, so the
+	// indicator is the only thing that can bind the token at all.
+	if s.resource != "" {
+		form.Set("resource", s.resource)
 	}
 	issued, err := requestToken(ctx, s.client, endpoint, form,
-		clientAuth{id: s.identity.Auth.ClientID, secret: s.secret})
+		clientAuth{id: s.clientID, secret: s.secret})
 	if err != nil {
 		return Grant{}, s.refusedGrant(err, form.Get("resource"))
 	}

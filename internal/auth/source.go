@@ -66,18 +66,6 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 		}
 		product := b.Selection.Identity.Products[b.Namespace]
 		if kind == contexts.KindClientCredentials {
-			if !product.Direct() {
-				// The derivation refreshes a session for an identity token.
-				// An automated identity has no session and no identity token,
-				// so it has nothing to present; a client-credentials grant at
-				// the product's own issuer would be its route, and that is a
-				// different registration this release does not read.
-				return nil, denial("auth.kind_not_implemented",
-					fmt.Sprintf("the %q context derives the %q product by a grant, which this release "+
-						"implements only for identities that log in", b.Selection.Context.Name, b.namespace()),
-					"Select a context whose identity logs in through the browser or through a device "+
-						"code, or register the product directly on this identity.")
-			}
 			return b.inlineSource()
 		}
 		// Both interactive kinds land here, and deliberately on the same
@@ -234,36 +222,58 @@ func (b *Broker) developmentSource() (source, error) {
 }
 
 // inlineSource admits a non-interactive identity that carries its own
-// credential.
+// credential, or reaches a product that carries its own.
+//
+// A product recording clientIdVariable and clientSecretVariable is reached as
+// itself, at its own issuer, rather than as the identity's machine client: the
+// two are validated together, so recording one is recording both. A product
+// reached through a grant but naming no credential of its own has nothing to
+// present there and is refused rather than sent with a client the target
+// issuer never registered. Anything else uses the identity's own client and
+// secret, at the identity's own issuer.
 //
 // The secret is read here rather than at the moment of the grant, so a job that
 // forgot to export it is told so before the shell reaches out to an issuer that
 // was never going to be able to help.
 func (b *Broker) inlineSource() (source, error) {
-	variable := b.Selection.Identity.Auth.ClientSecretVariable
-	secret, err := b.namedSecret(variable, "the client secret")
+	access, _ := b.Selection.Identity.Access(b.Namespace)
+	product := b.Selection.Identity.Products[b.Namespace]
+	clientID := b.Selection.Identity.Auth.ClientID
+	secretVariable := b.Selection.Identity.Auth.ClientSecretVariable
+	if product.ClientSecretVariable != "" {
+		id, err := b.namedSecret(product.ClientIDVariable, "the product's client id")
+		if err != nil {
+			return nil, err
+		}
+		clientID = id
+		secretVariable = product.ClientSecretVariable
+	} else if product.Grant != nil {
+		// The derivation refreshes a session for an identity token. An
+		// automated identity has no session and no identity token, so it has
+		// nothing to present; the product's own issuer does not accept the
+		// identity's machine client, and its own credential is a different
+		// registration this release does not read without being told.
+		return nil, denial("auth.kind_not_implemented",
+			fmt.Sprintf("the %q product is reached through its own issuer, which does not accept "+
+				"this identity's machine client", b.namespace()),
+			"Record the product's own client credential on its entry with clientIdVariable and "+
+				"clientSecretVariable, or select an interactive identity.")
+	}
+	secret, err := b.namedSecret(secretVariable, "the client secret")
 	if err != nil {
 		return nil, err
 	}
 	return clientCredentialsSource{
 		namespace:      b.namespace(),
 		contextName:    b.Selection.Context.Name,
-		identity:       b.Selection.Identity,
-		audience:       b.productAudience(),
+		issuer:         access.Issuer,
+		clientID:       clientID,
+		resource:       access.Resource,
+		audience:       access.Audience,
 		secret:         secret,
-		secretVariable: variable,
+		secretVariable: secretVariable,
 		client:         b.httpClient(),
 	}, nil
-}
-
-// productAudience is the concrete audience this identity registers for the
-// namespace asking: the string this deployment stamps into an access token's
-// aud claim, and so the one a grant is proved against.
-//
-// checkProduct has already refused an empty one by the time any source is
-// built, so a caller holds a value the deployment actually stated.
-func (b *Broker) productAudience() string {
-	return b.Selection.Identity.Products[b.Namespace].Audience
 }
 
 // httpClient is what reaches an issuer. It defaults to the process-wide client
