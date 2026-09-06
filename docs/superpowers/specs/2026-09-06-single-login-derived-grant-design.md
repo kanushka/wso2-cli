@@ -193,6 +193,32 @@ Thunder derivation should refresh with the full granted union and bind
 only the audience per command, giving up per-command scope narrowing on
 Thunder to make one session serve several products.
 
+## 7b. Correction: scope narrowing is permanent on both providers
+
+Measured 2026-09-06 (proof document). Thunder and Identity Server both
+permanently narrow a refresh token's granted scope to the smallest set ever
+requested with it — Thunder by binding the refresh to one resource server,
+Identity Server by reducing the grant to the requested subset, rotation on
+or off. The shell narrows the session per command, so the first command
+shrinks the session to its own scopes and any product whose command needs a
+different set is then refused.
+
+The consequence is that single login serves several products only when
+every command from the session asks for the same scopes. This is why the
+derived apim command runs repeatedly (it always asks the login issuer for
+the same assertion scopes) but a second product with different scopes would
+fail. It is a property of the deployments, and it is also true of the
+shell's existing scoped-refresh model for several direct products under one
+identity, independent of this design.
+
+Delivering single login across products with different scopes therefore
+needs a shell change this spec does not make: refresh the session with the
+full granted union each time and bind only the audience per command, giving
+up per-command scope narrowing. That trades the verified-narrowing
+guarantee for one session that serves every product, and belongs in its own
+design with a security review. Until then, the derived grant is correct for
+a single derived product, or for products sharing one scope set.
+
 ## 8. Security notes
 
 - The assertion route adds no credential. The shell already holds the

@@ -277,3 +277,63 @@ recorded above is a property of Thunder's refresh behaviour, not of the
 design. Not tested: Asgardeo (the hosted equivalent), and a direct
 Identity Server management product in the same session alongside the
 derived one.
+
+## Correction: two products with different scopes fail on Identity Server too
+
+The section above proved one Identity Server login serving one derived
+product repeatedly. That is not the same as serving two products, and the
+distinction turns out to matter. Measured 2026-09-06 against `cli-is`:
+
+**Identity Server permanently narrows a refresh token's granted scope to
+the smallest set ever requested with it.** With refresh-token rotation
+turned off on the CLI application, a session granted `openid groups email`
+behaves like this:
+
+| Refresh request | Result |
+| --- | --- |
+| `openid groups email` | issued `openid groups email` |
+| `email` | issued `email` |
+| `openid groups email` again | `invalid_scope` |
+| `openid groups` | `invalid_scope` |
+
+Once any refresh narrows to a subset, the session holds only that subset;
+it never widens back. With rotation on, the same happens and the narrowed
+grant travels to the rotated token. This is the same wall Thunder hit,
+reached differently: Thunder binds the refresh to one resource server's
+scopes, Identity Server narrows it to the smallest requested set.
+
+### Why the earlier runs still passed
+
+Every `wso2 apim apis list` asks the login issuer for the same assertion
+scopes (`openid groups`), so narrowing to that set and asking for it again
+is stable. The failure appears only when a second product's command asks
+the same session for a **different** scope set. The shell's per-command
+scoped refresh narrows the session to whatever the running command needs,
+so the first command shrinks the session and the next product's command is
+refused.
+
+### Corrected conclusion
+
+Single login works, on both Identity Server and Thunder, when every command
+from that session requests the same scopes: one product, or several
+products that happen to share an identical scope set. Single login across
+products with **different** scope sets is blocked on both providers by how
+they narrow refresh tokens, and the derived grant does not change that.
+
+The resolutions are provider-independent, and the choice is a real design
+decision the shell has not made:
+
+1. One identity, and so one login, per distinct scope set. Simple, but not
+   the single-login experience for a multi-product environment.
+2. Refresh the session with the full granted union every time and bind only
+   the audience per command, giving up per-command scope narrowing. One
+   login then serves every product, at the cost of handing each module a
+   token scoped to the union rather than to what it asked for. This
+   weakens the shell's verified-narrowing guarantee and needs its own
+   security review.
+
+This also affects the shell's existing multi-product-per-identity model,
+not only the derived grant: the documented example of one identity reaching
+several products, each narrowing the shared session, meets the same wall on
+a real deployment. It was not exercised before because no live multi-product
+journey with differing scopes had been run.
