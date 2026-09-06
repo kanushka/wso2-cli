@@ -198,6 +198,9 @@ func (s Shell) orgUse(command *cobra.Command, organization string) error {
 		if err != nil {
 			return document, err
 		}
+		if err := refuseOrganizationSwitch(selected.Identity); err != nil {
+			return document, err
+		}
 		edited = selected.Context.Name
 		for i := range document.Contexts {
 			if document.Contexts[i].Name == edited {
@@ -290,4 +293,25 @@ func (o orgCurrentReport) fields() [][2]string {
 		{"Context", o.Context},
 		{"Organization", o.Organization},
 	}
+}
+
+// refuseOrganizationSwitch refuses to record an organization on a context
+// whose identity provider has no organization switch, before the document is
+// written: the auth broker would refuse every later command with the same
+// code (internal/auth/source.go's checkHomeTenant), and a value accepted here
+// only to break every call is worse than one refused at the flag.
+//
+// Asgardeo, and any provider the document does not name, keep the field: a
+// tenant switch is what the broker's check exists for on them.
+func refuseOrganizationSwitch(identity contexts.Identity) error {
+	switch identity.Auth.Provider {
+	case contexts.ProviderThunder, contexts.ProviderIdentityServer:
+	default:
+		return nil
+	}
+	return problem.New(problem.CategoryAuthPolicy, "auth.organization_switch_unsupported",
+		fmt.Sprintf("the %q identity authenticates against %s, which has no organization to switch to",
+			identity.Name, identity.Auth.Provider)).
+		WithRecovery("Leave the context's organization unset; commands run against the deployment " +
+			"the identity names. Organization switch is for a multi-tenant provider such as Asgardeo.")
 }

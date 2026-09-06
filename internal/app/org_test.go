@@ -320,3 +320,34 @@ func TestOrgUseSaysNothingAboutASessionWhenNothingChanged(t *testing.T) {
 		t.Errorf("a no-op org use warned that a session no longer matches:\n%s", errOut)
 	}
 }
+
+// TestOrgUseIsRefusedOnAProviderWithoutOrganizationSwitch pins the spec's
+// section 7: a value the broker would refuse on every later call is refused
+// here, naming the provider, and nothing is written.
+func TestOrgUseIsRefusedOnAProviderWithoutOrganizationSwitch(t *testing.T) {
+	for _, provider := range []string{contexts.ProviderThunder, contexts.ProviderIdentityServer} {
+		t.Run(provider, func(t *testing.T) {
+			shell, _, errOut := newShell(t)
+			seeded := identityOnlyDocument()
+			seeded.Identities[0].Auth.Provider = provider
+			if provider == contexts.ProviderThunder {
+				seeded.Identities[0].Products = map[string]contexts.Product{"iam": {
+					Endpoint: "http://localhost:8492", Audience: "https://localhost:8090/mcp", Scopes: []string{"system"}}}
+			}
+			seeded.DefaultContext = "acme"
+			seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud"}}
+			installLogin(t, shell, seeded)
+
+			if code := shell.Run([]string{"org", "use", "org-2"}); code != exit.AuthPolicy {
+				t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.AuthPolicy, errOut)
+			}
+			requireRefusal(t, errOut.String(), "auth.organization_switch_unsupported")
+			if !strings.Contains(errOut.String(), provider) {
+				t.Errorf("the refusal does not name the provider:\n%s", errOut)
+			}
+			if got := loadDocument(t, shell).Contexts[0].Organization; got != "" {
+				t.Errorf("the organization was written as %q", got)
+			}
+		})
+	}
+}
