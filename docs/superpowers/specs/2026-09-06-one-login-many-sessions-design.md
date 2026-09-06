@@ -71,17 +71,22 @@ all.
 
 ## 4. Acquisition strategies
 
-How a product's session is obtained is decided per product, by the first
-strategy in this order that the product record and the deployment support.
-The shell records the chosen strategy on the session and shows it in
-`wso2 whoami`.
+How a product's session is obtained follows from the shape of its record;
+nothing pins it. A product with no `grant` is `direct` when it shares the
+login product's scope set and resource, and `sibling` otherwise. A product
+naming a `grant` is `derived` for a jwt-bearer grant and `federated` for a
+federated grant, regardless of what the login session already covers. A
+client-credentials identity has no session at all, and every product under
+it is `inline`: a grant per command, at the product's own issuer when its
+record names one. The shell shows the resulting strategy in `wso2 whoami`.
 
 | Strategy | When it applies | Browser | What is stored |
 | --- | --- | --- | --- |
-| `direct` | the product accepts the login provider's tokens and the login authorization already covers its audience and scopes | none | the login session itself |
-| `derived` | the product record names a jwt-bearer or exchange grant at the product's own issuer, and the login session can yield the assertion | none | nothing new; derived per command from the login session, as the derived-grant design already does |
-| `federated` | the product's own issuer is a public client federated to the login provider | one tab, answered by sign-on | a refresh token from the product's issuer |
-| `sibling` | the login provider issues for the product but under a different resource or scope set (ThunderID's second resource server; Identity Server with a different scope set) | one tab, answered by sign-on | a second refresh token from the login provider |
+| `direct` | the product has no grant and shares the login product's scope set and resource | none | the login session itself |
+| `sibling` | the product has no grant but does not share the login product's scope set and resource (ThunderID's second resource server; Identity Server with a different scope set) | one tab, answered by sign-on | a second refresh token from the login provider |
+| `derived` | the product record names a jwt-bearer grant at the product's own issuer, and the login session can yield the assertion | none | nothing new; derived per command from the login session, as the derived-grant design already does |
+| `federated` | the product record names a federated grant: its own issuer is a public client federated to the login provider | one tab, answered by sign-on | a refresh token from the product's issuer |
+| `inline` | the identity is client-credentials | none | nothing; a grant per command |
 
 `direct` is today's `sessionSource`. `derived` is the `assertionSource`
 from the derived-grant branch, folded in unchanged. `federated` and
@@ -98,8 +103,10 @@ A product whose record supports none of these is refused with
 The session store is keyed by credential reference **and product
 namespace**. The login session keeps today's key so nothing a v2 shell
 wrote becomes unreadable; product sessions are stored beside it as
-`<credentialRef>/<namespace>`. Each carries the strategy that produced it,
-the issuer and client ID it belongs to, and its scope set.
+`<credentialRef>.<namespace>` — a dot, which a credential reference can
+never contain, so the entry can never collide with another identity's.
+Each carries the strategy that produced it, the issuer and client ID it
+belongs to, and its scope set.
 
 `wso2 login` runs the login authorization, then, for every recorded
 product whose strategy needs its own session, runs that authorization too,
@@ -146,10 +153,6 @@ paste.
 before the browser opens, naming `connect`. This closes the first-login
 failure recorded in the gap analysis.
 
-The product record gains one optional member, `strategy`, which pins one of
-the four names when the deployment's answer must not be discovered. It is
-absent in every generated document.
-
 ## 7. Command surface
 
 - A module request with no scopes means the product's recorded scopes; the
@@ -169,17 +172,20 @@ session is shared there. What is shared is a credential every product
 honours, or a token one product accepts from another's issuer.
 
 - **Client credentials** is the CI method. One machine client at the login
-  provider, given roles on every product. The inline source mints **per
-  product**: on ThunderID a token request carrying that product's resource
-  indicator, on Identity Server and Asgardeo that product's scopes. That is
-  `direct` and `sibling` with no session and no browser, measured on
-  ThunderID in exercise 1. A product with its own issuer is reached by
-  `derived`, with the machine token as the assertion; the refusal of a
-  client-credentials identity with a grant in the derived-grant branch is
-  lifted. Where a product cannot map a machine client to its management
-  roles, the product record may name its own `clientIdVariable` and
-  `clientSecretVariable`; the pipeline then holds two secrets, still on one
-  identity.
+  provider, given roles on every product. There is no session, so every
+  product's strategy is `inline`; the inline source mints **per product**,
+  on ThunderID a token request carrying that product's resource indicator,
+  on Identity Server and Asgardeo that product's scopes, measured on
+  ThunderID in exercise 1. The derived-from-machine-token route — presenting
+  the machine token as a jwt-bearer assertion at a product's own issuer — is
+  withdrawn: API Manager refuses every `at+jwt` assertion, measured in
+  `docs/research/2026-09-06-single-login-spikes.md`. A product reached at
+  its own issuer under a machine identity instead carries a product
+  credential, `clientIdVariable` and `clientSecretVariable`; the pipeline
+  then holds two secrets, still on one identity. A product with a grant and
+  no credential of its own is refused with `auth.kind_not_implemented`: the
+  target issuer does not accept the identity's machine client, and this
+  release reads no other credential for it without being told.
 - **Device code** is browser login for a host without a browser, not a CI
   method. It yields a refresh token like browser login, so `direct` and
   `derived` are unchanged; `sibling` and `federated` each show one more

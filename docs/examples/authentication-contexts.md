@@ -51,15 +51,34 @@ reachability at parse time.
 
 ### One login is not one token
 
-One identity means one *login*, not one credential handed around. The broker
-derives a separate short-lived token per product invocation, bound to that
-product's audience/resource and to scopes.
+One identity means one *sign-on*, not one credential handed around and not
+one token. The person enters credentials once; the shell then runs one
+authorization per product the identity records, each answered from that same
+sign-on, and stores the result as that product's own session. No session ever
+carries another product's scopes.
 
-How narrowly it can bind is a per-backend capability, with full audience and
-scope narrowing on some backends and scope selection only on others, so the
-broker resolves a strategy per deployment and refuses rather than silently
-issuing broader access. The context shape is identical either way: this is a
-broker capability, not a configuration difference.
+How a product's session is obtained is decided per product, from the shape of
+its record and from what the deployment supports, in five strategies:
+
+- `direct` — the login session itself already covers the product's scopes and
+  resource; nothing further is stored.
+- `sibling` — the login provider answers for the product too, but under a
+  scope set or resource the login session does not already cover, so a second
+  session is obtained there, silently, in the same sign-on.
+- `derived` — the product names a jwt-bearer grant: an identity token from the
+  login session is presented at the product's own issuer per command, and
+  nothing beyond the login session is stored.
+- `federated` — the product names a federated grant: its own issuer is a
+  public client federated to the login provider, so its session is obtained
+  through one browser tab, answered by the same sign-on.
+- `inline` — a client-credentials identity holds no session at all; access is
+  a grant per command, at the product's own issuer when its record names one.
+
+A product with no grant is `direct` when it shares the login product's scope
+set and resource, and `sibling` otherwise; there is nothing to configure that
+chooses between the two. A product record may still name a grant explicitly,
+which chooses `derived` or `federated` regardless of what the login session
+already covers.
 
 ### As deployments improve, contexts collapse
 
@@ -86,6 +105,15 @@ identities:
         endpoint: <url>
         audience: <resource id> # what the broker binds derived access to
         scopes: [<scope>, ...]
+        grant:                    # optional: how this product's own session
+                                   # is derived when it is not direct/sibling
+          kind: jwt-bearer | federated
+          issuer: <url>            # the product's own issuer
+          clientId: <id>           # the public client presented there
+          scopes: [<scope>, ...]   # jwt-bearer only: assertion scopes
+          resource: <uri>          # resource indicator, when required
+        clientIdVariable: <VAR>     # product credential: client-credentials
+        clientSecretVariable: <VAR> # identities only, both or neither
 
 contexts:
   - name: <context name>        # required, unique
@@ -108,11 +136,27 @@ Notes:
   deliberately *not* the context's `organization`, which is what the command
   targets and which the broker may reach through an organization-switch
   exchange on the same session. Two different things, two different names.
-- `clientId` sits on the identity, because it is what the session authenticates
-  as. A product needing its own separately authenticated client is not the same
-  login and belongs to its own identity.
+- `clientId` sits on the identity, because it is what the login session
+  authenticates as. A product reached at its own issuer, as its own client,
+  still belongs to this identity when a `grant` names that issuer and client:
+  the sign-on stays one person entering credentials once, whether every
+  product answers directly or some are reached through a grant.
 - `products` may be omitted for `type: cloud`, where the control plane resolves
   the set at login. It is required for `type: onprem`.
+- `grant` names how one product's own session is obtained when the login
+  session does not already cover it and no sibling session at the login
+  provider will do: `jwt-bearer` presents an identity token from the login
+  session at the grant's issuer, narrowed by `scopes` (openid always among
+  them) and, when that issuer requires one, bound by `resource`; `federated`
+  signs in at the grant's issuer as its own public client, through the same
+  browser sign-on, and needs no `scopes` of its own. Omitting `grant` leaves
+  the product direct or sibling, decided by whether it shares the login
+  product's scope set and resource — there is nothing else to configure for
+  that choice.
+- `clientIdVariable` and `clientSecretVariable` name a product's own client
+  credential, for a client-credentials identity whose machine client a
+  product cannot map to its roles. Both or neither; names, never values, and
+  refused on an interactive identity.
 - Contexts are always stored explicitly. There is no implicit context, so
   `context list`, `context delete`, and export all operate on the same set.
   `wso2 context create` and `wso2 login` generate the one-identity/one-context
@@ -241,6 +285,10 @@ identities:
         endpoint: https://agent.own.example
         audience: https://agent.own.example
         scopes: [agent:read, agent:write]
+      agent-gateway:
+        endpoint: https://gateway.own.example
+        audience: https://gateway.own.example
+        scopes: [gateway:invoke]
 
   - name: onprem-api
     type: onprem
@@ -296,6 +344,14 @@ plausible.
 `onprem-api` is a compatibility-adapter identity. Its access cannot be narrowed
 or derived from, so a module reached through it does not carry the same trust
 property as one reached through the other two. §10 states what that costs.
+
+`onprem-agent` shows that a Thunder-bound identity is not limited to one
+product: Thunder accepts only one resource indicator per authorization, but
+that binds one *session* to one resource, not one identity to one product.
+`agent` is `direct` — it is the login's own audience and scope set — and
+`agent-gateway` is `sibling`, a second session obtained from the same
+provider under its own resource, in the same `wso2 login`. Both come out of
+the one sign-on the `own-agent` context runs.
 
 ## 7. Several targets over one login
 
