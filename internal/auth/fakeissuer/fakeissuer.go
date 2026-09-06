@@ -217,6 +217,20 @@ type Options struct {
 	// commonest real cause of a token that will not verify: a context document
 	// whose client identifier is not the one the deployment signed in.
 	DeviceIDTokenAudience string
+
+	// TrustedIssuer makes this issuer a target of the JWT bearer grant: it
+	// accepts as an assertion any identity token that issuer minted, when the
+	// token names BearerAlias as its audience. Nil leaves the grant
+	// unsupported, as a deployment nobody configured trust on.
+	TrustedIssuer *Issuer
+	// BearerAlias is the audience an assertion must carry. It models the
+	// token endpoint alias a deployment registers for a trusted issuer.
+	BearerAlias string
+	// BearerScopeMode decides what the JWT bearer grant issues: "" or "honor"
+	// issues what was asked; "default" issues the single scope "default", as
+	// a deployment does for a user it maps no role for; "refuse" answers
+	// invalid_grant, as one that does not accept the assertion.
+	BearerScopeMode string
 }
 
 // Issuer is one running fake issuer. Its URL doubles as the issuer identifier.
@@ -235,6 +249,7 @@ type Issuer struct {
 	codes         map[string]codeGrant
 	refreshTokens map[string]refreshRecord // refresh token -> what it may renew
 	accessTokens  map[string]tokenRecord   // access token -> introspectable facts
+	idTokens      map[string]string        // identity token -> its audience
 	deviceGrants  map[string]*deviceGrant
 	devicePolls   []time.Time
 	// lastDeviceCode is the most recently minted device code, recorded because
@@ -307,6 +322,7 @@ func New(t *testing.T, opts Options) *Issuer {
 		codes:         map[string]codeGrant{},
 		refreshTokens: map[string]refreshRecord{},
 		accessTokens:  map[string]tokenRecord{},
+		idTokens:      map[string]string{},
 		deviceGrants:  map[string]*deviceGrant{},
 	}
 	if opts.NegativeSerialCertificate {
@@ -567,9 +583,47 @@ func (i *Issuer) handleToken(w http.ResponseWriter, r *http.Request) {
 		i.clientCredentialsGrant(w, r)
 	case deviceGrantType:
 		i.deviceGrant(w, r)
+	case bearerGrantType:
+		i.bearerGrant(w, r)
 	default:
 		oauthError(w, http.StatusBadRequest, "unsupported_grant_type")
 	}
+}
+
+const bearerGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer"
+
+// bearerGrant is RFC 7523 as a deployment configured to trust another issuer
+// runs it: the assertion must be an identity token the trusted issuer minted
+// for the registered alias, the client presents only its identifier, and what
+// is issued is decided by BearerScopeMode.
+func (i *Issuer) bearerGrant(w http.ResponseWriter, r *http.Request) {
+	if i.opts.TrustedIssuer == nil {
+		oauthError(w, http.StatusBadRequest, "unsupported_grant_type")
+		return
+	}
+	if presentedClientID(r) == "" {
+		oauthError(w, http.StatusUnauthorized, "invalid_client")
+		return
+	}
+	trusted := i.opts.TrustedIssuer
+	trusted.mutex.Lock()
+	audience, minted := trusted.idTokens[r.PostForm.Get("assertion")]
+	trusted.mutex.Unlock()
+	if !minted || audience != i.opts.BearerAlias || i.opts.BearerScopeMode == "refuse" {
+		oauthError(w, http.StatusBadRequest, "invalid_grant")
+		return
+	}
+	issued := splitScopes(r.PostForm.Get("scope"))
+	if i.opts.BearerScopeMode == "default" {
+		issued = []string{"default"}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"access_token":  i.mintAccessTokenFor("user-1", issued, ""),
+		"refresh_token": randomToken("rt"),
+		"token_type":    "Bearer",
+		"expires_in":    300,
+		"scope":         strings.Join(issued, " "),
+	})
 }
 
 func (i *Issuer) exchangeCode(w http.ResponseWriter, r *http.Request) {
@@ -701,6 +755,11 @@ func (i *Issuer) refreshGrant(w http.ResponseWriter, r *http.Request) {
 		if value, stated := i.refreshTokenExpiresInValue(); stated {
 			response["refresh_token_expires_in"] = value
 		}
+	}
+	// A renewal under openid carries a fresh identity token, as OpenID Connect
+	// Core section 12 permits, for the client that presented the refresh token.
+	if slices.Contains(issued, "openid") {
+		response["id_token"] = i.mintIDToken(presentedClientID(r), "")
 	}
 	if !i.opts.OmitRefreshScopeField {
 		response["scope"] = strings.Join(issued, " ")
@@ -1133,7 +1192,11 @@ func (i *Issuer) mintIDToken(clientID, nonce string) string {
 	if i.opts.OmitNonce {
 		delete(claims, "nonce")
 	}
-	return i.sign(claims)
+	token := i.sign(claims)
+	i.mutex.Lock()
+	i.idTokens[token] = clientID
+	i.mutex.Unlock()
+	return token
 }
 
 func (i *Issuer) sign(claims map[string]any) string {

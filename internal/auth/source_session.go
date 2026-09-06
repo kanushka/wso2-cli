@@ -84,30 +84,9 @@ func (s sessionSource) mint(request Request, now time.Time) (Grant, error) {
 
 // derive runs one scoped refresh under the lock mint holds.
 func (s sessionSource) derive(request Request, now time.Time) (Grant, error) {
-	stored, err := s.sessions.Load(s.identity.Auth.CredentialRef)
-	if err != nil {
-		return Grant{}, err
-	}
-	if stored.Issuer != s.identity.Auth.Issuer {
-		// The context now names a different issuer than the one this session
-		// was minted by. Refreshing against it would present one deployment's
-		// token to another, so the session is treated as belonging to nobody.
-		return Grant{}, denial("auth.session_issuer_mismatch",
-			fmt.Sprintf("the stored session for the %q identity was established against a different "+
-				"identity provider than the context now names", s.identity.Name),
-			"Run wso2 login to establish a session against the issuer this context names.")
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), grantDeadline)
 	defer cancel()
-	endpoint, err := tokenEndpoint(ctx, s.client, s.identity.Auth.Issuer)
-	if err != nil {
-		return Grant{}, err
-	}
-	// The scope carried is the module's own request, not the identity's product
-	// union: the narrowing is the point, and sending the union would ask the
-	// issuer for exactly the authority the shell is trying not to hand over.
-	issued, err := s.refresh(ctx, endpoint, stored.RefreshToken, request.Scopes)
+	issued, err := s.renew(ctx, request.Scopes, now)
 	if err != nil {
 		return Grant{}, err
 	}
@@ -115,13 +94,50 @@ func (s sessionSource) derive(request Request, now time.Time) (Grant, error) {
 	if err != nil {
 		return Grant{}, err
 	}
+	return Grant{Token: issued.AccessToken, ExpiresAt: issued.expiry(facts, now)}, nil
+}
 
-	// The replacement is stored before the grant is returned, and while the
+// renew refreshes the stored session for scopes and persists any rotation,
+// under the lock the caller holds.
+//
+// It is the whole of what the two derivations share: the narrowed refresh
+// hands what comes back to the module, and the assertion derivation hands its
+// identity token to another issuer. Both need the rotated refresh token
+// stored before anything else happens with the answer, and this is the one
+// place that stores it.
+func (s sessionSource) renew(ctx context.Context, scopes []string, now time.Time) (tokenResponse, error) {
+	stored, err := s.sessions.Load(s.identity.Auth.CredentialRef)
+	if err != nil {
+		return tokenResponse{}, err
+	}
+	if stored.Issuer != s.identity.Auth.Issuer {
+		// The context now names a different issuer than the one this session
+		// was minted by. Refreshing against it would present one deployment's
+		// token to another, so the session is treated as belonging to nobody.
+		return tokenResponse{}, denial("auth.session_issuer_mismatch",
+			fmt.Sprintf("the stored session for the %q identity was established against a different "+
+				"identity provider than the context now names", s.identity.Name),
+			"Run wso2 login to establish a session against the issuer this context names.")
+	}
+
+	endpoint, err := tokenEndpoint(ctx, s.client, s.identity.Auth.Issuer)
+	if err != nil {
+		return tokenResponse{}, err
+	}
+	// The scope carried is the caller's own request, not the identity's product
+	// union: the narrowing is the point, and sending the union would ask the
+	// issuer for exactly the authority the shell is trying not to hand over.
+	issued, err := s.refresh(ctx, endpoint, stored.RefreshToken, scopes)
+	if err != nil {
+		return tokenResponse{}, err
+	}
+
+	// The replacement is stored before the answer is returned, and while the
 	// lock is still held. A crash after this point costs an access token; a
 	// crash before it would have cost the session.
 	// Only the refresh token is replaced. The access token the session carries
 	// is the one the login obtained, for the whole product scope union; what
-	// this derivation just minted is narrower and belongs to one module for one
+	// this renewal just minted is narrower and belongs to one module for one
 	// command, so it is handed over and never stored.
 	if issued.RefreshToken != "" && issued.RefreshToken != stored.RefreshToken {
 		stored.RefreshToken = issued.RefreshToken
@@ -145,10 +161,10 @@ func (s sessionSource) derive(request Request, now time.Time) (Grant, error) {
 			stored.SessionExpiresAt = now.Add(time.Duration(issued.RefreshTokenExpiresIn) * time.Second).UTC()
 		}
 		if err := s.sessions.Save(s.identity.Auth.CredentialRef, stored); err != nil {
-			return Grant{}, err
+			return tokenResponse{}, err
 		}
 	}
-	return Grant{Token: issued.AccessToken, ExpiresAt: issued.expiry(facts, now)}, nil
+	return issued, nil
 }
 
 // refresh exchanges the stored refresh token for access narrowed to scopes.

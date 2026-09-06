@@ -84,15 +84,20 @@ func (s Shell) identityAddProductCommand() *cobra.Command {
 	var endpoint, audience string
 	var scopes []string
 	var replace bool
+	var grant grantFlags
 	command := &cobra.Command{
 		Use:   "add-product <identity> <namespace>",
 		Short: "Record a product endpoint a self-hosted deployment cannot advertise.",
 		Args: exactlyTwoArguments("an identity and a product namespace",
 			identityAddProductUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			return s.identityAddProduct(command, args[0], args[1],
-				contexts.Product{Endpoint: endpoint, Audience: audience, Scopes: scopes},
-				replace)
+			product := contexts.Product{Endpoint: endpoint, Audience: audience, Scopes: scopes}
+			derived, err := grant.product()
+			if err != nil {
+				return err
+			}
+			product.Grant = derived
+			return s.identityAddProduct(command, args[0], args[1], product, replace)
 		},
 	}
 	command.Flags().StringVar(&endpoint, "endpoint", "",
@@ -105,7 +110,46 @@ func (s Shell) identityAddProductCommand() *cobra.Command {
 		"The permissions the shell may request for this product, comma-separated.")
 	command.Flags().BoolVar(&replace, "replace", false,
 		"Replace the namespace's existing record instead of refusing.")
+	command.Flags().StringVar(&grant.kind, "grant", "",
+		"How access for this product is derived when its issuer is not the identity's: "+
+			contexts.GrantJWTBearer+" presents an identity token from the login session.")
+	command.Flags().StringVar(&grant.issuer, "grant-issuer", "",
+		"The product's own OpenID issuer, whose token endpoint takes the assertion.")
+	command.Flags().StringVar(&grant.clientID, "grant-client-id", "",
+		"The public client the shell presents at the grant issuer.")
+	command.Flags().StringSliceVar(&grant.scopes, "grant-scopes", nil,
+		"The scopes the login session is refreshed with for the assertion, comma-separated; "+
+			"openid is always among them.")
 	return command
+}
+
+// grantFlags are the four flags that describe a derived product. They are
+// legal only together: a grant is one arrangement, and half of one names
+// nothing the broker could carry out.
+type grantFlags struct {
+	kind, issuer, clientID string
+	scopes                 []string
+}
+
+// product turns the flags into the grant a product records, or nil when none
+// was given.
+func (g grantFlags) product() (*contexts.Grant, error) {
+	if g.kind == "" && g.issuer == "" && g.clientID == "" && len(g.scopes) == 0 {
+		return nil, nil
+	}
+	if g.kind != contexts.GrantJWTBearer {
+		return nil, problem.New(problem.CategoryUsage, "shell.invalid_argument",
+			fmt.Sprintf("%q is not a grant this shell implements", g.kind)).
+			WithRecovery("Pass --grant " + contexts.GrantJWTBearer + ", which presents an identity " +
+				"token from the login session to the product's own issuer. " + identityAddProductUsage)
+	}
+	if g.issuer == "" || g.clientID == "" {
+		return nil, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
+			"wso2 identity add-product needs --grant-issuer and --grant-client-id with --grant").
+			WithRecovery("Name the product's own issuer and the public client the shell presents " +
+				"there. " + identityAddProductUsage)
+	}
+	return &contexts.Grant{Kind: g.kind, Issuer: g.issuer, ClientID: g.clientID, Scopes: g.scopes}, nil
 }
 
 func (s Shell) identityListCommand() *cobra.Command {
@@ -181,6 +225,7 @@ func (s Shell) identityAddProduct(
 		Endpoint:  product.Endpoint,
 		Audience:  product.Audience,
 		Scopes:    product.Scopes,
+		Grant:     product.Grant,
 	}
 	// changed records that the update reached the point of returning a modified
 	// document. Everything Update refuses after that is a refusal of what this
@@ -222,8 +267,14 @@ func (s Shell) identityAddProduct(
 		products[namespace] = product
 		declared.Products = products
 		document.Identities[position] = declared
+		direct := 0
+		for _, candidate := range products {
+			if candidate.Direct() {
+				direct++
+			}
+		}
 		uncorrectable = declared.Auth.Derivation() == contexts.DerivationTokenResource &&
-			len(products) > 1
+			direct > 1
 		changed = true
 		return document, nil
 	})
@@ -286,6 +337,7 @@ func (s Shell) identityList(command *cobra.Command) error {
 				Endpoint:  product.Endpoint,
 				Audience:  product.Audience,
 				Scopes:    product.Scopes,
+				Grant:     product.Grant,
 			})
 		}
 		if len(entry.Products) == 0 {
@@ -362,6 +414,9 @@ type (
 		Endpoint  string   `json:"endpoint"`
 		Audience  string   `json:"audience"`
 		Scopes    []string `json:"scopes"`
+		// Grant is how the product is derived, absent when the session itself
+		// answers for it.
+		Grant *contexts.Grant `json:"grant,omitempty"`
 		// Replaced reports that a record for this namespace was overwritten,
 		// which happens only under --replace.
 		Replaced bool `json:"replaced"`
@@ -369,10 +424,11 @@ type (
 
 	// productEntry is one product an identity reaches.
 	productEntry struct {
-		Namespace string   `json:"namespace"`
-		Endpoint  string   `json:"endpoint"`
-		Audience  string   `json:"audience"`
-		Scopes    []string `json:"scopes"`
+		Namespace string          `json:"namespace"`
+		Endpoint  string          `json:"endpoint"`
+		Audience  string          `json:"audience"`
+		Scopes    []string        `json:"scopes"`
+		Grant     *contexts.Grant `json:"grant,omitempty"`
 	}
 
 	// identityEntry is one row group of the listing.
@@ -391,14 +447,18 @@ type (
 )
 
 func (p productAdded) fields() [][2]string {
-	return [][2]string{
+	fields := [][2]string{
 		{"Identity", p.Identity},
 		{"Product", p.Namespace},
 		{"Endpoint", p.Endpoint},
 		{"Audience", p.Audience},
 		{"Scopes", strings.Join(p.Scopes, ",")},
-		{"Replaced", yesNo(p.Replaced)},
 	}
+	if p.Grant != nil {
+		fields = append(fields,
+			[2]string{"Grant", p.Grant.Kind + " at " + p.Grant.Issuer + " as " + p.Grant.ClientID})
+	}
+	return append(fields, [2]string{"Replaced", yesNo(p.Replaced)})
 }
 
 // productExists refuses to overwrite a product record without being asked to.

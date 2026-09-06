@@ -33,6 +33,10 @@ type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	Scope        string `json:"scope"`
+	// IDToken is the identity token a renewal under openid carries. The shell
+	// never verifies or stores it: it is an assertion for a product's own
+	// issuer to verify, and it lives for one derivation.
+	IDToken string `json:"id_token"`
 	// ExpiresIn is the access token's lifetime in seconds. It decodes through
 	// optionalSeconds, not a plain int64, because a single member of the wrong
 	// shape fails the whole Unmarshal — and an issuer that states this standard
