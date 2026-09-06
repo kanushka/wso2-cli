@@ -143,3 +143,45 @@ func TestLoginOnlyRefusesAProductTheIdentityDoesNotRecord(t *testing.T) {
 		t.Fatalf("stderr %s", errOut)
 	}
 }
+
+// TestLoginNamesWhichSessionsSurviveAMidLoginFailure covers a login that gets
+// partway through a thunderDoc identity's accesses before one of them fails.
+// Accesses() orders them login (gateway, direct), apim (federated), iam
+// (sibling) - see internal/contexts/access.go's Accesses, which starts from
+// LoginAccess (the first direct product by namespace, here "gateway") and
+// then walks the remaining namespaces alphabetically, skipping any whose
+// session ref already equals the login's. With apim's issuer refusing
+// discovery (no S256), apim is the second access attempted and the first to
+// fail, so the loop returns before iam - the third access - is ever
+// attempted. That leaves the login session established, apim not
+// established, and iam neither established nor mentioned as a candidate to
+// retry (it was never reached).
+func TestLoginNamesWhichSessionsSurviveAMidLoginFailure(t *testing.T) {
+	keyring.MockInit()
+	login := fakeissuer.New(t, fakeissuer.Options{RequireResource: true})
+	product := fakeissuer.New(t, fakeissuer.Options{Audience: "apim-cli", OmitS256: true})
+	shell, _, errOut := newLoginShell(t)
+	installLogin(t, shell, thunderDoc(login.URL, product.URL))
+	followBrowser(&shell)
+
+	if code := shell.Run([]string{"login"}); code == exit.OK {
+		t.Fatalf("login succeeded despite apim's issuer refusing discovery; stderr %s", errOut)
+	}
+
+	store := session.Store{StateRoot: shell.StateRoot}
+	if _, err := store.Load(credentialRef); err != nil {
+		t.Fatalf("the login session was not established before apim failed: %v", err)
+	}
+	if _, err := store.Load(contexts.ProductSessionRef(credentialRef, "apim")); err == nil {
+		t.Fatal("apim got a session despite its issuer refusing discovery")
+	}
+	if _, err := store.Load(contexts.ProductSessionRef(credentialRef, "iam")); err == nil {
+		t.Fatal("iam was never attempted (apim fails first) yet got a session")
+	}
+	if !strings.Contains(errOut.String(), "--only apim") {
+		t.Fatalf("stderr does not name the retry command for apim:\n%s", errOut)
+	}
+	if !strings.Contains(errOut.String(), "gateway") {
+		t.Fatalf("stderr does not mention the established login session (gateway):\n%s", errOut)
+	}
+}

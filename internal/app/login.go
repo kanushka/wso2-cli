@@ -18,6 +18,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -171,6 +172,14 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 	for index, access := range accesses {
 		result, err := s.establishProduct(selected, access)
 		if err != nil {
+			// The first access failing leaves nothing established yet, so
+			// there is nothing to report beside the error itself. A later
+			// access failing leaves the earlier ones' sessions stored and
+			// unmentioned by that error, which is the gap this closes.
+			if index > 0 {
+				s.reportPartialLogin(outcome.established, access)
+				err = extendIncompleteLoginRecovery(err, outcome.established, access)
+			}
 			return loginOutcome{}, err
 		}
 		if index == 0 {
@@ -179,6 +188,56 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 		outcome.established = append(outcome.established, access)
 	}
 	return outcome, nil
+}
+
+// establishedLabel names one authorized access for a user-facing message: its
+// namespace, or "the login session" for the bare access a namespace-less
+// identity gets.
+func establishedLabel(access contexts.ProductAccess) string {
+	if access.Namespace == "" {
+		return "the login session"
+	}
+	return access.Namespace
+}
+
+// establishedLabels is establishedLabel applied to every access already
+// authorized, in the order they were established.
+func establishedLabels(established []contexts.ProductAccess) []string {
+	labels := make([]string, len(established))
+	for i, access := range established {
+		labels[i] = establishedLabel(access)
+	}
+	return labels
+}
+
+// reportPartialLogin prints what a login already established before a later
+// access failed, on the diagnostic stream, so the partial state is visible
+// even when the error itself renders tersely.
+func (s Shell) reportPartialLogin(established []contexts.ProductAccess, failed contexts.ProductAccess) {
+	fmt.Fprintf(s.Streams.Err, "Established: %s. Not established: %s.\n",
+		strings.Join(establishedLabels(established), ", "), failed.Namespace)
+}
+
+// extendIncompleteLoginRecovery tells the user, on a mid-login failure, which
+// sessions the earlier accesses already established and how to retry only the
+// one that failed, keeping those sessions rather than repeating them.
+//
+// Only a problem.Problem carries recovery text a user reads, so only a
+// problem.Problem gets this treatment; any other error passes through
+// unchanged, and the caller has nothing further to add to it.
+func extendIncompleteLoginRecovery(err error, established []contexts.ProductAccess, failed contexts.ProductAccess) error {
+	var reported problem.Problem
+	if !errors.As(err, &reported) {
+		return err
+	}
+	sentence := fmt.Sprintf("Already established: %s.", strings.Join(establishedLabels(established), ", "))
+	resume := fmt.Sprintf("Run wso2 login --only %s to retry just that product; "+
+		"the sessions already established are kept.", failed.Namespace)
+	recovery := sentence + " " + resume
+	if reported.Recovery != "" {
+		recovery = reported.Recovery + " " + recovery
+	}
+	return reported.WithRecovery(recovery)
 }
 
 // loginAccesses is what this login authorizes: every session by default, the
