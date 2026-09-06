@@ -65,9 +65,10 @@ its record and from what the deployment supports, in five strategies:
 - `sibling` — the login provider answers for the product too, but under a
   scope set or resource the login session does not already cover, so a second
   session is obtained there, silently, in the same sign-on.
-- `derived` — the product names a jwt-bearer grant: an identity token from the
-  login session is presented at the product's own issuer per command, and
-  nothing beyond the login session is stored.
+- `derived` — the product names a jwt-bearer grant: its own session is
+  obtained at the login issuer, through one browser tab on first use, for the
+  grant's assertion scopes; an identity token from that session is presented
+  at the product's own issuer per command.
 - `federated` — the product names a federated grant: its own issuer is a
   public client federated to the login provider, so its session is obtained
   through one browser tab, answered by the same sign-on.
@@ -145,14 +146,14 @@ Notes:
   the set at login. It is required for `type: onprem`.
 - `grant` names how one product's own session is obtained when the login
   session does not already cover it and no sibling session at the login
-  provider will do: `jwt-bearer` presents an identity token from the login
-  session at the grant's issuer, narrowed by `scopes` (openid always among
-  them) and, when that issuer requires one, bound by `resource`; `federated`
-  signs in at the grant's issuer as its own public client, through the same
-  browser sign-on, and needs no `scopes` of its own. Omitting `grant` leaves
-  the product direct or sibling, decided by whether it shares the login
-  product's scope set and resource — there is nothing else to configure for
-  that choice.
+  provider will do: `jwt-bearer` obtains its own session at the login issuer,
+  narrowed by `scopes` (openid always among them) and, when that issuer
+  requires one, bound by `resource`, and presents that session's identity
+  token at the grant's issuer per command; `federated` signs in at the
+  grant's issuer as its own public client, through the same browser sign-on,
+  and needs no `scopes` of its own. Omitting `grant` leaves the product
+  direct or sibling, decided by whether it shares the login product's scope
+  set and resource — there is nothing else to configure for that choice.
 - `clientIdVariable` and `clientSecretVariable` name a product's own client
   credential, for a client-credentials identity whose machine client a
   product cannot map to its roles. Both or neither; names, never values, and

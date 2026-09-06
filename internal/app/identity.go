@@ -247,14 +247,6 @@ func (s Shell) identityAddProduct(
 	// command just built, and nothing before it is; that is what lets the
 	// refusal be reworded honestly. See explainProductRefusal.
 	changed := false
-	// uncorrectable records that the identity is bound to one protected
-	// resource and the change would leave it holding more than one product.
-	// Such a command cannot be made to succeed by correcting a flag, whichever
-	// of the document's checks refuses it first, so the ordinary "correct it
-	// and run it again" would be false. It is read from the identity's own
-	// Derivation rather than reasoned about here: this decides wording, never
-	// whether to refuse, which stays entirely the document's.
-	uncorrectable := false
 	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
 		position := slices.IndexFunc(document.Identities, func(candidate contexts.Identity) bool {
 			return candidate.Name == identity
@@ -282,19 +274,11 @@ func (s Shell) identityAddProduct(
 		products[namespace] = product
 		declared.Products = products
 		document.Identities[position] = declared
-		direct := 0
-		for _, candidate := range products {
-			if candidate.Direct() {
-				direct++
-			}
-		}
-		uncorrectable = declared.Auth.Derivation() == contexts.DerivationTokenResource &&
-			direct > 1
 		changed = true
 		return document, nil
 	})
 	if err != nil {
-		return s.explainProductRefusal(root, changed, uncorrectable, err)
+		return s.explainProductRefusal(root, changed, err)
 	}
 
 	if mode == output.ModeJSON {
@@ -518,39 +502,21 @@ func productExists(identity, namespace string) problem.Problem {
 // and only then encodes and decodes the result, so a refusal raised before the
 // change returned cannot be about the change, and one raised after it can be
 // about nothing else.
-func (s Shell) explainProductRefusal(stateRoot string, changed, uncorrectable bool, err error) error {
+func (s Shell) explainProductRefusal(stateRoot string, changed bool, err error) error {
 	err = s.explainWriteRefusal(stateRoot, err)
 	var typed problem.Problem
 	if !changed || !errors.As(err, &typed) || !contexts.CarriesDefaultDocumentRecovery(err) {
 		return err
 	}
 	return problem.New(problem.CategoryUsage, "shell.invalid_argument", typed.Message).
-		WithRecovery(productRefusalRecovery(uncorrectable))
+		WithRecovery(productRefusalRecovery())
 }
 
 // productRefusalRecovery is the way out of a refused product record.
 //
-// The resource-bound case gets its own, because the ordinary advice would be
-// false there: the constraint is on the identity rather than on any flag, so no
-// correction of the command that was typed succeeds. What does succeed is named
-// instead. Both routes have been driven: --replace on the product such an
-// identity already holds is accepted, and a second login under another name
-// produces a second identity for the other product.
-//
 // This lives here rather than beside the check in internal/contexts because it
-// is advice about commands. The same refusal reaches a plain reader — wso2
-// context list, loading a document already holding two products under such an
-// identity — and telling that reader to pass --replace to a command they did
-// not run would be nonsense.
-func productRefusalRecovery(uncorrectable bool) string {
-	if uncorrectable {
-		return "The context document was not changed, and correcting the flags will not " +
-			"help: this identity is bound to one protected resource, so it carries one " +
-			"product and no more. Pass --replace to record this product in place of the " +
-			"one it holds, or run wso2 login --url <issuer> --context <name> to create a " +
-			"second identity for the other product. Run wso2 identity list to see what " +
-			"each identity records."
-	}
+// is advice about commands.
+func productRefusalRecovery() string {
 	return "The context document was not changed. Run wso2 identity list to see what the " +
 		"identity records, then correct the command and run it again. " +
 		identityAddProductUsage

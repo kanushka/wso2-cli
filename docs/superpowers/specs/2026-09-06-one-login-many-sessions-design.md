@@ -84,16 +84,19 @@ record names one. The shell shows the resulting strategy in `wso2 whoami`.
 | --- | --- | --- | --- |
 | `direct` | the product has no grant and shares the login product's scope set and resource | none | the login session itself |
 | `sibling` | the product has no grant but does not share the login product's scope set and resource (ThunderID's second resource server; Identity Server with a different scope set) | one tab, answered by sign-on | a second refresh token from the login provider |
-| `derived` | the product record names a jwt-bearer grant at the product's own issuer, and the login session can yield the assertion | none | nothing new; derived per command from the login session, as the derived-grant design already does |
+| `derived` | the product record names a jwt-bearer grant at the product's own issuer, and the login session can yield the assertion | one tab, answered by sign-on, on first use | a refresh token from the login provider under the grant's assertion scopes, presented per command as a jwt-bearer assertion |
 | `federated` | the product record names a federated grant: its own issuer is a public client federated to the login provider | one tab, answered by sign-on | a refresh token from the product's issuer |
 | `inline` | the identity is client-credentials | none | nothing; a grant per command |
 
 `direct` is today's `sessionSource`. `derived` is the `assertionSource`
-from the derived-grant branch, folded in unchanged. `federated` and
-`sibling` are the same code: an authorization code flow with PKCE at an
-issuer, with a resource indicator and scope set taken from the product
-record, storing the result under the product's own session key. They differ
-only in which issuer and client ID they present.
+from the derived-grant branch, given its own session under the product's
+own key rather than sharing the login session's: it authorizes at the
+login issuer for the grant's assertion scopes on first use, then presents
+that session's identity token as a jwt-bearer assertion per command.
+`federated` and `sibling` are the same code: an authorization code flow
+with PKCE at an issuer, with a resource indicator and scope set taken from
+the product record, storing the result under the product's own session
+key. They differ only in which issuer and client ID they present.
 
 A product whose record supports none of these is refused with
 `auth.product_not_configured`, naming the `connect` command.
