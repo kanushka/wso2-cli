@@ -431,3 +431,35 @@ func TestDeleteLeavesOtherReferences(t *testing.T) {
 		t.Fatalf("the untouched reference changed: %+v", loaded)
 	}
 }
+
+func TestAProductSessionRoundTripsItsStrategyClientAndScopes(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	saved := session.Session{Issuer: "https://apim.example", RefreshToken: "rt", Strategy: "federated",
+		ClientID: "cli-sso", Scopes: []string{"apim:api_view"}}
+	if err := store.Save("thunder.apim", saved); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load("thunder.apim")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Strategy != "federated" || loaded.ClientID != "cli-sso" || len(loaded.Scopes) != 1 {
+		t.Fatalf("loaded %+v", loaded)
+	}
+	// The login session under the bare reference is untouched by the product one.
+	if _, err := store.Load("thunder"); err == nil {
+		t.Fatal("a product session answered for the login reference")
+	}
+}
+
+func TestASessionWrittenBeforeStrategiesExistedStillLoads(t *testing.T) {
+	keyring.MockInit()
+	if err := keyring.Set(session.Service, "legacy", `{"issuer":"https://is.example","refreshToken":"rt"}`); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := session.Store{StateRoot: t.TempDir()}.Load("legacy")
+	if err != nil || loaded.Strategy != "" || loaded.RefreshToken != "rt" {
+		t.Fatalf("loaded %+v, %v", loaded, err)
+	}
+}

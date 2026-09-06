@@ -56,6 +56,15 @@ type Session struct {
 	// issuers today do not; nothing in this package treats that as an error,
 	// and nothing here invents a substitute for it.
 	SessionExpiresAt time.Time `json:"sessionExpiresAt,omitempty"`
+	// Strategy is how this session was obtained (a contexts.Strategy* value),
+	// ClientID the client it was obtained as, and Scopes what it was
+	// authorized for. All three are informational: wso2 whoami reports them
+	// and nothing grants access from them. omitempty, so an entry written
+	// before they existed decodes with them empty rather than failing to decode:
+	// encoding/json leaves an absent JSON member as the Go zero value.
+	Strategy string   `json:"strategy,omitempty"`
+	ClientID string   `json:"clientId,omitempty"`
+	Scopes   []string `json:"scopes,omitempty"`
 }
 
 // Store reads and writes sessions in the OS secure store.
