@@ -204,6 +204,22 @@ func TestAClientCredentialsIdentityCannotUseAGrant(t *testing.T) {
 	assertDenialCode(t, err, "auth.kind_not_implemented")
 }
 
+// TestAThunderJWTBearerGrantWithNoResourceIsRefusedAtUse covers F3: a
+// document from before a jwt-bearer grant's resource was required to bind an
+// assertion session still decodes, but a Thunder-like deployment (a
+// token-resource derivation) cannot actually derive that product's access
+// without one, so the broker refuses it here, at the point that needs it.
+func TestAThunderJWTBearerGrantWithNoResourceIsRefusedAtUse(t *testing.T) {
+	deployment := seedDerivedDeployment(t, fakeissuer.Options{}, fakeissuer.Options{})
+	broker := deployment.broker(t)
+	broker.Selection.Identity.Auth.Provider = contexts.ProviderThunder
+	_, err := broker.Acquire(declaredRequest())
+	assertDenialCode(t, err, "auth.product_not_configured")
+	if !strings.Contains(err.Error(), "resource") {
+		t.Fatalf("the refusal does not mention the missing resource: %v", err)
+	}
+}
+
 // assertDenialCode fails unless err is a broker denial carrying code.
 func assertDenialCode(t *testing.T, err error, code string) {
 	t.Helper()

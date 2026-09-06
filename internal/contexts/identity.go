@@ -339,22 +339,6 @@ func (i Identity) validateDerivation() error {
 					"absolute URI, which is what its deployment binds access by", namespace, i.Name))
 		}
 	}
-	// A jwt-bearer grant's assertion session runs at the identity's own
-	// issuer, which this derivation binds by resource exactly as the login
-	// session is bound. Naming none, or naming one that is not an absolute
-	// URI, describes a request the deployment will refuse.
-	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
-		grant := i.Products[namespace].Grant
-		if grant == nil || grant.Kind != GrantJWTBearer {
-			continue
-		}
-		if !absoluteURI(grant.Resource) {
-			return malformed(fmt.Sprintf(
-				"declares the %q product on the identity %q with a jwt-bearer grant and no "+
-					"resource for its assertion session, which its deployment binds access by",
-				namespace, i.Name))
-		}
-	}
 	return nil
 }
 

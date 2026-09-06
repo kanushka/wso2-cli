@@ -260,6 +260,25 @@ func (s Shell) loginAccesses(selected contexts.Selection, flags loginFlags) ([]c
 	}
 }
 
+// checkDerivedResource refuses to open a browser for a derived access this
+// deployment could never carry out: a jwt-bearer grant's assertion session
+// runs at the identity's own issuer, and on a deployment that binds access by
+// resource that session needs one exactly as the login session does. A
+// document written before this was required still decodes — see
+// contexts.Identity.validateDerivation — so the refusal belongs here, at the
+// one place that actually needs the resource, rather than at document load.
+func checkDerivedResource(identity contexts.Identity, access contexts.ProductAccess) error {
+	if access.Strategy != contexts.StrategyDerived || access.Resource != "" ||
+		identity.Auth.Derivation() != contexts.DerivationTokenResource {
+		return nil
+	}
+	return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
+		fmt.Sprintf("the %q product's jwt-bearer grant names no resource for its assertion "+
+			"session, which this deployment binds access by", access.Namespace)).
+		WithRecovery(fmt.Sprintf("Record the resource with wso2 identity add-product --replace "+
+			"--grant-resource <uri>, then run wso2 login --only %s.", access.Namespace))
+}
+
 // establishProduct runs one authorization at access's issuer, as its client,
 // for its scopes and resource, and stores the session it produced under its
 // session reference.
@@ -268,6 +287,9 @@ func (s Shell) loginAccesses(selected contexts.Selection, flags loginFlags) ([]c
 // login session or a further product: each is one authorization and one
 // stored session, and nothing here needs to know which.
 func (s Shell) establishProduct(selected contexts.Selection, access contexts.ProductAccess) (oauthflow.Result, error) {
+	if err := checkDerivedResource(selected.Identity, access); err != nil {
+		return oauthflow.Result{}, err
+	}
 	root, err := s.stateRoot()
 	if err != nil {
 		return oauthflow.Result{}, err

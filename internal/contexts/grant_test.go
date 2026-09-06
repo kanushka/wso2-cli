@@ -132,31 +132,27 @@ func TestAThunderIdentityMayServeASecondProductByGrant(t *testing.T) {
 	}
 }
 
-func TestAThunderJWTBearerGrantMustNameItsAssertionResource(t *testing.T) {
-	// A jwt-bearer grant on a Thunder identity (token-resource derivation) must
-	// name an absolute URI resource for its assertion session, as the derivation
-	// binds access by resource at the identity's own issuer.
+func TestAThunderJWTBearerGrantDecodesWithOrWithoutAnAssertionResource(t *testing.T) {
+	// A document written before a jwt-bearer grant's resource was required to
+	// carry out an assertion session still has to decode: the resource is
+	// needed only at the moment the broker actually derives that product's
+	// access (internal/auth), not at document load.
 	grantWithoutResource := `{"kind": "jwt-bearer", ` +
 		`"issuer": "https://apim.example.test/oauth2/token", "clientId": "apim-client", ` +
 		`"scopes": ["email", "groups"]}`
-
-	// Without resource: should fail
-	_, err := contexts.Decode([]byte(withGrantProduct(
+	document, err := contexts.Decode([]byte(withGrantProduct(
 		withProvider(contexts.ProviderThunder), grantWithoutResource)))
-	var typed problem.Problem
-	if !errors.As(err, &typed) || typed.Code != "contexts.document_malformed" {
-		t.Fatalf("a Thunder jwt-bearer grant without resource was not refused: %v", err)
+	if err != nil {
+		t.Fatalf("a Thunder jwt-bearer grant without resource was refused: %v", err)
 	}
-	if !strings.Contains(err.Error(), "resource") {
-		t.Fatalf("the refusal did not mention resource: %v", err)
+	if len(document.Identities[0].Products) != 2 {
+		t.Fatalf("read %d products, want 2", len(document.Identities[0].Products))
 	}
 
-	// With resource: should succeed
 	grantWithResource := `{"kind": "jwt-bearer", ` +
 		`"issuer": "https://apim.example.test/oauth2/token", "clientId": "apim-client", ` +
 		`"scopes": ["email", "groups"], "resource": "https://apim.example.test/oauth2/token"}`
-
-	document, err := contexts.Decode([]byte(withGrantProduct(
+	document, err = contexts.Decode([]byte(withGrantProduct(
 		withProvider(contexts.ProviderThunder), grantWithResource)))
 	if err != nil {
 		t.Fatalf("a Thunder jwt-bearer grant with resource was refused: %v", err)

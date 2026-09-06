@@ -159,6 +159,20 @@ func (b *Broker) checkProduct(request Request) error {
 				"is the client ID on Asgardeo, the API resource identifier on Identity Server, and "+
 				"the resource server's URI on Thunder.")
 	}
+	if b.Selection.Identity.Auth.Derivation() == contexts.DerivationTokenResource &&
+		product.Grant != nil && product.Grant.Kind == contexts.GrantJWTBearer && product.Grant.Resource == "" {
+		// The identity's assertion session runs at the identity's own issuer,
+		// which this derivation binds by resource exactly as the login
+		// session is. A document written before this field was required
+		// still decodes — see contexts.Identity.validateDerivation — so the
+		// refusal belongs here, at the one place that actually needs the
+		// resource, rather than at document load.
+		return denial("auth.product_not_configured",
+			fmt.Sprintf("the %q product's jwt-bearer grant names no resource for its assertion "+
+				"session, which this deployment binds access by", b.namespace()),
+			fmt.Sprintf("Record the resource with wso2 identity add-product --replace "+
+				"--grant-resource <uri>, then run wso2 login --only %s.", b.namespace()))
+	}
 	if len(product.Scopes) > 0 {
 		for _, scope := range request.Scopes {
 			if !slices.Contains(product.Scopes, scope) {
