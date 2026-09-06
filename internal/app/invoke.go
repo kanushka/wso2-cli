@@ -51,6 +51,16 @@ func productGrantIssuer(identity contexts.Identity, namespace string) string {
 	return ""
 }
 
+// productStrategy names how the named product is reached under the selected
+// identity, empty when the identity records no such product yet. It is a
+// scheme name, never a secret.
+func productStrategy(identity contexts.Identity, namespace string) string {
+	if access, recorded := identity.Access(namespace); recorded {
+		return access.Strategy
+	}
+	return ""
+}
+
 // invokeModule runs one product command in the resolved module and renders its
 // outcome.
 //
@@ -120,7 +130,23 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 		"declared_scopes", strings.Join(resolved.Receipt.Capabilities.AuthScopes, " "),
 		"narrowing", selection.Identity.Auth.Derivation(),
 		"grant_kind", productGrantKind(selection.Identity, namespace),
-		"grant_issuer", productGrantIssuer(selection.Identity, namespace))
+		"grant_issuer", productGrantIssuer(selection.Identity, namespace),
+		"strategy", productStrategy(selection.Identity, namespace))
+
+	// The broker is created per invocation and never leaves the shell.
+	// The module receipt is its ceiling and the context is its source of
+	// organization and credential; the module influences neither. Its
+	// EstablishSession is bound here rather than left nil, so a command whose
+	// product has no session of its own yet acquires one instead of being
+	// refused outright.
+	broker := &auth.Broker{
+		Namespace:    namespace,
+		Capabilities: resolved.Receipt.Capabilities,
+		Selection:    selection,
+		InvocationID: invocationID,
+		StateRoot:    root,
+	}
+	broker.EstablishSession = s.sessionEstablisher(selection, namespace)
 
 	launcher := rpc.Launcher{
 		Resolved: resolved,
@@ -129,16 +155,7 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 			Platform: version.Platform(),
 		},
 		InvocationID: invocationID,
-		// The broker is created per invocation and never leaves the shell.
-		// The module receipt is its ceiling and the context is its source of
-		// organization and credential; the module influences neither.
-		Broker: &auth.Broker{
-			Namespace:    namespace,
-			Capabilities: resolved.Receipt.Capabilities,
-			Selection:    selection,
-			InvocationID: invocationID,
-			StateRoot:    root,
-		},
+		Broker:       broker,
 	}
 	outcome, invokeErr := launcher.Invoke(context.Background(), rpc.Invocation{
 		Namespace:  namespace,
@@ -164,6 +181,28 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 		return *outcome.Problem
 	}
 	return output.Result(s.Streams.Out, mode, outcome.Result)
+}
+
+// sessionEstablisher is what the broker calls when the product this
+// invocation serves has no session of its own yet: the login flow for that
+// one product, announced first, and refused outright when nothing may open
+// a browser.
+func (s Shell) sessionEstablisher(selection contexts.Selection, namespace string) func(contexts.ProductAccess) error {
+	return func(access contexts.ProductAccess) error {
+		if control := s.nonInteractiveControl(false); control != "" {
+			refusal := auth.SessionRequired(namespace)
+			refusal.Guidance = fmt.Sprintf("Run wso2 login --only %s before this command; %s asked that no browser open.",
+				namespace, control)
+			return refusal
+		}
+		if _, err := fmt.Fprintf(s.Streams.Err,
+			"The %q product has no session yet. Opening the browser to authorize it at %s.\n",
+			namespace, access.Issuer); err != nil {
+			return err
+		}
+		_, err := s.establishProduct(selection, access)
+		return err
+	}
 }
 
 // selection resolves the context this invocation runs against: the --context
