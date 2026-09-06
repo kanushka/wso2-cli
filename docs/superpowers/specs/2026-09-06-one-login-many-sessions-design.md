@@ -85,7 +85,7 @@ record names one. The shell shows the resulting strategy in `wso2 whoami`.
 | `direct` | the product has no grant and shares the login product's scope set and resource | none | the login session itself |
 | `sibling` | the product has no grant but does not share the login product's scope set and resource (ThunderID's second resource server; Identity Server with a different scope set) | one tab, answered by sign-on | a second refresh token from the login provider |
 | `derived` | the product record names a jwt-bearer grant at the product's own issuer, and the login session can yield the assertion | one tab, answered by sign-on, on first use | a refresh token from the login provider under the grant's assertion scopes, presented per command as a jwt-bearer assertion |
-| `federated` | the product record names a federated grant: its own issuer is a public client federated to the login provider | one tab, answered by sign-on | a refresh token from the product's issuer |
+| `federated` | the product record names a federated grant: its own issuer is a public client federated to the login provider | one tab, answered by sign-on, at first use and again whenever the issuer will not renew the session | the product issuer's access and refresh tokens; the access token is served while valid |
 | `inline` | the identity is client-credentials | none | nothing; a grant per command |
 
 `direct` is today's `sessionSource`. `derived` is the `assertionSource`
@@ -122,9 +122,23 @@ the browser opens the shell prints one line naming the product and the
 issuer. Under `--no-input` or `WSO2_NO_INPUT` it refuses instead with
 `auth.session_required`, naming `wso2 login --only <namespace>`.
 
+A federated session is served from the access token its authorization
+returned while that token is valid and carries the request's scopes; API
+Manager, measured, refuses to renew a management scope on a refresh at
+all. When the token has expired and the refresh comes back refused or
+narrower than asked, the shell authorizes the product once more through
+the sign-on, exactly as on first use, and refuses only if that still cannot
+serve the request.
+
 `wso2 logout` revokes every session the identity holds, best effort, as
-ADR 0010 already allows for one. `wso2 whoami` and `wso2 doctor` report
-each product: strategy, session present or absent, expiry when disclosed.
+ADR 0010 already allows for one, and then opens each identity provider's
+end-session page, once per provider and client, with the client id and the
+identity token the session recorded (ThunderID requires the client;
+API Manager shows a consent page without the token). That is what makes
+the next `wso2 login` prompt for credentials again. `--keep-browser-session`
+leaves the providers' sessions in place, as does `--no-input` or
+`WSO2_NO_INPUT`. `wso2 whoami` and `wso2 doctor` report each product:
+strategy, session present or absent, expiry when disclosed.
 
 The rotation lock stays per session key; two products never contend.
 
