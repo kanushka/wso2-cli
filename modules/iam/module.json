@@ -3,10 +3,28 @@
   "namespace": "iam",
   "compatibility": {
     "shell": ">=0.1.0 <2.0.0",
-    "protocolVersions": [2]
+    "protocolVersions": [
+      2
+    ]
   },
   "capabilities": {
-    "authAudiences": ["thunder-system"],
-    "authScopes": ["system"]
+    "authAudiences": [
+      "thunder-system"
+    ],
+    "authScopes": [
+      "system"
+    ],
+    "product": {
+      "provider": "thunder",
+      "clientId": "wso2-cli",
+      "audience": "resource",
+      "defaultAudience": "https://localhost:8090/mcp",
+      "scopes": [
+        "system"
+      ],
+      "machine": [
+        "inline"
+      ]
+    }
   }
 }
