@@ -51,7 +51,14 @@ type logoutFlags struct {
 	mode        output.Mode
 }
 
-// logout ends the selected context's session.
+// logout ends every session the selected context's identity holds: the login
+// session first, and then one per product that established a session of its
+// own (internal/contexts/access.go's Identity.Accesses).
+//
+// A client-credentials identity is a special case with nothing to end: it
+// acquires access inline, one grant per command, and never writes a session
+// to the secure store, so logout reports that plainly and touches nothing —
+// see logoutKindGate's own doc comment on why it is not refused instead.
 //
 // Ending a session is two separate acts on two separate copies of it: the
 // issuer is asked to retract the refresh token, and the shell-owned entry is
@@ -67,32 +74,82 @@ func (s Shell) logout(flags logoutFlags) error {
 		return err
 	}
 
+	if selected.Identity.Auth.Kind == contexts.KindClientCredentials {
+		return s.reportLogout(flags.mode, selected, logoutOutcome{revocation: oauthflow.RevocationNotAttempted})
+	}
+
 	root, err := s.stateRoot()
 	if err != nil {
 		return err
 	}
 	shared := document.ContextsUsingCredential(selected.Identity.Auth.CredentialRef)
+	store := session.Store{StateRoot: root}
 
-	reference := selected.Identity.Auth.CredentialRef
+	accesses := selected.Identity.Accesses()
+	login := accesses[0]
 	// Recorded before the lock is taken, so a logout that then blocks on a
 	// concurrent rotation still names what it was ending and against which
 	// issuer the retraction was about to be attempted.
 	s.log.Debug("ending a session",
 		"context", selected.Context.Name,
-		"issuer", selected.Identity.Auth.Issuer,
-		"client_id", selected.Identity.Auth.ClientID,
-		"credential_ref", reference,
+		"issuer", login.Issuer,
+		"client_id", login.ClientID,
+		"credential_ref", login.SessionRef,
 		"shared_contexts", len(shared))
-	store := session.Store{StateRoot: root}
-	// The whole of it runs inside one lock: the refresh token has to be read
-	// before it can be revoked and before the entry can go, and releasing the
-	// lock in between would leave a window where a concurrent wso2 login writes
-	// a fresh session that this command then deletes — ending a session the
-	// user had just established.
-	ended := logoutOutcome{revocation: oauthflow.RevocationNotAttempted, shared: shared}
+	loginOutcome, err := s.endSession(store, login.SessionRef, login.Issuer, login.ClientID)
+	if err != nil {
+		return err
+	}
+	ended := logoutOutcome{
+		sessionEnded: loginOutcome.sessionEnded,
+		revocation:   loginOutcome.revocation,
+		shared:       shared,
+	}
+
+	var products []string
+	for _, access := range accesses[1:] {
+		s.log.Debug("ending a product session",
+			"context", selected.Context.Name,
+			"namespace", access.Namespace,
+			"issuer", access.Issuer,
+			"client_id", access.ClientID,
+			"credential_ref", access.SessionRef)
+		outcome, err := s.endSession(store, access.SessionRef, access.Issuer, access.ClientID)
+		if err != nil {
+			return err
+		}
+		state := "none"
+		if outcome.sessionEnded {
+			state = "ended"
+		}
+		products = append(products, access.Namespace+" "+state)
+	}
+	ended.productSessions = products
+
+	return s.reportLogout(flags.mode, selected, ended)
+}
+
+// sessionEndOutcome is what ending one stored session established: whether it
+// removed anything, and what the issuer was told.
+type sessionEndOutcome struct {
+	sessionEnded bool
+	revocation   oauthflow.Revocation
+}
+
+// endSession revokes and deletes one session reference against one issuer.
+//
+// The whole of it runs inside the store's own per-reference lock: the refresh
+// token has to be read before it can be revoked and before the entry can go,
+// and releasing the lock in between would leave a window where a concurrent
+// wso2 login writes a fresh session that this then deletes — ending a session
+// the user had just established. logout calls this once per session it ends,
+// so each session's read, revoke, and delete stay under its own lock rather
+// than one lock shared across every session of the identity.
+func (s Shell) endSession(store session.Store, sessionRef, issuer, clientID string) (sessionEndOutcome, error) {
+	outcome := sessionEndOutcome{revocation: oauthflow.RevocationNotAttempted}
 	var refreshToken string
-	err = store.WithLock(reference, func() error {
-		stored, loadErr := store.Load(reference)
+	err := store.WithLock(sessionRef, func() error {
+		stored, loadErr := store.Load(sessionRef)
 		switch {
 		case loadErr == nil:
 			refreshToken = stored.RefreshToken
@@ -110,9 +167,9 @@ func (s Shell) logout(flags logoutFlags) error {
 		if refreshToken != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), revokeDeadline)
 			defer cancel()
-			ended.revocation = oauthflow.Revoke{
-				Issuer:       selected.Identity.Auth.Issuer,
-				ClientID:     selected.Identity.Auth.ClientID,
+			outcome.revocation = oauthflow.Revoke{
+				Issuer:       issuer,
+				ClientID:     clientID,
 				RefreshToken: refreshToken,
 			}.Run(ctx)
 		}
@@ -124,12 +181,12 @@ func (s Shell) logout(flags logoutFlags) error {
 		// rather than what Load managed to read: an entry too stale to parse is
 		// still a session on this machine, and reporting it as nothing stored
 		// while removing it would describe a machine the user does not have.
-		removed, deleteErr := store.Delete(reference)
-		ended.sessionEnded = removed
+		removed, deleteErr := store.Delete(sessionRef)
+		outcome.sessionEnded = removed
 		return deleteErr
 	})
 	if err != nil {
-		return err
+		return sessionEndOutcome{}, err
 	}
 	// Revocation is best effort by design, so which of its three outcomes a run
 	// got is the fact a user reports and the one nothing else records: the
@@ -139,11 +196,11 @@ func (s Shell) logout(flags logoutFlags) error {
 	// The refresh token that was revoked is never logged; whether one was found
 	// is.
 	s.log.Debug("the session ended",
-		"credential_ref", reference,
-		"revocation", string(ended.revocation),
-		"session_removed", ended.sessionEnded,
+		"credential_ref", sessionRef,
+		"revocation", string(outcome.revocation),
+		"session_removed", outcome.sessionEnded,
 		"refresh_token_found", refreshToken != "")
-	return s.reportLogout(flags.mode, selected, ended)
+	return outcome, nil
 }
 
 // logoutOutcome is everything one logout established, which is what its report
@@ -160,6 +217,11 @@ type logoutOutcome struct {
 	// shared names every context reaching this session, the selected one
 	// included.
 	shared []string
+	// productSessions names, in namespace order, what happened to every
+	// session beyond the login one: "<ns> ended" or "<ns> none" per product.
+	// It is nil for a client-credentials identity and for one with no
+	// product session beyond the login session.
+	productSessions []string
 }
 
 // isNoSession reports whether the error is the store saying there is nothing
@@ -186,11 +248,16 @@ func (s Shell) reportLogout(mode output.Mode, selected contexts.Selection,
 	if ended.sessionEnded {
 		state = "ended"
 	}
+	productSessions := "none"
+	if len(ended.productSessions) > 0 {
+		productSessions = strings.Join(ended.productSessions, ", ")
+	}
 	reported := result.New(logoutSchema).
 		With("context", "Context", selected.Context.Name).
 		With("identity", "Identity", selected.Context.Identity).
 		With("session", "Session", state).
 		With("revocation", "Revocation", string(ended.revocation)).
+		With("productSessions", "Product sessions", productSessions).
 		With("sharedContexts", "Shared with", strings.Join(ended.shared, ", ")).
 		// A constant today, and a field rather than prose because it is the one
 		// thing users read into this command that is not true, and the table

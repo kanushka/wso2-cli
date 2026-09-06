@@ -42,6 +42,12 @@ type whoamiReport struct {
 	Session       string `json:"session"`
 	SessionExpiry string `json:"sessionExpiry"`
 	Recovery      string `json:"recovery,omitempty"`
+	Products      []struct {
+		Namespace     string `json:"namespace"`
+		Strategy      string `json:"strategy"`
+		Session       string `json:"session"`
+		SessionExpiry string `json:"sessionExpiry"`
+	} `json:"products,omitempty"`
 }
 
 // decodeWhoamiReport parses wso2 whoami --output json.

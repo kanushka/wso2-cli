@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -213,12 +214,51 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 			// folded into the report. See this function's doc comment.
 			return selErr
 		}
-		if _, sessionErr := store.Load(selected.Identity.Auth.CredentialRef); sessionErr != nil {
-			typed := doctorProblem(sessionErr)
-			failures[checkSession] = typed
-			findings = append(findings, failFinding(checkSession, typed))
-		} else {
-			findings = append(findings, passFinding(checkSession, "a stored session exists for the selected context"))
+		switch {
+		case selected.Identity.Auth.Kind == contexts.KindClientCredentials:
+			// A client-credentials identity acquires access inline, one
+			// grant per command, and holds no session at all — there is
+			// nothing this check could find missing, so it is
+			// not-applicable rather than a pass or a fail.
+			findings = append(findings, notApplicableFinding(checkSession,
+				"the selected context acquires access inline and holds no session"))
+		default:
+			var missing []string
+			for _, access := range selected.Identity.Accesses() {
+				if _, sessionErr := store.Load(access.SessionRef); sessionErr != nil {
+					if !isNoSession(sessionErr) {
+						// An unusable secure store is the one failure worth
+						// stopping on: the loop cannot tell a genuinely
+						// missing session from one it simply could not ask
+						// about, so it fails the check on the store's own
+						// terms instead of reporting products as missing
+						// that might well have a session.
+						typed := doctorProblem(sessionErr)
+						failures[checkSession] = typed
+						findings = append(findings, failFinding(checkSession, typed))
+						missing = nil
+						break
+					}
+					name := access.Namespace
+					if name == "" {
+						name = "the login session"
+					}
+					missing = append(missing, name)
+				}
+			}
+			if len(missing) > 0 {
+				typed := problem.New(problem.CategoryAuthPolicy, "auth.login_required",
+					fmt.Sprintf("no stored session exists for %s. Run wso2 login to authorize "+
+						"every product, or wso2 login --only <product> for one.",
+						strings.Join(missing, ", "))).
+					WithRecovery("Run wso2 login to authorize every product, or " +
+						"wso2 login --only <product> for one.")
+				failures[checkSession] = typed
+				findings = append(findings, failFinding(checkSession, typed))
+			} else if _, failed := failures[checkSession]; !failed {
+				findings = append(findings, passFinding(checkSession,
+					"a stored session exists for every product of the selected context"))
+			}
 		}
 	}
 
