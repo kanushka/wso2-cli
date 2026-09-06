@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -460,6 +461,63 @@ func TestASessionWrittenBeforeStrategiesExistedStillLoads(t *testing.T) {
 	}
 	loaded, err := session.Store{StateRoot: t.TempDir()}.Load("legacy")
 	if err != nil || loaded.Strategy != "" || loaded.RefreshToken != "rt" {
+		t.Fatalf("loaded %+v, %v", loaded, err)
+	}
+}
+
+// macOS's secure-store tool refuses an entry whose command exceeds 4096
+// bytes, and a session holding an access token and an identity token beside
+// its refresh token is larger than that once encoded. The two large tokens
+// therefore live in side entries of their own, and the session entry itself
+// stays small.
+func TestLargeTokensLiveInSideEntries(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	saved := session.Session{Issuer: "https://apim.example", RefreshToken: "rt", AccessToken: "at", IDToken: "idt"}
+	if err := store.Save("thunder.apim", saved); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := keyring.Get(session.Service, "thunder.apim")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(raw, `"accessToken"`) || strings.Contains(raw, `"idToken"`) {
+		t.Fatalf("the session entry carries a large token inline: %s", raw)
+	}
+	loaded, err := store.Load("thunder.apim")
+	if err != nil || loaded.AccessToken != "at" || loaded.IDToken != "idt" || loaded.RefreshToken != "rt" {
+		t.Fatalf("loaded %+v, %v", loaded, err)
+	}
+	// Saving a session without the tokens drops the side entries too, so a
+	// later load cannot resurrect a token from an earlier session.
+	if err := store.Save("thunder.apim", session.Session{Issuer: "https://apim.example", RefreshToken: "rt2"}); err != nil {
+		t.Fatal(err)
+	}
+	if loaded, _ := store.Load("thunder.apim"); loaded.AccessToken != "" || loaded.IDToken != "" {
+		t.Fatalf("a stale side entry survived a save: %+v", loaded)
+	}
+	if err := store.Save("thunder.apim", saved); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err := store.Delete("thunder.apim"); err != nil || !removed {
+		t.Fatalf("delete: %v %v", removed, err)
+	}
+	for _, key := range []string{"thunder.apim", "thunder.apim#access", "thunder.apim#id"} {
+		if _, err := keyring.Get(session.Service, key); err == nil {
+			t.Fatalf("%s survived delete", key)
+		}
+	}
+}
+
+// A session written before the side entries existed carries its access token
+// inline, and still loads.
+func TestAnInlineAccessTokenStillLoads(t *testing.T) {
+	keyring.MockInit()
+	if err := keyring.Set(session.Service, "legacy", `{"issuer":"https://is.example","refreshToken":"rt","accessToken":"inline"}`); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := session.Store{StateRoot: t.TempDir()}.Load("legacy")
+	if err != nil || loaded.AccessToken != "inline" {
 		t.Fatalf("loaded %+v, %v", loaded, err)
 	}
 }

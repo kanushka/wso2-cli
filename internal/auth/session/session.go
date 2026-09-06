@@ -103,7 +103,34 @@ func (s Store) Load(ref string) (Session, error) {
 		return Session{}, loginRequired("the stored login session for the selected context cannot be read",
 			"Run wso2 login to establish a fresh session for this context.")
 	}
+	// The large tokens come from their side entries when the session entry
+	// carries none inline; an entry written before the side entries existed
+	// carries its access token inline and is read as it was written.
+	if stored.AccessToken == "" {
+		stored.AccessToken = s.sideEntry(ref + accessTokenSuffix)
+	}
+	if stored.IDToken == "" {
+		stored.IDToken = s.sideEntry(ref + idTokenSuffix)
+	}
 	return stored, nil
+}
+
+// The suffixes of a session's side entries. '#' is admitted by neither a
+// credential reference nor a product namespace, so a side entry can never be
+// mistaken for, or collide with, a session entry.
+const (
+	accessTokenSuffix = "#access"
+	idTokenSuffix     = "#id"
+)
+
+// sideEntry reads one side entry, empty when there is none. A backend that
+// cannot be asked shows up on the session entry itself, which was read first.
+func (s Store) sideEntry(key string) string {
+	value, err := keyring.Get(Service, key)
+	if err != nil {
+		return ""
+	}
+	return value
 }
 
 // ProbeCredentialRef is the reserved reference Probe reads under.
@@ -133,8 +160,18 @@ func (s Store) Probe() error {
 }
 
 // Save writes the session, replacing any previous entry.
+//
+// The access token and the identity token go to side entries of their own,
+// and the session entry holds the rest. macOS's secure-store tool refuses a
+// command over 4096 bytes, and a session carrying three JSON web tokens is
+// larger than that once encoded; split three ways every piece stays well
+// under. A side entry a session no longer has a value for is removed, so a
+// later read cannot resurrect a token from an earlier session.
 func (s Store) Save(ref string, value Session) error {
-	data, err := json.Marshal(value)
+	entry := value
+	entry.AccessToken = ""
+	entry.IDToken = ""
+	data, err := json.Marshal(entry)
 	if err != nil {
 		// A Session of strings and a time cannot fail to marshal; treat the
 		// impossible the same as an unusable backend rather than panicking.
@@ -142,6 +179,17 @@ func (s Store) Save(ref string, value Session) error {
 	}
 	if err := keyring.Set(Service, ref, string(data)); err != nil {
 		return keyringUnavailable()
+	}
+	for suffix, token := range map[string]string{accessTokenSuffix: value.AccessToken, idTokenSuffix: value.IDToken} {
+		if token == "" {
+			if err := keyring.Delete(Service, ref+suffix); err != nil && !errors.Is(err, keyring.ErrNotFound) {
+				return keyringUnavailable()
+			}
+			continue
+		}
+		if err := keyring.Set(Service, ref+suffix, token); err != nil {
+			return keyringUnavailable()
+		}
 	}
 	return nil
 }
@@ -164,6 +212,14 @@ func (s Store) Save(ref string, value Session) error {
 // nothing this store can see reveals it. See
 // docs/adr/0010-best-effort-revocation-on-session-end.md.
 func (s Store) Delete(ref string) (bool, error) {
+	// The side entries go first and unconditionally: whether a session was
+	// ended is the session entry's answer, and a side entry left behind
+	// would be a token on the machine that nothing can reach any more.
+	for _, suffix := range []string{accessTokenSuffix, idTokenSuffix} {
+		if err := keyring.Delete(Service, ref+suffix); err != nil && !errors.Is(err, keyring.ErrNotFound) {
+			return false, keyringUnavailable()
+		}
+	}
 	err := keyring.Delete(Service, ref)
 	switch {
 	case err == nil:

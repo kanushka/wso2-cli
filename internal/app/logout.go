@@ -184,8 +184,11 @@ func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.Product
 		return browserSessionKept
 	}
 	// Providers in the order their sessions were listed, so the output is
-	// stable and the login provider's page opens first.
+	// stable and the login provider's page opens first. The report names
+	// each issuer a page was opened at, so a sign-out that did not take
+	// can be traced to the provider that was or was not asked.
 	opened := browserSessionOpened
+	var openedAt []string
 	seen := map[string]bool{}
 	for _, access := range accesses {
 		key := access.Issuer + " " + access.ClientID
@@ -217,8 +220,12 @@ func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.Product
 		if err := s.openBrowser(target); err != nil {
 			opened = browserSessionPrinted
 		}
+		openedAt = append(openedAt, access.Issuer)
 	}
-	return opened
+	if len(openedAt) == 0 {
+		return browserSessionUnaffected
+	}
+	return opened + " at " + strings.Join(openedAt, ", ")
 }
 
 // openBrowser opens a URL the way login does: through the test seam when one
@@ -412,14 +419,14 @@ func logoutNotes(ended logoutOutcome) []string {
 			"session's refresh token, so its own copy of the session may remain usable until it "+
 			"expires.")
 	}
-	switch ended.browserSession {
-	case browserSessionOpened:
+	switch {
+	case strings.HasPrefix(ended.browserSession, browserSessionOpened):
 		notes = append(notes, "Each identity provider's sign-out page was opened in the browser, "+
 			"so the next login prompts for credentials again.")
-	case browserSessionPrinted:
+	case strings.HasPrefix(ended.browserSession, browserSessionPrinted):
 		notes = append(notes, "No browser could be opened; open the printed sign-out URLs to end "+
 			"the identity providers' browser sessions, or a later login may not prompt for credentials.")
-	case browserSessionKept:
+	case ended.browserSession == browserSessionKept:
 		notes = append(notes, "The identity providers' browser sessions were left in place, so a "+
 			"later login may not prompt for credentials.")
 	}
