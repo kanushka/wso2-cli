@@ -35,8 +35,8 @@ import (
 // anything else on an identity that derives this way.
 const theResource = "https://deployment.example.test/reference-status"
 
-// thunderDoc is browserDoc against such a deployment.
-func thunderDoc(issuerURL string) contexts.Document {
+// resourceBoundDoc is browserDoc against such a deployment.
+func resourceBoundDoc(issuerURL string) contexts.Document {
 	document := browserDoc(issuerURL)
 	document.Identities[0].Auth.Provider = contexts.ProviderThunder
 	product := document.Identities[0].Products["reference"]
@@ -52,7 +52,7 @@ func TestLoginBindsTheSessionToTheResourceTheProductNames(t *testing.T) {
 	keyring.MockInit()
 	issuer := fakeissuer.New(t, fakeissuer.Options{RequireResource: true})
 	shell, _, errOut := newLoginShell(t)
-	installLogin(t, shell, thunderDoc(issuer.URL))
+	installLogin(t, shell, resourceBoundDoc(issuer.URL))
 	shell.OpenBrowser = func(authURL string) error {
 		go func() {
 			response, err := http.Get(authURL)

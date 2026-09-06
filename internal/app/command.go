@@ -548,6 +548,10 @@ func (s Shell) loginCommand() *cobra.Command {
 		"Present this registered OAuth application. Required with --url.")
 	command.Flags().BoolVar(&flags.noInput, "no-input", false,
 		"Refuse rather than prompt, open a browser, or wait for a human.")
+	command.Flags().StringVar(&flags.only, "only", "",
+		"Authorize only the named product.")
+	command.Flags().BoolVar(&flags.noProducts, "no-products", false,
+		"Authorize only the login session, not the products.")
 	declareContextFlag(command.Flags())
 	return command
 }
