@@ -162,7 +162,46 @@ absent in every generated document.
 - `--context` is needed only when several identities exist;
   `namespaceContexts` keeps working for the mixed estate.
 
-## 8. Product-side setup
+## 8. Machines: CI and headless hosts
+
+A pipeline has no browser and no sign-on cookie, so nothing called a
+session is shared there. What is shared is a credential every product
+honours, or a token one product accepts from another's issuer.
+
+- **Client credentials** is the CI method. One machine client at the login
+  provider, given roles on every product. The inline source mints **per
+  product**: on ThunderID a token request carrying that product's resource
+  indicator, on Identity Server and Asgardeo that product's scopes. That is
+  `direct` and `sibling` with no session and no browser, measured on
+  ThunderID in exercise 1. A product with its own issuer is reached by
+  `derived`, with the machine token as the assertion; the refusal of a
+  client-credentials identity with a grant in the derived-grant branch is
+  lifted. Where a product cannot map a machine client to its management
+  roles, the product record may name its own `clientIdVariable` and
+  `clientSecretVariable`; the pipeline then holds two secrets, still on one
+  identity.
+- **Device code** is browser login for a host without a browser, not a CI
+  method. It yields a refresh token like browser login, so `direct` and
+  `derived` are unchanged; `sibling` and `federated` each show one more
+  code, approved once, and the sessions then persist. Exchange at the login
+  issuer may later reduce that to one code on Identity Server and Asgardeo;
+  on ThunderID it cannot.
+- **Personal access tokens** are product-issued and opaque. They stay the
+  compatibility adapter: one per product, no derivation, no narrowing
+  proof.
+
+`wso2 whoami`, `wso2 doctor` and `wso2 logout` treat a client-credentials
+identity as healthy with no session, and `logout` exits 0. Under
+`--no-input` a product with no session and no inline credential is refused
+with `auth.session_required`.
+
+Two unmeasured links, each with a fallback: whether API Manager maps a
+machine client to the roles carrying `apim:*` scopes (fallback: the
+product-level secret above), and whether ThunderID grants `system` to a
+client-credentials client (fallback: `iam` administration from CI keeps
+the user-login script ThunderID's own pipelines use).
+
+## 9. Product-side setup
 
 No product code changes are required. Each needs configuration the CLI
 applies where it can and documents where it cannot:
@@ -180,7 +219,7 @@ applies where it can and documents where it cannot:
   directly it needs only trust configuration; if it has a resident issuer
   it needs the same federation as API Manager.
 
-## 9. Testing
+## 10. Testing
 
 - `internal/contexts`: a product record with a pinned strategy round-trips;
   an unknown strategy is refused as malformed; a ThunderID identity may
@@ -203,14 +242,19 @@ applies where it can and documents where it cannot:
   2. The same plus API Manager management (federated, or derived).
   3. Identity Server login serving the same three.
   4. Asgardeo, when a tenant is available.
+  5. CI: one machine client, from an empty home with no browser,
+     `iam users list`, the gateway, and `apim apis list`.
 
-## 10. Order of work
+## 11. Order of work
 
 0. **Spike:** a dedicated public CLI service provider on API Manager,
    federated to ThunderID, answering an authorization code flow from the
    shell's loopback with a management-scoped token. This is the one
    unmeasured link; everything else in section 4 is measured. Its result
    decides whether `federated` or `derived` is API Manager's default.
+   Beside it: a ThunderID machine token accepted by API Manager's
+   management plane, and `system` on a ThunderID client-credentials
+   token; these decide how many secrets a pipeline holds (section 8).
 1. ADR: one login, one session per product, no union tokens. Close #43.
 2. Product-keyed sessions and the `sibling`/`federated` source; `login`
    acquires products; `whoami`/`doctor`/`logout` per product.
@@ -219,7 +263,7 @@ applies where it can and documents where it cannot:
 5. Section 7's command-surface fixes.
 6. The live matrix in section 9.
 
-## 11. Security notes
+## 12. Security notes
 
 - No token carries more than one product's scopes. The exact-scope and
   audience proof applies to every strategy.
