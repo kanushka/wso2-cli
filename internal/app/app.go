@@ -241,6 +241,13 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 		"executable", resolved.ExecutablePath,
 		"module_version", resolved.Receipt.ModuleVersion,
 		"protocol_version", resolved.ProtocolVersion)
+	// connect is the shell's own subcommand of every namespace, read here
+	// after the receipt was verified and before anything is launched: it
+	// writes the product record from the descriptor the receipt carries,
+	// and the module never sees the word.
+	if len(args) > 0 && args[0] == connectSubcommand {
+		return s.connect(namespace, resolved.Receipt, args[1:])
+	}
 	return s.invokeModule(namespace, resolved, args)
 }
 

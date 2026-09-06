@@ -257,11 +257,20 @@ func (b *Broker) inlineSource() (source, error) {
 	clientID := b.Selection.Identity.Auth.ClientID
 	secretVariable := b.Selection.Identity.Auth.ClientSecretVariable
 	if product.ClientSecretVariable != "" {
-		id, err := b.namedSecret(product.ClientIDVariable, "the product's client id")
-		if err != nil {
-			return nil, err
+		// The secret belongs to the client the record names for it: the one
+		// in its own variable, or the grant's public client, which is then
+		// presented with a secret it was registered with.
+		clientID = ""
+		if product.Grant != nil {
+			clientID = product.Grant.ClientID
 		}
-		clientID = id
+		if product.ClientIDVariable != "" {
+			id, err := b.namedSecret(product.ClientIDVariable, "the product's client id")
+			if err != nil {
+				return nil, err
+			}
+			clientID = id
+		}
 		secretVariable = product.ClientSecretVariable
 	} else if product.Grant != nil {
 		// The derivation refreshes a session for an identity token. An

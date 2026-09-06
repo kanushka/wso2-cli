@@ -203,7 +203,9 @@ type Product struct {
 	// ClientIDVariable and ClientSecretVariable name the environment
 	// variables holding a credential of the product's own, for a
 	// client-credentials identity whose machine client the product cannot
-	// map to its roles. Both or neither; names, never values.
+	// map to its roles. Names, never values. The client id variable may be
+	// omitted for a product reached through a grant, whose public client
+	// the secret then belongs to.
 	ClientIDVariable     string `json:"clientIdVariable,omitempty"`
 	ClientSecretVariable string `json:"clientSecretVariable,omitempty"`
 }
@@ -448,12 +450,22 @@ func (p Product) validate(identity string) error {
 			"Remove the user information from the endpoint. A context names a credential source; "+
 				"it never carries a credential.")
 	}
-	if (p.ClientIDVariable == "") != (p.ClientSecretVariable == "") {
+	// A product credential is a secret variable and the client it belongs
+	// to: the client id from its own variable, or, for a product reached
+	// through a grant, the grant's public client. A client id variable
+	// without a secret names half of nothing.
+	if p.ClientIDVariable != "" && p.ClientSecretVariable == "" {
 		return malformed(fmt.Sprintf(
-			"declares a product credential on the identity %q with one variable and not the other", identity))
+			"declares a product credential on the identity %q with a client id variable and no secret", identity))
 	}
-	if p.ClientIDVariable != "" {
-		if !variablePattern.MatchString(p.ClientIDVariable) || !variablePattern.MatchString(p.ClientSecretVariable) {
+	if p.ClientSecretVariable != "" && p.ClientIDVariable == "" && p.Grant == nil {
+		return malformed(fmt.Sprintf(
+			"declares a product credential on the identity %q with no client id for it: name one with "+
+				"clientIdVariable, or reach the product through a grant naming its client", identity))
+	}
+	if p.ClientSecretVariable != "" {
+		if !variablePattern.MatchString(p.ClientSecretVariable) ||
+			(p.ClientIDVariable != "" && !variablePattern.MatchString(p.ClientIDVariable)) {
 			return contextProblem("contexts.document_malformed",
 				fmt.Sprintf("a product on the identity %q does not name environment variables as its credential source", identity),
 				"Name the environment variables holding the product's client id and secret, not the values.")
