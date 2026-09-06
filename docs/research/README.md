@@ -21,6 +21,7 @@ These files preserve the source material and research that informed the current
 | [product-authentication-compatibility.md](product-authentication-compatibility.md) | Sufficiency verdicts for each planned login method with gap ownership, per-product authentication paths across cloud and on-premises deployments, whether one login session can serve multiple modules in one context, and the standing backend ask for a seeded `wso2cli` public client. |
 | [context-identity-model-feasibility.md](context-identity-model-feasibility.md) | Prior art and WSO2 topology behind the one-identity-per-context model that architecture §4.6-4.7 codifies. |
 | [asgardeo-redirect-uri-and-scope-narrowing.md](asgardeo-redirect-uri-and-scope-narrowing.md) | Whether Asgardeo accepts any-port loopback redirect URIs and honors a narrower scope on the refresh grant. Section 3 carries the empirical verdict cells, section 3.1 the same questions against Identity Server 7.3.0, and section 4 says how a live run produces and records them. |
+| [2026-09-06-ci-pipelines-without-wso2-cli.md](2026-09-06-ci-pipelines-without-wso2-cli.md) | How Identity Server, Asgardeo, ThunderID, API Manager, Platform Gateway and Agent Manager are driven from CI today: the four product CLIs, their non-interactive authentication, where each keeps the secret, the pipeline samples WSO2 publishes, and what the shell changes per product. |
 
 Research describes evidence and alternatives. Decisions and requirements belong
 in `docs/architecture.md` and `docs/product-requirements.md`; when they differ,
