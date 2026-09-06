@@ -178,3 +178,59 @@ func TestAProductCredentialIsBothVariablesOrNeither(t *testing.T) {
 		t.Fatal("a product credential on a browser identity was accepted")
 	}
 }
+
+// TestAPinnedLoginProductKeepsTheLoginSessionWhereItWas is the drift case:
+// recording a product that sorts before the login product would otherwise
+// move the login session from under every session already stored.
+func TestAPinnedLoginProductKeepsTheLoginSessionWhereItWas(t *testing.T) {
+	identity := thunderIdentity()
+	delete(identity.Products, "gateway")
+	if access := identity.LoginAccess(); access.Namespace != "iam" {
+		t.Fatalf("login access = %+v, want iam", access)
+	}
+	identity.Products["gateway"] = contexts.Product{Endpoint: "https://localhost:8243",
+		Audience: "http://localhost:18080/mockapi", Scopes: []string{"orders:read"}}
+	if access := identity.LoginAccess(); access.Namespace != "gateway" {
+		t.Fatalf("without a pin the login product is %q, want the namespace order", access.Namespace)
+	}
+	identity.LoginProduct = "iam"
+	access := identity.LoginAccess()
+	if access.Namespace != "iam" || access.Resource != "https://localhost:8090/mcp" ||
+		access.SessionRef != "thunder" {
+		t.Fatalf("pinned login access = %+v", access)
+	}
+	gateway, _ := identity.Access("gateway")
+	if gateway.Strategy != contexts.StrategySibling || gateway.SessionRef != "thunder.gateway" {
+		t.Fatalf("the earlier-sorting product is %+v, want a sibling", gateway)
+	}
+	iam, _ := identity.Access("iam")
+	if iam.Strategy != contexts.StrategyDirect || iam.SessionRef != "thunder" {
+		t.Fatalf("the pinned product is %+v, want direct", iam)
+	}
+}
+
+func TestAPinNamingNoDirectProductFallsBackToTheNamespaceOrder(t *testing.T) {
+	identity := thunderIdentity()
+	identity.LoginProduct = "apim"
+	if access := identity.LoginAccess(); access.Namespace != "gateway" {
+		t.Fatalf("login access = %+v, want the namespace order", access)
+	}
+	identity.LoginProduct = "nosuch"
+	if access := identity.LoginAccess(); access.Namespace != "gateway" {
+		t.Fatalf("login access = %+v, want the namespace order", access)
+	}
+}
+
+func TestAPinNamingAnUnreachableProductIsMalformed(t *testing.T) {
+	for _, pin := range []string{"apim", "nosuch"} {
+		identity := thunderIdentity()
+		identity.LoginProduct = pin
+		document := contexts.Document{SchemaVersion: contexts.SchemaVersion, DefaultContext: "thunder",
+			Identities: []contexts.Identity{identity},
+			Contexts:   []contexts.Context{{Name: "thunder", Identity: "thunder"}}}
+		root := t.TempDir()
+		if err := contexts.Save(root, document); err == nil {
+			t.Errorf("a pin naming %q was written", pin)
+		}
+	}
+}

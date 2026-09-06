@@ -77,8 +77,8 @@ func TestAMalformedProductDescriptorIsRefused(t *testing.T) {
 		"a provider the shell does not know":                   func(d *modules.ProductDescriptor) { d.Provider = "okta" },
 		"a grant the shell does not implement":                 func(d *modules.ProductDescriptor) { d.Grant = "saml" },
 		"a machine strategy the shell does not implement":      func(d *modules.ProductDescriptor) { d.Machine = []string{"derived"} },
-		"no scopes":                                            func(d *modules.ProductDescriptor) { d.Scopes = nil },
-		"an issuer path that is not a path":                    func(d *modules.ProductDescriptor) { d.IssuerPath = "oauth2/token" },
+		"no scopes":                         func(d *modules.ProductDescriptor) { d.Scopes = nil },
+		"an issuer path that is not a path": func(d *modules.ProductDescriptor) { d.IssuerPath = "oauth2/token" },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -127,6 +127,12 @@ type Identity struct {
 	// Products are the product services reachable under this identity, keyed
 	// by product namespace.
 	Products map[string]Product `json:"products,omitempty"`
+	// LoginProduct pins which direct product the login authorization is run
+	// for. Without it the login product is the first direct product by
+	// namespace, so recording a product that sorts earlier would move the
+	// login session from under the sessions already stored. Optional: a
+	// document written before the field existed keeps the namespace order.
+	LoginProduct string `json:"loginProduct,omitempty"`
 	// synthetic marks an identity manufactured by the v1 compatibility read.
 	// It is never encodable.
 	synthetic bool
@@ -286,6 +292,13 @@ func (i Identity) validate() error {
 			return malformed(fmt.Sprintf(
 				"declares a product credential on the interactive identity %q; a product credential "+
 					"belongs to a client-credentials identity", i.Name))
+		}
+	}
+	if i.LoginProduct != "" {
+		pinned, recorded := i.Products[i.LoginProduct]
+		if !recorded || !pinned.Direct() {
+			return malformed(fmt.Sprintf(
+				"pins the login of the identity %q to a product it does not reach directly", i.Name))
 		}
 	}
 	return nil

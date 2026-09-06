@@ -59,14 +59,19 @@ func ProductSessionRef(credentialRef, namespace string) string {
 	return credentialRef + "." + namespace
 }
 
-// LoginAccess is the authorization wso2 login runs first: the first direct
-// product by namespace, or a bare session when the identity records none.
+// LoginAccess is the authorization wso2 login runs first: the pinned login
+// product, else the first direct product by namespace, else a bare session
+// when the identity records no direct product.
 func (i Identity) LoginAccess() ProductAccess {
 	access := ProductAccess{
 		Strategy: StrategyDirect, Issuer: i.Auth.Issuer, ClientID: i.Auth.ClientID,
 		SessionRef: i.Auth.CredentialRef,
 	}
-	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
+	candidates := slices.Sorted(maps.Keys(i.Products))
+	if pinned, recorded := i.Products[i.LoginProduct]; recorded && pinned.Direct() {
+		candidates = append([]string{i.LoginProduct}, candidates...)
+	}
+	for _, namespace := range candidates {
 		product := i.Products[namespace]
 		if !product.Direct() {
 			continue

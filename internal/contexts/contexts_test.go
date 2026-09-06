@@ -213,7 +213,9 @@ func TestAContextRecordsNoCredentialValue(t *testing.T) {
 	// put a credential itself, so a reviewer can prove the absence from the
 	// types rather than from every writer of them.
 	allowedContext := []string{"name", "identity", "organization", "project"}
-	allowedIdentity := []string{"name", "type", "auth", "products"}
+	// loginProduct names which product the login is run for: a namespace,
+	// not a secret.
+	allowedIdentity := []string{"name", "type", "auth", "products", "loginProduct"}
 	// provider and narrowing say which deployment this is and how access is
 	// derived from it. Both are names of behaviour, not locations of secrets.
 	allowedAuth := []string{
