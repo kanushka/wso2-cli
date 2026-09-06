@@ -106,6 +106,9 @@ func (s Shell) connectCommand(namespace string, descriptor modules.ProductDescri
 	command.SetOut(s.Streams.Out)
 	command.SetErr(s.Streams.Err)
 	f := command.Flags()
+	// Declared by hand, as the root declares its own: Cobra's default help
+	// text names the command by the first word of Use, which here is wso2.
+	f.BoolP("help", "h", false, "Show help for a command.")
 	f.StringVar(&flags.identity, "identity", "",
 		"The identity to record the product on, or to create; defaults to the selected context's, "+
 			"or to the provider's name for a new one.")

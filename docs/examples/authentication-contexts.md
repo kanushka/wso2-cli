@@ -114,7 +114,10 @@ identities:
           scopes: [<scope>, ...]   # jwt-bearer only: assertion scopes
           resource: <uri>          # resource indicator, when required
         clientIdVariable: <VAR>     # product credential: client-credentials
-        clientSecretVariable: <VAR> # identities only, both or neither
+        clientSecretVariable: <VAR> # identities only; the id variable may be
+                                    # omitted when a grant names the client
+    loginProduct: <namespace>   # optional: which direct product the login
+                                # authorization is run for
 
 contexts:
   - name: <context name>        # required, unique
@@ -432,6 +435,15 @@ hand-written configuration. Creation names the context explicitly, from
 `--context <name>` or a deterministic derivation, reports what it created, and
 never silently replaces an existing context. The namespace form also records
 the `namespaceContexts` binding.
+
+`wso2 <namespace> connect <url>` is the product-first way to write all of
+this: the module's product descriptor says how the issuer, audience,
+scopes and grant follow from the URL, and the shell records the product on
+the selected identity, or creates the identity when the product is itself
+a login provider. The first direct product it records is pinned as the
+identity's `loginProduct`, so a product recorded later that sorts earlier
+by namespace does not move the login session from under the sessions
+already stored. A document without the pin keeps the namespace order.
 
 `wso2 context use` writes the selection and stops: no network call, no login.
 Creating or importing a context grants nothing;

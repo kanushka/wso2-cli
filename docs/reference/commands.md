@@ -15,7 +15,8 @@ open decision. The lifecycle command names below are therefore provisional.
 These are built: `wso2 context create <name>`, `wso2 context use <context>`,
 `wso2 context list`, `wso2 context current`,
 `wso2 identity create <name>`, `wso2 identity add-product <identity>
-<namespace>`, `wso2 identity list`, `wso2 login`,
+<namespace>`, `wso2 identity list`, `wso2 <namespace> connect <url>`,
+`wso2 login`,
 `wso2 login --url <issuer> --client-id <id>`, `wso2 login --only <namespace>`,
 `wso2 login --no-products`, `wso2 logout`, `wso2 whoami`, `wso2 doctor`,
 `wso2 module available`, `wso2 module list`,
@@ -41,7 +42,7 @@ refusal is reported.
 | `wso2 whoami` | Built today: shows the selected context, the identity it authenticates as, the organization, the session's subject, and the session's own state, all read from local state with no network call. With no context selected it says so and exits 0. With a context selected but no stored session it says so and names `wso2 login`. A stored session is reported present with its expiry either as the issuer's disclosed refresh-token lifetime or, when the issuer disclosed none, as not stated — never as the shorter-lived access token's own expiry. A disclosed lifetime that has passed is reported expired. A session stored before this field existed reports its subject as unknown rather than blank. It also lists every product the identity records, each with the strategy that reaches it (`direct`, `sibling`, `derived`, `federated`, or `inline` for a client-credentials identity) and whether that product's own session is stored. A client-credentials identity reports its own state as `inline` too, with no recovery text, since it holds nothing to recover. |
 | `wso2 org` | With no subcommand, prints this family's help on standard output and exits 0: naming a family without a subcommand is an incomplete command, not a failed one, and every subcommand it names works. The help names `current` and `use`. A subcommand the family does not have is a different case and is still refused with `shell.unknown_command` and the usage exit class (#133), so a typo is never reported to a script as success. |
 | `wso2 org list` | Deferred (#112): no control-plane endpoint for enumerating organizations exists yet, and listing would need an access token before an organization is chosen, which the auth broker refuses. Typing it is refused as an unknown `wso2 org` subcommand, naming `current` and `use` as what the family supports. |
-| `wso2 org use <organization>` | Built today: sets the `Organization` field on the selected context through `contexts.Update`, and names which context it edited. The auth broker binds a minted token to a context's `Organization` and refuses when it is empty, so a session already signed in under the previous organization no longer matches — the command warns about that on standard error, in both renderings. It writes nothing, and does not migrate, invalidate, or re-mint a session. Refused with `shell.no_context_configured` when no context exists to edit. |
+| `wso2 org use <organization>` | Built today: sets the `Organization` field on the selected context through `contexts.Update`, and names which context it edited. The auth broker binds a minted token to a context's `Organization` and refuses when it is empty, so a session already signed in under the previous organization no longer matches — the command warns about that on standard error, in both renderings. It writes nothing, and does not migrate, invalidate, or re-mint a session. Refused with `shell.no_context_configured` when no context exists to edit, and with `auth.organization_switch_unsupported`, naming the provider, when the selected context's identity authenticates against ThunderID or Identity Server, which have no organization to switch to: the auth broker would refuse every later command with the same code, so the value is refused at the flag instead. |
 | `wso2 org current` | Built today: shows the organization the selected context runs within, read from `contexts.Context.Organization`. With no context configured it reports that state and exits 0, worded exactly as `wso2 context current`. A configured context with no organization set says so distinctly, rather than reporting the same blank field either state would otherwise share. |
 | `wso2 context` | With no subcommand, prints this family's help on standard output and exits 0: naming a family without a subcommand is an incomplete command, not a failed one, and every subcommand it names works. The help names `create`, `current`, `list` and `use`. A subcommand the family does not have is a different case and is still refused with `shell.unknown_command` and the usage exit class (#133), so a typo is never reported to a script as success. |
 | `wso2 context create <name>` | Creates a context naming an identity with `--identity`, and optionally an organization and project with `--organization` and `--project`. It writes no credential and makes no network call, so an unreachable issuer or a misspelled organization is reported by the command that needs it rather than here. Creating a context whose name is taken is refused. The first context created becomes the selected one. |
@@ -52,6 +53,7 @@ refusal is reported.
 | `wso2 identity create <name> --issuer <url> --client-id <id>` | Declares an identity and a same-named context without logging in, and selects the context when none is selected. `--client-secret-variable <VAR>` makes it a client-credentials identity that reads its secret from that variable at use; otherwise it is a browser identity whose credential reference is its own name. `--provider` names `asgardeo`, `identity-server` or `thunder`, which decides how the shell narrows access. `--product <namespace> --endpoint <url> [--audience <uri>] [--scope <s>]...` records one product at the same time; the four belong together and are refused apart with `shell.conflicting_arguments`, and a Thunder identity's product needs `--audience` because its login is bound to that resource. It is what a product module's bootstrap prints for you to run next. Nothing is written to the secure store and no network call is made. A name already declared is refused with `contexts.identity_exists`. The output ends with the command to run next: `wso2 login` for a browser identity, the product's `status` for a CI identity. |
 | `wso2 identity add-product <identity> <namespace>` | Records a product the identity reaches, with `--endpoint`, and optionally `--audience` and a comma-separated `--scopes`. It modifies an identity `wso2 login` wrote and creates no identity and no context: logging in is the only thing that creates an identity. Nothing is written to the secure store and no network call is made, so the record is an assertion that the login's session reaches the product, checked by the first command that needs it. A namespace the identity already records is refused with `contexts.product_exists`; `--replace` overwrites it, replacing the whole record rather than merging with it. An endpoint embedding user information is refused, and the rejected value is not echoed. `--grant jwt-bearer` or `--grant federated`, given with `--grant-issuer` and `--grant-client-id`, records a product reached at its own issuer instead of directly from the login session: a jwt-bearer grant presents an identity token from the login session to that issuer, narrowed by a comma-separated `--grant-scopes` (jwt-bearer only, refused with `shell.invalid_argument` under `federated`); a federated grant signs in at the product's own issuer as the named public client, through the same browser sign-on. `--grant-resource` names the resource indicator the grant's own session carries, when the issuer it runs at requires one. `--grant` without both `--grant-issuer` and `--grant-client-id` is refused with `shell.missing_required_flag`; a grant needs `--audience` too, the value the derived access is proved against. |
 | `wso2 identity list` | Lists the identities and, for each, the products it reaches. It names no credential and reads nothing from the secure store. |
+| `wso2 <namespace> connect <url>` | Records the product a module serves at a URL, from the **product descriptor** the module's receipt carries (`capabilities.product` in its manifest): the issuer derived from the URL, the audience, the scopes its commands need, and the grant it is reached by. It is the shell's own subcommand of every installed namespace, read before the module is launched, so the module never sees it; nothing is written to the secure store and no network call is made. A product whose descriptor names an identity provider (`iam` on ThunderID) creates the identity, named after the provider unless `--identity <name>` says otherwise, with a same-named context selected when none is, and pins it as the identity's login product; when the selected identity already authenticates against that issuer the product is recorded on it instead, and a taken name on another issuer is refused with `contexts.identity_exists`. `--client-id <id> --client-secret-variable <VAR>` creates a client-credentials identity for a pipeline instead. A product whose descriptor names no provider (`apim`) attaches to the selected identity under the descriptor's grant, needing `--client-id` when the descriptor names no default client; with several identities `--login-provider <issuer-url>` picks one, and with none it is refused with `shell.login_provider_required`, naming the provider's own `connect`. On a client-credentials identity such a product needs its own credential, `--client-id <id> --client-secret-variable <VAR>`, and is refused with `auth.product_not_configured` without it. `--audience` and `--scopes` override the descriptor's defaults; a recorded product is refused with `contexts.product_exists` unless `--replace`. A module whose receipt carries no descriptor has `connect` refused with `shell.connect_unsupported`, naming `wso2 identity add-product`. |
 | `wso2 config` | With no subcommand, prints this family's help on standard output and exits 0: naming a family without a subcommand is an incomplete command, not a failed one, and every subcommand it names works. The help names `list`, `get` and `set`. A subcommand the family does not have is a different case and is still refused with `shell.unknown_command` and the usage exit class (#133), so a typo is never reported to a script as success. |
 | `wso2 config list` | Built today: shows every key in the closed set of shell preferences — the default output mode and the catalog origin override — and whether each is currently configured. |
 | `wso2 config get <key>` | Built today: shows one shell preference. `key` must be one of `output`, `catalog-origin`; any other value is refused with `config.unknown_key`, naming the valid keys. |
@@ -115,12 +117,15 @@ A browser or device login under `--no-input` is refused with
 client-credentials identity instead, which acquires access inline with no login
 step.
 
-`--no-input` itself does not yet reach a product command, only `WSO2_NO_INPUT`
-does. A product command that finds no session yet for its own product opens
-the browser to authorize it, printing the product and the issuer first, unless
-`WSO2_NO_INPUT` is set, in which case it refuses with `auth.session_required`
-and exit class `77`, naming `wso2 login --only <namespace>` as the way to
-establish that session ahead of time.
+`--no-input` is the shell's own flag on a product command line too, read
+wherever it is written, like `--verbose`, and never forwarded to the
+module. A product command that finds no session yet for its own product
+opens the browser to authorize it, printing the product and the issuer
+first, unless `--no-input` or `WSO2_NO_INPUT` asked otherwise, in which
+case it refuses with `auth.session_required` and exit class `77`, naming
+the control that refused and `wso2 login --only <namespace>` as the way to
+establish that session ahead of time. Whichever of the two asked, the
+module is handed `WSO2_NO_INPUT=1`, so a module reads one spelling.
 
 ## Trusting a deployment's certificate
 
@@ -145,12 +150,15 @@ request for that product, and a module that calls the user's API through a
 product, such as a gateway, cannot know that API's permissions in advance.
 A scope neither the receipt nor the entry names is refused with
 `auth.scope_not_declared`. The product entry's scopes remain the ceiling
-for every request, whichever party declared them.
+for every request, whichever party declared them. A request naming no
+scopes at all asks for exactly the entry's recorded scopes, which is what
+lets a module stop carrying a `--scope` flag on every command.
 
 ## What a module process can see
 
-A product module runs with an environment built from nothing. Two things
-are added back: `WSO2_CA_FILE`, and every variable named
+A product module runs with an environment built from nothing. Three things
+are added back: `WSO2_CA_FILE`; `WSO2_NO_INPUT=1` when `--no-input` or
+`WSO2_NO_INPUT` asked that nothing prompt; and every variable named
 `WSO2_<NAMESPACE>_*` for that module's namespace, upper-cased: `WSO2_IAM_`
 for `iam`. That is how a secret a command needs, such as an administrator
 password for a one-time bootstrap, reaches the module: the user exports it
