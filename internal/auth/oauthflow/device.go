@@ -224,6 +224,7 @@ func (d DeviceLogin) identify(
 	}
 	_ = verified.Claims(&claims)
 	result.Subject = verified.Subject
+	result.IDToken = raw
 	result.Email = claims.Email
 	return result, nil
 }

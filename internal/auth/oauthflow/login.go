@@ -124,6 +124,10 @@ type Result struct {
 	Token *oauth2.Token
 	// Subject is the verified identity token's subject.
 	Subject string
+	// IDToken is the raw identity token the login verified. It is kept for
+	// one purpose: ending the provider\'s browser session later, where the
+	// end-session endpoint takes it as the hint of which session to end.
+	IDToken string
 	// Email is the verified identity token's email claim, when it carries one.
 	Email string
 }
@@ -241,7 +245,7 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	// An issuer that discloses no email is a legal issuer; the login reports
 	// what it verified rather than refusing over a claim it did not need.
 	_ = idToken.Claims(&claims)
-	return Result{Token: token, Subject: idToken.Subject, Email: claims.Email}, nil
+	return Result{Token: token, Subject: idToken.Subject, IDToken: rawIDToken, Email: claims.Email}, nil
 }
 
 func (l Login) scopes() []string {

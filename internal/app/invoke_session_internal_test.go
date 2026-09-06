@@ -153,7 +153,7 @@ func TestTheSessionEstablisherAnnouncesThenAuthorizesTheProduct(t *testing.T) {
 		t.Fatalf("establish returned %v", err)
 	}
 
-	if !strings.Contains(errOut.String(), `The "iam" product has no session yet`) {
+	if !strings.Contains(errOut.String(), `The "iam" product needs to be authorized`) {
 		t.Fatalf("stderr does not carry the notice:\n%s", errOut.String())
 	}
 	if !strings.Contains(errOut.String(), login.URL) {

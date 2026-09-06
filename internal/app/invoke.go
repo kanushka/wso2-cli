@@ -184,9 +184,9 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 }
 
 // sessionEstablisher is what the broker calls when the product this
-// invocation serves has no session of its own yet: the login flow for that
-// one product, announced first, and refused outright when nothing may open
-// a browser.
+// invocation serves has no session of its own yet, or when the issuer will
+// not renew the one it has: the login flow for that one product, announced
+// first, and refused outright when nothing may open a browser.
 func (s Shell) sessionEstablisher(selection contexts.Selection, namespace string) func(contexts.ProductAccess) error {
 	return func(access contexts.ProductAccess) error {
 		if control := s.nonInteractiveControl(false); control != "" {
@@ -196,7 +196,7 @@ func (s Shell) sessionEstablisher(selection contexts.Selection, namespace string
 			return refusal
 		}
 		if _, err := fmt.Fprintf(s.Streams.Err,
-			"The %q product has no session yet. Opening the browser to authorize it at %s.\n",
+			"The %q product needs to be authorized. Opening the browser to authorize it at %s.\n",
 			namespace, access.Issuer); err != nil {
 			return err
 		}

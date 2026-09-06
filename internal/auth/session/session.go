@@ -67,7 +67,12 @@ type Session struct {
 	// asking. omitempty, so an entry written before they existed decodes with
 	// them empty rather than failing to decode: encoding/json leaves an
 	// absent JSON member as the Go zero value.
-	Strategy string   `json:"strategy,omitempty"`
+	Strategy string `json:"strategy,omitempty"`
+	// IDToken is the identity token the authorization returned, kept so that
+	// wso2 logout can name this session to the provider's end-session
+	// endpoint. It is not a credential: it grants nothing and was verified
+	// before it was stored.
+	IDToken  string   `json:"idToken,omitempty"`
 	ClientID string   `json:"clientId,omitempty"`
 	Scopes   []string `json:"scopes,omitempty"`
 }
