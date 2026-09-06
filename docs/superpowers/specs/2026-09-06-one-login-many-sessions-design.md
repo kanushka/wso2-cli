@@ -255,6 +255,12 @@ applies where it can and documents where it cannot:
    Beside it: a ThunderID machine token accepted by API Manager's
    management plane, and `system` on a ThunderID client-credentials
    token; these decide how many secrets a pipeline holds (section 8).
+   **Measured** (`docs/research/2026-09-06-single-login-spikes.md`):
+   federation answers with a management-scoped token and no prompt, so
+   `federated` is API Manager's interactive default; ThunderID grants
+   `system` to a machine client; API Manager refuses every `at+jwt`
+   assertion, so CI reaches API Manager management with the product-level
+   secret.
 1. ADR: one login, one session per product, no union tokens. Close #43.
 2. Product-keyed sessions and the `sibling`/`federated` source; `login`
    acquires products; `whoami`/`doctor`/`logout` per product.
