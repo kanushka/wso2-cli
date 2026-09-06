@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/wso2/wso2-cli/internal/auth/session"
+	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -67,10 +68,24 @@ type sessionSource struct {
 	sessions session.Store
 	// client serves the issuer traffic.
 	client *http.Client
-	// establish obtains the session when none is stored. nil for the login
-	// session, which only wso2 login establishes.
+	// establish obtains the session when none is stored, or again when the
+	// issuer will not renew the stored one to what a request asks for. nil for
+	// the login session, which only wso2 login establishes.
 	establish func() error
+	// strategy is how this session was obtained (a contexts.Strategy* value).
+	// A federated session's stored access token is served while it is valid:
+	// the product's own issuer minted it for exactly the product's scopes at
+	// the code exchange, and some such issuers (API Manager, measured) refuse
+	// to renew a management scope on a refresh at all.
+	strategy string
 }
+
+// reauthorize carries a refusal to renew out of the lock, so mint can
+// authorize the product again and retry once. The refusal it wraps is what a
+// caller is told when that retry cannot serve the request either.
+type reauthorize struct{ refusal error }
+
+func (r reauthorize) Error() string { return r.refusal.Error() }
 
 // mint derives access, holding the session's rotation lock throughout.
 //
@@ -82,6 +97,28 @@ func (s sessionSource) mint(request Request, now time.Time) (Grant, error) {
 	if err := s.ensureSession(); err != nil {
 		return Grant{}, err
 	}
+	granted, err := s.mintUnderLock(request, now)
+	var again reauthorize
+	if !errors.As(err, &again) {
+		return granted, err
+	}
+	// The issuer will not renew the stored session to this request. The
+	// product is authorized afresh, through the same hook that established
+	// it, outside the lock; what that stores is then served exactly once. A
+	// second refusal is reported as the refusal it is: an authorization the
+	// deployment answers the same way twice is a registration problem.
+	if err := s.establish(); err != nil {
+		return Grant{}, err
+	}
+	granted, err = s.mintUnderLock(request, now)
+	if errors.As(err, &again) {
+		return Grant{}, again.refusal
+	}
+	return granted, err
+}
+
+// mintUnderLock derives access under the session's rotation lock.
+func (s sessionSource) mintUnderLock(request Request, now time.Time) (Grant, error) {
 	var granted Grant
 	err := s.sessions.WithLock(s.ref, func() error {
 		issued, err := s.derive(request, now)
@@ -118,20 +155,77 @@ func isLoginRequired(err error) bool {
 	return errors.As(err, &typed) && typed.Code == "auth.login_required"
 }
 
-// derive runs one scoped refresh under the lock mint holds.
+// derive answers one request under the lock mint holds: from the stored
+// access token when the strategy allows and it covers the request, otherwise
+// by one scoped refresh.
 func (s sessionSource) derive(request Request, now time.Time) (Grant, error) {
+	if s.strategy == contexts.StrategyFederated {
+		if granted, served := s.storedGrant(request, now); served {
+			return granted, nil
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), grantDeadline)
 	defer cancel()
 	issued, err := s.renew(ctx, request.Scopes, now)
 	if err != nil {
-		return Grant{}, err
+		return Grant{}, s.orReauthorize(err)
 	}
 	facts, err := issued.verify(request, s.namespace, s.audience)
 	if err != nil {
-		return Grant{}, err
+		return Grant{}, s.orReauthorize(err)
 	}
 	return Grant{Token: issued.AccessToken, ExpiresAt: issued.expiry(facts, now)}, nil
 }
+
+// orReauthorize turns a refusal to narrow into a request to authorize the
+// product again, when this source has a way to. Every other refusal, and a
+// narrowing refusal for the login session, passes through unchanged.
+func (s sessionSource) orReauthorize(err error) error {
+	var refused Denial
+	if s.establish != nil && errors.As(err, &refused) && refused.Problem.Code == "auth.narrowing_unavailable" {
+		return reauthorize{refusal: err}
+	}
+	return err
+}
+
+// protocolScopes are the scopes the shell itself adds to every authorization
+// and that no product permission is spelled as. A stored access token carries
+// them beside the product's scopes, and they are not what a module asked for.
+var protocolScopes = map[string]bool{"openid": true, "offline_access": true}
+
+// storedGrant serves the access token the session stored at authorization,
+// when it is still valid and carries exactly the request: the product's
+// audience, and the request's scopes beside nothing but the protocol's own.
+// Anything else is not served, and the caller refreshes instead.
+func (s sessionSource) storedGrant(request Request, now time.Time) (Grant, bool) {
+	stored, err := s.sessions.Load(s.ref)
+	if err != nil || stored.AccessToken == "" || !stored.ExpiresAt.After(now.Add(storedTokenMargin)) {
+		return Grant{}, false
+	}
+	facts, err := bearerClaims(stored.AccessToken)
+	if err != nil || !slices.Contains(facts.Audiences, s.audience) {
+		return Grant{}, false
+	}
+	var carried []string
+	for _, scope := range facts.Scopes {
+		if !protocolScopes[scope] {
+			carried = append(carried, scope)
+		}
+	}
+	if !scopeSetsEqual(carried, request.Scopes) {
+		return Grant{}, false
+	}
+	expiresAt := stored.ExpiresAt
+	if !facts.ExpiresAt.IsZero() && facts.ExpiresAt.Before(expiresAt) {
+		expiresAt = facts.ExpiresAt
+	}
+	return Grant{Token: stored.AccessToken, ExpiresAt: expiresAt.UTC()}, true
+}
+
+// storedTokenMargin is how much life a stored access token must have left to
+// be served: enough for the module to use it, so a token that expires
+// mid-command is refreshed now rather than failed later.
+const storedTokenMargin = 30 * time.Second
 
 // renew refreshes the stored session for scopes and persists any rotation,
 // under the lock the caller holds.

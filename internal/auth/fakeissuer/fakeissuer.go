@@ -252,6 +252,9 @@ type Issuer struct {
 	idTokens      map[string]string        // identity token -> its audience
 	deviceGrants  map[string]*deviceGrant
 	devicePolls   []time.Time
+	// logouts records every end-session request, in order, so a test can see
+	// what a logout told the deployment without a browser in the loop.
+	logouts []url.Values
 	// lastDeviceCode is the most recently minted device code, recorded because
 	// map iteration order could not name "most recent" if a test ever started
 	// two authorizations.
@@ -335,6 +338,7 @@ func New(t *testing.T, opts Options) *Issuer {
 	mux.HandleFunc("POST /token", issuer.handleToken)
 	mux.HandleFunc("POST /introspect", issuer.handleIntrospect)
 	mux.HandleFunc("POST /revoke", issuer.handleRevoke)
+	mux.HandleFunc("GET /logout", issuer.handleLogout)
 	mux.HandleFunc("POST /device_authorize", issuer.handleDeviceAuthorize)
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
@@ -419,6 +423,7 @@ func (i *Issuer) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
 			"authorization_code", "refresh_token", "client_credentials", deviceGrantType,
 		},
 		"device_authorization_endpoint": i.URL + "/device_authorize",
+		"end_session_endpoint":          i.URL + "/logout",
 	}
 	if i.opts.OmitS256 {
 		delete(document, "code_challenge_methods_supported")
@@ -1118,6 +1123,33 @@ func (i *Issuer) RefreshTokenLive(token string) bool {
 	defer i.mutex.Unlock()
 	_, found := i.refreshTokens[token]
 	return found
+}
+
+// MintAccessToken mints a live access token directly, as a code exchange
+// would, so a test can seed a session that already holds one. resource binds
+// the audience as a resource indicator would; empty takes the registration's.
+func (i *Issuer) MintAccessToken(scopes []string, resource string) string {
+	return i.mintAccessTokenFor("user-1", scopes, resource)
+}
+
+// LogoutRequests reports every end-session request this issuer received, as
+// the query each carried.
+func (i *Issuer) LogoutRequests() []url.Values {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	return append([]url.Values(nil), i.logouts...)
+}
+
+// handleLogout is the OpenID Connect end-session endpoint as this fixture
+// serves it: it records what it was told and answers with a page, since a
+// deployment's sign-out page is what a browser would land on.
+func (i *Issuer) handleLogout(w http.ResponseWriter, r *http.Request) {
+	i.mutex.Lock()
+	i.logouts = append(i.logouts, r.URL.Query())
+	i.mutex.Unlock()
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("signed out"))
 }
 
 func (i *Issuer) handleIntrospect(w http.ResponseWriter, r *http.Request) {

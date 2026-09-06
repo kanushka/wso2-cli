@@ -20,6 +20,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	keyring "github.com/zalando/go-keyring"
 
@@ -214,5 +215,144 @@ func TestALoginProductDriftIsRefused(t *testing.T) {
 	}
 	if stored, loadErr := store.Load(sessionRef); loadErr != nil || stored.RefreshToken != deployment.seeded {
 		t.Fatalf("the drift refusal touched the stored session: %v %+v", loadErr, stored)
+	}
+}
+
+// federatedDeployment seeds a login session and a federated apim product
+// whose own issuer is product, storing under the product's ref whatever
+// stored describes. It returns the broker the apim module would build.
+func federatedDeployment(t *testing.T, product *fakeissuer.Issuer, stored session.Session) (browserDeployment, *auth.Broker) {
+	t.Helper()
+	deployment := seedBrowserSession(t, fakeissuer.Options{})
+	const apimAudience = "apim-cli-client"
+	stored.Issuer = product.URL
+	stored.Strategy = contexts.StrategyFederated
+	ref := contexts.ProductSessionRef(sessionRef, "apim")
+	if err := (session.Store{StateRoot: deployment.stateRoot}).Save(ref, stored); err != nil {
+		t.Fatal(err)
+	}
+	broker := deployment.broker(t)
+	broker.Selection.Identity.Products["apim"] = contexts.Product{
+		Endpoint: product.URL, Audience: apimAudience, Scopes: []string{"apim:api_view"},
+		Grant: &contexts.Grant{Kind: contexts.GrantFederated, Issuer: product.URL, ClientID: apimAudience},
+	}
+	broker.Namespace = "apim"
+	broker.Capabilities.AuthAudiences = []string{apimAudience}
+	broker.Capabilities.AuthScopes = []string{"apim:api_view"}
+	broker.HTTPClient = product.HTTPClient()
+	return deployment, broker
+}
+
+// The code exchange at a federated issuer answers with an access token the
+// product accepts; some issuers (API Manager, measured) then refuse to renew
+// the management scope on a refresh. While that token is valid it is the
+// answer, and a refresh the issuer would refuse is never attempted.
+func TestAFederatedSessionServesItsStoredAccessTokenWhileValid(t *testing.T) {
+	product := fakeissuer.New(t, fakeissuer.Options{Audience: "apim-cli-client", RefreshScopeMode: "reject"})
+	minted := product.MintAccessToken([]string{"openid", "offline_access", "apim:api_view"}, "")
+	_, broker := federatedDeployment(t, product, session.Session{
+		RefreshToken: product.SeedSession([]string{"apim:api_view"}),
+		AccessToken:  minted, ExpiresAt: time.Now().Add(time.Hour),
+	})
+	grant, err := broker.Acquire(auth.Request{Audience: "apim-cli-client", Scopes: []string{"apim:api_view"}})
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	if grant.Token != minted {
+		t.Fatal("the broker did not serve the stored access token")
+	}
+}
+
+// An expired stored token is not served; the session is refreshed as before.
+// The issuer rotates on refresh, so a rotated stored refresh token is the
+// proof the refresh happened (a re-minted token can be byte-identical to the
+// stale one within the same second, so the token itself proves nothing).
+func TestAnExpiredFederatedAccessTokenIsRefreshed(t *testing.T) {
+	product := fakeissuer.New(t, fakeissuer.Options{Audience: "apim-cli-client", RotateRefreshTokens: true})
+	seeded := product.SeedSession([]string{"apim:api_view"})
+	deployment, broker := federatedDeployment(t, product, session.Session{
+		RefreshToken: seeded,
+		AccessToken:  product.MintAccessToken([]string{"apim:api_view"}, ""), ExpiresAt: time.Now().Add(-time.Minute),
+	})
+	grant, err := broker.Acquire(auth.Request{Audience: "apim-cli-client", Scopes: []string{"apim:api_view"}})
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	if active, _, _ := product.Introspect(t, grant.Token); !active {
+		t.Fatal("the refreshed token was not minted by the product issuer")
+	}
+	stored, err := session.Store{StateRoot: deployment.stateRoot}.Load(contexts.ProductSessionRef(sessionRef, "apim"))
+	if err != nil || stored.RefreshToken == seeded {
+		t.Fatalf("the session was not refreshed (rotated): %v", err)
+	}
+}
+
+// A stored token that does not carry the scopes asked for is not served
+// either: the request is what the module is owed, whatever the exchange
+// granted.
+func TestAStoredAccessTokenWithOtherScopesIsNotServed(t *testing.T) {
+	product := fakeissuer.New(t, fakeissuer.Options{Audience: "apim-cli-client"})
+	other := product.MintAccessToken([]string{"openid", "apim:api_create"}, "")
+	_, broker := federatedDeployment(t, product, session.Session{
+		RefreshToken: product.SeedSession([]string{"apim:api_view"}),
+		AccessToken:  other, ExpiresAt: time.Now().Add(time.Hour),
+	})
+	grant, err := broker.Acquire(auth.Request{Audience: "apim-cli-client", Scopes: []string{"apim:api_view"}})
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	if grant.Token == other {
+		t.Fatal("the broker served a token carrying other permissions")
+	}
+}
+
+// When the issuer refuses to renew the session to what was asked, the shell
+// authorizes the product again through the hook, outside the lock, and
+// serves the access token that authorization stored.
+func TestAFederatedSessionTheIssuerWillNotRenewIsAuthorizedAgain(t *testing.T) {
+	product := fakeissuer.New(t, fakeissuer.Options{Audience: "apim-cli-client", RefreshScopeMode: "reject"})
+	deployment, broker := federatedDeployment(t, product, session.Session{
+		RefreshToken: product.SeedSession([]string{"apim:api_view"}),
+	})
+	calls := 0
+	fresh := ""
+	broker.EstablishSession = func(access contexts.ProductAccess) error {
+		calls++
+		fresh = product.MintAccessToken([]string{"openid", "offline_access", "apim:api_view"}, "")
+		return session.Store{StateRoot: deployment.stateRoot}.Save(access.SessionRef, session.Session{
+			Issuer: access.Issuer, RefreshToken: product.SeedSession([]string{"apim:api_view"}),
+			AccessToken: fresh, ExpiresAt: time.Now().Add(time.Hour), Strategy: access.Strategy,
+		})
+	}
+	grant, err := broker.Acquire(auth.Request{Audience: "apim-cli-client", Scopes: []string{"apim:api_view"}})
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	if calls != 1 || grant.Token != fresh {
+		t.Fatalf("hook called %d times, served the fresh token: %v", calls, grant.Token == fresh)
+	}
+}
+
+// One re-authorization, never a loop: when the session it establishes still
+// cannot serve the request, the narrowing refusal is reported as it always was.
+func TestAReauthorizationThatStillCannotServeIsRefusedOnce(t *testing.T) {
+	product := fakeissuer.New(t, fakeissuer.Options{Audience: "apim-cli-client", RefreshScopeMode: "reject"})
+	deployment, broker := federatedDeployment(t, product, session.Session{
+		RefreshToken: product.SeedSession([]string{"apim:api_view"}),
+	})
+	calls := 0
+	broker.EstablishSession = func(access contexts.ProductAccess) error {
+		calls++
+		return session.Store{StateRoot: deployment.stateRoot}.Save(access.SessionRef, session.Session{
+			Issuer: access.Issuer, RefreshToken: product.SeedSession([]string{"apim:api_view"}), Strategy: access.Strategy,
+		})
+	}
+	_, err := broker.Acquire(auth.Request{Audience: "apim-cli-client", Scopes: []string{"apim:api_view"}})
+	var denial auth.Denial
+	if !errors.As(err, &denial) || denial.Problem.Code != "auth.narrowing_unavailable" {
+		t.Fatalf("got %v, want auth.narrowing_unavailable", err)
+	}
+	if calls != 1 {
+		t.Fatalf("hook called %d times, want exactly once", calls)
 	}
 }

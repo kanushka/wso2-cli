@@ -83,6 +83,7 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 			scopes:    access.Scopes,
 			sessions:  session.Store{StateRoot: b.StateRoot},
 			client:    b.httpClient(),
+			strategy:  access.Strategy,
 		}
 		if access.Strategy != contexts.StrategyDirect {
 			// A product beside the login one, or one derived from it, may
