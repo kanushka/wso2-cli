@@ -557,6 +557,7 @@ func (s Shell) loginCommand() *cobra.Command {
 }
 
 func (s Shell) logoutCommand() *cobra.Command {
+	var keepBrowser bool
 	command := &cobra.Command{
 		Use:                   "logout",
 		Short:                 "End the selected context's session.",
@@ -575,9 +576,11 @@ func (s Shell) logoutCommand() *cobra.Command {
 			if flag := shellFlag(command, contextFlag); flag != nil {
 				contextName = flag.Value.String()
 			}
-			return s.logout(logoutFlags{contextName: contextName, mode: mode})
+			return s.logout(logoutFlags{contextName: contextName, mode: mode, keepBrowser: keepBrowser})
 		},
 	}
+	command.Flags().BoolVar(&keepBrowser, "keep-browser-session", false,
+		"Leave the identity providers' browser sessions in place; end only the shell's own sessions.")
 	declareContextFlag(command.Flags())
 	declareOutputFlag(command.Flags())
 	return command

@@ -49,7 +49,25 @@ const logoutSchema = "shell.logout/v1"
 type logoutFlags struct {
 	contextName string
 	mode        output.Mode
+	// keepBrowser leaves the providers' browser sessions in place: only the
+	// shell's own sessions end.
+	keepBrowser bool
 }
+
+// The browser-session outcomes wso2 logout reports.
+const (
+	// browserSessionOpened: each provider's end-session page was opened.
+	browserSessionOpened = "sign-out opened"
+	// browserSessionKept: the user or the environment asked that no browser
+	// open, so the providers' sessions were left alone.
+	browserSessionKept = "kept"
+	// browserSessionUnaffected: nothing was stored, so nothing was signed
+	// out of.
+	browserSessionUnaffected = "unaffected"
+	// browserSessionPrinted: no browser could be opened; the sign-out URLs
+	// were printed for the user to open.
+	browserSessionPrinted = "sign-out printed"
+)
 
 // logout ends every session the selected context's identity holds: the login
 // session first, and then one per product that established a session of its
@@ -75,7 +93,9 @@ func (s Shell) logout(flags logoutFlags) error {
 	}
 
 	if selected.Identity.Auth.Kind == contexts.KindClientCredentials {
-		return s.reportLogout(flags.mode, selected, logoutOutcome{revocation: oauthflow.RevocationNotAttempted})
+		return s.reportLogout(flags.mode, selected, logoutOutcome{
+			revocation: oauthflow.RevocationNotAttempted, browserSession: browserSessionUnaffected,
+		})
 	}
 
 	root, err := s.stateRoot()
@@ -101,10 +121,25 @@ func (s Shell) logout(flags logoutFlags) error {
 		return err
 	}
 	ended := logoutOutcome{
-		sessionEnded: loginOutcome.sessionEnded,
-		revocation:   loginOutcome.revocation,
-		shared:       shared,
+		sessionEnded:   loginOutcome.sessionEnded,
+		revocation:     loginOutcome.revocation,
+		shared:         shared,
+		browserSession: browserSessionUnaffected,
 	}
+	// One sign-out per provider and client, however many sessions were
+	// established there: ThunderID's login and sibling sessions share one
+	// browser session, and ending it twice would be two tabs for one thing.
+	signOuts := map[string]oauthflow.EndSession{}
+	noteSignOut := func(access contexts.ProductAccess, outcome sessionEndOutcome) {
+		if !outcome.sessionEnded {
+			return
+		}
+		key := access.Issuer + " " + access.ClientID
+		if _, seen := signOuts[key]; !seen {
+			signOuts[key] = oauthflow.EndSession{Issuer: access.Issuer, ClientID: access.ClientID, IDToken: outcome.idToken}
+		}
+	}
+	noteSignOut(login, loginOutcome)
 
 	var products []string
 	for _, access := range accesses[1:] {
@@ -118,6 +153,7 @@ func (s Shell) logout(flags logoutFlags) error {
 		if err != nil {
 			return err
 		}
+		noteSignOut(access, outcome)
 		state := "none"
 		if outcome.sessionEnded {
 			state = "ended"
@@ -125,8 +161,73 @@ func (s Shell) logout(flags logoutFlags) error {
 		products = append(products, access.Namespace+" "+state)
 	}
 	ended.productSessions = products
+	ended.browserSession = s.endBrowserSessions(flags, accesses, signOuts)
 
 	return s.reportLogout(flags.mode, selected, ended)
+}
+
+// endBrowserSessions opens each provider's end-session page, so the next
+// login prompts for credentials again. It is what makes logout mean what its
+// name says: revoking the shell's refresh tokens leaves the providers' own
+// browser sessions in place, and a later wso2 login is then answered from
+// the cookie without anyone typing a password.
+//
+// It is best effort, like revocation (ADR 0010): the page is opened and its
+// outcome is not observable from here. Nothing opens under --keep-browser-
+// session, under --no-input or WSO2_NO_INPUT, or when nothing was stored.
+func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.ProductAccess,
+	signOuts map[string]oauthflow.EndSession) string {
+	if len(signOuts) == 0 {
+		return browserSessionUnaffected
+	}
+	if flags.keepBrowser || s.nonInteractiveControl(false) != "" {
+		return browserSessionKept
+	}
+	// Providers in the order their sessions were listed, so the output is
+	// stable and the login provider's page opens first.
+	opened := browserSessionOpened
+	seen := map[string]bool{}
+	for _, access := range accesses {
+		key := access.Issuer + " " + access.ClientID
+		endSession, wanted := signOuts[key]
+		if !wanted || seen[key] {
+			continue
+		}
+		seen[key] = true
+		ctx, cancel := context.WithTimeout(context.Background(), revokeDeadline)
+		target, err := endSession.URL(ctx)
+		cancel()
+		if err != nil || target == "" {
+			// A provider that cannot be read, or advertises no end-session
+			// endpoint, has no page to open. The revocation already reported
+			// what the deployment could be told; this is not a second
+			// failure to raise.
+			s.log.Debug("no sign-out page for a provider", "issuer", access.Issuer)
+			continue
+		}
+		// The URL is an instruction, not a result, so it goes to the
+		// diagnostic stream; under a machine-readable output mode that stream
+		// carries only structured lines, and the URL travels as one.
+		if flags.mode == output.ModeJSON {
+			s.log.Debug("opening a sign-out page", "issuer", access.Issuer, "url", target)
+		} else if _, err := fmt.Fprintf(s.Streams.Err, "Open this URL to end the browser session at %s:\n%s\n",
+			access.Issuer, target); err != nil {
+			return browserSessionPrinted
+		}
+		if err := s.openBrowser(target); err != nil {
+			opened = browserSessionPrinted
+		}
+	}
+	return opened
+}
+
+// openBrowser opens a URL the way login does: through the test seam when one
+// is set, and the OS opener otherwise.
+func (s Shell) openBrowser(target string) error {
+	if s.OpenBrowser != nil {
+		return s.OpenBrowser(target)
+	}
+	return oauthflow.Open(target)
 }
 
 // sessionEndOutcome is what ending one stored session established: whether it
@@ -134,6 +235,9 @@ func (s Shell) logout(flags logoutFlags) error {
 type sessionEndOutcome struct {
 	sessionEnded bool
 	revocation   oauthflow.Revocation
+	// idToken is the identity token the ended session recorded, kept only
+	// long enough to name the session to the provider's end-session page.
+	idToken string
 }
 
 // endSession revokes and deletes one session reference against one issuer.
@@ -153,6 +257,7 @@ func (s Shell) endSession(store session.Store, sessionRef, issuer, clientID stri
 		switch {
 		case loadErr == nil:
 			refreshToken = stored.RefreshToken
+			outcome.idToken = stored.IDToken
 		case isNoSession(loadErr):
 			// Either nothing is stored, or what is stored cannot be read. Both
 			// leave this command with no refresh token to revoke, and neither
@@ -222,6 +327,9 @@ type logoutOutcome struct {
 	// It is nil for a client-credentials identity and for one with no
 	// product session beyond the login session.
 	productSessions []string
+	// browserSession is one of the browserSession* outcomes: what happened
+	// to the providers' own sign-on sessions.
+	browserSession string
 }
 
 // isNoSession reports whether the error is the store saying there is nothing
@@ -259,11 +367,10 @@ func (s Shell) reportLogout(mode output.Mode, selected contexts.Selection,
 		With("revocation", "Revocation", string(ended.revocation)).
 		With("productSessions", "Product sessions", productSessions).
 		With("sharedContexts", "Shared with", strings.Join(ended.shared, ", ")).
-		// A constant today, and a field rather than prose because it is the one
-		// thing users read into this command that is not true, and the table
-		// note that explains it does not reach a JSON caller. It stops being
-		// constant if the shell ever ends the provider's browser session too.
-		With("browserSession", "Browser session", "unaffected")
+		// A field rather than prose because it is the one thing users read
+		// into this command that is not automatically true, and the table
+		// note that explains it does not reach a JSON caller.
+		With("browserSession", "Browser session", ended.browserSession)
 
 	if mode == output.ModeJSON {
 		return output.Report(s.Streams.Out, mode, reported)
@@ -305,11 +412,16 @@ func logoutNotes(ended logoutOutcome) []string {
 			"session's refresh token, so its own copy of the session may remain usable until it "+
 			"expires.")
 	}
-	if ended.sessionEnded {
-		// Said under every outcome, because it is true under every outcome and
-		// because the command's name invites the opposite conclusion.
-		notes = append(notes, "A browser single-sign-on session at the identity provider is "+
-			"unaffected by this command, so a later login may not prompt for credentials.")
+	switch ended.browserSession {
+	case browserSessionOpened:
+		notes = append(notes, "Each identity provider's sign-out page was opened in the browser, "+
+			"so the next login prompts for credentials again.")
+	case browserSessionPrinted:
+		notes = append(notes, "No browser could be opened; open the printed sign-out URLs to end "+
+			"the identity providers' browser sessions, or a later login may not prompt for credentials.")
+	case browserSessionKept:
+		notes = append(notes, "The identity providers' browser sessions were left in place, so a "+
+			"later login may not prompt for credentials.")
 	}
 	if len(ended.shared) > 1 {
 		notes = append(notes, fmt.Sprintf("These contexts share one session and are all affected: %s.",
@@ -319,4 +431,4 @@ func logoutNotes(ended logoutOutcome) []string {
 }
 
 // logoutUsageRecovery is the way back from every wso2 logout usage refusal.
-const logoutUsageRecovery = "Run wso2 logout [--context <name>] [--output table|json]."
+const logoutUsageRecovery = "Run wso2 logout [--context <name>] [--keep-browser-session] [--output table|json]."
