@@ -46,41 +46,10 @@ cp "${root}/scripts/install.sh" "${root}/scripts/install.ps1" \
 	"${root}/scripts/uninstall.sh" "${root}/scripts/uninstall.ps1" "${site}/"
 
 # A landing page, so someone who opens the host in a browser finds out what
-# these files are rather than a directory listing or a 404.
-cat >"${site}/index.html" <<'HTML'
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Install the WSO2 CLI</title>
-</head>
-<body>
-<h1>Install the WSO2 CLI</h1>
-<p>macOS, Linux, and WSL:</p>
-<pre><code>curl -fsSL https://wso2.github.io/wso2-cli/install.sh | bash</code></pre>
-<p>Windows:</p>
-<pre><code>iwr https://wso2.github.io/wso2-cli/install.ps1 -useb | iex</code></pre>
-<p>
-These scripts download a published release, verify it against the
-checksum file published beside it, and install the binary under your WSO2
-state root. Read either one before running it: they are plain text at the
-URLs above.
-</p>
-<p>
-This host also serves the module catalog the CLI reads to install and update
-product modules: <a href="index.json">index.json</a> and one file per product
-namespace under <code>modules/</code>. Both are generated from the tags that
-exist.
-</p>
-<p>
-<a href="https://github.com/wso2/wso2-cli/blob/main/docs/guides/installing.md">Installation guide</a>,
-including how to install without piping a script to a shell, how to pin a
-version, and how to uninstall.
-</p>
-</body>
-</html>
-HTML
+# these files are rather than a directory listing or a 404. It is a file rather
+# than a heredoc so it can be opened in a browser and edited as a page; nothing
+# else on this origin depends on it.
+cp "${root}/scripts/site/index.html" "${site}/"
 
 input="$(mktemp)"
 trap 'rm -f "${input}"' EXIT

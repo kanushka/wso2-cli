@@ -24,6 +24,7 @@ on:
       - 'scripts/uninstall.ps1'
       - '.github/workflows/pages.yml'
       - 'scripts/assemble-site.sh'
+      - 'scripts/site/**'
       - 'internal/catalog/**'
       - 'internal/release/**'
       - 'cmd/wso2-catalog/**'
