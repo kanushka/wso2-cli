@@ -149,22 +149,74 @@ remain for hand-written documents, but the supported path is product
 first:
 
 ```sh
-wso2 <namespace> connect <url> [--login-provider <name>]
+wso2 <namespace> connect <url> [flags]
 ```
 
-`connect` is a shell command that a module enables by declaring, in its
-manifest, a **product descriptor**: how to discover the product's issuer
-and audience from its URL, the scopes its commands need, and which
-strategies it accepts. The shell records the product on the selected
-identity, or creates the identity when none exists, and writes nothing to
-the secure store (ADR 0012 holds). The first `connect` decides the login
-provider when `--login-provider` is absent and the product is itself one;
-otherwise `connect` asks for the provider's issuer once.
+`connect` is a shell command, not a module one. The shell resolves a
+product namespace before the module runs and reads `connect` off the front
+of the arguments there, exactly as it reads `--context` and `--output` off
+a product command line: the module never sees it, and the document is
+written by the shell, which writes nothing to the secure store (ADR 0012).
+A module enables it by declaring a **product descriptor** in its manifest
+(`modules/<namespace>/module.json`), inside `capabilities`, so the
+descriptor travels with the capabilities through the catalog, the release
+record and the installed receipt without any of those growing a second
+carrier. A module whose receipt carries no descriptor has `connect`
+refused with `shell.connect_unsupported`, naming `wso2 identity
+add-product`. The descriptor says:
+
+| Member | Meaning |
+| --- | --- |
+| `provider` | the identity provider this product *is*, when a login can run against it (`thunder`, `identity-server`, `asgardeo`); empty for a product that is not a login provider |
+| `issuerPath` | what is appended to the `connect` URL to name the issuer (ThunderID: nothing; API Manager: `/oauth2/token`) |
+| `clientId` | the public client the shell presents at that issuer, as the product's bootstrap registers it; empty when the deployment assigns one and `--client-id` must carry it |
+| `audience` | `resource` when the token audience is a resource server URI (ThunderID, with `defaultAudience` naming the seeded system server) or `client` when it is the client id (API Manager) |
+| `scopes` | the scopes the product's commands need; the session is authorized for exactly these |
+| `grant` | the grant kind the product needs when it is not the login provider (`federated` for API Manager); empty for a product only its own provider serves |
+| `machine` | the strategies a client-credentials identity may use: `inline` (the machine client at the login provider is minted per product) or `credential` (the product needs a credential of its own) |
+
+What `connect` records follows from the descriptor and the flags:
+
+- A product whose descriptor names a `provider` is a login provider. With
+  no identity selected, or `--identity <name>` naming one that does not
+  exist, `connect` creates the identity, named after the provider unless
+  `--identity` says otherwise, with a same-named context, selected when
+  none is; the product is recorded direct. With `--client-id` and
+  `--client-secret-variable` the identity is a client-credentials one,
+  for a pipeline, and the descriptor's `machine` must allow `inline`. When
+  the selected identity already has that issuer, the product is recorded
+  on it instead.
+- A product whose descriptor names no `provider` attaches to the selected
+  identity, under the grant its descriptor names: the grant's issuer is
+  the `connect` URL plus `issuerPath`, its client the descriptor's or
+  `--client-id`, the audience the client id or `--audience`. With several
+  identities, `--login-provider <issuer-url>` picks the one with that
+  issuer. With none, `connect` is refused with
+  `shell.login_provider_required`, naming the provider's own `connect`
+  command to run first; the shell does not ask for an issuer it could
+  build no identity from.
+- On a client-credentials identity, a product whose `machine` list has no
+  `inline` is refused at write time with `auth.product_not_configured`
+  unless `--client-id-variable` and `--client-secret-variable` name the
+  product's own credential (spec section 8's fallback); the refusal names
+  those two flags.
+- `--scopes` and `--audience` override the descriptor's defaults;
+  `--replace` overwrites a recorded product, which is otherwise refused
+  with `contexts.product_exists`.
+
+The first direct product `connect` records on an identity is pinned as
+the identity's `loginProduct`, and `wso2 login` authorizes it first.
+Without the pin the login product is the first direct product by
+namespace, so recording a product that sorts earlier would move the login
+session from under the sessions already stored; the pin is what keeps it
+where it was. Documents that predate the field keep the namespace order.
 
 A module bootstrap that registers the CLI on the product (as `iam
-bootstrap` and `apim bootstrap` do) returns the product record as a
-structured result the shell writes, instead of printing a command to
-paste.
+bootstrap` and `apim bootstrap` do) prints the `connect` line to run next,
+rather than the identity create line it printed before. It keeps printing
+a command rather than returning a record the shell writes: a structured
+result the shell acted on would be a protocol change for one line of
+output, and the module contract stays as it is.
 
 `wso2 login` with no product recorded on a ThunderID identity is refused
 before the browser opens, naming `connect`. This closes the first-login
@@ -174,7 +226,10 @@ failure recorded in the gap analysis.
 
 - A module request with no scopes means the product's recorded scopes; the
   record stays the ceiling. Modules stop needing `--scope` on every command.
-- `--no-input` reaches product commands, as `WSO2_NO_INPUT` already does.
+- `--no-input` reaches product commands, as `WSO2_NO_INPUT` already does:
+  the shell reads it off the product command line as its own flag, the
+  broker's first-use acquisition refuses under it, and the module is handed
+  `WSO2_NO_INPUT` so it needs no second spelling.
 - `wso2 whoami`, `wso2 doctor` and `wso2 logout` treat a client-credentials
   identity as healthy without a session, and `logout` exits 0.
 - `wso2 org use` is refused on a provider without organization switch,
