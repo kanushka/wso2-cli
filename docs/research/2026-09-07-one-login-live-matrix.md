@@ -19,7 +19,7 @@ is already a measurement across a shell restart.
 | 1. ThunderID login serving `iam` (direct) | **Pass.** `wso2 iam connect http://localhost:8492` records the product and creates the identity, the context and the login-product pin. | 1 | 2 |
 | 2. The same login serving API Manager management (federated) | **Pass.** No second password. `apis list` and `apps list` both answer. | 0 | 5 |
 | 2a. First-use acquisition | **Pass.** After `wso2 login --no-products`, `wso2 apim apis list` prints the notice, authorizes through the sign-on and answers. | 0 | 5 |
-| 2b. The same under `--no-input` | **Pass.** Refused with `auth.session_required`, naming `wso2 login --only apim` and the flag that caused it. | 0 | 0 |
+| 2b. The same under `--no-input` | **Pass.** Refused before anything opens, naming the flag that caused it. The refusal a product with no session gets is `auth.session_required`; one whose stored session cannot be renewed now gets `auth.reauthorization_required` (section 10). | 0 | 0 |
 | 3. Identity Server as the login provider | **Pass** for API Manager management, by the `derived` (jwt-bearer) strategy, for the administrator and refused for the group-less user. `iam` and the gateway are not reachable under it. | 1 | 4 |
 | 4. Asgardeo | **Not run.** No tenant available. |  |  |
 | 5. The gateway (sibling) | **Pass** for the leg the CLI owns. `wso2 login` establishes `iam` direct and `apim` sibling from one prompt, and the gateway answers 200. The mock backend behind it still rejects the token, for a reason outside the shell. | 1 | 4 |
@@ -328,12 +328,17 @@ proof rests on either way.
 
 ## 10. Defects the runs found and did not fix
 
-- Under `--no-input`, a product that **has** a session which carries none
-  of its permissions is refused with "has no session under this identity
-  yet". That is false — `whoami` shows the session present in the same
-  state — and it sends the reader to `wso2 login --only apim`, which will
-  not help. With a browser the same state produces the accurate refusal
-  quoted in section 5. Only the no-input path misreports it.
+- **Fixed** (`fix(auth): tell a stored session that cannot be renewed
+  apart from one that is missing`). Under `--no-input`, a product that
+  **had** a session carrying none of its permissions was refused with "has
+  no session under this identity yet" — false, since `whoami` showed it
+  present in the same state, and its recovery was another login, which is
+  what the invocation had just forbidden. The cause was structural: the
+  broker's establish hook is nullary, so the shell wrote a message for a
+  state only the broker could see, and the two calls into it — nothing
+  stored, and stored but unrenewable — were indistinguishable. The shell
+  now hands down a marker saying only that no browser may open, and the
+  broker writes whichever refusal fits. Verified live in both states.
 - `whoami` renders a machine identity's product as `iam: inline, inline`:
   the strategy and the session state are the same word.
 - `connect` ends with `Next  Run wso2 login --context thunder.` even when

@@ -380,3 +380,68 @@ func TestARequestWithNoScopesMeansTheProductsRecordedScopes(t *testing.T) {
 		t.Fatalf("token: active %v scopes %q audience %q", active, scopes, audience)
 	}
 }
+
+// TestASessionThatCannotServeUnderNoInputSaysRenewalNeedsABrowser covers the
+// state the shell used to misreport: a session is stored for the product, the
+// issuer will not renew it to what the module asked for, and the invocation
+// may not open a browser to authorize the product again. Saying the product
+// "has no session under this identity yet" was false on its face — wso2 whoami
+// showed the session at the same moment — and its recovery, another login, is
+// exactly what the invocation had just refused to do.
+func TestASessionThatCannotServeUnderNoInputSaysRenewalNeedsABrowser(t *testing.T) {
+	product := fakeissuer.New(t, fakeissuer.Options{Audience: "apim-cli-client", RefreshScopeMode: "reject"})
+	_, broker := federatedDeployment(t, product, session.Session{
+		RefreshToken: product.SeedSession([]string{"apim:api_view"}),
+	})
+	broker.EstablishSession = func(contexts.ProductAccess) error {
+		return auth.BrowserUnavailable{Control: "--no-input"}
+	}
+
+	_, err := broker.Acquire(auth.Request{Audience: "apim-cli-client", Scopes: []string{"apim:api_view"}})
+
+	var denial auth.Denial
+	if !errors.As(err, &denial) || denial.Problem.Code != "auth.reauthorization_required" {
+		t.Fatalf("got %v, want auth.reauthorization_required", err)
+	}
+	if containsText(denial.Problem.Message, "no session") {
+		t.Fatalf("the refusal still says the product has no session: %s", denial.Problem.Message)
+	}
+	if !containsText(denial.Problem.Message, "has a session") ||
+		!containsText(denial.Problem.Message, "apim:api_view") {
+		t.Fatalf("the refusal does not say a session exists that cannot serve: %s", denial.Problem.Message)
+	}
+	// Both causes are named, because the shell cannot tell them apart from
+	// here: another login may fix it, and if it does not, nothing the reader
+	// runs will — an administrator has to.
+	if !containsText(denial.Problem.Recovery, "wso2 login --only apim") ||
+		!containsText(denial.Problem.Recovery, product.URL) ||
+		!containsText(denial.Problem.Recovery, "apim:api_view") {
+		t.Fatalf("the recovery does not name the login, the issuer and the permissions: %s",
+			denial.Problem.Recovery)
+	}
+	if !containsText(denial.Guidance, "--no-input") {
+		t.Fatalf("the guidance does not name the control that refused: %s", denial.Guidance)
+	}
+}
+
+// TestAProductWithNoSessionUnderNoInputStillSaysSessionRequired pins the other
+// half of the distinction: nothing is stored, so the old message and its
+// recovery are the true ones and stay exactly as they were.
+func TestAProductWithNoSessionUnderNoInputStillSaysSessionRequired(t *testing.T) {
+	deployment := thunderLikeDeployment(t, false)
+	broker := siblingBroker(t, deployment)
+	broker.EstablishSession = func(contexts.ProductAccess) error {
+		return auth.BrowserUnavailable{Control: "WSO2_NO_INPUT"}
+	}
+
+	_, err := broker.Acquire(auth.Request{Audience: siblingAudience, Scopes: []string{siblingScope}})
+
+	var denial auth.Denial
+	if !errors.As(err, &denial) || denial.Problem.Code != "auth.session_required" {
+		t.Fatalf("got %v, want auth.session_required", err)
+	}
+	if !containsText(denial.Guidance, "wso2 login --only scim") ||
+		!containsText(denial.Guidance, "WSO2_NO_INPUT") {
+		t.Fatalf("the guidance does not name the login and the control: %s", denial.Guidance)
+	}
+}

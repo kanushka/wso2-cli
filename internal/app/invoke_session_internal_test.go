@@ -77,6 +77,15 @@ func sessionEstablisherDoc(loginIssuer string) contexts.Document {
 	}
 }
 
+// TestTheSessionEstablisherRefusesUnderNoInput pins what is left of the
+// shell's half of this refusal: no browser is opened, nothing is announced,
+// and the control that forbade it is named. The wording is deliberately not
+// checked here, because it is no longer written here — the broker calls this
+// hook both for a product with no session and for one whose session cannot
+// serve the request, and only the broker can tell those apart. See
+// internal/auth's TestASessionThatCannotServeUnderNoInputSaysRenewalNeedsABrowser
+// and TestAProductWithNoSessionUnderNoInputStillSaysSessionRequired for the two
+// refusals this marker turns into.
 func TestTheSessionEstablisherRefusesUnderNoInput(t *testing.T) {
 	t.Setenv("WSO2_NO_INPUT", "1")
 	errOut := &bytes.Buffer{}
@@ -92,23 +101,17 @@ func TestTheSessionEstablisherRefusesUnderNoInput(t *testing.T) {
 	establish := shell.sessionEstablisher(contexts.Selection{}, "iam", false)
 	err := establish(contexts.ProductAccess{Namespace: "iam"})
 
-	var refusal auth.Denial
-	if !errors.As(err, &refusal) {
-		t.Fatalf("error is not an auth.Denial: %v", err)
+	var unavailable auth.BrowserUnavailable
+	if !errors.As(err, &unavailable) {
+		t.Fatalf("error is not an auth.BrowserUnavailable: %v", err)
 	}
-	if refusal.Problem.Code != "auth.session_required" {
-		t.Fatalf("problem code = %q, want auth.session_required", refusal.Problem.Code)
-	}
-	if !strings.Contains(refusal.Guidance, "wso2 login --only iam") {
-		t.Fatalf("guidance does not name the retry command:\n%s", refusal.Guidance)
-	}
-	if !strings.Contains(refusal.Guidance, "WSO2_NO_INPUT") {
-		t.Fatalf("guidance does not name the control that refused:\n%s", refusal.Guidance)
+	if unavailable.Control != NoInputEnvVar {
+		t.Fatalf("control = %q, want %s", unavailable.Control, NoInputEnvVar)
 	}
 	// The flag, written on the product line, is named as the control instead.
 	t.Setenv("WSO2_NO_INPUT", "")
 	err = shell.sessionEstablisher(contexts.Selection{}, "iam", true)(contexts.ProductAccess{Namespace: "iam"})
-	if !errors.As(err, &refusal) || !strings.Contains(refusal.Guidance, "--no-input") {
+	if !errors.As(err, &unavailable) || unavailable.Control != "--no-input" {
 		t.Fatalf("under the flag: %v", err)
 	}
 	if errOut.Len() != 0 {

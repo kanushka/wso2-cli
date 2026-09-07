@@ -846,6 +846,33 @@ implement it. Use `oauth-browser`, `oauth-device`, or `client-credentials`.
 The stored session was established against a different issuer than the context
 now names. You changed the `issuer` after logging in. Run `wso2 login` again.
 
+### `auth.session_required`
+
+> the "apim" product has no session under this identity yet
+
+Nothing is stored for that product, and the invocation forbade the browser that
+would authorize it: you passed `--no-input`, or `WSO2_NO_INPUT` is set. The
+refusal names whichever of the two said so. Run `wso2 login --only <namespace>`
+where a browser can open, or `wso2 login` to authorize every product.
+
+### `auth.reauthorization_required`
+
+> the "apim" product has a session under this identity, but the identity
+> provider would not renew it to the permissions the module asked for
+
+A session for the product **is** stored — `wso2 whoami` shows it present — and
+the deployment would not renew it to what this command needs. Authorizing the
+product again is the step that wanted a browser, and the invocation forbade
+one.
+
+It is a different refusal from `auth.session_required` because the remedy is
+different, and the shell cannot tell two causes apart from here. Another
+login, run where a browser can open, may fix it: the issuer is asked afresh and
+may grant what a refresh would not, which is what a federated product does
+every time its access token expires. If it does not, this user's groups map to
+no role carrying the permissions, and no number of logins will change that —
+an administrator has to grant one. The recovery names both, in that order.
+
 ---
 
 ## 7. Proving it against a real deployment

@@ -108,7 +108,7 @@ func (s sessionSource) mint(request Request, now time.Time) (Grant, error) {
 	// second refusal is reported as the refusal it is: an authorization the
 	// deployment answers the same way twice is a registration problem.
 	if err := s.establish(); err != nil {
-		return Grant{}, err
+		return Grant{}, s.orRenewalNeedsBrowser(request, err)
 	}
 	granted, err = s.mintUnderLock(request, now)
 	if errors.As(err, &again) {
@@ -133,6 +133,63 @@ func (s sessionSource) notAuthorizedForProduct(request Request) error {
 			s.namespace, scopeList(request.Scopes)),
 		fmt.Sprintf("Ask an administrator of %s to map this user's group to a role that carries %s, "+
 			"then run wso2 login --only %s.", s.issuer, scopeList(request.Scopes), s.namespace))
+}
+
+// orRenewalNeedsBrowser restates the shell's "nothing may open a browser"
+// marker as the refusal that belongs to this point in the flow, and passes
+// every other failure to authorize through unchanged.
+//
+// The distinction it draws is the whole of why BrowserUnavailable is a marker.
+// A session for this product is stored — mint reached here by failing to renew
+// one, not by finding none — so the refusal for an absent session is false
+// here, and worse, its recovery is another login, which is exactly what the
+// invocation just declined to run. What the reader needs instead is that a
+// session exists, that renewing it is the step that wanted a browser, and what
+// to do about it.
+//
+// The recovery names two causes because the shell cannot tell them apart from
+// here, the same ambiguity notAuthorizedForProduct is written around: another
+// login, run where a browser can open, may well fix this — the issuer would be
+// asked afresh and might grant the permissions this refresh would not. If it
+// does not, the deployment maps this user to no role carrying them, and no
+// number of logins will change that; an administrator has to. Promising only
+// the first would send the reader in a circle.
+func (s sessionSource) orRenewalNeedsBrowser(request Request, err error) error {
+	var unavailable BrowserUnavailable
+	if !errors.As(err, &unavailable) {
+		return err
+	}
+	recovery := fmt.Sprintf("Run wso2 login --only %s where a browser can open. If that login still "+
+		"cannot serve this command, this user's groups map to no role at %s that carries %s and an "+
+		"administrator has to grant one; logging in again will not change that.",
+		s.namespace, s.issuer, scopeList(request.Scopes))
+	refusal := denial("auth.reauthorization_required",
+		fmt.Sprintf("the %q product has a session under this identity, but the identity provider "+
+			"would not renew it to the permissions the module asked for (%s), and authorizing the "+
+			"product again is what needed a browser",
+			s.namespace, scopeList(request.Scopes)),
+		recovery)
+	// The control is the shell's own flag, which no module knows about, so it
+	// reaches the user through the guidance and never through the problem the
+	// module receives.
+	refusal.Guidance = fmt.Sprintf("%s asked that no browser open. %s", unavailable.Control, recovery)
+	return refusal
+}
+
+// orSessionRequired restates the same marker for the other case: no session is
+// stored for this product at all, so the absent-session refusal is the true
+// one and keeps the message and recovery it has always had. Only the guidance
+// changes, to name the control that refused rather than to leave the reader
+// wondering why a browser did not open.
+func (s sessionSource) orSessionRequired(err error) error {
+	var unavailable BrowserUnavailable
+	if !errors.As(err, &unavailable) {
+		return err
+	}
+	refusal := SessionRequired(s.namespace)
+	refusal.Guidance = fmt.Sprintf("Run wso2 login --only %s before this command; %s asked that no "+
+		"browser open.", s.namespace, unavailable.Control)
+	return refusal
 }
 
 // mintUnderLock derives access under the session's rotation lock.
@@ -163,7 +220,7 @@ func (s sessionSource) ensureSession() error {
 	if err == nil || !isLoginRequired(err) {
 		return err
 	}
-	return s.establish()
+	return s.orSessionRequired(s.establish())
 }
 
 // isLoginRequired reports whether err is the session store's own refusal for

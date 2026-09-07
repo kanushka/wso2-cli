@@ -123,9 +123,14 @@ type Broker struct {
 	// Now reads the current time. It defaults to time.Now.
 	Now func() time.Time
 	// EstablishSession obtains a product's own session when a command finds
-	// none. The shell supplies it with the login flow; nil refuses with
-	// auth.session_required. It is never asked for the login session itself:
-	// that is wso2 login's, and a command that finds none is told to run it.
+	// none, and again when the issuer will not renew the one it has. The shell
+	// supplies it with the login flow; nil refuses with auth.session_required.
+	// It is never asked for the login session itself: that is wso2 login's, and
+	// a command that finds none is told to run it.
+	//
+	// A hook that may not open a browser returns BrowserUnavailable rather than
+	// a refusal of its own, and this package states which of the two cases it
+	// was asked about.
 	EstablishSession func(access contexts.ProductAccess) error
 
 	// granted records that this invocation already has access, so the module
@@ -275,6 +280,32 @@ func asDenial(err error) error {
 		return Denial{Problem: typed}
 	}
 	return err
+}
+
+// BrowserUnavailable is what an EstablishSession hook returns when this
+// invocation may not authorize a product, because nothing may open a browser
+// or wait for a person. Control names what asked for that — the shell's
+// --no-input flag or the environment variable behind it — and is public.
+//
+// It is a marker and not a refusal on its own, deliberately. Whether a product
+// cannot be authorized is the shell's to decide, but what that means for the
+// user depends on something only this package knows: whether a session for the
+// product is already stored, and if it is, why it could not serve the request.
+// The shell has neither fact, so a hook that built the message itself could
+// only ever write one of them, and wrote the wrong one whenever a stored
+// session was the thing that failed. Every path that calls the hook restates
+// this into a Denial that says which case it was; see sessionSource.
+type BrowserUnavailable struct {
+	// Control names the flag or environment variable that asked that nothing
+	// prompt. It reaches the user in guidance, so it is a name, never a value.
+	Control string
+}
+
+// Error lets the marker travel as an ordinary error. It is never what a user
+// reads: every caller restates it, and this text exists for a log line or a
+// wrapped error a test prints.
+func (b BrowserUnavailable) Error() string {
+	return fmt.Sprintf("no browser may be opened in this invocation (%s)", b.Control)
 }
 
 // SessionRequired refuses a product whose own session is absent and cannot

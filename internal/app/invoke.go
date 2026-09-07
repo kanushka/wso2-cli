@@ -193,13 +193,19 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 // invocation serves has no session of its own yet, or when the issuer will
 // not renew the one it has: the login flow for that one product, announced
 // first, and refused outright when nothing may open a browser.
+//
+// The refusal it returns names the control and nothing else. The broker calls
+// this hook for two states that read very differently to a user — no session
+// at all, and a session that cannot serve the request — and this side of the
+// boundary cannot tell them apart: it is handed the product to authorize, not
+// what was wrong with what is already stored. Writing the message here made
+// every refusal the first one, which is how a product with a live session came
+// to be told it had none. The broker knows which state it asked about, so it
+// states it; auth.BrowserUnavailable carries the one fact only the shell has.
 func (s Shell) sessionEstablisher(selection contexts.Selection, namespace string, noInput bool) func(contexts.ProductAccess) error {
 	return func(access contexts.ProductAccess) error {
 		if control := s.nonInteractiveControl(noInput); control != "" {
-			refusal := auth.SessionRequired(namespace)
-			refusal.Guidance = fmt.Sprintf("Run wso2 login --only %s before this command; %s asked that no browser open.",
-				namespace, control)
-			return refusal
+			return auth.BrowserUnavailable{Control: control}
 		}
 		if _, err := fmt.Fprintf(s.Streams.Err,
 			"The %q product needs to be authorized. Opening the browser to authorize it at %s.\n",
