@@ -292,11 +292,21 @@ error: the "apim" module asked for the permissions apim:api_view and the deploym
   Check the deployment's API resource registration and the permissions granted to the registered OAuth application, then retry.
 ```
 
-That recovery points at the deployment, which is correctly configured. The
-actual cause is a flag on the record. Two things follow, both listed in
-section 10: the derived path never learned the user-focused refusal the
-federated path gained, and no default assertion scope set is derivable
-from anything the shell holds.
+That recovery points at the deployment, which was correctly configured in
+both cases. The actual cause is a flag on the record.
+
+**Fixed** (`fix(auth): say the user is not authorized when a derived
+product's issuer grants nothing`). The `derived` path had never gained the
+user-focused refusal the `federated` path got, so it reported this state
+with the generic registration message. It now says the issuer accepted the
+assertion and granted nothing, and — because the two causes are genuinely
+indistinguishable at that point — the recovery names both: the role the
+user may not hold, and the assertion scopes the record may not request. A
+grant of *some* of the permissions asked for keeps the registration
+message, which is the true one for it. Verified live against `cli-is` in
+both states, the denied user and the administrator with the flag missing.
+What is still missing is any default for those scopes; that is in
+section 10.
 
 ## 9. What the matrix changed
 
@@ -328,18 +338,10 @@ proof rests on either way.
   the strategy and the session state are the same word.
 - `connect` ends with `Next  Run wso2 login --context thunder.` even when
   that context is the only one and already selected.
-- The `derived` path never gained the user-focused refusal the `federated`
-  path has. When API Manager issues `default` instead of the permissions
-  asked for, the federated path says the user is not authorized and names
-  the administrator action; the derived path says "check the deployment's
-  API resource registration", which is wrong for a denied user and wrong
-  again for a missing `--grant-scopes`. Both routes reach the same state
-  and only one explains it.
 - Nothing derives the assertion scopes a jwt-bearer grant needs. The
   record's `--grant-scopes` decides whether the identity token carries the
-  claim the product maps roles from, and every failure to set it looks
-  like a deployment fault. A descriptor could name them; today only the
-  operator can.
+  claim the product maps roles from, and nothing but the operator can
+  supply it. A descriptor could name them, the way it names the grant.
 - A product descriptor names one grant, so `connect` can record a product
   in one shape only. API Manager is reachable two ways — federated at its
   own issuer for management, sibling at the login provider for the
