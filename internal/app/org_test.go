@@ -351,3 +351,40 @@ func TestOrgUseIsRefusedOnAProviderWithoutOrganizationSwitch(t *testing.T) {
 		})
 	}
 }
+
+// TestOrgUseClearsTheOrganizationOnAProviderWithoutOrganizationSwitch pins the
+// other half of the same rule: the refusal above is about switching to an
+// organization, and clearing one is not that. A context that already carries
+// an organization on such a provider has every product command refused by the
+// broker with auth.organization_switch_unsupported, whose recovery says to
+// leave the organization unset — and wso2 org use is the only command that
+// writes the field, so refusing it here would leave the document with no way
+// out of the state its own recovery tells the user to leave.
+func TestOrgUseClearsTheOrganizationOnAProviderWithoutOrganizationSwitch(t *testing.T) {
+	for _, provider := range []string{contexts.ProviderThunder, contexts.ProviderIdentityServer} {
+		t.Run(provider, func(t *testing.T) {
+			shell, out, errOut := newShell(t)
+			seeded := identityOnlyDocument()
+			seeded.Identities[0].Auth.Provider = provider
+			if provider == contexts.ProviderThunder {
+				seeded.Identities[0].Products = map[string]contexts.Product{"iam": {
+					Endpoint: "http://localhost:8492", Audience: "https://localhost:8090/mcp", Scopes: []string{"system"}}}
+			}
+			seeded.DefaultContext = "acme"
+			seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud", Organization: "stuck-org"}}
+			installLogin(t, shell, seeded)
+
+			if code := shell.Run([]string{"org", "use", ""}); code != exit.OK {
+				t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+			}
+			// loadDocument decodes through contexts.Load, so a document this
+			// left invalid would fail here rather than at the next command.
+			if got := contextNamed(t, loadDocument(t, shell), "acme").Organization; got != "" {
+				t.Errorf("the organization = %q, want it cleared", got)
+			}
+			if !strings.Contains(out.String(), "Cleared") {
+				t.Errorf("the report reads as setting a value rather than clearing the field:\n%s", out)
+			}
+		})
+	}
+}

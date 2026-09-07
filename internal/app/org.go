@@ -198,7 +198,7 @@ func (s Shell) orgUse(command *cobra.Command, organization string) error {
 		if err != nil {
 			return document, err
 		}
-		if err := refuseOrganizationSwitch(selected.Identity); err != nil {
+		if err := refuseOrganizationSwitch(selected.Identity, organization); err != nil {
 			return document, err
 		}
 		edited = selected.Context.Name
@@ -221,6 +221,16 @@ func (s Shell) orgUse(command *cobra.Command, organization string) error {
 	if mode == output.ModeJSON {
 		if err := encodeContextJSON(s.Streams.Out,
 			orgSelection{Context: edited, Organization: organization}); err != nil {
+			return err
+		}
+	} else if organization == "" {
+		// Worded apart from the sentence below for the reason orgCurrent
+		// keeps its own states apart: "" and an organization are not the same
+		// fact, and "organization to \"\"" reads as a value rather than as the
+		// unset field it is.
+		if _, err := fmt.Fprintf(s.Streams.Out,
+			"\nCleared the %q context's organization; commands run against the deployment "+
+				"the identity names.\n", edited); err != nil {
 			return err
 		}
 	} else if _, err := fmt.Fprintf(s.Streams.Out,
@@ -301,9 +311,18 @@ func (o orgCurrentReport) fields() [][2]string {
 // code (internal/auth/source.go's checkHomeTenant), and a value accepted here
 // only to break every call is worse than one refused at the flag.
 //
+// Clearing the field is not a switch and is never refused. A document written
+// before this check, or by hand, can carry an organization on such a provider,
+// and then every product command is refused by the broker telling the user to
+// leave the organization unset — which this command is the only writer of. A
+// refusal here would leave that state with no way out of itself.
+//
 // Asgardeo, and any provider the document does not name, keep the field: a
 // tenant switch is what the broker's check exists for on them.
-func refuseOrganizationSwitch(identity contexts.Identity) error {
+func refuseOrganizationSwitch(identity contexts.Identity, organization string) error {
+	if organization == "" {
+		return nil
+	}
 	switch identity.Auth.Provider {
 	case contexts.ProviderThunder, contexts.ProviderIdentityServer:
 	default:
