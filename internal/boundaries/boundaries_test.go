@@ -483,12 +483,27 @@ func TestShellReaderIsAssignedOnlyInCmdWso2(t *testing.T) {
 	root := repoRoot(t)
 	allowed := filepath.Join("cmd", "wso2", "main.go")
 
+	for _, assignment := range shellReaderAssignments(t, root, allowed) {
+		t.Errorf("%s; Shell.Reader must be assigned only in %s, where it is set "+
+			"to os.Stdin, so mayPrompt's terminal check keeps meaning what it says",
+			assignment, allowed)
+	}
+}
+
+// shellReaderAssignments reports every assignment to a Reader field below root,
+// outside the one file allowed to make one, as "<path>:<line> <form>" with the
+// path relative to root. The walk is a function of its root so a test can point
+// it at a tree it built itself.
+func shellReaderAssignments(t *testing.T, root, allowed string) []string {
+	t.Helper()
+	var assignments []string
+
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if entry.IsDir() {
-			if entry.Name() == ".git" {
+			if entry.Name() == ".git" || (path != root && isCheckoutRoot(path)) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -514,9 +529,8 @@ func TestShellReaderIsAssignedOnlyInCmdWso2(t *testing.T) {
 		}
 
 		report := func(position token.Pos, form string) {
-			t.Errorf("%s:%d %s; Shell.Reader must be assigned only in %s, where it is set "+
-				"to os.Stdin, so mayPrompt's terminal check keeps meaning what it says",
-				relative, fileSet.Position(position).Line, form, allowed)
+			assignments = append(assignments,
+				fmt.Sprintf("%s:%d %s", relative, fileSet.Position(position).Line, form))
 		}
 
 		ast.Inspect(file, func(node ast.Node) bool {
@@ -544,6 +558,69 @@ func TestShellReaderIsAssignedOnlyInCmdWso2(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("walking %s failed: %v", root, err)
+	}
+	return assignments
+}
+
+// isCheckoutRoot reports whether a directory is the root of a checkout of its
+// own: a nested clone or a linked worktree, either of which holds a .git entry
+// — a directory for a clone, a file for a worktree.
+//
+// These boundaries are about this checkout's source. A nested checkout holds
+// another revision's copy of the same files, so judging it by the rules of the
+// revision being tested reports violations that are not in this tree and cannot
+// be fixed from it. The walks therefore stop at one, wherever a developer
+// happens to have put it.
+func isCheckoutRoot(directory string) bool {
+	_, err := os.Lstat(filepath.Join(directory, ".git"))
+	return err == nil
+}
+
+// TestTheSourceWalkStopsAtANestedCheckout pins the skip above. A nested clone
+// or worktree inside the working tree is ordinary — a developer's own scratch
+// checkout, a vendored one — and its copy of a file this repository's rules
+// name would otherwise be read as if it belonged to this revision.
+func TestTheSourceWalkStopsAtANestedCheckout(t *testing.T) {
+	root := t.TempDir()
+	// The same offending file three times: in a nested clone, in a nested
+	// linked worktree, and in a plain directory of this tree. Only the last is
+	// this checkout's own source, so only the last may be reported.
+	writeShellReaderFixture(t, filepath.Join(root, "clone", "cmd", "wso2"))
+	writeShellReaderFixture(t, filepath.Join(root, "worktree", "cmd", "wso2"))
+	writeShellReaderFixture(t, filepath.Join(root, "internal", "app"))
+
+	if err := os.MkdirAll(filepath.Join(root, "clone", ".git"), 0o755); err != nil {
+		t.Fatalf("cannot create the nested clone's .git directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "worktree", ".git"),
+		[]byte("gitdir: /elsewhere/.git/worktrees/worktree\n"), 0o644); err != nil {
+		t.Fatalf("cannot create the nested worktree's .git file: %v", err)
+	}
+
+	assignments := shellReaderAssignments(t, root, filepath.Join("cmd", "wso2", "main.go"))
+
+	want := []string{filepath.Join("internal", "app", "wire.go") + ":5 sets a Reader field in a composite literal"}
+	if !slices.Equal(assignments, want) {
+		t.Errorf("the walk reported %v; want %v — a nested checkout is not this checkout's source", assignments, want)
+	}
+}
+
+// writeShellReaderFixture writes, in the given directory, a non-test Go file
+// that names internal/app's Shell type and sets its Reader field: what the walk
+// reports when it reads it.
+func writeShellReaderFixture(t *testing.T, directory string) {
+	t.Helper()
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatalf("cannot create %s: %v", directory, err)
+	}
+	const source = `package fixture
+
+import "github.com/wso2/wso2-cli/internal/app"
+
+var shell = app.Shell{Reader: nil}
+`
+	if err := os.WriteFile(filepath.Join(directory, "wire.go"), []byte(source), 0o644); err != nil {
+		t.Fatalf("cannot write the fixture in %s: %v", directory, err)
 	}
 }
 
@@ -635,7 +712,7 @@ func TestTheWorkspaceComposesEveryModule(t *testing.T) {
 }
 
 // goFiles lists every Go source file below a directory, without descending into
-// another of this repository's modules.
+// another of this repository's modules or into a nested checkout.
 func goFiles(t *testing.T, directory string) []string {
 	t.Helper()
 	root := repoRoot(t)
@@ -645,7 +722,7 @@ func goFiles(t *testing.T, directory string) []string {
 			return err
 		}
 		if entry.IsDir() {
-			if path != directory && isModuleRoot(t, root, path) {
+			if path != directory && (isModuleRoot(t, root, path) || isCheckoutRoot(path)) {
 				return filepath.SkipDir
 			}
 			return nil
