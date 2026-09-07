@@ -57,6 +57,8 @@ import (
 	oidc "github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
+	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
+
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -122,6 +124,16 @@ type Login struct {
 	Ports []int
 }
 
+// prompt is the line printed above the authorization URL. A login that is
+// for a product says which one and where, since one wso2 login prints one
+// URL per product and the URLs alone do not say which is which.
+func (l Login) prompt() string {
+	if l.Label == "" {
+		return "Open this URL to log in:"
+	}
+	return fmt.Sprintf("Open this URL to authorize the %q product at %s:", l.Label, l.Issuer)
+}
+
 // Result is a completed login. It holds credential material and is never
 // rendered: the shell reads the subject and email from it and stores the rest.
 type Result struct {
@@ -147,6 +159,9 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	ctx = oidc.ClientContext(ctx, l.httpClient())
 	provider, err := oidc.NewProvider(ctx, l.Issuer)
 	if err != nil {
+		if issuertrust.Untrusted(err) {
+			return Result{}, issuertrust.Problem(l.Issuer)
+		}
 		return Result{}, discoveryFailed(
 			"the shell could not read the identity provider's OpenID configuration",
 			"Check the issuer of the selected context and that this machine can reach it, then retry.")
@@ -207,7 +222,7 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 		authOptions = append(authOptions, oauth2.SetAuthURLParam("resource", l.Resource))
 	}
 	authURL := config.AuthCodeURL(state, authOptions...)
-	if _, err := fmt.Fprintf(l.out(), "Open this URL to log in:\n%s\n", authURL); err != nil {
+	if _, err := fmt.Fprintf(l.out(), "%s\n%s\n", l.prompt(), authURL); err != nil {
 		return Result{}, notCompleted("the shell could not print the authorization URL this login needs",
 			"Run wso2 login with standard output attached to your terminal.")
 	}
