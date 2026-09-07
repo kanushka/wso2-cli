@@ -80,7 +80,7 @@ $ wso2 iam roles create "Mock API Caller" --resource-server "Mock API" \
     --permission reference:status:read --permission orders:read --assign-user cliuser
 
 $ export WSO2_CA_FILE=$PWD/apim-9443.pem
-$ WSO2_APIM_ADMIN_PASSWORD=admin wso2 apim bootstrap --url https://localhost:9443
+$ WSO2_APIM_ADMIN_PASSWORD=<admin password> wso2 apim bootstrap --url https://localhost:9443
 Next  export WSO2_APIM_CLIENT_SECRET=… (shown once); then wso2 identity create apim-admin --issuer https://localhost:9443/oauth2/token --client-id fg4d…ASca --client-secret-variable WSO2_APIM_CLIENT_SECRET --product apim --endpoint https://localhost:9443 --audience fg4d…ASca --scope apim:api_view --scope apim:api_create --scope apim:api_publish --scope apim:subscribe --scope apim:app_manage --scope apim:admin
 
 $ export WSO2_APIM_CLIENT_SECRET=…
@@ -129,9 +129,14 @@ $ wso2 iam roles create "Mock API Caller" --resource-server "Mock API" \
     --permission reference:status:read --permission orders:read --assign-user cliuser
 
 $ export WSO2_CA_FILE=$PWD/apim-9443.pem
-$ WSO2_APIM_ADMIN_PASSWORD=admin wso2 apim bootstrap --url https://localhost:9443
-Registered the CLI on https://localhost:9443, trusting http://localhost:8491 for sign-on,
-and recorded apim on the "thunder" identity.
+$ wso2 iam apps create apim-federation --type federation --for https://localhost:9443
+$ export WSO2_APIM_FEDERATION_CLIENT_SECRET=… (shown once)
+$ WSO2_APIM_ADMIN_PASSWORD=<admin password> wso2 apim bootstrap --url https://localhost:9443 \
+    --login-provider http://localhost:8491 --federation-client-id apim-federation
+Identity provider   wso2-cli-localhost-8491 (created)
+Public client       DgP2…19vca (created)
+Next  Run wso2 apim connect https://localhost:9443 --client-id DgP2…19vca.
+$ wso2 apim connect https://localhost:9443 --client-id DgP2…19vca
 Next  Run wso2 apim apis import --file <openapi>.
 
 $ wso2 apim apis import --file mockapi-openapi.yaml --name MockAPI --version 1.0.0 \

@@ -16,8 +16,10 @@ Three questions, three answers:
 
 ## 1. Federation setup that produced the result
 
-Nothing here changes product code. All of it is what `apim bootstrap` and
-`iam bootstrap` will apply.
+Nothing here changes product code. Since 2026-09-07 (#164) `wso2 iam apps
+create --type federation` applies the ThunderID part and `wso2 apim
+bootstrap --login-provider` the API Manager part; the key manager stays
+with `wso2 apim key-managers add`.
 
 On ThunderID, a confidential application `apim-federation` on the console
 flow family (authentication flow `…0068`, registration `…0069`, recovery

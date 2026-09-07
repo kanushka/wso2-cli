@@ -24,8 +24,8 @@ reads the module's product descriptor and writes the issuer, audience,
 scopes and grant itself, so the only values you type are a URL, plus one
 client id for API Manager and, for its gateway, the API's own resource
 identifier and permissions. Second, API Manager has to be told to trust
-ThunderID before any of this works, and that registration is done by hand
-(section 3); nothing in the shell makes it yet.
+ThunderID before any of this works; section 3 does that with one command on
+each product, and nothing in it opens a console.
 
 ---
 
@@ -107,78 +107,89 @@ sections add API Manager, and one login then serves both.
 
 ## 3. Register the public federated client on API Manager
 
-This is the step the shell does not do. API Manager needs an identity
-provider that points at ThunderID, and a **public** OAuth client for this
-CLI whose authentication step is that identity provider. `wso2 apim
-bootstrap` registers a client too, but a **confidential** one through
-dynamic client registration, and that client is for pipelines: used on a
-browser identity it lands on API Manager's own login form, a second
-password with no federation, and the login fails with
-`auth.credential_unavailable`. Register the public client by hand, as the
+API Manager needs an identity provider that points at ThunderID, and a
+**public** OAuth client for this CLI whose authentication step is that
+identity provider. Two commands write them, one per product, because each
+product's secrets stay inside its own module: `wso2 iam apps create` makes
+the confidential client API Manager federates through on ThunderID, and
+`wso2 apim bootstrap --login-provider` makes the identity provider and the
+public client on API Manager. The one value that crosses is the federation
+client's secret, in an environment variable. The
 [federation spike](../research/2026-09-06-single-login-spikes.md#1-federation-setup-that-produced-the-result)
-recorded it. What follows is that configuration, in the order it is
-applied.
+recorded the configuration these commands apply.
 
-### 3.1 On ThunderID: a client for API Manager to federate through
+First the federation client, on ThunderID, under the `iam` session section
+2 established. `--for` names the product that signs in through it, so its
+callback is `https://localhost:9443/commonauth`; the client sits on the
+console's authentication flow, so its sign-on is the one `wso2 login`
+establishes, and its ID token carries `email`, `groups` and `name`:
 
-A confidential application, named `apim-federation` here, on the same
-authentication flow the console uses (so that its sign-on is the one the
-CLI's login establishes), with:
+```console
+$ wso2 iam apps create apim-federation --type federation --for https://localhost:9443
+ID              …
+Client ID       apim-federation
+Type            federation
+Created         true
+Client secret   <shown once>
 
-- redirect URI `https://localhost:9443/commonauth`;
-- grants `authorization_code` and `refresh_token`, client authentication
-  `client_secret_post`;
-- ID token attributes `email`, `groups` and `name`, and the `email` and
-  `groups` scope claims. The `groups` claim is what API Manager maps a
-  role from, so leaving it out means every command is refused for every
-  user.
+Next  export WSO2_APIM_FEDERATION_CLIENT_SECRET=<the client secret above, shown once>; then wso2 apim bootstrap --url https://localhost:9443 --login-provider http://localhost:8492 --federation-client-id apim-federation
+```
 
-`wso2 iam apps create` makes `m2m` and `public` clients only, so this one is
-created in the console (Applications, Custom) or through ThunderID's
-applications API; the create request needs both `ouId` and `type`, and
-without `ouId` the API answers a bare "invalid request format".
+Then API Manager, with its administrator password and that secret in the
+environment. `--login-provider` is the address the **browser** reaches
+ThunderID on; `--login-provider-internal-url` is the address the **API
+Manager container** reaches it on, for the token and userinfo endpoints
+(`host.docker.internal` when both run in Docker on one machine), and
+defaults to the login provider:
 
-### 3.2 On API Manager: the identity provider
+```console
+$ export WSO2_APIM_FEDERATION_CLIENT_SECRET=<the secret above>
+$ WSO2_APIM_ADMIN_PASSWORD=<admin password> wso2 apim bootstrap --url https://localhost:9443 \
+    --login-provider http://localhost:8492 \
+    --login-provider-internal-url http://host.docker.internal:8492 \
+    --federation-client-id apim-federation
+Issuer              https://localhost:9443/oauth2/token
+Client ID           fg4dU3xLQ4Nd0hKmQ0bYq6R1ASca
+Client secret       <shown once>
+Token type          JWT
+Identity provider   wso2-cli-localhost-8492 (created)
+Public client       DgP2V4Arw9KYeo2ltIm4r8r19vca (created)
 
-An identity provider, `Thunder3` on the test deployment, with an OpenID
-Connect federated authenticator:
+Next  Run wso2 apim connect https://localhost:9443 --client-id DgP2V4Arw9KYeo2ltIm4r8r19vca. For a pipeline: export WSO2_APIM_CLIENT_SECRET=<the client secret above, shown once>; then wso2 apim connect https://localhost:9443 --client-id fg4dU3xLQ4Nd0hKmQ0bYq6R1ASca --client-secret-variable WSO2_APIM_CLIENT_SECRET, on a client-credentials identity.
+```
 
-- client id and secret of `apim-federation`;
-- authorization endpoint `http://localhost:8492/oauth2/authorize`, the
-  address the **browser** reaches ThunderID on; token and userinfo
-  endpoints on the address the **API Manager container** reaches it on
-  (`host.docker.internal` when both run in Docker on one machine);
-- callback `https://localhost:9443/commonauth`;
-- additional query parameters `scope=openid email groups` and
-  `resource=https://localhost:9443/oauth2/token`. The resource parameter
-  is required: ThunderID refuses an authorization that names none unless
-  a default resource server is set, which the ThunderID walkthrough
-  advises against;
-- claim mapping of `groups` to the local role claim, and a role mapping
-  from the ThunderID group (`Administrators`) to the API Manager role
-  (`admin`) that carries the `apim:*` scopes;
-- **just-in-time provisioning on**, to the `PRIMARY` user store, silent.
-  Without it the mapped roles never reach the scope issuer and the token
-  carries `openid` alone.
+The first four rows are the confidential pipeline client bootstrap has
+always registered; section 8 uses it. The two new rows are what the
+browser login needs:
 
-If the identity provider is updated while a service provider already
-references it, the default federated authenticator entry must carry
-`enabled=true`, or the update fails with "Error in disabling default
-federated authenticator".
+- the identity provider, named `wso2-cli-` and the login provider's host
+  and port unless `--identity-provider <name>` says otherwise, with an
+  OpenID Connect federated authenticator for `apim-federation`, callback
+  `https://localhost:9443/commonauth`, the additional query parameters
+  `scope=openid email groups` and `resource=https://localhost:9443/oauth2/token`
+  (ThunderID refuses an authorization that names no resource), `groups`
+  mapped to the local role claim and `email` to the email claim, the
+  ThunderID group `Administrators` mapped to the API Manager role `admin`
+  that carries the `apim:*` scopes (`--map-group <group>=<role>`,
+  repeatable, changes that), and just-in-time provisioning on, silent, to
+  the `PRIMARY` user store, without which the mapped roles never reach the
+  scope issuer and the token carries `openid` alone;
+- the public client `wso2-cli-sso` (`--public-client-name` changes that),
+  registered with the shell's four loopback callbacks, public, PKCE S256
+  mandatory, JWT tokens, its authentication one federated step through the
+  identity provider with consent skipped.
 
-### 3.3 On API Manager: the public client
-
-A service provider, `wso2-cli-sso` on the test deployment:
-
-- registered with the shell's four loopback callbacks,
-  `http://127.0.0.1:10425/callback` through `…:10428/callback`;
-- set to a **public** client with mandatory S256 PKCE and JWT tokens;
-- its authentication set to one federated step through the identity
-  provider above, consent skipped.
-
-Record its client id. That is the one value `wso2 apim connect` needs, and
-it is per deployment, which is why the module's descriptor cannot supply
-it.
+The identity provider and the public client are read first and written
+only when the read differs, so running the command again reports both as
+`(present)` and changes neither; the pipeline client is registered by name
+on every run, which API Manager answers with the client it already holds. An identity provider of that name registered by hand is updated
+in place, with its default authenticator kept enabled, which is what API
+Manager requires once a service provider references it. Without
+`--federation-client-id`, or without `WSO2_APIM_FEDERATION_CLIENT_SECRET`
+exported, the command is refused with `apim.missing_flag` naming the
+`wso2 iam apps create` line above. The public client's id is the one
+value `wso2 apim connect` needs; it is per deployment, which is why the
+module's descriptor cannot supply it, and the next line carries it.
 
 ---
 
@@ -407,13 +418,13 @@ deployment, because no such client was registered on it.
 
 | Refusal | Cause | What to do |
 | --- | --- | --- |
-| `shell.missing_required_flag` at `apim connect`, naming a public client | No `--client-id`. | Pass the client id from section 3.3, not the one `apim bootstrap` printed. |
+| `shell.missing_required_flag` at `apim connect`, naming a public client | No `--client-id`. | Pass the public client id from the `Public client` row of `apim bootstrap --login-provider`, not the confidential `Client ID` row. |
 | `shell.login_provider_required` at `apim connect` | No identity exists to attach the product to. | Run `wso2 iam connect <url>` first. |
 | `contexts.product_exists` at `connect` | The product, or with `--gateway` its gateway, is already recorded on the identity. | Add `--replace` to record it again. |
 | `shell.product_required` at `apim connect --gateway` | No identity records the `apim` product yet; a gateway is a second record of a product. | Run `wso2 apim connect https://localhost:9443 --client-id <public client>` first (section 4). |
 | `apim.no_gateway` at `apim gateway invoke` | The identity records the product without its gateway. | Run the `connect --gateway` line in section 7, then `wso2 login --only apim`. |
 | `auth.credential_unavailable` at `wso2 login --only apim`, after API Manager's own login form appeared | The client id is the confidential one from `apim bootstrap`, which does not federate. | `wso2 apim connect … --client-id <public client> --replace`, then `wso2 login --only apim`. |
-| `auth.narrowing_unavailable` at an `apim` command, naming the six `apim:*` permissions and an administrator | API Manager signed the user in and mapped no role, so it issued none of them. | Map the user's ThunderID group to a role carrying them (section 3.2), then `wso2 login --only apim`. |
+| `auth.narrowing_unavailable` at an `apim` command, naming the six `apim:*` permissions and an administrator | API Manager signed the user in and mapped no role, so it issued none of them. | Map the user's ThunderID group to a role carrying them with `apim bootstrap --login-provider … --map-group <group>=<role>` (section 3), then `wso2 login --only apim`. |
 | `auth.narrowing_unavailable` at an `iam` command | The user holds no role granting `system`. | Assign one, then log the identity out and in. |
 | `auth.session_required` under `--no-input` | The product has no session yet and no browser may open. | `wso2 login --only <product>` where a browser can. |
 | `auth.reauthorization_required` under `--no-input` | The product's stored session can no longer be renewed. | The same. |
