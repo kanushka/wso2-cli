@@ -173,6 +173,8 @@ func (s Shell) whoami(command *cobra.Command) error {
 				// whoami can report on; it is refused like any other command
 				// that depends on the store being reachable.
 				return sessionErr
+			case !sessionServes(stored, selected.Identity.Auth.Issuer):
+				report.Recovery = foreignSessionRecovery
 			default:
 				report.Subject = subjectOrUnknown(stored.Subject)
 				report.Session, report.SessionExpiry, report.Recovery = sessionExpiryState(stored, time.Now())
@@ -192,7 +194,9 @@ func (s Shell) whoami(command *cobra.Command) error {
 			if access.Strategy == contexts.StrategyInline {
 				entry.Session = whoamiSessionInline
 			} else if stored, err := store.Load(access.SessionRef); err == nil {
-				entry.Session, entry.SessionExpiry, _ = sessionExpiryState(stored, time.Now())
+				if sessionServes(stored, access.Issuer) {
+					entry.Session, entry.SessionExpiry, _ = sessionExpiryState(stored, time.Now())
+				}
 			} else if !isNoSession(err) {
 				return err
 			}
@@ -213,6 +217,24 @@ func (s Shell) whoami(command *cobra.Command) error {
 			"or wso2 context create <name> --identity <identity> if you already have one.")
 	return err
 }
+
+// sessionServes reports whether a stored session was established against the
+// issuer the identity now names.
+//
+// One that was not is another deployment's session: the context's issuer
+// changed after the login, or the entry was written for a different
+// deployment under the same name. It is reported as no session at all, with
+// the recovery below, the way sessionSource.renew refuses to present it to a
+// module with auth.session_issuer_mismatch; whoami must not show a subject
+// that the selected context cannot act as.
+func sessionServes(stored session.Session, issuer string) bool {
+	return stored.Issuer == issuer
+}
+
+// foreignSessionRecovery is what whoami advises when the stored session was
+// established against a different issuer than the one the identity names.
+const foreignSessionRecovery = "The stored session was established against a different identity provider " +
+	"than the context now names. Run wso2 login to establish a session against it."
 
 // subjectOrUnknown reports a stored session's subject, or unknownSubject for
 // one written before R6 (#112) added the field.

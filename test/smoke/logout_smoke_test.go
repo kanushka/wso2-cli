@@ -78,7 +78,7 @@ func TestLogoutSmoke(t *testing.T) {
 	if err := fixture.WriteV2(stateRoot, config.Document()); err != nil {
 		t.Fatalf("cannot install the smoke context document: %v", err)
 	}
-	forgetSmokeSession(t)
+	forgetSmokeSession(t, stateRoot)
 
 	captured := &bytes.Buffer{}
 	shell := app.Shell{

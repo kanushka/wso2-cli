@@ -128,7 +128,7 @@ func experimentResourceNarrowing(t *testing.T, config smoke.Config) {
 	}
 
 	stateRoot := filepath.Join(t.TempDir(), "state")
-	forgetSmokeSession(t)
+	forgetSmokeSession(t, stateRoot)
 
 	t.Logf("signing in for %v against %q, then asking for %q alone",
 		config.Scopes, config.Audience, target)

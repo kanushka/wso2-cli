@@ -169,7 +169,8 @@ func TestLogoutWithNoSessionSucceeds(t *testing.T) {
 // stored.
 func TestLogoutEndsASessionItCannotRead(t *testing.T) {
 	deployment := deployLoginWithoutModule(t, fakeissuer.Options{AllowAnyLoopbackPort: true}, nil)
-	if err := keyring.Set(session.Service, loginCredentialRef, "not json"); err != nil {
+	stale := session.Store{StateRoot: deployment.stateRoot}.EntryName(loginCredentialRef)
+	if err := keyring.Set(session.Service, stale, "not json"); err != nil {
 		t.Fatalf("seeding a stale session: %v", err)
 	}
 

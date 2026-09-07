@@ -88,20 +88,20 @@ func TestMissingEntryIsLoginRequired(t *testing.T) {
 
 func TestUndecodableEntryIsLoginRequired(t *testing.T) {
 	keyring.MockInit()
-	if err := keyring.Set(session.Service, "acme-cloud-login", "not json"); err != nil {
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := keyring.Set(session.Service, store.EntryName("acme-cloud-login"), "not json"); err != nil {
 		t.Fatalf("seed foreign entry: %v", err)
 	}
-	store := session.Store{StateRoot: t.TempDir()}
 	_, err := store.Load("acme-cloud-login")
 	assertProblemCode(t, err, "auth.login_required")
 }
 
 func TestEntryWithoutRefreshTokenIsLoginRequired(t *testing.T) {
 	keyring.MockInit()
-	if err := keyring.Set(session.Service, "acme-cloud-login", `{"issuer":"https://issuer.example.test"}`); err != nil {
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := keyring.Set(session.Service, store.EntryName("acme-cloud-login"), `{"issuer":"https://issuer.example.test"}`); err != nil {
 		t.Fatalf("seed stale entry: %v", err)
 	}
-	store := session.Store{StateRoot: t.TempDir()}
 	_, err := store.Load("acme-cloud-login")
 	assertProblemCode(t, err, "auth.login_required")
 }
@@ -397,10 +397,10 @@ func TestDeleteMissingEntrySucceeds(t *testing.T) {
 // this is the only way a caller learns a session was really ended.
 func TestDeleteReportsRemovingAnUnreadableEntry(t *testing.T) {
 	keyring.MockInit()
-	if err := keyring.Set(session.Service, "acme-cloud-login", "not json"); err != nil {
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := keyring.Set(session.Service, store.EntryName("acme-cloud-login"), "not json"); err != nil {
 		t.Fatalf("seed foreign entry: %v", err)
 	}
-	store := session.Store{StateRoot: t.TempDir()}
 	removed, err := store.Delete("acme-cloud-login")
 	if err != nil {
 		t.Fatalf("delete: %v", err)
@@ -456,10 +456,11 @@ func TestAProductSessionRoundTripsItsStrategyClientAndScopes(t *testing.T) {
 
 func TestASessionWrittenBeforeStrategiesExistedStillLoads(t *testing.T) {
 	keyring.MockInit()
-	if err := keyring.Set(session.Service, "legacy", `{"issuer":"https://is.example","refreshToken":"rt"}`); err != nil {
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := keyring.Set(session.Service, store.EntryName("legacy"), `{"issuer":"https://is.example","refreshToken":"rt"}`); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := session.Store{StateRoot: t.TempDir()}.Load("legacy")
+	loaded, err := store.Load("legacy")
 	if err != nil || loaded.Strategy != "" || loaded.RefreshToken != "rt" {
 		t.Fatalf("loaded %+v, %v", loaded, err)
 	}
@@ -477,7 +478,7 @@ func TestLargeTokensLiveInSideEntries(t *testing.T) {
 	if err := store.Save("thunder.apim", saved); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := keyring.Get(session.Service, "thunder.apim")
+	raw, err := keyring.Get(session.Service, store.EntryName("thunder.apim"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -502,7 +503,8 @@ func TestLargeTokensLiveInSideEntries(t *testing.T) {
 	if removed, err := store.Delete("thunder.apim"); err != nil || !removed {
 		t.Fatalf("delete: %v %v", removed, err)
 	}
-	for _, key := range []string{"thunder.apim", "thunder.apim#access", "thunder.apim#id"} {
+	name := store.EntryName("thunder.apim")
+	for _, key := range []string{name, name + "#access", name + "#id"} {
 		if _, err := keyring.Get(session.Service, key); err == nil {
 			t.Fatalf("%s survived delete", key)
 		}
@@ -513,11 +515,83 @@ func TestLargeTokensLiveInSideEntries(t *testing.T) {
 // inline, and still loads.
 func TestAnInlineAccessTokenStillLoads(t *testing.T) {
 	keyring.MockInit()
-	if err := keyring.Set(session.Service, "legacy", `{"issuer":"https://is.example","refreshToken":"rt","accessToken":"inline"}`); err != nil {
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := keyring.Set(session.Service, store.EntryName("legacy"), `{"issuer":"https://is.example","refreshToken":"rt","accessToken":"inline"}`); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := session.Store{StateRoot: t.TempDir()}.Load("legacy")
+	loaded, err := store.Load("legacy")
 	if err != nil || loaded.AccessToken != "inline" {
 		t.Fatalf("loaded %+v, %v", loaded, err)
+	}
+}
+
+// TestTwoStateRootsNeverShareASession proves a session is served only to the
+// state root that stored it: two WSO2_HOMEs whose context documents both name
+// an identity "thunder" hold two sessions, not one.
+func TestTwoStateRootsNeverShareASession(t *testing.T) {
+	keyring.MockInit()
+	first := session.Store{StateRoot: t.TempDir()}
+	second := session.Store{StateRoot: t.TempDir()}
+	if err := first.Save("thunder", session.Session{Issuer: "http://localhost:8492", RefreshToken: "rt-first"}); err != nil {
+		t.Fatalf("save under the first root: %v", err)
+	}
+
+	_, err := second.Load("thunder")
+	assertProblemCode(t, err, "auth.login_required")
+
+	if err := second.Save("thunder", session.Session{Issuer: "http://localhost:8492", RefreshToken: "rt-second"}); err != nil {
+		t.Fatalf("save under the second root: %v", err)
+	}
+	loaded, err := first.Load("thunder")
+	if err != nil {
+		t.Fatalf("load under the first root: %v", err)
+	}
+	if loaded.RefreshToken != "rt-first" {
+		t.Errorf("the first root reads %q, want its own session rt-first", loaded.RefreshToken)
+	}
+	if removed, err := second.Delete("thunder"); err != nil || !removed {
+		t.Fatalf("delete under the second root: removed=%v err=%v", removed, err)
+	}
+	if _, err := first.Load("thunder"); err != nil {
+		t.Errorf("deleting the second root's session removed the first root's: %v", err)
+	}
+}
+
+// TestALegacyEntryUnderTheBareReferenceIsNotServed proves an entry written
+// by a shell that keyed sessions by the credential reference alone is not
+// read as this root's session: nothing can tell which root wrote it.
+func TestALegacyEntryUnderTheBareReferenceIsNotServed(t *testing.T) {
+	keyring.MockInit()
+	if err := keyring.Set(session.Service, "thunder", `{"issuer":"http://localhost:8492","refreshToken":"rt-legacy"}`); err != nil {
+		t.Fatalf("seed a legacy entry: %v", err)
+	}
+	store := session.Store{StateRoot: t.TempDir()}
+
+	_, err := store.Load("thunder")
+	assertProblemCode(t, err, "auth.login_required")
+
+	// A login under the new key retires the legacy entry, so a token nothing
+	// can read any more does not stay on the machine.
+	if err := store.Save("thunder", session.Session{Issuer: "http://localhost:8492", RefreshToken: "rt-new"}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if _, err := keyring.Get(session.Service, "thunder"); !errors.Is(err, keyring.ErrNotFound) {
+		t.Errorf("the legacy entry survived a save under the same reference: %v", err)
+	}
+}
+
+// TestEntryNameIsTheReferenceScopedToTheRoot pins the shape of the key, which
+// docs/guides/login.md describes: the reference, then a digest of the root.
+func TestEntryNameIsTheReferenceScopedToTheRoot(t *testing.T) {
+	store := session.Store{StateRoot: t.TempDir()}
+	name := store.EntryName("thunder")
+	if !strings.HasPrefix(name, "thunder@") || len(name) == len("thunder@") {
+		t.Errorf("entry name = %q, want the reference followed by @ and a digest", name)
+	}
+	if other := (session.Store{StateRoot: t.TempDir()}).EntryName("thunder"); other == name {
+		t.Errorf("two roots derive the same entry name %q", name)
+	}
+	if again := store.EntryName("thunder"); again != name {
+		t.Errorf("the entry name is not stable: %q then %q", name, again)
 	}
 }

@@ -16,15 +16,23 @@
 
 // Package session persists interactive login sessions in the OS secure store.
 //
-// One credential reference maps to one keychain entry. The entry is the only
-// place a refresh token lives: it is never written to a file, and the state
-// root hosts only the advisory lock files that keep refresh-token rotation
-// single-writer across concurrent shell invocations.
+// One credential reference under one state root maps to one keychain entry.
+// The entry is the only place a refresh token lives: it is never written to a
+// file, and the state root hosts only the advisory lock files that keep
+// refresh-token rotation single-writer across concurrent shell invocations.
+//
+// The entry is named by the reference and a digest of the state root, so two
+// state roots (two WSO2_HOMEs) whose context documents both name an identity
+// "thunder" never share a session: a session is served only to the root that
+// stored it. See EntryName.
 package session
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"time"
 
 	keyring "github.com/zalando/go-keyring"
@@ -83,13 +91,36 @@ type Store struct {
 	StateRoot string
 }
 
+// EntryName is the secure-store name a credential reference's session lives
+// under: the reference, '@', and a digest of the state root.
+//
+// The digest is what keeps one root from reading another's session. Its input
+// is the root's cleaned path, so the same WSO2_HOME spelled two ways is one
+// root, and '@' is admitted by neither a credential reference nor a product
+// namespace, so the name can never be mistaken for a reference of its own.
+// The digest is truncated because it identifies a root rather than protecting
+// anything: the store it names is what protects the session.
+func (s Store) EntryName(ref string) string {
+	sum := sha256.Sum256([]byte(filepath.Clean(s.StateRoot)))
+	return ref + "@" + hex.EncodeToString(sum[:rootDigestBytes])
+}
+
+// rootDigestBytes is how much of the state root's digest the entry name keeps.
+const rootDigestBytes = 8
+
 // Load returns the stored session for a credential reference.
 //
 // A missing entry is auth.login_required; an unavailable keyring backend is
 // auth.keyring_unavailable. An unreadable or undecodable entry is
 // auth.login_required as well: stale entries are re-logged-in, not repaired.
+//
+// An entry a shell before this one stored under the bare reference is not
+// read: nothing records which root wrote it, and a fresh root that read it
+// would be reporting, and refreshing, another deployment's session. Such an
+// entry is retired by the next Save or Delete under the same reference.
 func (s Store) Load(ref string) (Session, error) {
-	value, err := keyring.Get(Service, ref)
+	name := s.EntryName(ref)
+	value, err := keyring.Get(Service, name)
 	switch {
 	case errors.Is(err, keyring.ErrNotFound):
 		return Session{}, loginRequired("no stored login session exists for the selected context",
@@ -107,10 +138,10 @@ func (s Store) Load(ref string) (Session, error) {
 	// carries none inline; an entry written before the side entries existed
 	// carries its access token inline and is read as it was written.
 	if stored.AccessToken == "" {
-		stored.AccessToken = s.sideEntry(ref + accessTokenSuffix)
+		stored.AccessToken = s.sideEntry(name + accessTokenSuffix)
 	}
 	if stored.IDToken == "" {
-		stored.IDToken = s.sideEntry(ref + idTokenSuffix)
+		stored.IDToken = s.sideEntry(name + idTokenSuffix)
 	}
 	return stored, nil
 }
@@ -177,21 +208,34 @@ func (s Store) Save(ref string, value Session) error {
 		// impossible the same as an unusable backend rather than panicking.
 		return keyringUnavailable()
 	}
-	if err := keyring.Set(Service, ref, string(data)); err != nil {
+	name := s.EntryName(ref)
+	if err := keyring.Set(Service, name, string(data)); err != nil {
 		return keyringUnavailable()
 	}
 	for suffix, token := range map[string]string{accessTokenSuffix: value.AccessToken, idTokenSuffix: value.IDToken} {
 		if token == "" {
-			if err := keyring.Delete(Service, ref+suffix); err != nil && !errors.Is(err, keyring.ErrNotFound) {
+			if err := keyring.Delete(Service, name+suffix); err != nil && !errors.Is(err, keyring.ErrNotFound) {
 				return keyringUnavailable()
 			}
 			continue
 		}
-		if err := keyring.Set(Service, ref+suffix, token); err != nil {
+		if err := keyring.Set(Service, name+suffix, token); err != nil {
 			return keyringUnavailable()
 		}
 	}
+	retireLegacyEntry(ref)
 	return nil
+}
+
+// retireLegacyEntry removes what a shell before this one stored under the bare
+// reference. No shell reads such an entry any more (see Load), so leaving it
+// would keep a refresh token on the machine that nothing can reach, and
+// nothing can end. Best effort: the entry this store owns has already been
+// written or removed, and that is the answer the caller gets.
+func retireLegacyEntry(ref string) {
+	for _, name := range []string{ref + accessTokenSuffix, ref + idTokenSuffix, ref} {
+		_ = keyring.Delete(Service, name)
+	}
 }
 
 // Delete removes the session for a credential reference, reporting whether
@@ -215,12 +259,14 @@ func (s Store) Delete(ref string) (bool, error) {
 	// The side entries go first and unconditionally: whether a session was
 	// ended is the session entry's answer, and a side entry left behind
 	// would be a token on the machine that nothing can reach any more.
+	name := s.EntryName(ref)
 	for _, suffix := range []string{accessTokenSuffix, idTokenSuffix} {
-		if err := keyring.Delete(Service, ref+suffix); err != nil && !errors.Is(err, keyring.ErrNotFound) {
+		if err := keyring.Delete(Service, name+suffix); err != nil && !errors.Is(err, keyring.ErrNotFound) {
 			return false, keyringUnavailable()
 		}
 	}
-	err := keyring.Delete(Service, ref)
+	retireLegacyEntry(ref)
+	err := keyring.Delete(Service, name)
 	switch {
 	case err == nil:
 		return true, nil
