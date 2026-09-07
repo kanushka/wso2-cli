@@ -272,6 +272,30 @@ func TestAppCreateShowsAGeneratedSecretOnceAndAPublicClientNone(t *testing.T) {
 	}
 }
 
+func TestAppCreateKeepsTheSecretOutOfEveryFieldButItsOwn(t *testing.T) {
+	// The create mints the secret and no later command can show it again, so
+	// it surfaces once, in the field labelled for it. The next line is the one
+	// an operator copies into a shell, so it names the variable that carries
+	// the secret rather than the secret.
+	fake := newFakeManagement(t)
+
+	outcome := fake.run(t, []string{"apps", "create"}, "wso2-cli-ci", "--type", "m2m")
+
+	if outcome.Problem != nil {
+		t.Fatalf("%+v", outcome.Problem)
+	}
+	fields := fieldsOf(outcome)
+	secret := fields["clientSecret"]
+	if secret == "" {
+		t.Fatalf("no secret was shown: %+v", fields)
+	}
+	for name, value := range fields {
+		if name != "clientSecret" && strings.Contains(value, secret) {
+			t.Errorf("the field %q carries the client secret: %q", name, value)
+		}
+	}
+}
+
 func TestRoleCreateResolvesNamesAndAssignsAppsSeparately(t *testing.T) {
 	fake := newFakeManagement(t)
 	t.Setenv("WSO2_IAM_USER_PASSWORD", "Cli@12345")

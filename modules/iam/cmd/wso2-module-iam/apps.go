@@ -143,10 +143,16 @@ func appResult(app thunder.Application, clientID, kind string, created bool, sec
 		"--assign-app %s to grant this client access.", clientID)
 	if secret != "" {
 		shown = secret
-		next = fmt.Sprintf("export WSO2_THUNDER_CI_SECRET=%s (shown once), then wso2 identity create <name> "+
-			"--issuer <issuer> --client-id %s --client-secret-variable WSO2_THUNDER_CI_SECRET --provider thunder "+
+		// The secret is in the field named for it and nowhere else. This line
+		// is the one an operator copies into a shell, so it names the variable
+		// the identity reads and leaves the value to be pasted in: a
+		// credential belongs in a variable, and the record of it is the
+		// variable's name.
+		next = fmt.Sprintf("export WSO2_THUNDER_CI_SECRET=<the client secret above, shown once>, then "+
+			"wso2 identity create <name> --issuer <issuer> --client-id %s "+
+			"--client-secret-variable WSO2_THUNDER_CI_SECRET --provider thunder "+
 			"--product <namespace> --endpoint <url> --audience <resource identifier> --scope <permission>.",
-			secret, clientID)
+			clientID)
 	}
 	if kind == "public" {
 		shown = "(none: public client)"
