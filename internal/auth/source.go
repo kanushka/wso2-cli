@@ -84,6 +84,12 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 			sessions:  session.Store{StateRoot: b.StateRoot},
 			client:    b.httpClient(),
 			strategy:  access.Strategy,
+			// A direct or sibling session on a resource-bound derivation was
+			// minted for the product's resource server; a derived one is an
+			// assertion session, refused by the assertion source in its own
+			// terms.
+			contextName:   b.Selection.Context.Name,
+			resourceBound: access.Resource != "" && access.Strategy != contexts.StrategyDerived,
 		}
 		if access.Strategy != contexts.StrategyDirect {
 			// A product beside the login one, or one derived from it, may

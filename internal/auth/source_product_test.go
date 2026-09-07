@@ -445,3 +445,136 @@ func TestAProductWithNoSessionUnderNoInputStillSaysSessionRequired(t *testing.T)
 		t.Fatalf("the guidance does not name the login and the control: %s", denial.Guidance)
 	}
 }
+
+// thunderBroker is the reference module's broker on a deployment that binds a
+// session to one resource server and mints only the permissions the roles
+// held on it carry: the login session, seeded with the given permissions.
+func thunderBroker(t *testing.T, options fakeissuer.Options, scopes []string) (browserDeployment, *auth.Broker) {
+	t.Helper()
+	keyring.MockInit()
+	options.RequireResource = true
+	options.Audience = audience
+	issuer := fakeissuer.New(t, options)
+	root := t.TempDir()
+	store := session.Store{StateRoot: root}
+	seeded := issuer.SeedSessionFor(scopes, audience)
+	if err := store.Save(sessionRef, session.Session{Issuer: issuer.URL, RefreshToken: seeded}); err != nil {
+		t.Fatal(err)
+	}
+	deployment := browserDeployment{issuer: issuer, stateRoot: root, seeded: seeded}
+	broker := deployment.broker(t)
+	broker.Selection.Identity.Auth.Provider = contexts.ProviderThunder
+	return deployment, broker
+}
+
+// The refusal a resource-bound deployment produces names what a person can go
+// and change: the permissions asked for, the resource server the session was
+// minted for, the role that grants them, and that the session has to be
+// established again once it is granted. Nothing about the token reaches it.
+func TestAResourceBoundRefusalToNarrowNamesTheRoleAndTheReLogin(t *testing.T) {
+	deployment, broker := thunderBroker(t, fakeissuer.Options{RefreshScopeMode: "reject"}, nil)
+
+	refusal := denied(t, broker, declaredRequest())
+
+	if refusal.Problem.Code != "auth.narrowing_unavailable" {
+		t.Fatalf("code = %q, want auth.narrowing_unavailable", refusal.Problem.Code)
+	}
+	for _, want := range []string{
+		"refused to narrow this session", "reference:status:read", `"reference-status"`,
+	} {
+		if !containsText(refusal.Problem.Message, want) {
+			t.Errorf("message %q does not name %q", refusal.Problem.Message, want)
+		}
+	}
+	for _, want := range []string{
+		"wso2 iam roles create <role> --resource-server <name> --permission reference:status:read --assign-user <username>",
+		"wso2 iam roles assign <role> --user <username>",
+		"wso2 logout --context reference-cloud",
+		"wso2 login --context reference-cloud",
+	} {
+		if !containsText(refusal.Problem.Recovery, want) {
+			t.Errorf("recovery %q does not say %q", refusal.Problem.Recovery, want)
+		}
+	}
+	if containsText(refusal.Problem.Message+refusal.Problem.Recovery, deployment.seeded) {
+		t.Error("the refusal carries the refresh token")
+	}
+}
+
+// Thunder answers a user who holds no role with a token stating no
+// permissions rather than a refusal. The refusal that produces says so in
+// the same terms, and that the token was minted for the resource server.
+func TestAResourceBoundTokenWithNoPermissionsNamesWhatWasAskedFor(t *testing.T) {
+	_, broker := thunderBroker(t, fakeissuer.Options{RefreshScopeMode: "ignore"}, nil)
+
+	refusal := denied(t, broker, declaredRequest())
+
+	if refusal.Problem.Code != "auth.narrowing_unavailable" {
+		t.Fatalf("code = %q, want auth.narrowing_unavailable", refusal.Problem.Code)
+	}
+	for _, want := range []string{
+		"did not state which permissions", `"reference-status"`,
+		"carries none of the permissions the module asked for (reference:status:read)",
+	} {
+		if !containsText(refusal.Problem.Message, want) {
+			t.Errorf("message %q does not say %q", refusal.Problem.Message, want)
+		}
+	}
+	if !containsText(refusal.Problem.Recovery, "wso2 logout --context reference-cloud") {
+		t.Errorf("recovery %q does not say how to re-establish the session", refusal.Problem.Recovery)
+	}
+}
+
+// A token carrying a subset is reported with both sides, as before, and with
+// the resource-bound way back.
+func TestAResourceBoundTokenWithASubsetNamesBothSides(t *testing.T) {
+	_, broker := thunderBroker(t, fakeissuer.Options{RefreshScopeMode: "ignore"}, []string{readScope})
+	withProduct(broker, contexts.Product{
+		Endpoint: "https://reference.example.test", Audience: audience, Scopes: []string{readScope, writeScope},
+	})
+	broker.Capabilities.AuthScopes = []string{readScope, writeScope}
+
+	refusal := denied(t, broker, auth.Request{Audience: audience, Scopes: []string{readScope, writeScope}})
+
+	if !containsText(refusal.Problem.Message, "asked for the permissions reference:status:read, reference:status:write "+
+		"and the deployment issued reference:status:read") || !containsText(refusal.Problem.Message, `"reference-status"`) {
+		t.Errorf("message reads: %s", refusal.Problem.Message)
+	}
+	if !containsText(refusal.Problem.Recovery, "--permission reference:status:read --permission reference:status:write") {
+		t.Errorf("recovery reads: %s", refusal.Problem.Recovery)
+	}
+}
+
+// A product beside the login one is re-established with wso2 login --only,
+// and the second refusal after that says so in the resource-bound terms.
+func TestAResourceBoundSiblingRefusalPointsAtLoginOnly(t *testing.T) {
+	deployment, _ := thunderBroker(t, fakeissuer.Options{RefreshScopeMode: "reject"}, []string{readScope, writeScope})
+	store := session.Store{StateRoot: deployment.stateRoot}
+	ref := contexts.ProductSessionRef(sessionRef, siblingNamespace)
+	seedSibling := func() error {
+		return store.Save(ref, session.Session{
+			Issuer: deployment.issuer.URL, RefreshToken: deployment.issuer.SeedSessionFor(nil, siblingAudience),
+		})
+	}
+	if err := seedSibling(); err != nil {
+		t.Fatal(err)
+	}
+	broker := siblingBroker(t, deployment)
+	broker.EstablishSession = func(contexts.ProductAccess) error { return seedSibling() }
+
+	refusal := denied(t, broker, auth.Request{Audience: siblingAudience, Scopes: []string{siblingScope}})
+
+	if refusal.Problem.Code != "auth.narrowing_unavailable" {
+		t.Fatalf("code = %q, want auth.narrowing_unavailable", refusal.Problem.Code)
+	}
+	for _, want := range []string{
+		`"https://localhost:8090/mcp"`, "--permission system --assign-user <username>", "wso2 login --only scim",
+	} {
+		if !containsText(refusal.Problem.Recovery, want) {
+			t.Errorf("recovery %q does not say %q", refusal.Problem.Recovery, want)
+		}
+	}
+	if containsText(refusal.Problem.Recovery, "wso2 logout") {
+		t.Errorf("recovery %q tells a sibling product to log the whole context out", refusal.Problem.Recovery)
+	}
+}

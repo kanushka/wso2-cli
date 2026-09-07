@@ -72,6 +72,14 @@ type sessionSource struct {
 	// issuer will not renew the stored one to what a request asks for. nil for
 	// the login session, which only wso2 login establishes.
 	establish func() error
+	// contextName is the context this access is brokered for, named in the
+	// resource-bound recovery as the one to log out of and back into.
+	contextName string
+	// resourceBound is true when the deployment binds this session to one
+	// resource server and mints its permissions from the roles held on it
+	// (see narrowing.resourceBound). Every refusal to narrow is then given the
+	// resource-bound way back instead of the general one.
+	resourceBound bool
 	// strategy is how this session was obtained (a contexts.Strategy* value).
 	// A federated session's stored access token is served while it is valid:
 	// the product's own issuer minted it for exactly the product's scopes at
@@ -127,12 +135,29 @@ func (s sessionSource) mint(request Request, now time.Time) (Grant, error) {
 // the permissions, which is what an administrator needs; nothing about the
 // token reaches it.
 func (s sessionSource) notAuthorizedForProduct(request Request) error {
+	recovery := fmt.Sprintf("Ask an administrator of %s to map this user's group to a role that carries %s, "+
+		"then run wso2 login --only %s.", s.issuer, scopeList(request.Scopes), s.namespace)
+	if s.resourceBound {
+		recovery = s.narrowing(request).recovery
+	}
 	return denial("auth.narrowing_unavailable",
 		fmt.Sprintf("the %q product's identity provider signed this user in again but issued none of "+
 			"the permissions the module asked for (%s), so the user is not authorized for the product",
 			s.namespace, scopeList(request.Scopes)),
-		fmt.Sprintf("Ask an administrator of %s to map this user's group to a role that carries %s, "+
-			"then run wso2 login --only %s.", s.issuer, scopeList(request.Scopes), s.namespace))
+		recovery)
+}
+
+// narrowing is what this source's refusals to narrow are stated in terms of:
+// the general way back, or the resource-bound one on a deployment that mints a
+// session's permissions from the roles held on its resource server.
+func (s sessionSource) narrowing(request Request) narrowing {
+	n := narrowing{namespace: s.namespace, audience: s.audience, recovery: narrowingRecovery}
+	if s.resourceBound {
+		n.resourceBound = true
+		n.recovery = resourceBoundRecovery(request.Scopes, s.audience, s.contextName, s.namespace,
+			s.strategy == contexts.StrategyDirect)
+	}
+	return n
 }
 
 // orRenewalNeedsBrowser restates the shell's "nothing may open a browser"
@@ -245,7 +270,7 @@ func (s sessionSource) derive(request Request, now time.Time) (Grant, error) {
 	if err != nil {
 		return Grant{}, s.orReauthorize(err)
 	}
-	facts, err := issued.verify(request, s.namespace, s.audience)
+	facts, err := issued.verifyNarrowing(request, s.narrowing(request))
 	if err != nil {
 		return Grant{}, s.orReauthorize(err)
 	}
@@ -348,7 +373,7 @@ func (s sessionSource) renew(ctx context.Context, scopes []string, now time.Time
 	// issuer for exactly the authority the shell is trying not to hand over.
 	issued, err := s.refresh(ctx, endpoint, stored.RefreshToken, scopes)
 	if err != nil {
-		return tokenResponse{}, err
+		return tokenResponse{}, s.refusedGrant(err, scopes)
 	}
 
 	// The replacement is stored before the answer is returned, and while the
@@ -426,7 +451,7 @@ func (s sessionSource) refresh(
 		"scope":         {strings.Join(scopes, " ")},
 	}, clientAuth{id: s.clientID})
 	if err != nil {
-		return tokenResponse{}, s.refusedGrant(err)
+		return tokenResponse{}, err
 	}
 	return issued, nil
 }
@@ -436,15 +461,21 @@ func (s sessionSource) refresh(
 //
 // A refusal to narrow is the one answer treated differently: it means the
 // session is fine and the deployment will not scope it down, which is a
-// registration problem, not a login problem.
-func (s sessionSource) refusedGrant(err error) error {
+// registration problem, not a login problem. On a resource-bound deployment it
+// is the answer for a session minted without the permissions, and the refusal
+// names them and the resource server: the opening phrase stays the one
+// test/smoke reads a live run's outcome off.
+func (s sessionSource) refusedGrant(err error, scopes []string) error {
 	var refusal issuerRefusal
 	switch {
 	case errors.As(err, &refusal) && refusal.refusedToNarrow():
-		return denial("auth.narrowing_unavailable",
-			fmt.Sprintf("the deployment refused to narrow this session to the permissions the %q "+
-				"module asked for", s.namespace),
-			narrowingRecovery)
+		message := fmt.Sprintf("the deployment refused to narrow this session to the permissions the %q "+
+			"module asked for", s.namespace)
+		if s.resourceBound {
+			message += fmt.Sprintf(" (%s) on the %q resource server it was minted for",
+				scopeList(scopes), s.audience)
+		}
+		return denial("auth.narrowing_unavailable", message, s.narrowing(Request{Scopes: scopes}).recovery)
 	case errors.As(err, &refusal):
 		// Every other refusal — a revoked, rotated-away, or expired refresh
 		// token — leaves the caller in one place: holding a session the issuer
@@ -458,6 +489,6 @@ func (s sessionSource) refusedGrant(err error) error {
 			"the identity provider's answer to this session renewal carried no access token",
 			"Run wso2 login to establish a fresh session for this context.")
 	default:
-		return issuerUnreachable()
+		return issuerUnreachable(err, s.issuer)
 	}
 }
