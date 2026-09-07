@@ -119,7 +119,13 @@ step.
 
 `--no-input` is the shell's own flag on a product command line too, read
 wherever it is written, like `--verbose`, and never forwarded to the
-module. A product command that finds no session yet for its own product
+module. Wherever ends at a bare `--`, as it does for `--output` and
+`--context`: everything after the separator is the module's, unread, so
+`wso2 apim gateway invoke /x -- --no-input` hands the module the word and
+leaves the shell interactive. A module flag whose value is that literal
+word takes it attached, `--description=--no-input`, because the shell
+reads the separated spelling before it knows which of the module's flags
+take values. A product command that finds no session yet for its own product
 opens the browser to authorize it, printing the product and the issuer
 first, unless `--no-input` or `WSO2_NO_INPUT` asked otherwise, in which
 case it refuses with `auth.session_required` and exit class `77`, naming

@@ -267,10 +267,21 @@ func takeNoInput(args []string) (remaining []string, asked bool, err error) {
 // argument list before a command name. A spelling that means one thing written
 // before the command and another written after it would be a worse answer than
 // refusing the flag was: the user would be reading a log they had switched off.
+//
+// "Wherever it is written" ends at the first bare "--", which is the same place
+// the shell's claim on --output and --context ends (parseProductArgs). After the
+// separator there are no flags at all, only words the module was handed, and a
+// scan that read one anyway did two things at once: it deleted an argument the
+// module was given — "invoke /path -- --no-input" reached the module as a bare
+// "--" — and switched the shell non-interactive on a word that was addressed to
+// the module. The separator is left in place and forwarded, as it is by every
+// other reader of a product line, because it is the module's own argument too.
 func takeBoolFlag(args []string, flag string) (remaining []string, asked bool, err error) {
 	remaining = make([]string, 0, len(args))
-	for _, argument := range args {
+	for index, argument := range args {
 		switch {
+		case argument == "--":
+			return append(remaining, args[index:]...), asked, nil
 		case argument == "--"+flag:
 			asked = true
 		case strings.HasPrefix(argument, "--"+flag+"="):
