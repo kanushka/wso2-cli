@@ -17,11 +17,14 @@
 package main
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
 func TestEveryListAsksForNoScopesAndEndsWithNext(t *testing.T) {
@@ -177,8 +180,73 @@ func TestKeyManagersAddDiscoversAndOverrides(t *testing.T) {
 	}
 }
 
+func TestMapKeysTellsAMappingHeldElsewhereFromOneAlreadyHeld(t *testing.T) {
+	fake := newFakeAPIM(t)
+	fake.run(t, []string{"apps", "create"}, "DefaultApplication")
+	fake.run(t, []string{"apps", "create"}, "HelloApp")
+	first := fake.run(t, []string{"apps", "map-keys"}, "DefaultApplication", "--key-manager", "Thunder", "--client-id", "wso2-cli")
+	if first.Problem != nil || fieldsOf(first)["mode"] != "MAPPED" {
+		t.Fatalf("first map-keys = %+v %+v", first.Problem, fieldsOf(first))
+	}
+	// The same client on the same application is what it says: already mapped.
+	again := fake.run(t, []string{"apps", "map-keys"}, "DefaultApplication", "--key-manager", "Thunder", "--client-id", "wso2-cli")
+	if again.Problem != nil || fieldsOf(again)["mode"] != "MAPPED (already)" {
+		t.Errorf("second map-keys = %+v %+v", again.Problem, fieldsOf(again))
+	}
+	// On another application, API Manager refuses with the same "already"
+	// text, and the gateway would then fail the subscription check.
+	elsewhere := fake.run(t, []string{"apps", "map-keys"}, "HelloApp", "--key-manager", "Thunder", "--client-id", "wso2-cli")
+	if elsewhere.Problem == nil || elsewhere.Problem.Code != "apim.client_mapped_elsewhere" ||
+		!strings.Contains(elsewhere.Problem.Message, `"DefaultApplication"`) ||
+		!strings.Contains(elsewhere.Problem.Message, `"HelloApp"`) ||
+		!strings.Contains(elsewhere.Problem.Recovery, "apps subscribe DefaultApplication") ||
+		!strings.Contains(elsewhere.Problem.Recovery, "--client-id") {
+		t.Errorf("map-keys elsewhere = %+v", elsewhere.Problem)
+	}
+	if outcome := fake.run(t, []string{"apps", "keys"}, "HelloApp"); outcome.Problem != nil {
+		t.Errorf("keys after a refused mapping: %+v", outcome.Problem)
+	}
+}
+
+func TestGatewayInvokeRefusesTheManagementEndpoint(t *testing.T) {
+	fake := newFakeAPIM(t)
+	// After wso2 apim connect the identity records the management origin,
+	// which answers a gateway path with 401, not the gateway.
+	outcome := fake.run(t, []string{"gateway", "invoke"}, "/mockapi/1.0.0/status")
+	if outcome.Problem == nil || outcome.Problem.Code != "apim.not_gateway" || outcome.Problem.Category != problem.CategoryUsage ||
+		!strings.Contains(outcome.Problem.Message, "management") ||
+		!strings.Contains(outcome.Problem.Recovery, "wso2 identity create") ||
+		!strings.Contains(outcome.Problem.Recovery, "--product apim --endpoint <gateway>") ||
+		!strings.Contains(outcome.Problem.Recovery, "--audience") {
+		t.Errorf("management endpoint: %+v", outcome.Problem)
+	}
+	if len(fake.requestsTo("GET /mockapi/1.0.0/status")) != 0 {
+		t.Errorf("the gateway route was called: %v", fake.requests)
+	}
+}
+
+func TestGatewayInvokeRefusesANon2xxAnswerWithItsBody(t *testing.T) {
+	fake := newFakeAPIM(t)
+	fake.endpoint = fake.gateway.URL
+	fake.gatewayStatus, fake.gatewayBody = http.StatusForbidden,
+		`{"code":"900908","message":"Resource forbidden ","description":"User is NOT authorized to access the Resource. API Subscription validation failed."}`
+	outcome := fake.run(t, []string{"gateway", "invoke"}, "/mockapi/1.0.0/status")
+	if outcome.Problem == nil || outcome.Problem.Code != "apim.refused" || outcome.Problem.Category != problem.CategoryProductService ||
+		!strings.Contains(outcome.Problem.Message, "403") || !strings.Contains(outcome.Problem.Message, "900908") ||
+		!strings.Contains(outcome.Problem.Recovery, "map-keys") {
+		t.Errorf("403: %+v", outcome.Problem)
+	}
+	fake.gatewayStatus, fake.gatewayBody = http.StatusBadGateway, `{"code":"101503","message":"Runtime Error"}`
+	outcome = fake.run(t, []string{"gateway", "invoke"}, "/mockapi/1.0.0/status")
+	if outcome.Problem == nil || outcome.Problem.Code != "apim.refused" ||
+		!strings.Contains(outcome.Problem.Message, "502") || !strings.Contains(outcome.Problem.Message, "101503") {
+		t.Errorf("502: %+v", outcome.Problem)
+	}
+}
+
 func TestGatewayInvokeCallsThePathWithTheBrokeredToken(t *testing.T) {
 	fake := newFakeAPIM(t)
+	fake.endpoint = fake.gateway.URL
 	outcome := fake.run(t, []string{"gateway", "invoke"}, "/mockapi/1.0.0/status")
 	if outcome.Problem != nil {
 		t.Fatalf("%+v", outcome.Problem)

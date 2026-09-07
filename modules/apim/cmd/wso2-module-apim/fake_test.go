@@ -39,8 +39,14 @@ const fixtureToken = "wso2-development-token.fixture"
 // manager's token endpoint. It records every request so tests can assert
 // bodies, and it can be seeded.
 type fakeAPIM struct {
-	mu          sync.Mutex
-	server      *httptest.Server
+	mu     sync.Mutex
+	server *httptest.Server
+	// gateway is the gateway's own origin, apart from the management planes
+	// as the deployment keeps them.
+	gateway *httptest.Server
+	// endpoint is what the identity records; the management origin unless a
+	// test points it at the gateway.
+	endpoint    string
 	apis        []map[string]any
 	deployments map[string][]map[string]any
 	apps        []map[string]any
@@ -54,6 +60,10 @@ type fakeAPIM struct {
 	mapKeysRefusals int
 	// deployPolls counts GET deployments before reporting success.
 	deployPolls int
+	// gatewayStatus and gatewayBody, when set, are what the gateway answers
+	// every call with, as it does when a subscription check fails.
+	gatewayStatus int
+	gatewayBody   string
 	// listLag hides every API from this many listings, as the search index does
 	// for a few seconds after a creation.
 	listLag int
@@ -221,8 +231,31 @@ func newFakeAPIM(t *testing.T) *fakeAPIM {
 			http.Error(w, `{"code":500,"description":"Key Manager not Registered"}`, http.StatusInternalServerError)
 			return
 		}
+		name := ""
+		for _, app := range fake.apps {
+			if app["applicationId"] == r.PathValue("id") {
+				name = app["name"].(string)
+			}
+		}
+		for _, mapped := range fake.keys {
+			for _, key := range mapped {
+				if key["keyManager"] == body["keyManager"] && key["consumerKey"] == body["consumerKey"] {
+					// What API Manager 4.7.0 says when the client is mapped
+					// already, whichever application holds the mapping.
+					http.Error(w, `{"code":901409,"message":"Key Mappings already exists","description":"Key Mappings already exists for application `+
+						name+` or consumer key `+body["consumerKey"].(string)+`","moreInfo":"","error":[]}`, http.StatusConflict)
+					return
+				}
+			}
+		}
 		body["mode"] = "MAPPED"
+		body["keyMappingId"] = id()
+		fake.keys[r.PathValue("id")] = append(fake.keys[r.PathValue("id")], body)
 		_ = json.NewEncoder(w).Encode(body)
+	}))
+	mux.HandleFunc("GET /api/am/devportal/v3/applications/{id}/oauth-keys", bearer(func(w http.ResponseWriter, r *http.Request) {
+		record(r)
+		list(w, fake.keys[r.PathValue("id")])
 	}))
 	// admin
 	mux.HandleFunc("GET /api/am/admin/v4/key-managers", bearer(func(w http.ResponseWriter, r *http.Request) {
@@ -258,19 +291,30 @@ func newFakeAPIM(t *testing.T) *fakeAPIM {
 			"revocation_endpoint": fake.server.URL + "/issuer/oauth2/revoke",
 		})
 	})
-	// a gateway route
-	mux.HandleFunc("GET /mockapi/1.0.0/status", func(w http.ResponseWriter, r *http.Request) {
+	fake.server = httptest.NewServer(mux)
+	t.Cleanup(fake.server.Close)
+	fake.endpoint = fake.server.URL
+	// The gateway: one route, and the deployment's answer for any other path.
+	gateway := http.NewServeMux()
+	gateway.HandleFunc("GET /mockapi/1.0.0/status", func(w http.ResponseWriter, r *http.Request) {
 		fake.mu.Lock()
 		defer fake.mu.Unlock()
 		record(r)
+		if fake.gatewayStatus != 0 {
+			http.Error(w, fake.gatewayBody, fake.gatewayStatus)
+			return
+		}
 		if r.Header.Get("Authorization") != "Bearer "+fixtureToken {
 			http.Error(w, `{"code":"900901"}`, http.StatusUnauthorized)
 			return
 		}
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-	fake.server = httptest.NewServer(mux)
-	t.Cleanup(fake.server.Close)
+	gateway.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"code":"900906","message":"No matching resource found for given API Request"}`, http.StatusNotFound)
+	})
+	fake.gateway = httptest.NewServer(gateway)
+	t.Cleanup(fake.gateway.Close)
 	return fake
 }
 
@@ -279,7 +323,7 @@ func (f *fakeAPIM) run(t *testing.T, command []string, arguments ...string) test
 	outcome := testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
 		Command:   command,
 		Arguments: arguments,
-		Context:   module.Context{Name: "apim-admin", Endpoint: f.server.URL},
+		Context:   module.Context{Name: "apim-admin", Endpoint: f.endpoint},
 		Access:    &testkit.Access{Token: fixtureToken, ExpiresAt: time.Now().Add(time.Minute)},
 	})
 	if outcome.Err != nil {

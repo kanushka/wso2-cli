@@ -285,11 +285,23 @@ func appsMapKeys(command *cobra.Command, flags *appFlags) module.Handler {
 				}
 				continue
 			}
-			if apim.IsRefusalContaining(err, &refusal, "already") {
-				mapped.Mode = "MAPPED (already)"
-				break
+			if !apim.IsRefusalContaining(err, &refusal, "already") {
+				return result.Result{}, apim.Problem(err, "the key mapping")
 			}
-			return result.Result{}, apim.Problem(err, "the key mapping")
+			// "Already" is what API Manager says whichever application holds
+			// the mapping. Only this application holding it is idempotence;
+			// another holding it means the gateway would fail the
+			// subscription check, since the subscription is here and the
+			// mapping is there.
+			holder, err := mappingHolder(ctx, client, flags.mapManager, flags.mapClientID)
+			if err != nil {
+				return result.Result{}, err
+			}
+			if !strings.EqualFold(holder, appName) {
+				return result.Result{}, clientMappedElsewhere(appName, holder, flags.mapManager, flags.mapClientID)
+			}
+			mapped.Mode = "MAPPED (already)"
+			break
 		}
 		return result.New(MapKeysSchema).
 			With("app", "Application", appName).
@@ -299,6 +311,43 @@ func appsMapKeys(command *cobra.Command, flags *appFlags) module.Handler {
 			With(NextField, "Next", "Run wso2 apim gateway invoke </context/version/path> --context <caller> "+
 				"under an identity that logs in to that key manager's issuer."), nil
 	}
+}
+
+// mappingHolder names the application holding the client on the key manager,
+// or "" when none of the listed applications does.
+func mappingHolder(ctx context.Context, client *apim.Client, keyManager, clientID string) (string, error) {
+	var listed applicationList
+	if err := client.Get(ctx, devportalPath+"/applications", &listed); err != nil {
+		return "", apim.Problem(err, "the application listing")
+	}
+	for _, app := range listed.List {
+		var keys struct {
+			List []keyPair `json:"list"`
+		}
+		if err := client.Get(ctx, devportalPath+"/applications/"+app.ID+"/oauth-keys", &keys); err != nil {
+			return "", apim.Problem(err, fmt.Sprintf("the key listing of %q", app.Name))
+		}
+		for _, key := range keys.List {
+			if strings.EqualFold(key.KeyManager, keyManager) && key.ConsumerKey == clientID {
+				return app.Name, nil
+			}
+		}
+	}
+	return "", nil
+}
+
+func clientMappedElsewhere(appName, holder, keyManager, clientID string) problem.Problem {
+	held := fmt.Sprintf("an application this identity cannot list holds the mapping of client %q on key manager %q", clientID, keyManager)
+	way := fmt.Sprintf("Map a client id that is not mapped yet: wso2 apim apps map-keys %s --key-manager %s --client-id <other>.", appName, keyManager)
+	if holder != "" {
+		held = fmt.Sprintf("application %q already holds the mapping of client %q on key manager %q", holder, clientID, keyManager)
+		way = fmt.Sprintf("Either subscribe the application that holds it, wso2 apim apps subscribe %s <name/version>, "+
+			"or map a client id that is not mapped yet: wso2 apim apps map-keys %s --key-manager %s --client-id <other>.",
+			holder, appName, keyManager)
+	}
+	return problem.New(problem.CategoryUsage, "apim.client_mapped_elsewhere",
+		fmt.Sprintf("API Manager did not map the client onto %q: %s, and a client maps onto one application per key manager", appName, held)).
+		WithRecovery(way)
 }
 
 func findApplication(ctx context.Context, client *apim.Client, name string) (application, bool, error) {

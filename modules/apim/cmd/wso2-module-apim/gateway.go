@@ -96,16 +96,61 @@ func gatewayInvoke(command *cobra.Command, flags *gatewayFlags) module.Handler {
 		}
 		defer response.Body.Close()
 		body, _ := io.ReadAll(io.LimitReader(response.Body, gatewayBodyLimit))
-		next := "(done)"
-		if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
-			next = "The gateway refused the token: check the API is published, the application subscribed, " +
-				"and this identity's client mapped onto it with wso2 apim apps map-keys."
+		if response.StatusCode < 200 || response.StatusCode > 299 {
+			return result.Result{}, gatewayRefusal(call, request.Context.Endpoint, httpRequest.Method, target,
+				response.StatusCode, strings.TrimSpace(string(body)))
 		}
 		return result.New(GatewaySchema).
 			With("method", "Method", strings.ToUpper(flags.method)).
 			With("url", "URL", target).
 			With("status", "Status", fmt.Sprintf("%d", response.StatusCode)).
 			With("body", "Body", strings.TrimSpace(string(body))).
-			With(NextField, "Next", next), nil
+			With(NextField, "Next", "(done)"), nil
 	}
+}
+
+// gatewayRefusal is the problem a non-2xx answer becomes, so a script can
+// tell success from refusal by the exit code while the body still shows. An
+// identity that came from wso2 apim connect records the management origin,
+// which answers every gateway path with 401 or 404; that is a usage problem
+// with a different way out, so it is told apart first.
+func gatewayRefusal(ctx context.Context, endpoint, method, target string, status int, body string) problem.Problem {
+	if isManagementEndpoint(ctx, endpoint) {
+		return problem.New(problem.CategoryUsage, "apim.not_gateway",
+			fmt.Sprintf("the apim product on this identity records the management endpoint %s, not the gateway", endpoint)).
+			WithRecovery("Create an identity for the caller whose apim product names the gateway and the API's " +
+				"resource server: wso2 identity create <caller> --issuer <issuer> --client-id <id> --provider thunder " +
+				"--product apim --endpoint <gateway> --audience <api resource> --scope <permission>, " +
+				"then wso2 login --context <caller> and run wso2 apim gateway invoke again with --context <caller>. " +
+				"The gateway is https://<host>:8243 on a default deployment.")
+	}
+	answer := fmt.Sprintf("the gateway answered %s %s with status %d", method, target, status)
+	if body != "" {
+		answer += ": " + body
+	}
+	recovery := "Read the gateway's answer above; it names what it did not accept."
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		recovery = "The gateway refused the token: check the API is published, the application subscribed, " +
+			"and this identity's client mapped onto that application with wso2 apim apps map-keys."
+	}
+	return problem.New(problem.CategoryProductService, "apim.refused", answer).WithRecovery(recovery)
+}
+
+// isManagementEndpoint reports whether the endpoint serves the publisher
+// REST API: the management origin answers its listing with 401 to a call
+// without a token, where a gateway has no such resource.
+func isManagementEndpoint(ctx context.Context, endpoint string) bool {
+	probe, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		strings.TrimRight(endpoint, "/")+publisherPath+"/apis", nil)
+	if err != nil {
+		return false
+	}
+	probe.Header.Set("Accept", "application/json")
+	response, err := apim.HTTPClient().Do(probe)
+	if err != nil {
+		return false
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, response.Body)
+	return response.StatusCode == http.StatusUnauthorized
 }
