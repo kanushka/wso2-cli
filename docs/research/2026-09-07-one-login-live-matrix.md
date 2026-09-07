@@ -3,9 +3,10 @@
 **Status:** Measured, 2026-09-07
 **Records:** section 10 of
 `docs/superpowers/specs/2026-09-06-one-login-many-sessions-design.md`
-**Against:** `cli-thunder3` (ThunderID v1.0.1, http://localhost:8492) and
+**Against:** `cli-thunder3` (ThunderID v1.0.1, http://localhost:8492),
 `cli-apim` (API Manager 4.7.0, https://localhost:9443 management,
-https://localhost:8243 gateway)
+https://localhost:8243 gateway) and `cli-is` (Identity Server 7.1.0,
+https://localhost:9444)
 **Branch:** `claude/apim-journey-step1`, the shell and both product modules
 built from the working tree
 
@@ -19,7 +20,7 @@ is already a measurement across a shell restart.
 | 2. The same login serving API Manager management (federated) | **Pass.** No second password. `apis list` and `apps list` both answer. | 0 | 5 |
 | 2a. First-use acquisition | **Pass.** After `wso2 login --no-products`, `wso2 apim apis list` prints the notice, authorizes through the sign-on and answers. | 0 | 5 |
 | 2b. The same under `--no-input` | **Pass.** Refused with `auth.session_required`, naming `wso2 login --only apim` and the flag that caused it. | 0 | 0 |
-| 3. Identity Server as the login provider | **Not run.** `cli-is` is up; nothing was recorded against it. |  |  |
+| 3. Identity Server as the login provider | **Pass** for API Manager management, by the `derived` (jwt-bearer) strategy, for the administrator and refused for the group-less user. `iam` and the gateway are not reachable under it. | 1 | 4 |
 | 4. Asgardeo | **Not run.** No tenant available. |  |  |
 | 5. The gateway (sibling) | **Pass** for the leg the CLI owns. `wso2 login` establishes `iam` direct and `apim` sibling from one prompt, and the gateway answers 200. The mock backend behind it still rejects the token, for a reason outside the shell. | 1 | 4 |
 | 6. A user without management rights (`cliuser`) | **Pass.** Both products refuse, each naming what an administrator must grant. | 1 | 7 |
@@ -227,7 +228,77 @@ ThunderID needed nothing: the `Mock API` resource server
 assignment to it were all already in place. `cliuser` holds none of them,
 which is what makes the denied sub-row meaningful here too.
 
-## 8. What the matrix changed
+## 8. Row 3: Identity Server as the login provider
+
+`cli-is` (Identity Server 7.1.0, https://localhost:9444) serves API Manager
+management by the `derived` strategy: the shell authorizes at Identity
+Server for the grant's assertion scopes, then presents that session's
+identity token as a jwt-bearer assertion at API Manager's own token
+endpoint. Everything the 2026-09-06 proof configured is still live and was
+re-verified before the run.
+
+**`connect` cannot record any of this.** No module's descriptor names
+`identity-server` as a provider, so there is no `connect` that creates an
+Identity Server identity; and `apim`'s descriptor hard-codes the federated
+grant, so even the product record has to be written the long way:
+
+```sh
+wso2 identity create is --issuer https://localhost:9444/oauth2/token \
+  --client-id <the Identity Server CLI client> --provider identity-server
+wso2 identity add-product is apim \
+  --endpoint https://localhost:9443 --audience <the API Manager CLI client> \
+  --scopes apim:api_view,apim:api_create,apim:api_publish,apim:subscribe,apim:app_manage,apim:admin \
+  --grant jwt-bearer --grant-issuer https://localhost:9443/oauth2/token \
+  --grant-client-id <the API Manager CLI client> --grant-scopes openid,groups
+```
+
+The identity is recorded with no product of its own, which is legal here:
+Identity Server's derivation is scoped refresh, not resource-bound, so a
+bare login session is a valid shape and `apim` hangs off it under the
+grant.
+
+`wso2 login --context is`:
+
+```text
+Session    direct, established
+apim       derived, established
+```
+
+One credential prompt at Identity Server, three redirects; the second
+authorization — the one that mints the assertion session — answered from
+the sign-on with no prompt, in one. Then `apis list`, `apps list` and
+`apis list` again all answer, in that order. The order matters: `apps
+list` needs `apim:subscribe` and `apis list` needs `apim:api_view`, and
+the third call proves the session was not consumed by the second. That is
+the exact case the earlier proof recorded as **blocked** — Identity Server
+permanently narrows a refresh token to the smallest scope set ever
+requested with it, so two products with different scope sets could not
+share one login. Per-product sessions remove the wall: each product holds
+its own session at its own scope set, and nothing narrows anything else.
+
+`cliuser`, who is in no Identity Server group, logs in the same way and is
+refused at the command.
+
+### The assertion scopes are load-bearing, and nothing says so
+
+`--grant-scopes openid,groups` is not optional here, and omitting it costs
+an hour. Without it the assertion carries no `groups` claim, API Manager's
+`ISLocal` identity provider maps the user to no role, and **every** command
+is refused — for the administrator exactly as for the denied user, with
+the same message:
+
+```text
+error: the "apim" module asked for the permissions apim:api_view and the deployment issued default (auth.narrowing_unavailable)
+  Check the deployment's API resource registration and the permissions granted to the registered OAuth application, then retry.
+```
+
+That recovery points at the deployment, which is correctly configured. The
+actual cause is a flag on the record. Two things follow, both listed in
+section 10: the derived path never learned the user-focused refusal the
+federated path gained, and no default assertion scope set is derivable
+from anything the shell holds.
+
+## 9. What the matrix changed
 
 **Every `apim` command failed on the first attempt**, and the cause was
 only visible live. `connect` records the descriptor's six management
@@ -245,7 +316,7 @@ send no scopes. Request, record and session then agree by construction,
 and the product record is the only ceiling — which is what ADR 0005's
 proof rests on either way.
 
-## 9. Defects the runs found and did not fix
+## 10. Defects the runs found and did not fix
 
 - Under `--no-input`, a product that **has** a session which carries none
   of its permissions is refused with "has no session under this identity
@@ -257,6 +328,18 @@ proof rests on either way.
   the strategy and the session state are the same word.
 - `connect` ends with `Next  Run wso2 login --context thunder.` even when
   that context is the only one and already selected.
+- The `derived` path never gained the user-focused refusal the `federated`
+  path has. When API Manager issues `default` instead of the permissions
+  asked for, the federated path says the user is not authorized and names
+  the administrator action; the derived path says "check the deployment's
+  API resource registration", which is wrong for a denied user and wrong
+  again for a missing `--grant-scopes`. Both routes reach the same state
+  and only one explains it.
+- Nothing derives the assertion scopes a jwt-bearer grant needs. The
+  record's `--grant-scopes` decides whether the identity token carries the
+  claim the product maps roles from, and every failure to set it looks
+  like a deployment fault. A descriptor could name them; today only the
+  operator can.
 - A product descriptor names one grant, so `connect` can record a product
   in one shape only. API Manager is reachable two ways — federated at its
   own issuer for management, sibling at the login provider for the
@@ -264,15 +347,17 @@ proof rests on either way.
   fell back to `wso2 identity add-product`, which is the command the
   descriptor was meant to retire.
 
-## 10. Environment as left
+## 11. Environment as left
 
-`matrix-home` holds three identities: `thunder` (browser, `iam` direct +
+`matrix-home` holds four identities: `thunder` (browser, `iam` direct +
 `apim` federated, pinned to `iam`), `thunder-ci` (client credentials,
 `iam` only) and `thunder-gw` (browser, `iam` direct + `apim` sibling on
-the gateway, pinned to `iam`).
+the gateway, pinned to `iam`), and `is` (browser, Identity Server, no
+product of its own, `apim` derived).
 
-ThunderID was not written to at all. On `cli-apim`, two writes were made,
-both on the federated `admin` user's own `DefaultApplication`: a
+Neither ThunderID nor Identity Server was written to at all. On
+`cli-apim`, two writes were made, both on the federated `admin` user's own
+`DefaultApplication`: a
 subscription to `MockAPI/1.0.0`, and a key mapping of client `wso2-cli`
 on key manager `Thunder3`. Everything else — the clients, roles,
 identity provider and key managers — is as
