@@ -23,6 +23,7 @@ is already a measurement across a shell restart.
 | 3. Identity Server as the login provider | **Pass** for API Manager management, by the `derived` (jwt-bearer) strategy, for the administrator and refused for the group-less user. `iam` and the gateway are not reachable under it. | 1 | 4 |
 | 4. Asgardeo | **Not run.** No tenant available. |  |  |
 | 5. The gateway (sibling) | **Pass** for the leg the CLI owns. `wso2 login` establishes `iam` direct and `apim` sibling from one prompt, and the gateway answers 200. The mock backend behind it still rejects the token, for a reason outside the shell. | 1 | 4 |
+| 5a. The gateway recorded by `connect --gateway` (#163) | **Pass.** `wso2 apim connect https://localhost:8243 --gateway --audience http://localhost:18090/hello --scopes hello:read,orders:read` on the same identity, then one `wso2 login`: `iam direct`, `apim federated`, `apim/gateway sibling`, all established. `gateway invoke /hello/1.0.0/hello` answers 200 through the mock backend with no `--context`. `--no-input` with the gateway session missing refuses `auth.session_required` naming `wso2 login --only apim`. Measured 2026-09-07 from `cli-exercise-4`. | 1 | 9 |
 | 6. A user without management rights (`cliuser`) | **Pass.** Both products refuse, each naming what an administrator must grant. | 1 | 7 |
 | 7. CI: one machine client, no browser | **Pass** for `iam`. `apim` under a machine identity is refused as designed, naming the two credential flags. | 0 | 0 |
 
@@ -352,7 +353,10 @@ proof rests on either way.
   own issuer for management, sibling at the login provider for the
   gateway — and `connect` can write the first but not the second. Row 5
   fell back to `wso2 identity add-product`, which is the command the
-  descriptor was meant to retire.
+  descriptor was meant to retire. **Addressed by #163** (2026-09-07): the
+  descriptor declares a `gateway` block and `wso2 apim connect
+  <gateway-url> --gateway` records the gateway beside the management
+  record on the same identity.
 
 ## 11. Environment as left
 

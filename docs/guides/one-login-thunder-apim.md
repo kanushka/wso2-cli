@@ -21,8 +21,9 @@ says so.
 Two things to know before starting. First, the products are recorded with
 `wso2 <namespace> connect <url>`, not with `wso2 identity create`: `connect`
 reads the module's product descriptor and writes the issuer, audience,
-scopes and grant itself, so the only value you type is a URL, plus one
-client id for API Manager. Second, API Manager has to be told to trust
+scopes and grant itself, so the only values you type are a URL, plus one
+client id for API Manager and, for its gateway, the API's own resource
+identifier and permissions. Second, API Manager has to be told to trust
 ThunderID before any of this works, and that registration is done by hand
 (section 3); nothing in the shell makes it yet.
 
@@ -40,7 +41,7 @@ enters credentials once. How each product's session is obtained is its
 | --- | --- | --- |
 | `iam` | `direct` | ThunderID issues for its own management API. One credential prompt. |
 | `apim` (management) | `federated` | API Manager's own issuer, through a public client federated to ThunderID. No prompt; five redirects. |
-| `apim` (gateway) | `sibling` | ThunderID issues for the mock API's resource server. No prompt. See section 7. |
+| `apim/gateway` | `sibling` | ThunderID issues for the API's own resource server, recorded beside the product by `connect --gateway`. No prompt. See section 7. |
 
 That is what ADR 0014 accepts, and it replaces the rule that one identity
 was one session narrowed per command. Under that rule an identity naming
@@ -217,9 +218,10 @@ apim       federated, established
 
 One credential prompt, at ThunderID's sign-in page, for the `iam`
 authorization. The API Manager authorization then completed through the
-sign-on with no prompt. `wso2 whoami` reports both sessions and their
-strategies, and `wso2 doctor` passes its session check only when both
-products hold one.
+sign-on with no prompt. `wso2 whoami` reports every session and its
+strategy, and `wso2 doctor` passes its session check only when every
+record holds one. The gateway record is not among them yet; section 7
+adds it.
 
 If you would rather see the second authorization when it is needed,
 `wso2 login --no-products` establishes the login session alone, and the
@@ -251,11 +253,12 @@ assignments named, so it is also how a user is added to a role later.
 **A role change does not reach a session that already exists.** A session
 was authorized for what the user held when it was established, and
 ThunderID's sign-on answers a repeat authorization from the same session.
-After changing what a user holds, that user's identity has to sign out and
-in again before the session carries it:
+After changing what a user holds, the session that carries the role has to
+be established again. For the gateway session that is one narrowed login,
+which the narrowing refusal names:
 
 ```sh
-wso2 logout --context <caller> && wso2 login --context <caller>
+wso2 login --only apim
 ```
 
 ---
@@ -295,47 +298,76 @@ authorized for the product's recorded scopes rather than for one command's.
 
 ## 7. Call the API through the gateway
 
-The gateway leg is where the model is still incomplete, and this section
-says so plainly. `connect` records API Manager's **management** endpoint
-under the descriptor's federated grant, and a descriptor names one grant,
-so `connect` cannot also record the gateway, which is reached the other
-way: ThunderID issues for the mock API's resource server, and the token
-goes to `https://localhost:8243`. That is the `sibling` strategy, and today
-it needs a **second identity, written with `wso2 identity create`, and its
-own login**:
+This is the built path (#163). The gateway is reached the other way round
+from management: ThunderID issues for the API's own resource server, and
+the token goes to `https://localhost:8243`. That is the `sibling`
+strategy, and it is a second record of the same `apim` product on the same
+identity, written by a second `connect`:
 
-```sh
-wso2 identity create thunder-caller --issuer http://localhost:8492 --client-id wso2-cli \
-  --provider thunder --product apim --endpoint https://localhost:8243 \
-  --audience http://localhost:18080/mockapi --scope reference:status:read --scope orders:read
-wso2 login --context thunder-caller
-wso2 apim gateway invoke /mockapi/1.0.0/health --context thunder-caller
+```console
+$ wso2 apim connect https://localhost:8243 --gateway \
+    --audience http://localhost:18080/mockapi --scopes reference:status:read,orders:read
+
+Recorded the "apim" gateway on the "thunder" identity.
+
+Product            apim
+Record             gateway
+Identity           thunder
+Identity created   false
+Endpoint           https://localhost:8243
+Issuer             http://localhost:8492
+Client ID          wso2-cli
+Audience           http://localhost:18080/mockapi
+Scopes             reference:status:read,orders:read
+Strategy           sibling
+Replaced           false
+
+Next  Run wso2 login --only apim.
+```
+
+The audience is the API's resource identifier as ThunderID registered it
+(section 5), and the scopes are its permissions; both are typed once, here.
+`--gateway` needs the management record to exist first and is refused with
+`shell.product_required` otherwise, and a second `--gateway` is refused
+with `contexts.product_exists` unless `--replace`. Then log in: `wso2
+login` establishes all three sessions from one prompt when nothing is
+stored yet, and `wso2 login --only apim` establishes the product's two
+records beside a login session that already stands, which is what the
+`Next` line says:
+
+```console
+$ wso2 login --only apim
+Logged in to the "thunder" context.
+Subject        01900000-0000-7000-8000-000000000030
+Products       apim, iam
+apim           federated, established
+apim/gateway   sibling, established
+$ wso2 whoami
+…
+Products   apim: federated, present; apim/gateway: sibling, present; iam: direct, present
+$ wso2 apim gateway invoke /mockapi/1.0.0/status
 ```
 
 ```text
-GET  https://localhost:8243/mockapi/1.0.0/health  200  {"status":"up"}
+GET  https://localhost:8243/mockapi/1.0.0/status  200  {"status":"ok", …}
 ```
 
-The login for `thunder-caller` costs a credential prompt when ThunderID's
-sign-on from the first login has ended, and none while it stands. The
-matrix's row 5 recorded the same leg on a single identity built the long
-way, `wso2 iam connect --identity thunder-gw` and then
-`wso2 identity add-product thunder-gw apim --endpoint https://localhost:8243 …`,
-which proves the two products can share one identity and one prompt; what
-is missing is a `connect` that writes that shape, which the matrix lists
-among its open defects.
+No second identity and no `--context`: `gateway invoke` asks the shell for
+the gateway record by name and calls the gateway endpoint it holds. Row 5a
+of the matrix measured this path on 2026-09-07: one credential prompt, nine
+redirects, three sessions from one `wso2 login`, and a 200 from the mock
+backend. The outputs above are that run's, with the API names of this guide.
 
 What the 200 proves: the gateway accepted a ThunderID access token, key
 manager `Thunder3` validated it, and the subscription and key mapping
-resolved. What it does not: `/status` on the same API answered 401 on the
-test deployment because the mock backend behind the gateway was running for
-an earlier deployment's issuer, which is outside the shell.
+resolved.
 
-To call the API as `cliuser`, whom section 5 gave the role, sign the
-caller identity in as that user. A user who holds no role on the resource
-server signs in successfully and is refused at the command with
+To call the API as `cliuser`, whom section 5 gave the role, sign in as
+that user. A user who holds no role on the resource server signs in
+successfully and is refused at the command with
 `auth.narrowing_unavailable`; so is one whose role was granted after the
-session was established, until the logout-and-login in section 5.
+gateway session was established, until the `wso2 login --only apim` in
+section 5.
 
 ---
 
@@ -377,7 +409,9 @@ deployment, because no such client was registered on it.
 | --- | --- | --- |
 | `shell.missing_required_flag` at `apim connect`, naming a public client | No `--client-id`. | Pass the client id from section 3.3, not the one `apim bootstrap` printed. |
 | `shell.login_provider_required` at `apim connect` | No identity exists to attach the product to. | Run `wso2 iam connect <url>` first. |
-| `contexts.product_exists` at `connect` | The product is already recorded on the identity. | Add `--replace` to record it again. |
+| `contexts.product_exists` at `connect` | The product, or with `--gateway` its gateway, is already recorded on the identity. | Add `--replace` to record it again. |
+| `shell.product_required` at `apim connect --gateway` | No identity records the `apim` product yet; a gateway is a second record of a product. | Run `wso2 apim connect https://localhost:9443 --client-id <public client>` first (section 4). |
+| `apim.no_gateway` at `apim gateway invoke` | The identity records the product without its gateway. | Run the `connect --gateway` line in section 7, then `wso2 login --only apim`. |
 | `auth.credential_unavailable` at `wso2 login --only apim`, after API Manager's own login form appeared | The client id is the confidential one from `apim bootstrap`, which does not federate. | `wso2 apim connect … --client-id <public client> --replace`, then `wso2 login --only apim`. |
 | `auth.narrowing_unavailable` at an `apim` command, naming the six `apim:*` permissions and an administrator | API Manager signed the user in and mapped no role, so it issued none of them. | Map the user's ThunderID group to a role carrying them (section 3.2), then `wso2 login --only apim`. |
 | `auth.narrowing_unavailable` at an `iam` command | The user holds no role granting `system`. | Assign one, then log the identity out and in. |

@@ -146,21 +146,26 @@ $ wso2 apim apps create CliApp
 $ wso2 apim apps subscribe CliApp MockAPI/1.0.0
 $ wso2 apim apps map-keys CliApp --key-manager Thunder --client-id wso2-cli
 
+$ wso2 apim connect https://localhost:8243 --gateway \
+    --audience http://localhost:18080/mockapi --scopes reference:status:read,orders:read
+Recorded the "apim" gateway on the "thunder" identity.
+Next  Run wso2 login --only apim.
 $ wso2 apim gateway invoke /mockapi/1.0.0/status
 Authorizing the gateway for http://localhost:18080/mockapi through your sign-on…
 GET   https://localhost:8243/mockapi/1.0.0/status   200   {"status":"ok", …}
 
 $ wso2 whoami
 Identity   thunder (http://localhost:8491, admin)
-  iam        ready   direct
-  apim       ready   federated   https://localhost:9443
-  gateway    ready   sibling     http://localhost:18080/mockapi
+  iam           ready   direct
+  apim          ready   federated   https://localhost:9443
+  apim/gateway  ready   sibling     http://localhost:18080/mockapi
 ```
 
 One browser sign-in with credentials. Two more tabs that open, are answered
-by the provider's session, and close. No identity flags, no audiences, no
-scopes, no `--context`, no client secret. `whoami` says how each product is
-reached.
+by the provider's session, and close. No identity flags, no `--context`, no
+client secret. The one audience and scope list the user types are the API's
+own, once, on the `--gateway` connect; every other value comes from a
+module's descriptor. `whoami` says how each record is reached.
 
 The two "Authorizing…" lines are the design's first-use acquisition. A
 user who prefers everything up front runs `wso2 login` after both
@@ -270,7 +275,7 @@ still needs a user login, as ThunderID's own pipelines do today.
 | --- | --- | --- | --- |
 | Tools a developer installs | 2 to 4 (`apictl`, `iamctl`, `amctl`, `ap`) plus scripts | 1 | 1 |
 | Credential prompts, interactive journey | 3 (admin password twice, gateway token by hand) | 2 browser logins | 1 |
-| Identities the user declares | n/a | 3, ten flags each | 0; bootstrap records them |
+| Identities the user declares | n/a | 3, ten flags each | 0; bootstrap and `connect` record them, the gateway's audience and scopes typed once |
 | Terms the user must know | tool-specific | issuer, client ID, provider, audience, scope, grant | product URL |
 | Client secrets on the developer machine | 2 (admin password in a script, `keys.json`) | 1 (environment) | 0 |
 | Secrets in the CI store | 2 administrator passwords | 2 client secrets | 1 client secret, 2 if the API Manager machine-role gap holds |
