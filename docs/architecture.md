@@ -1199,7 +1199,8 @@ work with network access disabled.
 - `wso2 doctor` is to report context, secure-store, catalog, receipt, module
   integrity, compatibility, and protocol status without printing secrets. Built
   today: a context-document check, a secure-store reachability check, a
-  session-presence check, and a catalog reachability check under `--online`.
+  session-presence check, and an issuer discovery check and a catalog
+  reachability check under `--online`.
   Receipt, module integrity, compatibility, and protocol status remain future
   checks. See [the command reference](reference/commands.md).
 

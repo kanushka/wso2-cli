@@ -77,3 +77,19 @@ func TestErrorsBecomeTheThreeProblems(t *testing.T) {
 		t.Errorf("unavailable problem = %+v", p)
 	}
 }
+
+func TestAnUntrustedCertificateIsNamedWithItsHost(t *testing.T) {
+	selfSigned := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(selfSigned.Close)
+	var into map[string]any
+	err := New(selfSigned.URL, "").Get(context.Background(), "/roles", &into)
+	p := Problem(err, "the role listing")
+	host := strings.TrimPrefix(selfSigned.URL, "https://")
+	if p.Code != "apim.certificate_untrusted" || !strings.Contains(p.Message, host) ||
+		!strings.Contains(p.Recovery, "openssl s_client -connect "+host) ||
+		!strings.Contains(p.Recovery, "WSO2_CA_FILE") {
+		t.Errorf("certificate problem = %+v", p)
+	}
+}

@@ -116,7 +116,10 @@ func (c *Client) do(ctx context.Context, method, path string, body, into any) er
 func Problem(err error, doing string) problem.Problem {
 	var refusal *Refusal
 	var bad *unreadable
+	var cert *UntrustedCertificate
 	switch {
+	case errors.As(err, &cert):
+		return certificateProblem(cert.Host)
 	case errors.As(err, &refusal):
 		return problem.New(problem.CategoryProductService, "apim.refused",
 			fmt.Sprintf("API Manager refused %s: %s", doing, refusal.Error())).

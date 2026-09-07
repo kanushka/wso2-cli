@@ -110,7 +110,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, into any) er
 	}
 	response, err := c.HTTP.Do(request)
 	if err != nil {
-		return err
+		return classifyTransport(c.Base, err)
 	}
 	defer response.Body.Close()
 	answer, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
@@ -131,7 +131,10 @@ func (c *Client) do(ctx context.Context, method, path string, body, into any) er
 func Problem(err error, doing string) problem.Problem {
 	var refusal *Refusal
 	var bad *unreadable
+	var cert *UntrustedCertificate
 	switch {
+	case errors.As(err, &cert):
+		return certificateProblem(cert.Host)
 	case errors.As(err, &refusal):
 		return problem.New(problem.CategoryProductService, "iam.refused",
 			fmt.Sprintf("ThunderID refused %s: %s", doing, refusal.Error())).

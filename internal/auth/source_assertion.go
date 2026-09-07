@@ -185,6 +185,6 @@ func (s assertionSource) refusedGrant(err error) error {
 				"permissions asked for; then retry the command.",
 				s.grant.Issuer, s.session.issuer, s.session.clientID))
 	default:
-		return issuerUnreachable()
+		return issuerUnreachable(err, s.grant.Issuer)
 	}
 }

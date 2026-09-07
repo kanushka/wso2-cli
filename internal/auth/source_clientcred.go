@@ -163,6 +163,6 @@ func (s clientCredentialsSource) refusedGrant(err error, sent string) error {
 			"Check that this context's OAuth application is registered for the client-credentials "+
 				"grant and carries the permissions the command needs, then retry.")
 	default:
-		return issuerUnreachable()
+		return issuerUnreachable(err, s.issuer)
 	}
 }

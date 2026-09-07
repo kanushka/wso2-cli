@@ -37,6 +37,8 @@ var (
 		"auth.login_required", "synthetic session failure")
 	syntheticCatalogFailure = problem.New(problem.CategoryModuleProcess,
 		"catalog.origin_unreachable", "synthetic catalog failure")
+	syntheticIssuerFailure = problem.New(problem.CategoryAuthPolicy,
+		"auth.certificate_untrusted", "synthetic issuer failure")
 )
 
 // TestMostSevereFailure pins every position of severityRank directly, by
@@ -107,11 +109,30 @@ func TestMostSevereFailure(t *testing.T) {
 			},
 			want: &syntheticSessionFailure,
 		},
-		"all four: secure-store wins over everything": {
+		"issuer alone": {
+			failures: map[string]problem.Problem{checkIssuer: syntheticIssuerFailure},
+			want:     &syntheticIssuerFailure,
+		},
+		"session and issuer: both share exit.AuthPolicy, session outranks issuer": {
+			failures: map[string]problem.Problem{
+				checkSession: syntheticSessionFailure,
+				checkIssuer:  syntheticIssuerFailure,
+			},
+			want: &syntheticSessionFailure,
+		},
+		"issuer and catalog: the issuer outranks catalog despite its smaller class number": {
+			failures: map[string]problem.Problem{
+				checkIssuer:  syntheticIssuerFailure,
+				checkCatalog: syntheticCatalogFailure,
+			},
+			want: &syntheticIssuerFailure,
+		},
+		"all five: secure-store wins over everything": {
 			failures: map[string]problem.Problem{
 				checkContext:     syntheticContextFailure,
 				checkSecureStore: syntheticSecureStoreFailure,
 				checkSession:     syntheticSessionFailure,
+				checkIssuer:      syntheticIssuerFailure,
 				checkCatalog:     syntheticCatalogFailure,
 			},
 			want: &syntheticSecureStoreFailure,

@@ -22,6 +22,8 @@ import (
 	"net/url"
 
 	oidc "github.com/coreos/go-oidc/v3/oidc"
+
+	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
 )
 
 // EndSession describes the browser session wso2 logout asks a provider to
@@ -56,6 +58,9 @@ func (e EndSession) URL(ctx context.Context) (string, error) {
 	}
 	provider, err := oidc.NewProvider(oidc.ClientContext(ctx, client), e.Issuer)
 	if err != nil {
+		if issuertrust.Untrusted(err) {
+			return "", issuertrust.Problem(e.Issuer)
+		}
 		return "", discoveryFailed(
 			"the shell could not read the identity provider's OpenID configuration",
 			"Check the issuer of the selected context and that this machine can reach it, then retry.")

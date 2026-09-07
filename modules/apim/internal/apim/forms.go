@@ -104,7 +104,7 @@ func (c *Client) PostBasic(ctx context.Context, path string, user, password stri
 func (c *Client) read(request *http.Request, into any) error {
 	response, err := c.HTTP.Do(request)
 	if err != nil {
-		return err
+		return classifyTransport(c.Base, err)
 	}
 	defer response.Body.Close()
 	answer, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))

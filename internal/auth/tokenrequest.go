@@ -20,12 +20,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
 )
 
 const (
@@ -145,7 +148,9 @@ func requestToken(
 
 	answer, err := client.Do(post)
 	if err != nil {
-		return tokenResponse{}, errIssuerSilent
+		// The dial error rides along, unrendered, so the caller can tell a
+		// certificate this machine does not trust apart from silence.
+		return tokenResponse{}, fmt.Errorf("%w: %w", errIssuerSilent, err)
 	}
 	defer func() { _ = answer.Body.Close() }()
 	read, err := io.ReadAll(io.LimitReader(answer.Body, grantResponseLimit))
@@ -170,13 +175,19 @@ func requestToken(
 }
 
 // issuerUnreachable reports a token endpoint the shell got no usable answer
-// from at all.
+// from at all, err being what the request failed with.
 //
-// It shares the discovery failure's code because that list is closed and both
-// recover the same way, but it says something different: by this point the
-// issuer's configuration has already been read, so telling the user the shell
-// could not read it would send them to look at something that worked.
-func issuerUnreachable() error {
+// A certificate this machine does not trust is named as such, the way
+// discovery names it, since a token endpoint on another host than the
+// issuer's fails here and not there. Otherwise it shares the discovery
+// failure's code because that list is closed and both recover the same way,
+// but it says something different: by this point the issuer's configuration
+// has already been read, so telling the user the shell could not read it
+// would send them to look at something that worked.
+func issuerUnreachable(err error, issuer string) error {
+	if issuertrust.Untrusted(err) {
+		return Denial{Problem: issuertrust.Problem(issuer)}
+	}
 	return denial("auth.discovery_failed",
 		"the shell could not reach the identity provider to obtain access for this command",
 		"Check that this machine can reach the issuer of the selected context, then retry.")

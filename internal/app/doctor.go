@@ -21,12 +21,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/wso2/wso2-cli/internal/auth"
 	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/catalog"
 	"github.com/wso2/wso2-cli/internal/contexts"
@@ -47,6 +50,7 @@ const (
 	checkContext     = "context"
 	checkSecureStore = "secure-store"
 	checkSession     = "session"
+	checkIssuer      = "issuer"
 	checkCatalog     = "catalog"
 )
 
@@ -69,18 +73,22 @@ const (
 // TestMostSevereFailure (doctor_internal_test.go) pin this against cases where
 // the numeric class of a lower-ranked failure is larger.
 //
-// catalog is ranked last, below every unconditional check: it is the only
-// optional check (--online) and the only one whose failure may be the
-// network's rather than the machine's, so a real machine problem always
-// outranks it. Its own exit class, exit.ModuleProcess (70), is already
-// defined and already documented in docs/reference/commands.md's exit-class
-// table — Global Constraint 2's "no new exit class" bars minting a class that
-// table does not already carry, not reusing one that it does.
-var severityRank = []string{checkSecureStore, checkContext, checkSession, checkCatalog}
+// The two --online checks rank below every unconditional check: they are
+// the optional ones and the only ones whose failure may be the network's
+// rather than the machine's, so a real machine problem always outranks them.
+// Between the two, issuer outranks catalog: a context whose issuer cannot be
+// read fails every product command, while an unreachable catalog only stops
+// an install. Neither mints an exit class: issuer carries exit.AuthPolicy
+// through the same problems a product command's own discovery raises, and
+// catalog's exit.ModuleProcess (70) is already documented in
+// docs/reference/commands.md's exit-class table — Global Constraint 2's "no
+// new exit class" bars minting a class that table does not already carry,
+// not reusing one that it does.
+var severityRank = []string{checkSecureStore, checkContext, checkSession, checkIssuer, checkCatalog}
 
-// catalogProbeTimeout bounds the --online catalog check, so a doctor run
-// cannot hang on an unreachable origin.
-const catalogProbeTimeout = 10 * time.Second
+// onlineProbeTimeout bounds each --online check, so a doctor run cannot hang
+// on an unreachable origin or issuer.
+const onlineProbeTimeout = 10 * time.Second
 
 // doctorFinding is what one check reports. Both renderings walk the same
 // slice of these, so they cannot disagree about which checks ran or what each
@@ -109,7 +117,8 @@ func (s Shell) doctorCommand() *cobra.Command {
 		},
 	}
 	command.Flags().BoolVar(&online, doctorOnlineFlag, false,
-		"Also check module catalog reachability, which requires a network connection.")
+		"Also check that the selected context's issuer and the module catalog can be "+
+			"reached, which requires a network connection.")
 	// doctor reports ON a selected context, so naming one with --context is
 	// meaningful, and its findings are read by scripts as much as by a person.
 	declareContextFlag(command.Flags())
@@ -190,6 +199,10 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 		findings = append(findings, passFinding(checkSecureStore, "the OS secure store is reachable"))
 	}
 
+	// selected is the context the session and issuer checks report on. It
+	// stays nil when no context can be selected, and each check says why.
+	var selected *contexts.Selection
+
 	switch {
 	case loadErr != nil:
 		// No identity can be read from a document that failed to decode or
@@ -206,7 +219,7 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 		findings = append(findings, notApplicableFinding(checkSession,
 			"no context is configured, so there is no session to check"))
 	default:
-		selected, selErr := document.Select(contextName)
+		chosen, selErr := document.Select(contextName)
 		if selErr != nil {
 			// An unresolvable --context name is the caller's argument
 			// mistake, not a health finding: it is refused the way every
@@ -214,6 +227,7 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 			// folded into the report. See this function's doc comment.
 			return selErr
 		}
+		selected = &chosen
 		switch {
 		case selected.Identity.Auth.Kind == contexts.KindClientCredentials:
 			// A client-credentials identity acquires access inline, one
@@ -263,6 +277,11 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 	}
 
 	if online {
+		finding, issuerErr := issuerCheck(selected)
+		findings = append(findings, finding)
+		if issuerErr != nil {
+			failures[checkIssuer] = *issuerErr
+		}
 		finding, catalogErr := catalogCheck(root)
 		findings = append(findings, finding)
 		if catalogErr != nil {
@@ -288,12 +307,46 @@ func renderDoctorReport(w io.Writer, mode output.Mode, findings []doctorFinding)
 	return table.Render(w)
 }
 
-// catalogCheck is the fourth check, reachable only with --online. The second
+// issuerCheck reads the OpenID configuration of every issuer the selected
+// context's identity names, reachable only with --online. It exists for the
+// failure the offline checks cannot see: a deployment whose certificate this
+// machine does not trust passes every one of them and then fails every
+// product command at discovery. The probe is the broker's own discovery, so
+// it refuses with the same problem — auth.certificate_untrusted naming the
+// host and the commands that trust it, or auth.discovery_failed for anything
+// else — and it dials through the process-wide client, which is the one
+// WSO2_CA_FILE has widened. The second return value is non-nil exactly when
+// the finding is a failure.
+func issuerCheck(selected *contexts.Selection) (doctorFinding, *problem.Problem) {
+	if selected == nil {
+		return notApplicableFinding(checkIssuer,
+			"no context is selected, so there is no issuer to reach"), nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), onlineProbeTimeout)
+	defer cancel()
+	var issuers []string
+	for _, access := range append([]contexts.ProductAccess{selected.Identity.LoginAccess()},
+		selected.Identity.Accesses()...) {
+		if access.Issuer != "" && !slices.Contains(issuers, access.Issuer) {
+			issuers = append(issuers, access.Issuer)
+		}
+	}
+	for _, issuer := range issuers {
+		if err := auth.ProbeIssuer(ctx, http.DefaultClient, issuer); err != nil {
+			typed := doctorProblem(err)
+			return failFinding(checkIssuer, typed), &typed
+		}
+	}
+	return passFinding(checkIssuer, fmt.Sprintf("the OpenID configuration of %s is readable",
+		strings.Join(issuers, ", "))), nil
+}
+
+// catalogCheck is the last check, reachable only with --online. The second
 // return value is non-nil exactly when the finding is a failure, so the
 // caller can add it to doctor's failures map without re-deriving the outcome
 // from the finding's Status string.
 func catalogCheck(stateRoot string) (doctorFinding, *problem.Problem) {
-	ctx, cancel := context.WithTimeout(context.Background(), catalogProbeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), onlineProbeTimeout)
 	defer cancel()
 	origin := catalog.Origin(stateRoot)
 	client := catalog.Client{Origin: origin}
@@ -321,11 +374,15 @@ func mostSevereFailure(failures map[string]problem.Problem) error {
 // contexts.Load, every session.Store method, and catalog.Client.Index
 // (internal/catalog/client.go:203-220, every one of originUnreachable,
 // unreadable, and schemaUnsupported) return a problem.Problem on every error
-// path they define, so the fallback below is unreached by any call site in
-// this file today. It exists so a future check that forgets to type its
-// failure fails safely, as a module-process error, rather than by panicking
-// this command.
+// path they define, and auth.ProbeIssuer returns an auth.Denial that carries
+// one, so the fallback below is unreached by any call site in this file
+// today. It exists so a future check that forgets to type its failure fails
+// safely, as a module-process error, rather than by panicking this command.
 func doctorProblem(err error) problem.Problem {
+	var denied auth.Denial
+	if errors.As(err, &denied) {
+		return denied.Reported()
+	}
 	var typed problem.Problem
 	if errors.As(err, &typed) {
 		return typed
