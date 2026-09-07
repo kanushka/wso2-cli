@@ -60,6 +60,23 @@ type OAuthConfig struct {
 	TokenEndpointAuthMethod string   `json:"tokenEndpointAuthMethod"`
 	PKCERequired            bool     `json:"pkceRequired"`
 	PublicClient            bool     `json:"publicClient"`
+	// Token shapes the tokens the application is issued; nil leaves the
+	// deployment's defaults.
+	Token *TokenConfig `json:"token,omitempty"`
+	// ScopeClaims names, per scope, the claims a token carries when that
+	// scope is granted.
+	ScopeClaims map[string][]string `json:"scopeClaims,omitempty"`
+}
+
+// TokenConfig is the part of an application's token configuration this
+// module writes: which user attributes its ID token carries.
+type TokenConfig struct {
+	IDToken *IDTokenConfig `json:"idToken,omitempty"`
+}
+
+// IDTokenConfig lists the user attributes an ID token carries as claims.
+type IDTokenConfig struct {
+	UserAttributes []string `json:"userAttributes,omitempty"`
 }
 
 // InboundAuth is one inbound authentication arrangement of an application.

@@ -21,6 +21,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"net/url"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -36,7 +38,7 @@ const (
 )
 
 type appCreateFlags struct {
-	kind, name, ou, authFlow string
+	kind, name, ou, authFlow, product string
 }
 
 func appCommands() (*cobra.Command, *cobra.Command, *cobra.Command, *appCreateFlags) {
@@ -44,13 +46,18 @@ func appCommands() (*cobra.Command, *cobra.Command, *cobra.Command, *appCreateFl
 	list := &cobra.Command{Use: "list", Short: "List the applications."}
 	flags := &appCreateFlags{}
 	create := &cobra.Command{
-		Use:   "create <client-id> --type m2m|public",
-		Short: "Register an OAuth client: m2m gets a generated secret, public gets the CLI's loopback callbacks.",
+		Use: "create <client-id> --type m2m|public|federation [--for <url>]",
+		Short: "Register an OAuth client: m2m gets a generated secret, public gets the CLI's loopback " +
+			"callbacks, federation gets a secret and the callback of the product that signs in through it.",
 	}
-	create.Flags().StringVar(&flags.kind, "type", "", "m2m for client credentials, public for a browser login.")
+	create.Flags().StringVar(&flags.kind, "type", "",
+		"m2m for client credentials, public for a person's login, federation for another product's login.")
+	create.Flags().StringVar(&flags.product, "for", "",
+		"The base URL of the product a federation client signs in for; its callback is <url>/commonauth.")
 	create.Flags().StringVar(&flags.name, "name", "", "The application's display name; defaults to the client id.")
 	create.Flags().StringVar(&flags.ou, "ou", DefaultOU, "The organization unit that owns it.")
-	create.Flags().StringVar(&flags.authFlow, "auth-flow", DefaultAuthFlow, "The authentication flow a public app uses.")
+	create.Flags().StringVar(&flags.authFlow, "auth-flow", DefaultAuthFlow,
+		"The authentication flow a public or federation app uses.")
 	family.AddCommand(list, create)
 	return family, list, create, flags
 }
@@ -84,10 +91,15 @@ func appsCreate(command *cobra.Command, flags *appCreateFlags) module.Handler {
 		if err != nil {
 			return result.Result{}, err
 		}
-		if flags.kind != "m2m" && flags.kind != "public" {
+		if flags.kind != "m2m" && flags.kind != "public" && flags.kind != "federation" {
 			return result.Result{}, problem.New(problem.CategoryUsage, "iam.missing_flag",
-				"wso2 iam apps create needs --type m2m or --type public").
-				WithRecovery("m2m is a confidential client for client credentials; public is a browser-login client.")
+				"wso2 iam apps create needs --type m2m, --type public or --type federation").
+				WithRecovery("m2m is a confidential client for client credentials; public is a browser-login " +
+					"client; federation is the confidential client another product signs in through.")
+		}
+		product, err := federationProduct(flags)
+		if err != nil {
+			return result.Result{}, err
 		}
 		client, err := managementClient(ctx, request)
 		if err != nil {
@@ -99,7 +111,7 @@ func appsCreate(command *cobra.Command, flags *appCreateFlags) module.Handler {
 		}
 		for _, app := range listed.Applications {
 			if app.OAuthClientID() == clientID {
-				return appResult(app, clientID, flags.kind, false, ""), nil
+				return appResult(request, app, clientID, flags.kind, product, false, ""), nil
 			}
 		}
 		name := flags.name
@@ -109,7 +121,8 @@ func appsCreate(command *cobra.Command, flags *appCreateFlags) module.Handler {
 		body := thunder.Application{OUID: flags.ou, Name: name, Description: "Registered by wso2 iam apps create",
 			AllowedUserTypes: []string{"Person"}}
 		secret := ""
-		if flags.kind == "public" {
+		switch flags.kind {
+		case "public":
 			body.Type, body.AuthFlowID, body.URL = "custom", flags.authFlow, "http://127.0.0.1:10425"
 			body.RegistrationFlow = companionFlow(flags.authFlow, DefaultRegistrationFlow)
 			body.RecoveryFlow = companionFlow(flags.authFlow, DefaultRecoveryFlow)
@@ -118,7 +131,25 @@ func appsCreate(command *cobra.Command, flags *appCreateFlags) module.Handler {
 				GrantTypes: []string{"authorization_code", "refresh_token"}, ResponseTypes: []string{"code"},
 				TokenEndpointAuthMethod: "none", PKCERequired: true, PublicClient: true,
 			}}}
-		} else {
+		case "federation":
+			secret, err = generatedSecret()
+			if err != nil {
+				return result.Result{}, err
+			}
+			// The product federating through this client reads the user's
+			// email, groups and name from the ID token, and a scope for
+			// email and groups so that the token carries them when asked.
+			body.Type, body.AuthFlowID, body.URL = "custom", flags.authFlow, product
+			body.RegistrationFlow = companionFlow(flags.authFlow, DefaultRegistrationFlow)
+			body.RecoveryFlow = companionFlow(flags.authFlow, DefaultRecoveryFlow)
+			body.InboundAuth = []thunder.InboundAuth{{Type: "oauth2", Config: thunder.OAuthConfig{
+				ClientID: clientID, ClientSecret: secret, RedirectURIs: []string{product + "/commonauth"},
+				GrantTypes: []string{"authorization_code", "refresh_token"}, ResponseTypes: []string{"code"},
+				TokenEndpointAuthMethod: "client_secret_post",
+				Token:                   &thunder.TokenConfig{IDToken: &thunder.IDTokenConfig{UserAttributes: []string{"email", "groups", "name"}}},
+				ScopeClaims:             map[string][]string{"email": {"email"}, "groups": {"groups"}},
+			}}}
+		default:
 			secret, err = generatedSecret()
 			if err != nil {
 				return result.Result{}, err
@@ -133,11 +164,35 @@ func appsCreate(command *cobra.Command, flags *appCreateFlags) module.Handler {
 		if err := client.Post(ctx, "/applications", body, &created); err != nil {
 			return result.Result{}, thunder.Problem(err, "the application creation")
 		}
-		return appResult(created, clientID, flags.kind, true, secret), nil
+		return appResult(request, created, clientID, flags.kind, product, true, secret), nil
 	}
 }
 
-func appResult(app thunder.Application, clientID, kind string, created bool, secret string) result.Result {
+// federationProduct is the base URL a federation client signs in for, with
+// no trailing slash so that the callback and the next line read cleanly.
+// Other types have no product and get an empty string. The URL is never
+// guessed: a redirect pointing at the wrong place is the kind of mistake
+// that only shows up at the product's login as a refused callback.
+func federationProduct(flags *appCreateFlags) (string, error) {
+	if flags.kind != "federation" {
+		return "", nil
+	}
+	if flags.product == "" {
+		return "", problem.New(problem.CategoryUsage, "iam.missing_flag",
+			"wso2 iam apps create --type federation needs --for <url>, the product that signs in through this client").
+			WithRecovery("Pass --for <url>, such as --for https://localhost:9443; the client's callback is <url>/commonauth.")
+	}
+	parsed, err := url.Parse(flags.product)
+	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" || parsed.User != nil {
+		return "", problem.New(problem.CategoryUsage, "iam.invalid_flag",
+			fmt.Sprintf("--for %s is not an absolute http or https URL without user information", flags.product)).
+			WithRecovery("Pass the product's base URL, such as --for https://localhost:9443.")
+	}
+	return strings.TrimRight(flags.product, "/"), nil
+}
+
+func appResult(request module.Request, app thunder.Application, clientID, kind, product string, created bool,
+	secret string) result.Result {
 	shown := "(not shown again)"
 	next := fmt.Sprintf("Run wso2 iam roles create <role> --resource-server <name> --permission <a:b:c> "+
 		"--assign-app %s to grant this client access.", clientID)
@@ -153,6 +208,18 @@ func appResult(app thunder.Application, clientID, kind string, created bool, sec
 			"--client-secret-variable WSO2_THUNDER_CI_SECRET --provider thunder "+
 			"--product <namespace> --endpoint <url> --audience <resource identifier> --scope <permission>.",
 			clientID)
+	}
+	if kind == "federation" {
+		// The product's bootstrap reads the secret from this variable and
+		// nothing else; the issuer is the deployment this command ran
+		// against, which is the login provider the product federates to.
+		next = fmt.Sprintf("Run wso2 apim bootstrap --url %s --login-provider %s --federation-client-id %s "+
+			"with WSO2_APIM_FEDERATION_CLIENT_SECRET exported.", product, request.Context.Endpoint, clientID)
+		if secret != "" {
+			next = fmt.Sprintf("export WSO2_APIM_FEDERATION_CLIENT_SECRET=<the client secret above, shown once>; then "+
+				"wso2 apim bootstrap --url %s --login-provider %s --federation-client-id %s",
+				product, request.Context.Endpoint, clientID)
+		}
 	}
 	if kind == "public" {
 		shown = "(none: public client)"

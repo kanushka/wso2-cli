@@ -324,6 +324,75 @@ func TestAppCreateKeepsTheSecretOutOfEveryFieldButItsOwn(t *testing.T) {
 	}
 }
 
+// wso2 iam apps create --type federation registers the confidential client
+// another product signs in through: on the console flow family so the CLI's
+// own login is its sign-on, redirecting to <for>/commonauth, with the ID
+// token attributes and scope claims a federating product reads. The secret
+// is shown once and the next line names the variable that carries it.
+func TestAppCreateFederationBuildsTheClientAProductFederatesThroughAndShowsTheSecretOnce(t *testing.T) {
+	fake := newFakeManagement(t)
+
+	outcome := fake.run(t, []string{"apps", "create"}, "apim-federation", "--type", "federation", "--for", "https://localhost:9443/")
+
+	if outcome.Problem != nil {
+		t.Fatalf("%+v", outcome.Problem)
+	}
+	fields := fieldsOf(outcome)
+	posts := fake.postsTo("/applications")
+	secret := fields["clientSecret"]
+	if secret == "" || secret == "(not shown again)" || fields["type"] != "federation" || fields["created"] != "true" || len(posts) != 1 {
+		t.Fatalf("fields %+v posts %v", fields, posts)
+	}
+	for _, want := range []string{
+		`"ouId":"` + DefaultOU + `"`, `"type":"custom"`,
+		`"authFlowId":"` + DefaultAuthFlow + `"`, `"registrationFlowId":"` + DefaultRegistrationFlow + `"`,
+		`"recoveryFlowId":"` + DefaultRecoveryFlow + `"`,
+		`"clientId":"apim-federation"`, `"clientSecret":"` + secret + `"`,
+		`"redirectUris":["https://localhost:9443/commonauth"]`,
+		`"grantTypes":["authorization_code","refresh_token"]`, `"responseTypes":["code"]`,
+		`"tokenEndpointAuthMethod":"client_secret_post"`, `"publicClient":false`,
+		`"token":{"idToken":{"userAttributes":["email","groups","name"]}}`,
+		`"scopeClaims":{"email":["email"],"groups":["groups"]}`,
+	} {
+		if !strings.Contains(posts[0], want) {
+			t.Errorf("the create body lacks %s: %s", want, posts[0])
+		}
+	}
+	wantNext := "export WSO2_APIM_FEDERATION_CLIENT_SECRET=<the client secret above, shown once>; then " +
+		"wso2 apim bootstrap --url https://localhost:9443 --login-provider " + fake.server.URL +
+		" --federation-client-id apim-federation"
+	if fields["next"] != wantNext {
+		t.Errorf("next line:\n got %q\nwant %q", fields["next"], wantNext)
+	}
+	for name, value := range fields {
+		if name != "clientSecret" && strings.Contains(value, secret) {
+			t.Errorf("the field %q carries the client secret: %q", name, value)
+		}
+	}
+
+	again := fieldsOf(fake.run(t, []string{"apps", "create"}, "apim-federation", "--type", "federation", "--for", "https://localhost:9443"))
+	if again["created"] != "false" || again["clientSecret"] != "(not shown again)" || len(fake.postsTo("/applications")) != 1 {
+		t.Errorf("a second create was not idempotent: %+v", again)
+	}
+}
+
+func TestAppCreateFederationNeedsTheProductItFederatesFor(t *testing.T) {
+	fake := newFakeManagement(t)
+	missing := fake.run(t, []string{"apps", "create"}, "apim-federation", "--type", "federation")
+	if missing.Problem == nil || missing.Problem.Code != "iam.missing_flag" || !strings.Contains(missing.Problem.Message, "--for") {
+		t.Errorf("no --for: %+v", missing.Problem)
+	}
+	for _, bad := range []string{"localhost:9443", "ftp://localhost:9443", "https://admin:secret@localhost:9443"} {
+		outcome := fake.run(t, []string{"apps", "create"}, "apim-federation", "--type", "federation", "--for", bad)
+		if outcome.Problem == nil || outcome.Problem.Code != "iam.invalid_flag" {
+			t.Errorf("--for %s: %+v", bad, outcome.Problem)
+		}
+	}
+	if posts := fake.postsTo("/applications"); len(posts) != 0 {
+		t.Errorf("a refused create still wrote: %v", posts)
+	}
+}
+
 func TestRoleCreateResolvesNamesAndAssignsAppsSeparately(t *testing.T) {
 	fake := newFakeManagement(t)
 	t.Setenv("WSO2_IAM_USER_PASSWORD", "Cli@12345")
