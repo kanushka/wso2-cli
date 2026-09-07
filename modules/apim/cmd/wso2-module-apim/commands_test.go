@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wso2/wso2-cli/sdk/module"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -208,26 +209,28 @@ func TestMapKeysTellsAMappingHeldElsewhereFromOneAlreadyHeld(t *testing.T) {
 	}
 }
 
-func TestGatewayInvokeRefusesTheManagementEndpoint(t *testing.T) {
+func TestGatewayInvokeRefusesAnIdentityWithoutAGatewayRecord(t *testing.T) {
 	fake := newFakeAPIM(t)
-	// After wso2 apim connect the identity records the management origin,
-	// which answers a gateway path with 401, not the gateway.
+	// After wso2 apim connect alone the identity records the management
+	// origin and no gateway, so the shell hands the module no gateway
+	// endpoint.
 	outcome := fake.run(t, []string{"gateway", "invoke"}, "/mockapi/1.0.0/status")
-	if outcome.Problem == nil || outcome.Problem.Code != "apim.not_gateway" || outcome.Problem.Category != problem.CategoryUsage ||
-		!strings.Contains(outcome.Problem.Message, "management") ||
-		!strings.Contains(outcome.Problem.Recovery, "wso2 identity create") ||
-		!strings.Contains(outcome.Problem.Recovery, "--product apim --endpoint <gateway>") ||
-		!strings.Contains(outcome.Problem.Recovery, "--audience") {
-		t.Errorf("management endpoint: %+v", outcome.Problem)
+	if outcome.Problem == nil || outcome.Problem.Code != "apim.no_gateway" || outcome.Problem.Category != problem.CategoryUsage ||
+		!strings.Contains(outcome.Problem.Message, "gateway") ||
+		!strings.Contains(outcome.Problem.Recovery, "wso2 apim connect <gateway-url> --gateway --audience <api resource identifier> --scopes <list>") ||
+		!strings.Contains(outcome.Problem.Recovery, "https://<host>:8243") ||
+		!strings.Contains(outcome.Problem.Recovery, "wso2 login --only apim") ||
+		strings.Contains(outcome.Problem.Recovery, "identity create") {
+		t.Errorf("no gateway record: %+v", outcome.Problem)
 	}
-	if len(fake.requestsTo("GET /mockapi/1.0.0/status")) != 0 {
-		t.Errorf("the gateway route was called: %v", fake.requests)
+	if len(outcome.AccessRequests) != 0 || len(fake.requests) != 0 {
+		t.Errorf("something was asked before the refusal: %v %v", outcome.AccessRequests, fake.requests)
 	}
 }
 
 func TestGatewayInvokeRefusesANon2xxAnswerWithItsBody(t *testing.T) {
 	fake := newFakeAPIM(t)
-	fake.endpoint = fake.gateway.URL
+	fake.gatewayEndpoint = fake.gateway.URL
 	fake.gatewayStatus, fake.gatewayBody = http.StatusForbidden,
 		`{"code":"900908","message":"Resource forbidden ","description":"User is NOT authorized to access the Resource. API Subscription validation failed."}`
 	outcome := fake.run(t, []string{"gateway", "invoke"}, "/mockapi/1.0.0/status")
@@ -244,17 +247,29 @@ func TestGatewayInvokeRefusesANon2xxAnswerWithItsBody(t *testing.T) {
 	}
 }
 
-func TestGatewayInvokeCallsThePathWithTheBrokeredToken(t *testing.T) {
+func TestGatewayInvokeCallsTheGatewayWithTheGatewayRecordsToken(t *testing.T) {
 	fake := newFakeAPIM(t)
-	fake.endpoint = fake.gateway.URL
+	// The identity records both: the management origin as the product's own
+	// endpoint, and the gateway beside it.
+	fake.gatewayEndpoint = fake.gateway.URL
 	outcome := fake.run(t, []string{"gateway", "invoke"}, "/mockapi/1.0.0/status")
 	if outcome.Problem != nil {
 		t.Fatalf("%+v", outcome.Problem)
 	}
 	fields := fieldsOf(outcome)
 	if fields["status"] != "200" || fields["body"] != `{"status":"ok"}` || fields["method"] != "GET" ||
-		scopesAsked(outcome) != "" || fields["next"] != "(done)" {
+		scopesAsked(outcome) != "" || fields["next"] != "(done)" ||
+		fields["url"] != fake.gateway.URL+"/mockapi/1.0.0/status" {
 		t.Errorf("fields = %+v scopes %q", fields, scopesAsked(outcome))
+	}
+	// The token is the gateway record's, asked for by name, not the
+	// management record's.
+	if len(outcome.AccessRequests) != 1 || outcome.AccessRequests[0].Record != module.RecordGateway ||
+		outcome.AccessRequests[0].Audience != GatewayAudience {
+		t.Errorf("asked for %+v", outcome.AccessRequests)
+	}
+	if len(fake.requestsTo("GET /api/am")) != 0 {
+		t.Errorf("the management origin was called: %v", fake.requests)
 	}
 	if bad := fake.run(t, []string{"gateway", "invoke"}, "mockapi"); bad.Problem == nil || bad.Problem.Code != "apim.missing_argument" {
 		t.Errorf("bad path: %+v", bad.Problem)

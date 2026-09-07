@@ -18,10 +18,49 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"slices"
 	"testing"
 
 	"github.com/wso2/wso2-cli/sdk/testkit"
 )
+
+// TestTheManifestDeclaresWhatTheCommandsAskFor pins module.json to the
+// audiences the commands name: the shell grants only what the receipt
+// declares, and the gateway record is a second audience beside the
+// publisher's, with the descriptor block the shell records it from.
+func TestTheManifestDeclaresWhatTheCommandsAskFor(t *testing.T) {
+	raw, err := os.ReadFile("../../module.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Capabilities struct {
+			AuthAudiences []string `json:"authAudiences"`
+			Product       struct {
+				Gateway *struct {
+					Audience string   `json:"audience"`
+					Scopes   []string `json:"scopes"`
+					Machine  []string `json:"machine"`
+				} `json:"gateway"`
+			} `json:"product"`
+		} `json:"capabilities"`
+	}
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	for _, audience := range moduleOptions().AuthAudiences {
+		if !slices.Contains(manifest.Capabilities.AuthAudiences, audience) {
+			t.Errorf("module.json does not declare the %q audience", audience)
+		}
+	}
+	gateway := manifest.Capabilities.Product.Gateway
+	if gateway == nil || gateway.Audience != "resource" || len(gateway.Scopes) != 0 ||
+		!slices.Equal(gateway.Machine, []string{"inline"}) {
+		t.Errorf("module.json gateway block = %+v", gateway)
+	}
+}
 
 func TestStatusAnswersThroughTheContract(t *testing.T) {
 	outcome := testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{

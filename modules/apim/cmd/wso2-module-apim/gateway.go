@@ -46,10 +46,11 @@ func gatewayCommands() (family, invoke *cobra.Command, flags *gatewayFlags) {
 	family = &cobra.Command{Use: "gateway", Short: "Call published APIs through the gateway."}
 	invoke = &cobra.Command{
 		Use:   "invoke </context/version/path> [--method GET]",
-		Short: "Call an API through the gateway with a token the shell brokers for this identity's product.",
-		Long: "The token is minted for the audience and scopes the selected identity records for the apim " +
-			"product. Under a ThunderID identity whose apim product names the API's resource server and " +
-			"the gateway as its endpoint, that is the user's own API called with a ThunderID token.",
+		Short: "Call an API through the gateway with a token the shell brokers for this identity's gateway record.",
+		Long: "The token is minted for the audience and scopes the selected identity's apim gateway record " +
+			"holds, the ones wso2 apim connect <gateway-url> --gateway recorded beside the management " +
+			"record: the API's own resource server and permissions, issued by the identity's login " +
+			"provider. That is the user's own API called with the login provider's token.",
 	}
 	invoke.Flags().StringVar(&flags.method, "method", http.MethodGet, "The HTTP method.")
 	family.AddCommand(invoke)
@@ -67,21 +68,20 @@ func gatewayInvoke(command *cobra.Command, flags *gatewayFlags) module.Handler {
 				fmt.Sprintf("%q is not a gateway path", path)).
 				WithRecovery("Pass the path as the gateway serves it, starting with /, such as /mockapi/1.0.0/status.")
 		}
-		if request.Context.Endpoint == "" {
-			return result.Result{}, problem.New(problem.CategoryUsage, "apim.no_endpoint",
-				"the selected context does not name the gateway as its apim endpoint").
-				WithRecovery("Create an identity whose apim product has the gateway URL as its endpoint and the API's " +
-					"resource server as its audience, then select its context.")
+		if request.Context.GatewayEndpoint == "" {
+			return result.Result{}, noGateway()
 		}
-		// No scopes: the shell answers with the scopes the identity's apim
-		// product records, which for a gateway call are the user's own API's.
-		access, err := request.Access.Acquire(ctx, module.AccessRequest{Audience: PublisherAudience})
+		// The gateway record, by name. No scopes: the shell answers with the
+		// scopes the record holds, which are the user's own API's.
+		access, err := request.Access.Acquire(ctx, module.AccessRequest{
+			Audience: GatewayAudience, Record: module.RecordGateway,
+		})
 		if err != nil {
 			return result.Result{}, err
 		}
 		call, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		target := strings.TrimRight(request.Context.Endpoint, "/") + path
+		target := strings.TrimRight(request.Context.GatewayEndpoint, "/") + path
 		httpRequest, err := http.NewRequestWithContext(call, strings.ToUpper(flags.method), target, nil)
 		if err != nil {
 			return result.Result{}, problem.New(problem.CategoryUsage, "apim.missing_argument", err.Error())
@@ -97,8 +97,8 @@ func gatewayInvoke(command *cobra.Command, flags *gatewayFlags) module.Handler {
 		defer response.Body.Close()
 		body, _ := io.ReadAll(io.LimitReader(response.Body, gatewayBodyLimit))
 		if response.StatusCode < 200 || response.StatusCode > 299 {
-			return result.Result{}, gatewayRefusal(call, request.Context.Endpoint, httpRequest.Method, target,
-				response.StatusCode, strings.TrimSpace(string(body)))
+			return result.Result{}, gatewayRefusal(httpRequest.Method, target, response.StatusCode,
+				strings.TrimSpace(string(body)))
 		}
 		return result.New(GatewaySchema).
 			With("method", "Method", strings.ToUpper(flags.method)).
@@ -109,21 +109,21 @@ func gatewayInvoke(command *cobra.Command, flags *gatewayFlags) module.Handler {
 	}
 }
 
+// noGateway refuses an identity that records the apim product without its
+// gateway: what wso2 apim connect writes on its own. The way out is the
+// second connect, not a second identity.
+func noGateway() problem.Problem {
+	return problem.New(problem.CategoryUsage, "apim.no_gateway",
+		"the selected identity records the apim product without its gateway").
+		WithRecovery("Record the gateway beside the product on this identity with " +
+			"wso2 apim connect <gateway-url> --gateway --audience <api resource identifier> --scopes <list>, " +
+			"then wso2 login --only apim. The gateway is https://<host>:8243 on a default deployment; " +
+			"the audience is the API's own resource identifier and the scopes are its permissions.")
+}
+
 // gatewayRefusal is the problem a non-2xx answer becomes, so a script can
-// tell success from refusal by the exit code while the body still shows. An
-// identity that came from wso2 apim connect records the management origin,
-// which answers every gateway path with 401 or 404; that is a usage problem
-// with a different way out, so it is told apart first.
-func gatewayRefusal(ctx context.Context, endpoint, method, target string, status int, body string) problem.Problem {
-	if isManagementEndpoint(ctx, endpoint) {
-		return problem.New(problem.CategoryUsage, "apim.not_gateway",
-			fmt.Sprintf("the apim product on this identity records the management endpoint %s, not the gateway", endpoint)).
-			WithRecovery("Create an identity for the caller whose apim product names the gateway and the API's " +
-				"resource server: wso2 identity create <caller> --issuer <issuer> --client-id <id> --provider thunder " +
-				"--product apim --endpoint <gateway> --audience <api resource> --scope <permission>, " +
-				"then wso2 login --context <caller> and run wso2 apim gateway invoke again with --context <caller>. " +
-				"The gateway is https://<host>:8243 on a default deployment.")
-	}
+// tell success from refusal by the exit code while the body still shows.
+func gatewayRefusal(method, target string, status int, body string) problem.Problem {
 	answer := fmt.Sprintf("the gateway answered %s %s with status %d", method, target, status)
 	if body != "" {
 		answer += ": " + body
@@ -134,23 +134,4 @@ func gatewayRefusal(ctx context.Context, endpoint, method, target string, status
 			"and this identity's client mapped onto that application with wso2 apim apps map-keys."
 	}
 	return problem.New(problem.CategoryProductService, "apim.refused", answer).WithRecovery(recovery)
-}
-
-// isManagementEndpoint reports whether the endpoint serves the publisher
-// REST API: the management origin answers its listing with 401 to a call
-// without a token, where a gateway has no such resource.
-func isManagementEndpoint(ctx context.Context, endpoint string) bool {
-	probe, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		strings.TrimRight(endpoint, "/")+publisherPath+"/apis", nil)
-	if err != nil {
-		return false
-	}
-	probe.Header.Set("Accept", "application/json")
-	response, err := apim.HTTPClient().Do(probe)
-	if err != nil {
-		return false
-	}
-	defer response.Body.Close()
-	_, _ = io.Copy(io.Discard, response.Body)
-	return response.StatusCode == http.StatusUnauthorized
 }

@@ -44,17 +44,20 @@ type fakeAPIM struct {
 	// gateway is the gateway's own origin, apart from the management planes
 	// as the deployment keeps them.
 	gateway *httptest.Server
-	// endpoint is what the identity records; the management origin unless a
-	// test points it at the gateway.
-	endpoint    string
-	apis        []map[string]any
-	deployments map[string][]map[string]any
-	apps        []map[string]any
-	subs        []map[string]any
-	keys        map[string][]map[string]any
-	kms         []map[string]any
-	requests    []string // "METHOD path body"
-	seq         int
+	// endpoint is what the identity's apim product records: the management
+	// origin.
+	endpoint string
+	// gatewayEndpoint is what the identity's gateway record names, when a
+	// test records one; empty otherwise, as after wso2 apim connect alone.
+	gatewayEndpoint string
+	apis            []map[string]any
+	deployments     map[string][]map[string]any
+	apps            []map[string]any
+	subs            []map[string]any
+	keys            map[string][]map[string]any
+	kms             []map[string]any
+	requests        []string // "METHOD path body"
+	seq             int
 	// mapKeysRefusals makes map-keys answer "Key Manager not Registered" this
 	// many times before succeeding, as the deployment does briefly.
 	mapKeysRefusals int
@@ -323,7 +326,7 @@ func (f *fakeAPIM) run(t *testing.T, command []string, arguments ...string) test
 	outcome := testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
 		Command:   command,
 		Arguments: arguments,
-		Context:   module.Context{Name: "apim-admin", Endpoint: f.endpoint},
+		Context:   module.Context{Name: "apim-admin", Endpoint: f.endpoint, GatewayEndpoint: f.gatewayEndpoint},
 		Access:    &testkit.Access{Token: fixtureToken, ExpiresAt: time.Now().Add(time.Minute)},
 	})
 	if outcome.Err != nil {

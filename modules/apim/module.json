@@ -9,7 +9,8 @@
   },
   "capabilities": {
     "authAudiences": [
-      "apim-publisher"
+      "apim-publisher",
+      "apim-gateway"
     ],
     "authScopes": [
       "apim:api_view",
@@ -33,7 +34,13 @@
       "grant": "federated",
       "machine": [
         "credential"
-      ]
+      ],
+      "gateway": {
+        "audience": "resource",
+        "machine": [
+          "inline"
+        ]
+      }
     }
   }
 }

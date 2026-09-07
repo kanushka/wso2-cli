@@ -43,6 +43,11 @@ const Namespace = "apim"
 // connect records from its --client-id.
 const PublisherAudience = "apim-publisher"
 
+// GatewayAudience is the logical audience gateway invoke asks the shell
+// for, with the gateway record. The concrete audience is the API's own
+// resource identifier, which connect --gateway records from its --audience.
+const GatewayAudience = "apim-gateway"
+
 // The scopes API Manager's REST APIs require. The module declares them
 // once, for the product record to hold; commands ask for none.
 const (
@@ -73,7 +78,7 @@ func moduleOptions() module.Options {
 	return module.Options{
 		Namespace:     Namespace,
 		Version:       moduleVersion,
-		AuthAudiences: []string{PublisherAudience},
+		AuthAudiences: []string{PublisherAudience, GatewayAudience},
 		AuthScopes: []string{ScopeAPIView, ScopeAPICreate, ScopeAPIPublish,
 			ScopeSubscribe, ScopeAppManage, ScopeAdmin},
 	}
