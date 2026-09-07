@@ -100,10 +100,14 @@ func bootstrap(flags *bootstrapFlags) module.Handler {
 		// provider, or the product's own credential on one. A browser
 		// identity reaches API Manager through a public client federated to
 		// its login provider instead, which this registration does not make.
-		next := fmt.Sprintf("export %s=%s (shown once); then wso2 %s connect %s --client-id %s "+
-			"--client-secret-variable %s, on a client-credentials identity",
-			ClientSecretVariable, registered.ClientSecret, Namespace, base, registered.ClientID,
-			ClientSecretVariable)
+		// The secret is in the field named for it and nowhere else. This line
+		// is the one an operator copies into a shell, so it names the variable
+		// the connect line reads and leaves the value to be pasted in: a
+		// credential belongs in a variable, and the record of it is the
+		// variable's name.
+		next := fmt.Sprintf("export %s=<the client secret above, shown once>; then wso2 %s connect %s "+
+			"--client-id %s --client-secret-variable %s, on a client-credentials identity",
+			ClientSecretVariable, Namespace, base, registered.ClientID, ClientSecretVariable)
 		return result.New(BootstrapSchema).
 			With("issuer", "Issuer", issuer).
 			With("clientId", "Client ID", registered.ClientID).

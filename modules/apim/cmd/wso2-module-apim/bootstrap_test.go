@@ -42,7 +42,7 @@ func TestBootstrapRegistersAJWTClientAndPrintsTheIdentityLine(t *testing.T) {
 	fields := fieldsOf(outcome)
 	if fields["clientId"] != "client-1" || fields["clientSecret"] != "secret-1" ||
 		fields["issuer"] != fake.server.URL+"/oauth2/token" ||
-		!strings.Contains(fields["next"], "export WSO2_APIM_CLIENT_SECRET=secret-1") ||
+		!strings.Contains(fields["next"], "export WSO2_APIM_CLIENT_SECRET=<the client secret above") ||
 		!strings.Contains(fields["next"], "wso2 apim connect "+fake.server.URL+
 			" --client-id client-1 --client-secret-variable WSO2_APIM_CLIENT_SECRET") {
 		t.Errorf("fields = %+v", fields)
@@ -65,5 +65,25 @@ func TestBootstrapRefusesWithoutThePasswordAndOnAWrongOne(t *testing.T) {
 	outcome = fake.run(t, []string{"bootstrap"})
 	if outcome.Problem == nil || outcome.Problem.Code != "apim.missing_url" {
 		t.Errorf("no url: %+v", outcome.Problem)
+	}
+}
+
+func TestBootstrapKeepsTheSecretOutOfEveryFieldButItsOwn(t *testing.T) {
+	// The registration mints the secret and no later command can show it
+	// again, so it surfaces once, in the field labelled for it. The next line
+	// is the one an operator copies into a shell, so it names the variable
+	// that carries the secret rather than the secret.
+	fake := newFakeAPIM(t)
+	t.Setenv("WSO2_APIM_ADMIN_PASSWORD", "admin")
+
+	outcome := fake.run(t, []string{"bootstrap"}, "--url", fake.server.URL)
+
+	if outcome.Problem != nil {
+		t.Fatalf("%+v", outcome.Problem)
+	}
+	for name, value := range fieldsOf(outcome) {
+		if name != "clientSecret" && strings.Contains(value, "secret-1") {
+			t.Errorf("the field %q carries the client secret: %q", name, value)
+		}
 	}
 }
