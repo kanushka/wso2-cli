@@ -21,10 +21,13 @@
 /coverage/
 *.out
 
-# Locally built executables
+# Locally built executables. The last two cover a go build run from inside a
+# module, which drops the executable beside the source rather than in bin/.
 /wso2
 /wso2-module-reference
 /modules/reference/wso2-module-reference
+/modules/*/wso2-module-*
+/modules/*/cmd/wso2-module-*/wso2-module-*
 
 # Local workspace files
 go.work.sum
