@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strings"
 )
 
 // The authentication kinds a schema version 2 document may declare.
@@ -208,6 +209,43 @@ type Product struct {
 	// the secret then belongs to.
 	ClientIDVariable     string `json:"clientIdVariable,omitempty"`
 	ClientSecretVariable string `json:"clientSecretVariable,omitempty"`
+	// Gateway is the product's gateway record, when it has one: a second
+	// record beside this management one, reached at the identity's login
+	// provider for the API's own resource server. Absent for a product
+	// recorded without a gateway, which a document written before the field
+	// existed always is.
+	Gateway *Gateway `json:"gateway,omitempty"`
+}
+
+// GatewayRecord names a product's gateway record, as a broker request and
+// the session key spell it.
+const GatewayRecord = "gateway"
+
+// GatewayKey is the key a product's gateway record is reported and stored
+// under: the namespace, a slash, and GatewayRecord. The slash is admitted by
+// neither a namespace nor a credential reference, so the key can collide
+// with neither.
+func GatewayKey(namespace string) string { return namespace + "/" + GatewayRecord }
+
+// SplitGatewayKey reports the namespace a gateway key names, and whether the
+// key is one.
+func SplitGatewayKey(key string) (string, bool) {
+	namespace, found := strings.CutSuffix(key, "/"+GatewayRecord)
+	return namespace, found && namespace != ""
+}
+
+// Gateway is a product's gateway record. Like the product it belongs to it
+// names a location and what a token for it is bound to, and holds no
+// credential.
+type Gateway struct {
+	// Endpoint is the gateway's base URL.
+	Endpoint string `json:"endpoint"`
+	// Audience is the API's own resource identifier, the audience a gateway
+	// session is bound to.
+	Audience string `json:"audience,omitempty"`
+	// Scopes are the API's own permissions, the scope set a gateway session
+	// is authorized for.
+	Scopes []string `json:"scopes,omitempty"`
 }
 
 // GrantJWTBearer presents an identity token from the session to the product's
@@ -354,6 +392,24 @@ func (i Identity) validateDerivation() error {
 					"absolute URI, which is what its deployment binds access by", namespace, i.Name))
 		}
 	}
+	// A gateway record is always reached at the login provider, so its
+	// audience is bound the way a direct product's is, grant or no grant.
+	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
+		gateway := i.Products[namespace].Gateway
+		if gateway == nil {
+			continue
+		}
+		if gateway.Audience == "" {
+			return malformed(fmt.Sprintf(
+				"declares the %q product's gateway on the identity %q without the audience its "+
+					"deployment binds access to", namespace, i.Name))
+		}
+		if !absoluteURI(gateway.Audience) {
+			return malformed(fmt.Sprintf(
+				"declares the %q product's gateway on the identity %q with an audience that is not an "+
+					"absolute URI, which is what its deployment binds access by", namespace, i.Name))
+		}
+	}
 	return nil
 }
 
@@ -471,6 +527,11 @@ func (p Product) validate(identity string) error {
 				"Name the environment variables holding the product's client id and secret, not the values.")
 		}
 	}
+	if p.Gateway != nil {
+		if err := p.Gateway.validate(identity); err != nil {
+			return err
+		}
+	}
 	if p.Grant != nil {
 		// A derived token is proved bound to the product's audience, exactly as
 		// a narrowed one is. Without an audience there is nothing to prove it
@@ -482,6 +543,26 @@ func (p Product) validate(identity string) error {
 					"derived access is proved against", identity))
 		}
 		return p.Grant.validate(identity)
+	}
+	return nil
+}
+
+// validate refuses a gateway record this shell could not reach as written.
+// The endpoint follows the product endpoint's rules and, like it, is never
+// echoed.
+func (g Gateway) validate(identity string) error {
+	if g.Endpoint == "" {
+		return malformed(fmt.Sprintf("declares a product gateway without an endpoint on the identity %q", identity))
+	}
+	parsed, err := url.Parse(g.Endpoint)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return malformed(fmt.Sprintf("declares a product gateway endpoint on the identity %q that this shell cannot read", identity))
+	}
+	if parsed.User != nil {
+		return contextProblem("contexts.document_malformed",
+			fmt.Sprintf("a product gateway endpoint on the identity %q embeds credentials in its URL", identity),
+			"Remove the user information from the endpoint. A context names a credential source; "+
+				"it never carries a credential.")
 	}
 	return nil
 }

@@ -46,6 +46,9 @@ type Request struct {
 	Audience string
 	// Scopes are the permissions it needs.
 	Scopes []string
+	// Record names which record of the product the access is for: empty for
+	// the product's own record, contexts.GatewayRecord for its gateway.
+	Record string
 }
 
 // Grant is the access the shell issues.
@@ -148,12 +151,18 @@ func (b *Broker) Acquire(request Request) (Grant, error) {
 			fmt.Sprintf("the %q module asked for access twice in one command", b.namespace()),
 			"Retry the command. A module is granted access once per command and cannot renew it.")
 	}
-	// A request naming no scopes asks for the product's recorded scopes: the
+	// The record is checked against the descriptor before anything else: a
+	// module may ask only for a record its installation declared.
+	if err := b.checkRecord(request); err != nil {
+		return Grant{}, err
+	}
+	// A request naming no scopes asks for the record's recorded scopes: the
 	// permissions the identity's product entry already consents to, which
 	// is what a module calling the user's own API through a product cannot
 	// know in advance. The record stays the ceiling either way.
 	if len(request.Scopes) == 0 {
-		request.Scopes = slices.Clone(b.Selection.Identity.Products[b.Namespace].Scopes)
+		_, scopes := b.recorded(request)
+		request.Scopes = slices.Clone(scopes)
 	}
 	if err := b.checkDeclared(request); err != nil {
 		return Grant{}, err
@@ -190,7 +199,7 @@ func (b *Broker) checkDeclared(request Request) error {
 	// through a product (a gateway, say) cannot know those in advance. Either
 	// party naming the scope for this namespace is consent; a scope neither
 	// named is refused.
-	recorded := b.Selection.Identity.Products[b.Namespace].Scopes
+	_, recorded := b.recorded(request)
 	for _, scope := range request.Scopes {
 		if !slices.Contains(b.Capabilities.AuthScopes, scope) && !slices.Contains(recorded, scope) {
 			return denial("auth.scope_not_declared",
@@ -202,6 +211,53 @@ func (b *Broker) checkDeclared(request Request) error {
 		}
 	}
 	return nil
+}
+
+// checkRecord refuses a request for a record the module's descriptor does
+// not declare. The product's own record is what every module has; a gateway
+// record exists only when the descriptor carries a gateway block.
+func (b *Broker) checkRecord(request Request) error {
+	switch request.Record {
+	case "":
+		return nil
+	case contexts.GatewayRecord:
+		if b.Capabilities.Product != nil && b.Capabilities.Product.Gateway != nil {
+			return nil
+		}
+		return denial("auth.product_not_configured",
+			fmt.Sprintf("the %q module asked for its gateway record, which its descriptor does not declare",
+				b.namespace()),
+			"Install a version of the module whose descriptor declares a gateway. The shell grants "+
+				"only the records a module receipt declares.")
+	default:
+		return denial("auth.product_not_configured",
+			fmt.Sprintf("the %q module asked for a %q record, which no product has", b.namespace(), request.Record),
+			"Reinstall the module. A product has its own record and, when its descriptor declares one, "+
+				"a gateway record.")
+	}
+}
+
+// recordKey is the name Identity.Access resolves the request's record by:
+// the namespace, or the product's gateway key.
+func (b *Broker) recordKey(request Request) string {
+	if request.Record == contexts.GatewayRecord {
+		return contexts.GatewayKey(b.Namespace)
+	}
+	return b.Namespace
+}
+
+// recorded is what the identity's entry records for the request's record:
+// its audience and its scopes. Both empty for a record the identity does not
+// hold, which checkProduct refuses by name.
+func (b *Broker) recorded(request Request) (string, []string) {
+	product := b.Selection.Identity.Products[b.Namespace]
+	if request.Record == contexts.GatewayRecord {
+		if product.Gateway == nil {
+			return "", nil
+		}
+		return product.Gateway.Audience, product.Gateway.Scopes
+	}
+	return product.Audience, product.Scopes
 }
 
 // credential reads the source credential the development context names.
@@ -308,13 +364,15 @@ func (b BrowserUnavailable) Error() string {
 	return fmt.Sprintf("no browser may be opened in this invocation (%s)", b.Control)
 }
 
-// SessionRequired refuses a product whose own session is absent and cannot
-// be established in this invocation.
-func SessionRequired(namespace string) Denial {
+// SessionRequired refuses a record whose own session is absent and cannot
+// be established in this invocation. record is the key the session is
+// reported under, a namespace or a gateway key; product is the namespace the
+// login is narrowed to, which establishes every record of the product.
+func SessionRequired(record, product string) Denial {
 	return denial("auth.session_required",
-		fmt.Sprintf("the %q product has no session under this identity yet", namespace),
+		fmt.Sprintf("the %q product has no session under this identity yet", record),
 		fmt.Sprintf("Run wso2 login --only %s to authorize it, or wso2 login to authorize every product.",
-			namespace))
+			product))
 }
 
 // denial reports a broker refusal the module and the user can both be told in

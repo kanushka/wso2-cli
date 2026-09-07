@@ -157,7 +157,7 @@ func (s assertionSource) orNotAuthorized(issued tokenResponse, request Request, 
 			"If the user already holds one, this product's record may not request the claim that "+
 			"issuer maps roles from: set the grant's assertion scopes with wso2 identity add-product "+
 			"--replace --grant-scopes, then run wso2 login --only %s.",
-			s.grant.Issuer, scopeList(request.Scopes), s.session.namespace))
+			s.grant.Issuer, scopeList(request.Scopes), s.session.product))
 }
 
 // refusedGrant reads why the product's issuer did not take the assertion, in

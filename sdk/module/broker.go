@@ -35,12 +35,25 @@ import (
 // provider, or a token the module obtained elsewhere.
 type AccessRequest struct {
 	// Audience is the single protected audience the module intends to call.
-	// The shell grants it only if the module receipt declares it.
+	// It is the logical name the module declares, never a deployment value;
+	// the shell grants it only if the module receipt declares it.
 	Audience string
-	// Scopes are the permissions the module needs. The shell grants them only
-	// if the module receipt declares them.
+	// Scopes are the permissions the module needs. Each must be declared by
+	// the module receipt or recorded on the selected identity's product entry
+	// for this module's namespace; the entry's scopes are the ceiling either
+	// way. Leaving Scopes empty asks for exactly the entry's recorded scopes,
+	// which is what lets a command stop carrying a --scope flag: the user
+	// said what the product may have when they recorded it.
 	Scopes []string
+	// Record names which record of the module's product the access is for:
+	// empty for the product's own record, or RecordGateway for its gateway
+	// record, the one the shell holds for the API's own resource server. A
+	// record the module's descriptor does not declare is denied.
+	Record string
 }
+
+// RecordGateway names a product's gateway record in an AccessRequest.
+const RecordGateway = "gateway"
 
 // Access is what the broker granted.
 //
@@ -114,6 +127,7 @@ func (b *streamBroker) Acquire(ctx context.Context, request AccessRequest) (Acce
 		Message: &contractv1.Envelope_AcquireAccess{AcquireAccess: &contractv1.AcquireAccess{
 			Audience: request.Audience,
 			Scopes:   request.Scopes,
+			Record:   request.Record,
 		}},
 	}); err != nil {
 		return Access{}, fmt.Errorf("module: cannot ask the shell for access: %w", err)

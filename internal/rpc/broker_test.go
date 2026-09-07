@@ -272,3 +272,34 @@ func lastAccessAnswer(t *testing.T, written []*contractv1.Envelope) *contractv1.
 type errUnexpected struct{}
 
 func (errUnexpected) Error() string { return "the broker failed unexpectedly" }
+
+func TestTheRecordAnAccessRequestNamesReachesTheBroker(t *testing.T) {
+	broker := &recordingBroker{grant: auth.Grant{Token: "fixture-token", ExpiresAt: grantedUntil}}
+	request := accessRequest()
+	request.GetAcquireAccess().Record = "gateway"
+	if _, _, err := runBrokered(t, broker, moduleStream(t, conformingHello(), request, statusResult())); err != nil {
+		t.Fatalf("Run returned %v", err)
+	}
+	if len(broker.requested) != 1 || broker.requested[0].Record != "gateway" {
+		t.Fatalf("the broker was asked for %+v, want the gateway record", broker.requested)
+	}
+}
+
+func TestTheGatewayEndpointReachesTheModuleWithTheInvocation(t *testing.T) {
+	var toModule bytes.Buffer
+	session := testSession()
+	invocation := statusInvocation()
+	invocation.Context.GatewayEndpoint = "https://gw.example"
+	if _, err := session.Run(&toModule, moduleStream(t, conformingHello(), statusResult()), invocation); err != nil {
+		t.Fatalf("Run returned %v", err)
+	}
+	var invoked *contractv1.Invoke
+	for _, envelope := range shellMessages(t, &toModule) {
+		if envelope.GetInvoke() != nil {
+			invoked = envelope.GetInvoke()
+		}
+	}
+	if invoked == nil || invoked.GetContext().GetGatewayEndpoint() != "https://gw.example" {
+		t.Fatalf("the invoke carried %+v, want the gateway endpoint", invoked.GetContext())
+	}
+}

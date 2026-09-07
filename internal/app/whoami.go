@@ -19,9 +19,7 @@ package app
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"os"
-	"slices"
 	"strings"
 	"time"
 
@@ -181,12 +179,13 @@ func (s Shell) whoami(command *cobra.Command) error {
 			}
 		}
 
-		// Every product is reported, not only the ones Identity.Accesses
+		// Every record is reported, not only the ones Identity.Accesses
 		// lists: Accesses skips a direct product that shares the login
 		// session, and that product's state is exactly the login session's,
-		// which whoami must still show under its own namespace.
-		for _, namespace := range slices.Sorted(maps.Keys(selected.Identity.Products)) {
-			access, ok := selected.Identity.Access(namespace)
+		// which whoami must still show under its own namespace. A product's
+		// gateway record follows the product under its own key.
+		for _, key := range selected.Identity.RecordKeys() {
+			access, ok := selected.Identity.Access(key)
 			if !ok {
 				continue
 			}
@@ -306,10 +305,11 @@ type whoamiReport struct {
 	// expired case; TestWhoamiReportsAPresentSessionWithUndisclosedExpiry
 	// pins the one case where it must be empty.
 	Recovery string `json:"recovery,omitempty"`
-	// Products is every product the selected identity declares, each with
-	// what Identity.Access says about how it is reached and what the secure
-	// store says about its session. It is nil for an unconfigured machine or
-	// an identity that declares no products.
+	// Products is every record the selected identity declares — each product
+	// and, under its gateway key, its gateway record — with what
+	// Identity.Access says about how it is reached and what the secure store
+	// says about its session. It is nil for an unconfigured machine or an
+	// identity that declares no products.
 	Products []whoamiProduct `json:"products,omitempty"`
 }
 
@@ -342,8 +342,8 @@ func (w whoamiReport) fields() [][2]string {
 	return pairs
 }
 
-// productsField renders every product on one line, namespace order:
-// "iam: sibling, present; apim: federated, none".
+// productsField renders every record on one line, namespace order:
+// "apim: federated, none; apim/gateway: sibling, present; iam: direct, present".
 func (w whoamiReport) productsField() string {
 	if len(w.Products) == 0 {
 		return "none configured"

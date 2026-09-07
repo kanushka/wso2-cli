@@ -729,9 +729,13 @@ type InvocationContext struct {
 	OrganizationId string `protobuf:"bytes,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
 	// endpoint is the product service the context targets. It is a location, not
 	// a permission: a module still needs brokered access to call it.
-	Endpoint      string `protobuf:"bytes,3,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Endpoint string `protobuf:"bytes,3,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	// gateway_endpoint is the product's gateway, when the identity records one
+	// beside the product. Like endpoint it is a location, not a permission: a
+	// module calls it with access brokered for the gateway record.
+	GatewayEndpoint string `protobuf:"bytes,4,opt,name=gateway_endpoint,json=gatewayEndpoint,proto3" json:"gateway_endpoint,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *InvocationContext) Reset() {
@@ -785,6 +789,13 @@ func (x *InvocationContext) GetEndpoint() string {
 	return ""
 }
 
+func (x *InvocationContext) GetGatewayEndpoint() string {
+	if x != nil {
+		return x.GatewayEndpoint
+	}
+	return ""
+}
+
 // AcquireAccess asks the shell's broker for access to one audience.
 //
 // The module states what it wants, never how the shell should obtain it: it
@@ -802,7 +813,11 @@ type AcquireAccess struct {
 	// scopes are the permissions the module needs for this call. A scope the
 	// module receipt does not declare is denied rather than dropped, so a module
 	// never proceeds believing it holds access it was refused.
-	Scopes        []string `protobuf:"bytes,2,rep,name=scopes,proto3" json:"scopes,omitempty"`
+	Scopes []string `protobuf:"bytes,2,rep,name=scopes,proto3" json:"scopes,omitempty"`
+	// record names which record of the module's product the access is for:
+	// empty for the product's own record, "gateway" for its gateway record. A
+	// record the module's descriptor does not declare is denied.
+	Record        string `protobuf:"bytes,3,opt,name=record,proto3" json:"record,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -849,6 +864,13 @@ func (x *AcquireAccess) GetScopes() []string {
 		return x.Scopes
 	}
 	return nil
+}
+
+func (x *AcquireAccess) GetRecord() string {
+	if x != nil {
+		return x.Record
+	}
+	return ""
 }
 
 // AccessGranted answers AcquireAccess with the access material itself.
@@ -1214,14 +1236,16 @@ const file_wso2_cli_module_v1_contract_proto_rawDesc = "" +
 	"\acontext\x18\x06 \x01(\v2%.wso2.cli.module.v1.InvocationContextR\acontext\"]\n" +
 	"\x10InvocationPolicy\x12'\n" +
 	"\x0fdeadline_millis\x18\x01 \x01(\rR\x0edeadlineMillis\x12 \n" +
-	"\vinteractive\x18\x02 \x01(\bR\vinteractive\"l\n" +
+	"\vinteractive\x18\x02 \x01(\bR\vinteractive\"\x97\x01\n" +
 	"\x11InvocationContext\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
 	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12\x1a\n" +
-	"\bendpoint\x18\x03 \x01(\tR\bendpoint\"C\n" +
+	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12)\n" +
+	"\x10gateway_endpoint\x18\x04 \x01(\tR\x0fgatewayEndpoint\"[\n" +
 	"\rAcquireAccess\x12\x1a\n" +
 	"\baudience\x18\x01 \x01(\tR\baudience\x12\x16\n" +
-	"\x06scopes\x18\x02 \x03(\tR\x06scopes\"M\n" +
+	"\x06scopes\x18\x02 \x03(\tR\x06scopes\x12\x16\n" +
+	"\x06record\x18\x03 \x01(\tR\x06record\"M\n" +
 	"\rAccessGranted\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12&\n" +
 	"\x0fexpires_at_unix\x18\x02 \x01(\x03R\rexpiresAtUnix\"E\n" +

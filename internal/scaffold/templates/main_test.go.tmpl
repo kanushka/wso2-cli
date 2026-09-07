@@ -28,7 +28,7 @@ import (
 // the right fields inside a module that answers the wrong message is not a
 // working module.
 func TestStatusAnswersThroughTheContract(t *testing.T) {
-	outcome := testkit.Run(context.Background(), moduleOptions(), commands(), testkit.Invocation{
+	outcome := testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
 		Command: []string{"status"},
 	})
 
@@ -55,12 +55,13 @@ func TestStatusAnswersThroughTheContract(t *testing.T) {
 	if got := outcome.Result.Fields[0].Name; got != "namespace" {
 		t.Errorf("the first field is %q, want %q", got, "namespace")
 	}
+	assertEndsWithNext(t, outcome)
 }
 
 // An unknown command has to be refused by the module rather than answered, so
 // the shell can tell a typo from a command that failed.
 func TestAnUnknownCommandIsRefused(t *testing.T) {
-	outcome := testkit.Run(context.Background(), moduleOptions(), commands(), testkit.Invocation{
+	outcome := testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
 		Command: []string{"nosuchcommand"},
 	})
 
@@ -69,5 +70,29 @@ func TestAnUnknownCommandIsRefused(t *testing.T) {
 	}
 	if outcome.Problem == nil {
 		t.Fatalf("an unknown command was answered with %v", outcome.Result)
+	}
+}
+
+// The tree this module serves is what the shell parses a command line against
+// before the module is launched. A module whose declaration is empty still
+// works, but the shell then cannot answer --help or name a mistyped command,
+// and that is a regression this test catches.
+func TestTheCommandTreeIsDeclared(t *testing.T) {
+	declared := commands().Declare()
+	if len(declared.Commands) == 0 {
+		t.Fatal("the module declares no commands")
+	}
+}
+
+// assertEndsWithNext pins the rule every result of this module follows: the
+// last field says what a user most likely runs next.
+func assertEndsWithNext(t *testing.T, outcome testkit.Outcome) {
+	t.Helper()
+	if outcome.Result == nil || len(outcome.Result.Fields) == 0 {
+		t.Fatal("no result to check")
+	}
+	last := outcome.Result.Fields[len(outcome.Result.Fields)-1]
+	if last.Name != NextField || last.Value == "" {
+		t.Errorf("the result does not end with a next step: %+v", outcome.Result.Fields)
 	}
 }

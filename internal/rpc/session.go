@@ -201,9 +201,10 @@ func (s Session) sendInvoke(writer *protocol.Writer, invocation Invocation) erro
 				Interactive:    invocation.Interactive,
 			},
 			Context: &contractv1.InvocationContext{
-				Name:           invocation.Context.Name,
-				OrganizationId: invocation.Context.OrganizationID,
-				Endpoint:       invocation.Context.Endpoint,
+				Name:            invocation.Context.Name,
+				OrganizationId:  invocation.Context.OrganizationID,
+				Endpoint:        invocation.Context.Endpoint,
+				GatewayEndpoint: invocation.Context.GatewayEndpoint,
 			},
 		}},
 	})
@@ -317,6 +318,7 @@ func (s Session) answerAccess(
 	grant, err := s.acquire(auth.Request{
 		Audience: request.GetAudience(),
 		Scopes:   request.GetScopes(),
+		Record:   request.GetRecord(),
 	})
 	release()
 	if err != nil {

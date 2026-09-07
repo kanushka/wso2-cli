@@ -31,6 +31,18 @@ different resource or scope set. The shell records the strategy on the
 session and shows it. A product with none is refused, naming the command
 that records one.
 
+A product may hold a second record at the login provider for its gateway.
+The gateway validates tokens the login provider issues, so its session is
+always obtained there, under the API's own resource server and the API's own
+scope set, by the same strategies: `direct` when that happens to be the
+login session's binding, `sibling` otherwise, and `inline` for a machine
+client. The record lives inside the product's entry rather than as a second
+namespace, so the module a command resolves to, the login product pin and
+`wso2 login --only <namespace>` are untouched, and the session is reported
+and stored under the product's gateway key, `<namespace>/gateway`. A module
+asks for it by naming the record in its access request, and only a
+descriptor that declares a gateway shape may be asked.
+
 In a pipeline there is no browser and no sign-on, so nothing called a
 session is shared. One machine client at the login provider is minted per
 product with that product's resource indicator or scope set, and a product

@@ -71,6 +71,39 @@ func TestAScaffoldedModuleBuildsAndAnswersTheContract(t *testing.T) {
 	// a developer would have in front of them.
 	runGo(t, directory, "build", "./...")
 	runGo(t, directory, "test", "./...")
+
+	// The shell asks an installed module for its command tree once, by
+	// running it with WSO2_MODULE_COMMAND_TREE naming a file to write. A
+	// module that answers with nothing still installs, but the shell then
+	// cannot answer --help or name a mistyped command for it, so the
+	// generated module has to declare what it serves.
+	executable := filepath.Join(t.TempDir(), "wso2-module-"+namespace)
+	runGo(t, directory, "build", "-o", executable, "./cmd/wso2-module-"+namespace)
+	declaration := filepath.Join(t.TempDir(), "tree.json")
+	describe := exec.Command(executable)
+	describe.Env = append(os.Environ(), "WSO2_MODULE_COMMAND_TREE="+declaration)
+	if output, err := describe.CombinedOutput(); err != nil {
+		t.Fatalf("the generated module did not answer the command-tree request: %v\n%s", err, output)
+	}
+	var declared struct {
+		CommandTree struct {
+			Commands []struct {
+				Path []string `json:"path"`
+			} `json:"commands"`
+		} `json:"commandTree"`
+	}
+	if err := json.Unmarshal([]byte(readFile(t, declaration)), &declared); err != nil {
+		t.Fatalf("the declaration the generated module wrote is not readable: %v", err)
+	}
+	found := false
+	for _, command := range declared.CommandTree.Commands {
+		if len(command.Path) == 1 && command.Path[0] == "status" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the generated module declares no status command; it declared %+v", declared.CommandTree.Commands)
+	}
 }
 
 // TestAScaffoldedModuleIsGeneratedAgainstWhatTheCheckoutDeclares states the

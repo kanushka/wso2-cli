@@ -88,7 +88,12 @@ func (i Identity) LoginAccess() ProductAccess {
 }
 
 // Access is how the named product is reached, and whether it is recorded.
+// The name is a product namespace, or a gateway key (GatewayKey) for the
+// product's gateway record.
 func (i Identity) Access(namespace string) (ProductAccess, bool) {
+	if product, found := SplitGatewayKey(namespace); found {
+		return i.gatewayAccess(product)
+	}
 	product, recorded := i.Products[namespace]
 	if !recorded {
 		return ProductAccess{}, false
@@ -128,6 +133,54 @@ func (i Identity) Access(namespace string) (ProductAccess, bool) {
 	return access, true
 }
 
+// gatewayAccess is how a product's gateway record is reached, and whether
+// the product records one. A gateway validates tokens from the login
+// provider, so the record is always reached there, under the API's own
+// resource and scope set: direct when those happen to be the login
+// session's, else sibling; inline for a client-credentials identity, minted
+// from its machine client with the gateway audience as the resource.
+func (i Identity) gatewayAccess(namespace string) (ProductAccess, bool) {
+	product, recorded := i.Products[namespace]
+	if !recorded || product.Gateway == nil {
+		return ProductAccess{}, false
+	}
+	gateway := product.Gateway
+	key := GatewayKey(namespace)
+	access := ProductAccess{
+		Namespace: key, Issuer: i.Auth.Issuer, ClientID: i.Auth.ClientID,
+		Audience: gateway.Audience, Scopes: sortedScopes(gateway.Scopes),
+	}
+	if i.Auth.Derivation() == DerivationTokenResource {
+		access.Resource = gateway.Audience
+	}
+	if i.Auth.Kind == KindClientCredentials {
+		access.Strategy = StrategyInline
+		return access, true
+	}
+	login := i.LoginAccess()
+	access.SessionRef = ProductSessionRef(i.Auth.CredentialRef, key)
+	access.Strategy = StrategySibling
+	if slices.Equal(access.Scopes, login.Scopes) && access.Resource == login.Resource {
+		access.Strategy = StrategyDirect
+		access.SessionRef = login.SessionRef
+	}
+	return access, true
+}
+
+// RecordKeys names every record the identity holds, in namespace order: each
+// product's own namespace, followed by its gateway key when it records a
+// gateway. Each is a name Access resolves.
+func (i Identity) RecordKeys() []string {
+	var keys []string
+	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
+		keys = append(keys, namespace)
+		if i.Products[namespace].Gateway != nil {
+			keys = append(keys, GatewayKey(namespace))
+		}
+	}
+	return keys
+}
+
 // inlineAccess is a client-credentials identity's plan for one product: no
 // session, one grant per command, at the product's own issuer when it names
 // one.
@@ -146,20 +199,21 @@ func (i Identity) inlineAccess(namespace string, product Product) ProductAccess 
 }
 
 // Accesses is every authorization the identity needs, the login one first
-// and then one per further session, in namespace order. A
-// client-credentials identity lists every product, each inline.
+// and then one per further session, in namespace order, a product's gateway
+// record right after the product's own. A client-credentials identity lists
+// every record, each inline.
 func (i Identity) Accesses() []ProductAccess {
 	if i.Auth.Kind == KindClientCredentials {
 		var all []ProductAccess
-		for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
-			access, _ := i.Access(namespace)
+		for _, key := range i.RecordKeys() {
+			access, _ := i.Access(key)
 			all = append(all, access)
 		}
 		return all
 	}
 	all := []ProductAccess{i.LoginAccess()}
-	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
-		access, _ := i.Access(namespace)
+	for _, key := range i.RecordKeys() {
+		access, _ := i.Access(key)
 		if access.SessionRef != all[0].SessionRef {
 			all = append(all, access)
 		}

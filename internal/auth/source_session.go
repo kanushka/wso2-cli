@@ -48,8 +48,12 @@ import (
 // A second source per login mode would duplicate the rotation lock and the
 // narrowing proof for no behaviour.
 type sessionSource struct {
-	// namespace is the module asking, named in refusals.
+	// namespace is the record asking, named in refusals: the module's
+	// namespace, or the product's gateway key.
 	namespace string
+	// product is the module's namespace, the one wso2 login --only is
+	// narrowed to in a recovery: it establishes every record of the product.
+	product string
 	// ref is the secure-store entry this product's session lives under: the
 	// identity's own for a direct product, the product's for every other.
 	ref string
@@ -136,7 +140,7 @@ func (s sessionSource) mint(request Request, now time.Time) (Grant, error) {
 // token reaches it.
 func (s sessionSource) notAuthorizedForProduct(request Request) error {
 	recovery := fmt.Sprintf("Ask an administrator of %s to map this user's group to a role that carries %s, "+
-		"then run wso2 login --only %s.", s.issuer, scopeList(request.Scopes), s.namespace)
+		"then run wso2 login --only %s.", s.issuer, scopeList(request.Scopes), s.product)
 	if s.resourceBound {
 		recovery = s.narrowing(request).recovery
 	}
@@ -154,7 +158,7 @@ func (s sessionSource) narrowing(request Request) narrowing {
 	n := narrowing{namespace: s.namespace, audience: s.audience, recovery: narrowingRecovery}
 	if s.resourceBound {
 		n.resourceBound = true
-		n.recovery = resourceBoundRecovery(request.Scopes, s.audience, s.contextName, s.namespace,
+		n.recovery = resourceBoundRecovery(request.Scopes, s.audience, s.contextName, s.product,
 			s.strategy == contexts.StrategyDirect)
 	}
 	return n
@@ -187,7 +191,7 @@ func (s sessionSource) orRenewalNeedsBrowser(request Request, err error) error {
 	recovery := fmt.Sprintf("Run wso2 login --only %s where a browser can open. If that login still "+
 		"cannot serve this command, this user's groups map to no role at %s that carries %s and an "+
 		"administrator has to grant one; logging in again will not change that.",
-		s.namespace, s.issuer, scopeList(request.Scopes))
+		s.product, s.issuer, scopeList(request.Scopes))
 	refusal := denial("auth.reauthorization_required",
 		fmt.Sprintf("the %q product has a session under this identity, but the identity provider "+
 			"would not renew it to the permissions the module asked for (%s), and authorizing the "+
@@ -211,9 +215,9 @@ func (s sessionSource) orSessionRequired(err error) error {
 	if !errors.As(err, &unavailable) {
 		return err
 	}
-	refusal := SessionRequired(s.namespace)
+	refusal := SessionRequired(s.namespace, s.product)
 	refusal.Guidance = fmt.Sprintf("Run wso2 login --only %s before this command; %s asked that no "+
-		"browser open.", s.namespace, unavailable.Control)
+		"browser open.", s.product, unavailable.Control)
 	return refusal
 }
 
@@ -348,7 +352,7 @@ func (s sessionSource) renew(ctx context.Context, scopes []string, now time.Time
 			fmt.Sprintf("the stored session for the %q product was established against a different "+
 				"identity provider than the context now names", s.namespace),
 			fmt.Sprintf("Run wso2 login --only %s to authorize this product against the issuer this "+
-				"context names, or wso2 login to authorize every product.", s.namespace))
+				"context names, or wso2 login to authorize every product.", s.product))
 	}
 	if driftedProduct := s.productDrifted(stored); driftedProduct {
 		// A product whose namespace sorts before the one this session was
@@ -361,7 +365,7 @@ func (s sessionSource) renew(ctx context.Context, scopes []string, now time.Time
 			fmt.Sprintf("the stored session for the %q product was established for a different "+
 				"product", s.namespace),
 			fmt.Sprintf("Run wso2 login --only %s to authorize this product, or wso2 login to "+
-				"authorize every product.", s.namespace))
+				"authorize every product.", s.product))
 	}
 
 	endpoint, err := tokenEndpoint(ctx, s.client, s.issuer)

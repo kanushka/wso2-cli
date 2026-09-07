@@ -189,9 +189,10 @@ func exchange(toModule io.WriteCloser, fromModule io.Reader, options module.Opti
 			OutputMode:  protocol.EncodeOutputMode(invocation.OutputMode),
 			Policy:      &contractv1.InvocationPolicy{},
 			Context: &contractv1.InvocationContext{
-				Name:           invocation.Context.Name,
-				OrganizationId: invocation.Context.OrganizationID,
-				Endpoint:       invocation.Context.Endpoint,
+				Name:            invocation.Context.Name,
+				OrganizationId:  invocation.Context.OrganizationID,
+				Endpoint:        invocation.Context.Endpoint,
+				GatewayEndpoint: invocation.Context.GatewayEndpoint,
 			},
 		}},
 	}); err != nil {
@@ -221,6 +222,7 @@ func exchange(toModule io.WriteCloser, fromModule io.Reader, options module.Opti
 		outcome.AccessRequests = append(outcome.AccessRequests, module.AccessRequest{
 			Audience: request.GetAudience(),
 			Scopes:   request.GetScopes(),
+			Record:   request.GetRecord(),
 		})
 		if err := answerAccess(writer, invocationID, envelope.GetCorrelationId(), invocation.Access); err != nil {
 			outcome.Err = err

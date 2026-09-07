@@ -49,6 +49,11 @@ type connectFlags struct {
 	clientIDVariable, clientSecretVariable      string
 	scopes                                      []string
 	replace                                     bool
+	// gateway records the product's gateway record instead of the product.
+	gateway bool
+	// clientIDSet reports that --client-id was written on the line, as
+	// opposed to carrying the descriptor's default.
+	clientIDSet bool
 }
 
 // connectVariablePattern is the shape a credential variable name has, and
@@ -65,7 +70,8 @@ const connectVariableRule = "upper-case letters, digits and underscores, startin
 func connectUsage(namespace string) string {
 	return fmt.Sprintf("Run wso2 %s connect <url> [--identity <name>] [--login-provider <issuer-url>] "+
 		"[--client-id <id>] [--client-secret-variable <VAR>] [--audience <value>] "+
-		"[--scopes <list>] [--replace].", namespace)
+		"[--scopes <list>] [--replace], or wso2 %s connect <gateway-url> --gateway to record the "+
+		"product's gateway.", namespace, namespace)
 }
 
 // connect answers wso2 <namespace> connect <url> from the product descriptor
@@ -106,6 +112,7 @@ func (s Shell) connectCommand(namespace string, descriptor modules.ProductDescri
 		SilenceUsage:          true,
 		DisableFlagsInUseLine: true,
 		RunE: func(command *cobra.Command, args []string) error {
+			flags.clientIDSet = command.Flags().Changed("client-id")
 			return s.connectRun(command, namespace, descriptor, args[0], flags)
 		},
 	}
@@ -136,6 +143,9 @@ func (s Shell) connectCommand(namespace string, descriptor modules.ProductDescri
 	f.StringSliceVar(&flags.scopes, "scopes", nil,
 		"The permissions to record, comma-separated, when not the descriptor's.")
 	f.BoolVar(&flags.replace, "replace", false, "Replace the product's existing record instead of refusing.")
+	f.BoolVar(&flags.gateway, "gateway", false,
+		"Record the product's gateway at the URL, beside the product's own record on the identity: "+
+			"reached at the identity's login provider for the API named by --audience.")
 	declareContextFlag(f)
 	declareOutputFlag(f)
 	return command
@@ -152,7 +162,11 @@ func (s Shell) connectRun(command *cobra.Command, namespace string, descriptor m
 	if err != nil {
 		return err
 	}
-	if err := checkConnectFlags(namespace, descriptor, flags); err != nil {
+	if flags.gateway {
+		if err := checkGatewayFlags(namespace, descriptor, flags); err != nil {
+			return err
+		}
+	} else if err := checkConnectFlags(namespace, descriptor, flags); err != nil {
 		return err
 	}
 	root, err := s.stateRoot()
@@ -173,8 +187,25 @@ func (s Shell) connectRun(command *cobra.Command, namespace string, descriptor m
 	// Public facts only: a namespace, a URL the user typed, scheme names.
 	s.log.Debug("connecting a product",
 		"namespace", namespace, "provider", descriptor.Provider, "grant", descriptor.Grant,
+		"gateway", flags.gateway,
 		"identity", flags.identity, "login_provider", flags.loginProvider, "replace", flags.replace,
 		"document", contexts.Path(root))
+
+	if flags.gateway {
+		var plan gatewayPlan
+		err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
+			planned, err := planGateway(document, namespace, descriptor, productURL, flags, contextName)
+			if err != nil {
+				return document, err
+			}
+			plan = planned
+			return plan.apply(document), nil
+		})
+		if err != nil {
+			return s.explainWriteRefusal(root, err)
+		}
+		return s.reportGateway(mode, root, plan)
+	}
 
 	var plan connectPlan
 	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
@@ -215,15 +246,8 @@ func connectURL(namespace, raw string) (string, error) {
 // shell can write, before the document is opened.
 func checkConnectFlags(namespace string, descriptor modules.ProductDescriptor, flags connectFlags) error {
 	usage := connectUsage(namespace)
-	if flags.identity != "" && !contexts.ValidName(flags.identity) {
-		return problem.New(problem.CategoryUsage, "shell.invalid_argument",
-			fmt.Sprintf("%q cannot be used as an identity name", flags.identity)).
-			WithRecovery(fmt.Sprintf("An identity name is %s. %s", contexts.NameRule, usage))
-	}
-	if flags.loginProvider != "" {
-		if err := refuseNonIssuerURL(flags.loginProvider); err != nil {
-			return err
-		}
+	if err := checkIdentityFlags(flags, usage); err != nil {
+		return err
 	}
 	for _, named := range []struct{ flag, value string }{
 		{"--client-secret-variable", flags.clientSecretVariable},
@@ -260,6 +284,21 @@ func checkConnectFlags(namespace string, descriptor modules.ProductDescriptor, f
 				"cannot be a client-credentials identity's login provider", namespace)).
 			WithRecovery("Connect a login provider that accepts one first, then record this product " +
 				"on that identity.")
+	}
+	return nil
+}
+
+// checkIdentityFlags refuses an identity name that cannot be one, and a
+// login provider that is not an issuer URL. Both records connect writes
+// find their identity by them.
+func checkIdentityFlags(flags connectFlags, usage string) error {
+	if flags.identity != "" && !contexts.ValidName(flags.identity) {
+		return problem.New(problem.CategoryUsage, "shell.invalid_argument",
+			fmt.Sprintf("%q cannot be used as an identity name", flags.identity)).
+			WithRecovery(fmt.Sprintf("An identity name is %s. %s", contexts.NameRule, usage))
+	}
+	if flags.loginProvider != "" {
+		return refuseNonIssuerURL(flags.loginProvider)
 	}
 	return nil
 }
@@ -368,11 +407,17 @@ func soleContext(document contexts.Document, plan connectPlan) bool {
 	if plan.created {
 		return plan.selected && len(document.Contexts) == 0
 	}
+	return soleIdentityContext(document, plan.identity.Name)
+}
+
+// soleIdentityContext reports whether the document holds exactly one
+// context, it is the named identity's, and it is selected.
+func soleIdentityContext(document contexts.Document, identity string) bool {
 	if len(document.Contexts) != 1 {
 		return false
 	}
 	only := document.Contexts[0]
-	return only.Identity == plan.identity.Name && document.DefaultContext == only.Name
+	return only.Identity == identity && document.DefaultContext == only.Name
 }
 
 // connectTarget is the identity a connect records on, when one can be
@@ -587,6 +632,7 @@ func (s Shell) reportConnect(mode output.Mode, namespace string, plan connectPla
 	}
 	reported := result.New(connectSchema).
 		With("product", "Product", namespace).
+		With("record", "Record", recordManagement).
 		With("identity", "Identity", identity.Name).
 		With("created", "Identity created", fmt.Sprintf("%t", plan.created)).
 		With("endpoint", "Endpoint", plan.product.Endpoint).

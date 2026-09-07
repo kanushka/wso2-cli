@@ -120,3 +120,72 @@ func TestTheDescriptorDerivesTheIssuerAndAudienceFromTheURL(t *testing.T) {
 		t.Error("AllowsMachine is wrong")
 	}
 }
+
+func TestAGatewayBlockRoundTripsThroughTheReceipt(t *testing.T) {
+	receipt := validReceipt()
+	receipt.Capabilities.Product = &modules.ProductDescriptor{
+		IssuerPath: "/oauth2/token", Audience: modules.AudienceClient,
+		Scopes: []string{"apim:api_view"}, Grant: "federated", Machine: []string{modules.MachineCredential},
+		Gateway: &modules.GatewayDescriptor{
+			Audience: modules.AudienceResource, Scopes: []string{"hello:read"},
+			Machine: []string{modules.MachineInline},
+		},
+	}
+	encoded, err := receipt.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := modules.DecodeReceipt(encoded)
+	if err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	got := decoded.Capabilities.Product.Gateway
+	if got == nil || got.Audience != modules.AudienceResource || len(got.Scopes) != 1 || len(got.Machine) != 1 {
+		t.Errorf("gateway = %+v", got)
+	}
+	if !strings.Contains(string(encoded), `"gateway"`) {
+		t.Errorf("the gateway block is not encoded:\n%s", encoded)
+	}
+	if !got.AllowsMachine(modules.MachineInline) || got.AllowsMachine(modules.MachineCredential) {
+		t.Error("AllowsMachine is wrong")
+	}
+	// A descriptor without the block declares no gateway shape, and encodes
+	// none.
+	plain := thunderDescriptor()
+	if plain.Gateway != nil {
+		t.Error("a descriptor without the block has a gateway")
+	}
+	receipt.Capabilities.Product = plain
+	if encoded, err := receipt.Encode(); err != nil || strings.Contains(string(encoded), "gateway") {
+		t.Errorf("an absent gateway block is encoded (%v):\n%s", err, encoded)
+	}
+}
+
+func TestAMalformedGatewayBlockIsRefused(t *testing.T) {
+	cases := map[string]func(*modules.GatewayDescriptor){
+		"an audience kind that is neither resource nor client": func(g *modules.GatewayDescriptor) { g.Audience = "uri" },
+		"no audience kind": func(g *modules.GatewayDescriptor) { g.Audience = "" },
+		"a machine strategy the shell does not implement": func(g *modules.GatewayDescriptor) { g.Machine = []string{"derived"} },
+		"a credential of the gateway's own, which is reached only from the identity's client": func(g *modules.GatewayDescriptor) {
+			g.Machine = []string{modules.MachineCredential}
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			receipt := validReceipt()
+			receipt.Capabilities.Product = thunderDescriptor()
+			receipt.Capabilities.Product.Gateway = &modules.GatewayDescriptor{
+				Audience: modules.AudienceResource, Machine: []string{modules.MachineInline},
+			}
+			mutate(receipt.Capabilities.Product.Gateway)
+			err := receipt.Validate()
+			var reported problem.Problem
+			if !errors.As(err, &reported) || reported.Code != "modules.receipt_malformed" {
+				t.Fatalf("validation returned %v, want modules.receipt_malformed", err)
+			}
+			if !strings.Contains(reported.Message, "gateway") {
+				t.Errorf("the refusal %q does not name the gateway block", reported.Message)
+			}
+		})
+	}
+}

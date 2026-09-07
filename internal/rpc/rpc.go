@@ -84,6 +84,9 @@ type InvocationContext struct {
 	// Endpoint is the product service the context targets. It tells a module
 	// where to call, never that it may: access comes from the broker.
 	Endpoint string
+	// GatewayEndpoint is the product's gateway, when the identity records
+	// one beside the product. A location like Endpoint, and empty otherwise.
+	GatewayEndpoint string
 }
 
 // Invocation is one product command as the shell resolved it.

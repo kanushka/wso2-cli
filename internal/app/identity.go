@@ -337,6 +337,7 @@ func (s Shell) identityList(command *cobra.Command) error {
 				Audience:  product.Audience,
 				Scopes:    product.Scopes,
 				Grant:     product.Grant,
+				Gateway:   product.Gateway,
 			})
 		}
 		if len(entry.Products) == 0 {
@@ -368,6 +369,12 @@ func (s Shell) identityList(command *cobra.Command) error {
 		for _, product := range entry.Products {
 			table.Append(entry.Name, entry.Type, entry.Issuer,
 				product.Namespace, product.Endpoint, strings.Join(product.Scopes, ","))
+			// The gateway record is a row of its own, under the product's
+			// gateway key, so a reader sees both of what connect wrote.
+			if product.Gateway != nil {
+				table.Append(entry.Name, entry.Type, entry.Issuer, contexts.GatewayKey(product.Namespace),
+					product.Gateway.Endpoint, strings.Join(product.Gateway.Scopes, ","))
+			}
 		}
 	}
 	if err := table.Render(s.Streams.Out); err != nil {
@@ -421,13 +428,15 @@ type (
 		Replaced bool `json:"replaced"`
 	}
 
-	// productEntry is one product an identity reaches.
+	// productEntry is one product an identity reaches, with its gateway
+	// record when it holds one.
 	productEntry struct {
-		Namespace string          `json:"namespace"`
-		Endpoint  string          `json:"endpoint"`
-		Audience  string          `json:"audience"`
-		Scopes    []string        `json:"scopes"`
-		Grant     *contexts.Grant `json:"grant,omitempty"`
+		Namespace string            `json:"namespace"`
+		Endpoint  string            `json:"endpoint"`
+		Audience  string            `json:"audience"`
+		Scopes    []string          `json:"scopes"`
+		Grant     *contexts.Grant   `json:"grant,omitempty"`
+		Gateway   *contexts.Gateway `json:"gateway,omitempty"`
 	}
 
 	// identityEntry is one row group of the listing.

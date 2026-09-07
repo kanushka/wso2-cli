@@ -245,7 +245,8 @@ func extendIncompleteLoginRecovery(err error, established []contexts.ProductAcce
 }
 
 // loginAccesses is what this login authorizes: every session by default, the
-// login session alone under --no-products, one product under --only.
+// login session alone under --no-products, one product under --only — both
+// of its records, or one of them when named by key.
 func (s Shell) loginAccesses(selected contexts.Selection, flags loginFlags) ([]contexts.ProductAccess, error) {
 	switch {
 	case flags.only != "":
@@ -254,9 +255,17 @@ func (s Shell) loginAccesses(selected contexts.Selection, flags loginFlags) ([]c
 			return nil, problem.New(problem.CategoryUsage, "shell.invalid_argument",
 				fmt.Sprintf("the %q identity records no %q product to authorize",
 					selected.Identity.Name, flags.only)).
-				WithRecovery("Name a product the identity records; wso2 identity list shows them.")
+				WithRecovery("Name a product the identity records, or one record of it as " +
+					"<namespace>/gateway; wso2 identity list shows them.")
 		}
-		return []contexts.ProductAccess{access}, nil
+		accesses := []contexts.ProductAccess{access}
+		// A product namespace names the whole product: its own record and its
+		// gateway record, when it has one. A gateway key names that record
+		// alone.
+		if gateway, recorded := selected.Identity.Access(contexts.GatewayKey(flags.only)); recorded {
+			accesses = append(accesses, gateway)
+		}
+		return accesses, nil
 	case flags.noProducts:
 		if err := checkLoginAccessBinds(selected.Identity); err != nil {
 			return nil, err

@@ -79,6 +79,34 @@ type ProductDescriptor struct {
 	// Machine lists the strategies a client-credentials identity may use:
 	// MachineInline, MachineCredential, or both.
 	Machine []string `json:"machine,omitempty"`
+	// Gateway is the shape of the product's gateway record, when the product
+	// has one: a second record beside the management one, reached at the
+	// identity's login provider for the API's own resource server. Absent
+	// for a product without a gateway, which has connect --gateway refused.
+	Gateway *GatewayDescriptor `json:"gateway,omitempty"`
+}
+
+// GatewayDescriptor is what a module declares about its product's gateway
+// record. It names no grant: a gateway validates tokens from the login
+// provider, so the record's session is always obtained there, and its
+// strategy follows from the identity as direct or sibling for a browser
+// identity and inline for a machine identity.
+type GatewayDescriptor struct {
+	// Audience is AudienceResource or AudienceClient, the kind of value the
+	// gateway record's audience is.
+	Audience string `json:"audience"`
+	// Scopes are the default scope set a gateway record carries. Normally
+	// empty: the permissions are the API's own, passed to connect.
+	Scopes []string `json:"scopes,omitempty"`
+	// Machine lists the strategies a client-credentials identity may use
+	// for the gateway record: MachineInline, MachineCredential, or both.
+	Machine []string `json:"machine,omitempty"`
+}
+
+// AllowsMachine reports whether a client-credentials identity may reach the
+// gateway by the named strategy.
+func (g GatewayDescriptor) AllowsMachine(strategy string) bool {
+	return slices.Contains(g.Machine, strategy)
 }
 
 // Issuer names the product's issuer for a connect URL.
@@ -132,6 +160,20 @@ func (d ProductDescriptor) validate() error {
 	}
 	if d.IssuerPath != "" && !strings.HasPrefix(d.IssuerPath, "/") {
 		return refuse(fmt.Sprintf("with an issuer path %q that does not start with /", d.IssuerPath))
+	}
+	if d.Gateway != nil {
+		if d.Gateway.Audience != AudienceResource && d.Gateway.Audience != AudienceClient {
+			return refuse(fmt.Sprintf("whose gateway block has an audience kind %q that is neither %s nor %s",
+				d.Gateway.Audience, AudienceResource, AudienceClient))
+		}
+		// A gateway is reached at the identity's login provider, so the
+		// only machine strategy it can have is the identity's own client.
+		for _, strategy := range d.Gateway.Machine {
+			if strategy != MachineInline {
+				return refuse(fmt.Sprintf("whose gateway block has a machine strategy %q this shell does not implement "+
+					"for a gateway, which is reached only from the identity's own client (%s)", strategy, MachineInline))
+			}
+		}
 	}
 	return nil
 }

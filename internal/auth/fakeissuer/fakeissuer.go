@@ -103,9 +103,10 @@ type Options struct {
 	// established this way reaches exactly one protected resource.
 	RequireResource bool
 	// RegisteredResource is the only protected resource this deployment knows,
-	// when it is set. A request naming any other is refused with invalid_target,
-	// modeling a resource server that was never registered — the same OAuth
-	// error as a request that named none, arriving for the opposite reason.
+	// when it is set. A request naming any other, at authorization or on the
+	// client-credentials grant, is refused with invalid_target, modeling a
+	// resource server that was never registered — the same OAuth error as a
+	// request that named none, arriving for the opposite reason.
 	RegisteredResource string
 	// RotateRefreshTokens issues a new refresh token on every refresh,
 	// invalidating the one presented.
@@ -540,6 +541,15 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		refusal := url.Values{
 			"error":             {"invalid_target"},
 			"error_description": {"No resource parameter supplied and no default resource server is configured"},
+			"state":             {query.Get("state")},
+		}
+		http.Redirect(w, r, redirectURI+"?"+refusal.Encode(), http.StatusFound)
+	case i.opts.RegisteredResource != "" && query.Get("resource") != i.opts.RegisteredResource:
+		// A resource server the deployment never registered, refused the
+		// same way and for the opposite reason.
+		refusal := url.Values{
+			"error":             {"invalid_target"},
+			"error_description": {"The requested resource is not registered"},
 			"state":             {query.Get("state")},
 		}
 		http.Redirect(w, r, redirectURI+"?"+refusal.Encode(), http.StatusFound)

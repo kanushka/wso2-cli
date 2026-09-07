@@ -22,6 +22,8 @@ import (
 	"strings"
 	"testing"
 
+	keyring "github.com/zalando/go-keyring"
+
 	"github.com/wso2/wso2-cli/internal/app"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/exit"
@@ -36,8 +38,9 @@ const (
 )
 
 // installConnectModules installs the three modules the connect tests run
-// against: iam, a login provider; apim, reached by a federated grant; and
-// reference, which declares no product descriptor at all.
+// against: iam, a login provider; apim, reached by a federated grant and
+// carrying a gateway shape; and reference, which declares no product
+// descriptor at all.
 func installConnectModules(t *testing.T, shell app.Shell) {
 	t.Helper()
 	installFixture(t, shell, fixture.Module{Namespace: "iam", Version: "0.1.0",
@@ -48,17 +51,24 @@ func installConnectModules(t *testing.T, shell app.Shell) {
 			Scopes: []string{"system"}, Machine: []string{modules.MachineInline},
 		}})
 	installFixture(t, shell, fixture.Module{Namespace: "apim", Version: "0.1.0",
-		AuthAudiences: []string{"apim-publisher"}, AuthScopes: []string{"apim:api_view", "apim:admin"},
+		AuthAudiences: []string{"apim-publisher", "apim-gateway"}, AuthScopes: []string{"apim:api_view", "apim:admin"},
 		Product: &modules.ProductDescriptor{
 			IssuerPath: "/oauth2/token", Audience: modules.AudienceClient,
 			Scopes: []string{"apim:api_view", "apim:admin"}, Grant: contexts.GrantFederated,
 			Machine: []string{modules.MachineCredential},
+			// The gateway record: the API's own resource server at the login
+			// provider, reachable from a machine client as well.
+			Gateway: &modules.GatewayDescriptor{Audience: modules.AudienceResource,
+				Machine: []string{modules.MachineInline}},
 		}})
 	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
 }
 
 func newConnectShell(t *testing.T) (app.Shell, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
+	// connect --gateway reads the secure store to word its next line, so
+	// the store is the mocked one rather than the developer's own.
+	keyring.MockInit()
 	t.Setenv("WSO2_CONTEXT", "")
 	shell, out, errOut := newShell(t)
 	installConnectModules(t, shell)

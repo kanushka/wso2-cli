@@ -224,8 +224,10 @@ func TestAContextRecordsNoCredentialValue(t *testing.T) {
 	}
 	// grant says where a product's access is derived and which public client
 	// asks for it: an issuer, a client identifier and scope names, no secret.
-	allowedProduct := []string{"endpoint", "audience", "scopes", "grant", "clientIdVariable", "clientSecretVariable"}
+	// gateway is a second location with its own audience and scope names.
+	allowedProduct := []string{"endpoint", "audience", "scopes", "grant", "clientIdVariable", "clientSecretVariable", "gateway"}
 	allowedGrant := []string{"kind", "issuer", "clientId", "scopes", "resource"}
+	allowedGateway := []string{"endpoint", "audience", "scopes"}
 
 	if got := jsonMembers(t, contexts.Context{}); !slices.Equal(got, allowedContext) {
 		t.Errorf("a context records %v; it may record only %v", got, allowedContext)
@@ -241,6 +243,9 @@ func TestAContextRecordsNoCredentialValue(t *testing.T) {
 	}
 	if got := jsonMembers(t, contexts.Grant{}); !slices.Equal(got, allowedGrant) {
 		t.Errorf("a product grant records %v; it may record only %v", got, allowedGrant)
+	}
+	if got := jsonMembers(t, contexts.Gateway{}); !slices.Equal(got, allowedGateway) {
+		t.Errorf("a product gateway records %v; it may record only %v", got, allowedGateway)
 	}
 }
 
@@ -505,4 +510,34 @@ func jsonMembers(t *testing.T, value any) []string {
 		members = append(members, tag)
 	}
 	return members
+}
+
+func TestAProductWithoutAGatewayDecodesAsBefore(t *testing.T) {
+	// A document written before the gateway record existed carries no
+	// gateway member, and one written after may carry one; both decode.
+	document, err := contexts.Decode([]byte(validV2()))
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for namespace, product := range document.Identities[0].Products {
+		if product.Gateway != nil {
+			t.Fatalf("product %q decoded a gateway nothing wrote: %+v", namespace, product.Gateway)
+		}
+	}
+	withGateway := strings.Replace(validV2(), `"endpoint": "https://api.example.test"`,
+		`"endpoint": "https://api.example.test", "gateway": {"endpoint": "https://gw.acme.example", "audience": "https://gw.acme.example/orders", "scopes": ["orders:read"]}`, 1)
+	document, err = contexts.Decode([]byte(withGateway))
+	if err != nil {
+		t.Fatalf("decode with gateway: %v", err)
+	}
+	var found *contexts.Gateway
+	for _, product := range document.Identities[0].Products {
+		if product.Gateway != nil {
+			found = product.Gateway
+		}
+	}
+	if found == nil || found.Endpoint != "https://gw.acme.example" || found.Audience != "https://gw.acme.example/orders" ||
+		len(found.Scopes) != 1 || found.Scopes[0] != "orders:read" {
+		t.Fatalf("gateway not decoded: %+v", found)
+	}
 }

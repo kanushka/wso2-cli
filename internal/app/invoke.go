@@ -61,6 +61,16 @@ func productStrategy(identity contexts.Identity, namespace string) string {
 	return ""
 }
 
+// gatewayEndpoint is where the product's gateway is, when the identity
+// records one, and empty otherwise. A location, never a permission: the
+// module asks the broker for the gateway record before calling it.
+func gatewayEndpoint(identity contexts.Identity, namespace string) string {
+	if gateway := identity.Products[namespace].Gateway; gateway != nil {
+		return gateway.Endpoint
+	}
+	return ""
+}
+
 // invokeModule runs one product command in the resolved module and renders its
 // outcome.
 //
@@ -169,9 +179,10 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 		Arguments:  arguments,
 		OutputMode: contractOutputMode(mode),
 		Context: rpc.InvocationContext{
-			Name:           selection.Context.Name,
-			OrganizationID: selection.Context.Organization,
-			Endpoint:       selection.Identity.Products[namespace].Endpoint,
+			Name:            selection.Context.Name,
+			OrganizationID:  selection.Context.Organization,
+			Endpoint:        selection.Identity.Products[namespace].Endpoint,
+			GatewayEndpoint: gatewayEndpoint(selection.Identity, namespace),
 		},
 		Interactive: false,
 	})
@@ -207,9 +218,11 @@ func (s Shell) sessionEstablisher(selection contexts.Selection, namespace string
 		if control := s.nonInteractiveControl(noInput); control != "" {
 			return auth.BrowserUnavailable{Control: control}
 		}
+		// Named by the access's own key, so a gateway record is announced
+		// as apim/gateway rather than as the product whose session exists.
 		if _, err := fmt.Fprintf(s.Streams.Err,
 			"The %q product needs to be authorized. Opening the browser to authorize it at %s.\n",
-			namespace, access.Issuer); err != nil {
+			access.Namespace, access.Issuer); err != nil {
 			return err
 		}
 		_, err := s.establishProduct(selection, access)

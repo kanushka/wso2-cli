@@ -78,7 +78,7 @@ described commands or schemas are currently available.
   connect` and `wso2 apim connect` record the two products, the public client
   API Manager needs is registered by hand, one `wso2 login` serves both, and a
   mock API is registered, published and called through the gateway. It says
-  which steps were measured and which still need a second identity.
+  what each step was measured to cost, gateway included.
 - [Building a product module](guides/building-product-modules.md) shows a
   product team how to add an independently released module, use the SDK and
   authentication broker, test it, and release it through the generated catalog.

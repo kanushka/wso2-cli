@@ -62,6 +62,10 @@ type Context struct {
 	// Endpoint is the product service the context targets. It says where to
 	// call, never that the module may: access still comes from the broker.
 	Endpoint string
+	// GatewayEndpoint is the product's gateway, when the selected identity
+	// records one beside the product; empty otherwise. A handler calls it
+	// with access acquired for RecordGateway.
+	GatewayEndpoint string
 }
 
 // Request is one command invocation as the shell described it.
@@ -250,9 +254,10 @@ func runCommand(
 		Arguments:    invoke.GetArguments(),
 		OutputMode:   protocol.DecodeOutputMode(invoke.GetOutputMode()),
 		Context: Context{
-			Name:           invoke.GetContext().GetName(),
-			OrganizationID: invoke.GetContext().GetOrganizationId(),
-			Endpoint:       invoke.GetContext().GetEndpoint(),
+			Name:            invoke.GetContext().GetName(),
+			OrganizationID:  invoke.GetContext().GetOrganizationId(),
+			Endpoint:        invoke.GetContext().GetEndpoint(),
+			GatewayEndpoint: invoke.GetContext().GetGatewayEndpoint(),
 		},
 		Access: broker,
 	}
