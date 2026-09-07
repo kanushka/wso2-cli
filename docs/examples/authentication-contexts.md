@@ -130,6 +130,12 @@ namespaceContexts:              # optional per-product bindings
   <namespace>: <context name>
 ```
 
+`namespaceContexts` is target behaviour, not shipped behaviour: it is
+recorded in [architecture](../architecture.md) section 4.7, deferred in
+[login walkthroughs](login-walkthroughs.md), and the shell does not read it
+yet. Where this document routes a namespace to a context with it, today's
+shell needs `--context` or `WSO2_CONTEXT`.
+
 Notes:
 
 - `type` selects **defaults, not structure**. There is no `cloud:` block and no

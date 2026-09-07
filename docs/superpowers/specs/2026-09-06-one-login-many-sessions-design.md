@@ -234,8 +234,11 @@ failure recorded in the gap analysis.
   identity as healthy without a session, and `logout` exits 0.
 - `wso2 org use` is refused on a provider without organization switch,
   naming the provider, rather than accepted and then breaking every call.
-- `--context` is needed only when several identities exist;
-  `namespaceContexts` keeps working for the mixed estate.
+- `--context` is needed only when several identities exist. The mixed
+  estate is served by `--context` and `WSO2_CONTEXT`, not by
+  `namespaceContexts`: that map is recorded as target behaviour in
+  `docs/architecture.md` section 4.7 and deferred in
+  `docs/examples/login-walkthroughs.md`, and the shell has never read it.
 
 ## 8. Machines: CI and headless hosts
 
