@@ -128,12 +128,46 @@ func TestAGrantProductIsAnsweredFromTheSessionAtItsOwnIssuer(t *testing.T) {
 	}
 }
 
-func TestATargetThatIssuesOtherScopesThanAskedIsRefused(t *testing.T) {
+func TestATargetThatIssuesNoneOfTheScopesAskedSaysTheUserIsNotAuthorized(t *testing.T) {
 	deployment := seedDerivedDeployment(t, fakeissuer.Options{}, fakeissuer.Options{BearerScopeMode: "default"})
 	_, err := deployment.broker(t).Acquire(declaredRequest())
 	assertDenialCode(t, err, "auth.narrowing_unavailable")
-	if !strings.Contains(err.Error(), "default") {
+	if !strings.Contains(err.Error(), "not authorized for the product") {
+		t.Fatalf("the refusal does not say the user is not authorized: %v", err)
+	}
+	var denial auth.Denial
+	if !errors.As(err, &denial) {
+		t.Fatalf("the refusal is not a denial: %v", err)
+	}
+	// Both causes reach this state and the shell cannot tell them apart here,
+	// so the recovery has to name both: the role the user may not hold, and
+	// the assertion scopes that decide what the assertion carries to say so.
+	if !strings.Contains(denial.Problem.Recovery, deployment.target.URL) {
+		t.Fatalf("the recovery does not name the issuer to ask: %q", denial.Problem.Recovery)
+	}
+	if !strings.Contains(denial.Problem.Recovery, "--grant-scopes") {
+		t.Fatalf("the recovery does not name the assertion scopes: %q", denial.Problem.Recovery)
+	}
+	if strings.Contains(denial.Problem.Recovery, "API resource registration") {
+		t.Fatalf("the recovery still points at the deployment's registration: %q", denial.Problem.Recovery)
+	}
+}
+
+// A deployment that grants some of what was asked for is a different fault
+// from one that grants none: the user holds a role, it just does not carry
+// everything. That keeps the registration-shaped refusal, which is the true
+// one for it.
+func TestATargetThatIssuesSomeOfTheScopesAskedIsRefusedAsANarrowing(t *testing.T) {
+	deployment := seedDerivedDeployment(t, fakeissuer.Options{}, fakeissuer.Options{BearerScopeMode: "partial"})
+	_, err := deployment.broker(t).Acquire(auth.Request{
+		Audience: audience, Scopes: []string{readScope, writeScope},
+	})
+	assertDenialCode(t, err, "auth.narrowing_unavailable")
+	if !strings.Contains(err.Error(), "the deployment issued") {
 		t.Fatalf("the refusal does not say what was issued: %v", err)
+	}
+	if strings.Contains(err.Error(), "not authorized for the product") {
+		t.Fatalf("a partial grant was reported as the user not being authorized: %v", err)
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -110,9 +111,53 @@ func (s assertionSource) derive(ctx context.Context, request Request, now time.T
 	// second thing to rotate, revoke and lose.
 	facts, err := issued.verify(request, s.session.namespace, s.session.audience)
 	if err != nil {
-		return Grant{}, err
+		return Grant{}, s.orNotAuthorized(issued, request, err)
 	}
 	return Grant{Token: issued.AccessToken, ExpiresAt: issued.expiry(facts, now)}, nil
+}
+
+// orNotAuthorized replaces a narrowing refusal with the reason behind it when
+// the product's issuer granted none of the permissions asked for.
+//
+// The generic refusal names both scope sets and sends the reader to the
+// deployment's API resource registration, which is the right answer when the
+// issuer granted some of what was asked and not the rest: a role exists and
+// does not carry everything. It is the wrong answer when the issuer granted
+// nothing, because the registration is then usually fine and one of two other
+// things is wrong, and the shell cannot tell which from here. Either the user
+// holds no role carrying the permissions, or the assertion reached the issuer
+// without the claim it maps roles from — which is decided by the grant's own
+// assertion scopes on the product record, several commands away from the one
+// that failed. Naming only the first would send an administrator hunting a
+// role the user already has; naming both is the honest answer, and matches
+// what the federated path says when its issuer signs a user in and grants
+// nothing.
+func (s assertionSource) orNotAuthorized(issued tokenResponse, request Request, refusal error) error {
+	granted := strings.Fields(issued.Scope)
+	if len(granted) == 0 {
+		// The issuer stated nothing; the token's own claim answers for it,
+		// exactly as it does for verify. An unreadable token is not this
+		// case, and keeps the refusal verify already made.
+		facts, err := bearerClaims(issued.AccessToken)
+		if err != nil {
+			return refusal
+		}
+		granted = facts.Scopes
+	}
+	for _, scope := range granted {
+		if slices.Contains(request.Scopes, scope) {
+			return refusal
+		}
+	}
+	return denial("auth.narrowing_unavailable",
+		fmt.Sprintf("the %q product's issuer accepted this login's assertion but issued none of the "+
+			"permissions the module asked for (%s), so the user is not authorized for the product",
+			s.session.namespace, scopeList(request.Scopes)),
+		fmt.Sprintf("Ask an administrator of %s to map this user's groups to a role that carries %s. "+
+			"If the user already holds one, this product's record may not request the claim that "+
+			"issuer maps roles from: set the grant's assertion scopes with wso2 identity add-product "+
+			"--replace --grant-scopes, then run wso2 login --only %s.",
+			s.grant.Issuer, scopeList(request.Scopes), s.session.namespace))
 }
 
 // refusedGrant reads why the product's issuer did not take the assertion, in

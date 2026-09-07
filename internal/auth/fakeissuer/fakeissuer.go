@@ -228,8 +228,10 @@ type Options struct {
 	BearerAlias string
 	// BearerScopeMode decides what the JWT bearer grant issues: "" or "honor"
 	// issues what was asked; "default" issues the single scope "default", as
-	// a deployment does for a user it maps no role for; "refuse" answers
-	// invalid_grant, as one that does not accept the assertion.
+	// a deployment does for a user it maps no role for; "partial" issues all
+	// but the last scope asked for, as one does for a user whose role carries
+	// some of them; "refuse" answers invalid_grant, as one that does not
+	// accept the assertion.
 	BearerScopeMode string
 }
 
@@ -619,8 +621,11 @@ func (i *Issuer) bearerGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	issued := splitScopes(r.PostForm.Get("scope"))
-	if i.opts.BearerScopeMode == "default" {
+	switch {
+	case i.opts.BearerScopeMode == "default":
 		issued = []string{"default"}
+	case i.opts.BearerScopeMode == "partial" && len(issued) > 1:
+		issued = issued[:len(issued)-1]
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"access_token":  i.mintAccessTokenFor("user-1", issued, ""),
