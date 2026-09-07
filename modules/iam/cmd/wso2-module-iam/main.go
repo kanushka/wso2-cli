@@ -83,7 +83,7 @@ func commands() *cobratree.Tree {
 	resourceServers, resourceServersListCommand, resourceServersCreateCommand, resourceServerFlags := resourceServerCommands()
 	users, usersListCommand, usersCreateCommand, userFlags := userCommands()
 	apps, appsListCommand, appsCreateCommand, appFlags := appCommands()
-	roles, rolesListCommand, rolesCreateCommand, roleFlags := roleCommands()
+	roles, rolesListCommand, rolesCreateCommand, roleFlags, rolesAssignCommand, roleAssignFlags := roleCommands()
 	root.AddCommand(statusCommand, bootstrapCommand, resourceServers, users, apps, roles)
 	return cobratree.New(root).
 		Handle(statusCommand, status).
@@ -95,11 +95,12 @@ func commands() *cobratree.Tree {
 		Handle(appsListCommand, appsList).
 		Handle(appsCreateCommand, appsCreate(appsCreateCommand, appFlags)).
 		Handle(rolesListCommand, rolesList).
-		Handle(rolesCreateCommand, rolesCreate(rolesCreateCommand, roleFlags))
+		Handle(rolesCreateCommand, rolesCreate(rolesCreateCommand, roleFlags)).
+		Handle(rolesAssignCommand, rolesAssign(rolesAssignCommand, roleAssignFlags))
 }
 
 func status(ctx context.Context, request module.Request) (result.Result, error) {
-	next := "Run wso2 iam bootstrap --url <issuer> once, then the wso2 identity create line it prints."
+	next := "Run wso2 iam bootstrap --url <issuer> once, then the wso2 iam connect line it prints, then wso2 login."
 	if request.Context.Endpoint != "" {
 		next = "Run wso2 iam resource-servers list to see what this deployment serves."
 	}

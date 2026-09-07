@@ -42,13 +42,16 @@ type fakeManagement struct {
 	apps    []map[string]any
 	users   []map[string]any
 	roles   []map[string]any
-	posts   []string // "path body"
-	seq     int
+	// assignments is what each role has been assigned, by role id, in the
+	// order it was added; a role created with assignments starts with them.
+	assignments map[string][]map[string]any
+	posts       []string // "path body"
+	seq         int
 }
 
 func newFakeManagement(t *testing.T) *fakeManagement {
 	t.Helper()
-	fake := &fakeManagement{res: map[string][]map[string]any{}}
+	fake := &fakeManagement{res: map[string][]map[string]any{}, assignments: map[string][]map[string]any{}}
 	id := func() string { fake.seq++; return fmt.Sprintf("id-%d", fake.seq) }
 	list := func(w http.ResponseWriter, key string, items []map[string]any) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"totalResults": len(items), key: items})
@@ -121,10 +124,35 @@ func newFakeManagement(t *testing.T) *fakeManagement {
 		body := read(r)
 		body["id"] = id()
 		fake.roles = append(fake.roles, body)
+		initial, _ := body["assignments"].([]any)
+		for _, item := range initial {
+			assignment, _ := item.(map[string]any)
+			fake.assignments[body["id"].(string)] = append(fake.assignments[body["id"].(string)], assignment)
+		}
 		_ = json.NewEncoder(w).Encode(body)
 	}))
+	mux.HandleFunc("GET /roles/{id}/assignments", guard(func(w http.ResponseWriter, r *http.Request) {
+		// Paged as the deployment pages: totalResults for the whole set, a
+		// count for the page, and the page itself.
+		all := fake.assignments[r.PathValue("id")]
+		offset, limit := 0, 30
+		fmt.Sscan(r.URL.Query().Get("offset"), &offset)
+		fmt.Sscan(r.URL.Query().Get("limit"), &limit)
+		page := []map[string]any{}
+		if offset < len(all) {
+			page = all[offset:min(offset+limit, len(all))]
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"totalResults": len(all), "startIndex": offset + 1, "count": len(page), "assignments": page,
+		})
+	}))
 	mux.HandleFunc("POST /roles/{id}/assignments/add", guard(func(w http.ResponseWriter, r *http.Request) {
-		read(r)
+		body := read(r)
+		added, _ := body["assignments"].([]any)
+		for _, item := range added {
+			assignment, _ := item.(map[string]any)
+			fake.assignments[r.PathValue("id")] = append(fake.assignments[r.PathValue("id")], assignment)
+		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	fake.server = httptest.NewServer(mux)
@@ -323,6 +351,60 @@ func TestRoleCreateResolvesNamesAndAssignsAppsSeparately(t *testing.T) {
 	missing := fake.run(t, []string{"roles", "create"}, "Other", "--resource-server", "Nope", "--permission", "x")
 	if missing.Problem == nil || missing.Problem.Code != "iam.not_found" || !strings.Contains(missing.Problem.Message, `"Nope"`) {
 		t.Errorf("unknown server: %+v", missing.Problem)
+	}
+}
+
+// wso2 iam roles assign adds users and apps to a role that exists, by name,
+// and reports what it added apart from what was already there. Run again it
+// posts nothing: an assignment is not an error to repeat.
+func TestRoleAssignResolvesNamesAndIsIdempotent(t *testing.T) {
+	fake := newFakeManagement(t)
+	t.Setenv("WSO2_IAM_USER_PASSWORD", "Cli@12345")
+	fake.run(t, []string{"resource-servers", "create"}, "Mock API", "--identifier", "http://x/mock", "--permission", "orders:read")
+	fake.run(t, []string{"users", "create"}, "cliuser", "--email", "c@x")
+	fake.run(t, []string{"users", "create"}, "newuser", "--email", "n@x")
+	fake.run(t, []string{"apps", "create"}, "wso2-cli-ci", "--type", "m2m")
+	fake.run(t, []string{"roles", "create"}, "Mock API Caller", "--resource-server", "Mock API",
+		"--permission", "orders:read", "--assign-user", "cliuser")
+
+	outcome := fake.run(t, []string{"roles", "assign"}, "Mock API Caller",
+		"--user", "newuser", "--user", "cliuser", "--app", "wso2-cli-ci")
+	if outcome.Problem != nil {
+		t.Fatalf("%+v", outcome.Problem)
+	}
+	posted := fake.postsTo("/roles/id-7/assignments/add")
+	if len(posted) != 1 || !strings.Contains(posted[0], `{"id":"id-5","type":"user"}`) ||
+		!strings.Contains(posted[0], `{"id":"id-6","type":"app"}`) || strings.Contains(posted[0], `"id-4"`) {
+		t.Errorf("assignment posts = %v; want the new user and the app, and not the user already assigned", posted)
+	}
+	fields := fieldsOf(outcome)
+	if fields["assigned"] != "user newuser, app wso2-cli-ci" || fields["already"] != "user cliuser" ||
+		fields["name"] != "Mock API Caller" || !strings.Contains(fields["next"], "wso2 login") {
+		t.Errorf("fields = %+v", fields)
+	}
+
+	again := fake.run(t, []string{"roles", "assign"}, "Mock API Caller", "--user", "newuser", "--app", "wso2-cli-ci")
+	if again.Problem != nil {
+		t.Fatalf("%+v", again.Problem)
+	}
+	if adds := fake.postsTo("/roles/id-7/assignments/add"); len(adds) != 1 {
+		t.Errorf("a repeated assign posted again: %v", adds)
+	}
+	if fields := fieldsOf(again); fields["assigned"] != "(none)" || fields["already"] != "user newuser, app wso2-cli-ci" {
+		t.Errorf("repeated fields = %+v", fields)
+	}
+
+	unknownRole := fake.run(t, []string{"roles", "assign"}, "Nope", "--user", "newuser")
+	if unknownRole.Problem == nil || unknownRole.Problem.Code != "iam.not_found" || !strings.Contains(unknownRole.Problem.Message, `"Nope"`) {
+		t.Errorf("unknown role: %+v", unknownRole.Problem)
+	}
+	unknownUser := fake.run(t, []string{"roles", "assign"}, "Mock API Caller", "--user", "ghost")
+	if unknownUser.Problem == nil || unknownUser.Problem.Code != "iam.not_found" || !strings.Contains(unknownUser.Problem.Message, `"ghost"`) {
+		t.Errorf("unknown user: %+v", unknownUser.Problem)
+	}
+	nobody := fake.run(t, []string{"roles", "assign"}, "Mock API Caller")
+	if nobody.Problem == nil || nobody.Problem.Code != "iam.missing_flag" {
+		t.Errorf("no assignee: %+v", nobody.Problem)
 	}
 }
 
