@@ -23,6 +23,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -70,11 +71,22 @@ type fakeAPIM struct {
 	// listLag hides every API from this many listings, as the search index does
 	// for a few seconds after a creation.
 	listLag int
+	// What bootstrap --login-provider writes through the identity
+	// administration services, keyed the way each service looks them up:
+	// registered clients by name, OAuth applications by consumer key,
+	// identity providers by name (the identityProvider fragment as sent),
+	// service providers by application name (the serviceProvider fragment).
+	dcr       map[string]map[string]any
+	oauthApps map[string]map[string]string
+	idps      map[string]string
+	sps       map[string]string
 }
 
 func newFakeAPIM(t *testing.T) *fakeAPIM {
 	t.Helper()
-	fake := &fakeAPIM{deployments: map[string][]map[string]any{}, keys: map[string][]map[string]any{}}
+	fake := &fakeAPIM{deployments: map[string][]map[string]any{}, keys: map[string][]map[string]any{},
+		dcr: map[string]map[string]any{}, oauthApps: map[string]map[string]string{},
+		idps: map[string]string{}, sps: map[string]string{}}
 	id := func() string { fake.seq++; return fmt.Sprintf("id-%d", fake.seq) }
 	record := func(r *http.Request) map[string]any {
 		raw, _ := io.ReadAll(r.Body)
@@ -273,7 +285,8 @@ func newFakeAPIM(t *testing.T) *fakeAPIM {
 				return
 			}
 		}
-		http.Error(w, `{"code":404}`, http.StatusNotFound)
+		// 4.7.0 answers an unknown client name with 401, not 404.
+		http.Error(w, `{"code":401}`, http.StatusUnauthorized)
 	}))
 	mux.HandleFunc("POST /api/am/admin/v4/key-managers", bearer(func(w http.ResponseWriter, r *http.Request) {
 		body := record(r)
@@ -285,6 +298,141 @@ func newFakeAPIM(t *testing.T) *fakeAPIM {
 		fake.kms = append(fake.kms, body)
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(body)
+	}))
+	// The identity administration: dynamic client registration and the three
+	// SOAP services, each under the administrator's basic credentials.
+	basic := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			fake.mu.Lock()
+			defer fake.mu.Unlock()
+			user, password, _ := r.BasicAuth()
+			if user != "admin" || password != "admin" {
+				fake.requests = append(fake.requests, r.Method+" "+r.URL.RequestURI()+" (unauthorized)")
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			next(w, r)
+		}
+	}
+	mux.HandleFunc("GET /api/identity/oauth2/dcr/v1.1/register", basic(func(w http.ResponseWriter, r *http.Request) {
+		record(r)
+		client, ok := fake.dcr[r.URL.Query().Get("client_name")]
+		if !ok {
+			http.Error(w, `{"error":"invalid_client_metadata","error_description":"Application not available"}`, http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(client)
+	}))
+	mux.HandleFunc("POST /api/identity/oauth2/dcr/v1.1/register", basic(func(w http.ResponseWriter, r *http.Request) {
+		body := record(r)
+		name, _ := body["client_name"].(string)
+		if _, exists := fake.dcr[name]; exists {
+			http.Error(w, `{"error":"invalid_client_metadata","error_description":"Application with the name `+name+` already exist"}`, http.StatusBadRequest)
+			return
+		}
+		var callbacks []string
+		if uris, ok := body["redirect_uris"].([]any); ok {
+			for _, uri := range uris {
+				callbacks = append(callbacks, uri.(string))
+			}
+		}
+		var grants []string
+		if types, ok := body["grant_types"].([]any); ok {
+			for _, grant := range types {
+				grants = append(grants, grant.(string))
+			}
+		}
+		key := "sso-" + fmt.Sprint(len(fake.dcr)+1)
+		client := map[string]any{"client_id": key, "client_secret": key + "-secret", "client_name": name,
+			"redirect_uris": []string{"regexp=(" + strings.Join(callbacks, "|") + ")"}, "grant_types": grants}
+		fake.dcr[name] = client
+		fake.oauthApps[key] = map[string]string{"applicationName": name, "bypassClientCredentials": "false",
+			"callbackUrl": "regexp=(" + strings.Join(callbacks, "|") + ")", "grantTypes": strings.Join(grants, " "),
+			"oauthConsumerKey": key, "oauthConsumerSecret": key + "-secret", "pkceMandatory": "false",
+			"pkceSupportPlain": "false", "tokenType": "Default", "username": "admin@carbon.super"}
+		fake.sps[name] = fmt.Sprintf(recordedServiceProvider, name, key)
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(client)
+	}))
+	mux.HandleFunc("POST /services/{service}", basic(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		body := string(raw)
+		action := strings.Trim(strings.TrimPrefix(r.Header.Get("SOAPAction"), "urn:"), `"`)
+		fake.requests = append(fake.requests, "POST "+r.URL.Path+" "+action+" "+body)
+		w.Header().Set("Content-Type", "text/xml;charset=UTF-8")
+		fault := func(message string) {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`<?xml version='1.0' encoding='UTF-8'?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body><soapenv:Fault><faultcode>soapenv:Server</faultcode><faultstring>` + message + `</faultstring></soapenv:Fault></soapenv:Body></soapenv:Envelope>`))
+		}
+		nilReturn := func(response, namespace string) {
+			_, _ = w.Write([]byte(`<?xml version='1.0' encoding='UTF-8'?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body><ns:` + response + ` xmlns:ns="` + namespace + `"><ns:return xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:nil="true"/></ns:` + response + `></soapenv:Body></soapenv:Envelope>`))
+		}
+		switch r.PathValue("service") + " " + action {
+		case "OAuthAdminService getOAuthApplicationData":
+			app, ok := fake.oauthApps[xmlText(body, "consumerKey")]
+			if !ok {
+				fault("Error while retrieving the app information")
+				return
+			}
+			_, _ = w.Write([]byte(fmt.Sprintf(recordedOAuthApplication, app["applicationName"], app["bypassClientCredentials"],
+				app["callbackUrl"], app["grantTypes"], app["oauthConsumerKey"], app["oauthConsumerSecret"],
+				app["pkceMandatory"], app["pkceSupportPlain"], app["tokenType"], app["username"])))
+		case "OAuthAdminService updateConsumerApplication":
+			app, ok := fake.oauthApps[xmlText(body, "oauthConsumerKey")]
+			if !ok {
+				fault("Error while updating the app information")
+				return
+			}
+			for field := range app {
+				if value := xmlText(body, field); value != "" {
+					app[field] = value
+				}
+			}
+			nilReturn("updateConsumerApplicationResponse", "http://org.apache.axis2/xsd")
+		case "IdentityProviderMgtService getIdPByName":
+			fragment, ok := fake.idps[xmlText(body, "idPName")]
+			if !ok {
+				nilReturn("getIdPByNameResponse", "http://mgt.idp.carbon.wso2.org")
+				return
+			}
+			_, _ = w.Write([]byte(`<?xml version='1.0' encoding='UTF-8'?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body><ns:getIdPByNameResponse xmlns:ns="http://mgt.idp.carbon.wso2.org"><ns:return xmlns:m="http://model.common.application.identity.carbon.wso2.org/xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="m:IdentityProvider">` +
+				fragment + `</ns:return></ns:getIdPByNameResponse></soapenv:Body></soapenv:Envelope>`))
+		case "IdentityProviderMgtService addIdP":
+			name := xmlText(body, "identityProviderName")
+			if _, exists := fake.idps[name]; exists {
+				fault("An Identity Provider has already been registered with the name " + name)
+				return
+			}
+			fake.idps[name] = xmlFragment(body, "identityProvider")
+			nilReturn("addIdPResponse", "http://mgt.idp.carbon.wso2.org")
+		case "IdentityProviderMgtService updateIdP":
+			old := xmlText(body, "oldIdPName")
+			if _, exists := fake.idps[old]; !exists {
+				fault("Identity Provider with name " + old + " does not exist")
+				return
+			}
+			delete(fake.idps, old)
+			fake.idps[xmlText(body, "identityProviderName")] = xmlFragment(body, "identityProvider")
+			nilReturn("updateIdPResponse", "http://mgt.idp.carbon.wso2.org")
+		case "IdentityApplicationManagementService getApplication":
+			fragment, ok := fake.sps[xmlText(body, "applicationName")]
+			if !ok {
+				nilReturn("getApplicationResponse", "http://org.apache.axis2/xsd")
+				return
+			}
+			_, _ = w.Write([]byte(`<?xml version='1.0' encoding='UTF-8'?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body><ns:getApplicationResponse xmlns:ns="http://org.apache.axis2/xsd"><ns:return xmlns:m="http://model.common.application.identity.carbon.wso2.org/xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="m:ServiceProvider">` +
+				fragment + `</ns:return></ns:getApplicationResponse></soapenv:Body></soapenv:Envelope>`))
+		case "IdentityApplicationManagementService updateApplication":
+			name := xmlText(body, "applicationName")
+			if _, exists := fake.sps[name]; !exists {
+				fault("Application with name " + name + " does not exist")
+				return
+			}
+			fake.sps[name] = xmlFragment(body, "serviceProvider")
+			nilReturn("updateApplicationResponse", "http://org.apache.axis2/xsd")
+		default:
+			fault("unknown operation " + action)
+		}
 	}))
 	// an issuer's discovery document, for key-managers add --well-known
 	mux.HandleFunc("GET /issuer/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
@@ -362,3 +510,39 @@ func scopesAsked(outcome testkit.Outcome) string {
 	}
 	return strings.Join(outcome.AccessRequests[0].Scopes, " ")
 }
+
+// xmlText is the text of the first element with that local name, whatever
+// its prefix; empty when there is none.
+func xmlText(body, name string) string {
+	match := regexp.MustCompile(`<(?:[\w.]+:)?` + name + `(?:\s[^>]*)?>([^<]*)</`).FindStringSubmatch(body)
+	if match == nil {
+		return ""
+	}
+	return match[1]
+}
+
+// xmlFragment is what sits between the opening and closing tags of the
+// first element with that local name.
+func xmlFragment(body, name string) string {
+	match := regexp.MustCompile(`(?s)<(?:[\w.]+:)?` + name + `>(.*)</(?:[\w.]+:)?` + name + `>`).FindStringSubmatch(body)
+	if match == nil {
+		return ""
+	}
+	return match[1]
+}
+
+// recordedOAuthApplication is what API Manager 4.7.0's OAuthAdminService
+// answers getOAuthApplicationData with, as recorded on 2026-09-06.
+const recordedOAuthApplication = `<?xml version='1.0' encoding='UTF-8'?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body><ns:getOAuthApplicationDataResponse xmlns:ns="http://org.apache.axis2/xsd"><ns:return xmlns:ax2389="http://oauth.identity.carbon.wso2.org/xsd" xmlns:ax2393="http://dto.oauth.identity.carbon.wso2.org/xsd" xmlns:ax2390="http://base.identity.carbon.wso2.org/xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="ax2393:OAuthConsumerAppDTO"><ax2393:OAuthVersion>OAuth-2.0</ax2393:OAuthVersion><ax2393:applicationAccessTokenExpiryTime>3600</ax2393:applicationAccessTokenExpiryTime><ax2393:applicationName>%s</ax2393:applicationName><ax2393:backChannelLogoutUrl xsi:nil="true"/><ax2393:bypassClientCredentials>%s</ax2393:bypassClientCredentials><ax2393:callbackUrl>%s</ax2393:callbackUrl><ax2393:frontchannelLogoutUrl xsi:nil="true"/><ax2393:grantTypes>%s</ax2393:grantTypes><ax2393:idTokenEncryptionAlgorithm>null</ax2393:idTokenEncryptionAlgorithm><ax2393:idTokenEncryptionEnabled>false</ax2393:idTokenEncryptionEnabled><ax2393:idTokenEncryptionMethod>null</ax2393:idTokenEncryptionMethod><ax2393:idTokenExpiryTime>3600</ax2393:idTokenExpiryTime><ax2393:oauthConsumerKey>%s</ax2393:oauthConsumerKey><ax2393:oauthConsumerSecret>%s</ax2393:oauthConsumerSecret><ax2393:pkceMandatory>%s</ax2393:pkceMandatory><ax2393:pkceSupportPlain>%s</ax2393:pkceSupportPlain><ax2393:refreshTokenExpiryTime>86400</ax2393:refreshTokenExpiryTime><ax2393:renewRefreshTokenEnabled xsi:nil="true"/><ax2393:requestObjectSignatureValidationEnabled>false</ax2393:requestObjectSignatureValidationEnabled><ax2393:secretDescription xsi:nil="true"/><ax2393:secretExpiryTime xsi:nil="true"/><ax2393:state>ACTIVE</ax2393:state><ax2393:tokenBindingType xsi:nil="true"/><ax2393:tokenBindingValidationEnabled>false</ax2393:tokenBindingValidationEnabled><ax2393:tokenRevocationWithIDPSessionTerminationEnabled>false</ax2393:tokenRevocationWithIDPSessionTerminationEnabled><ax2393:tokenType>%s</ax2393:tokenType><ax2393:userAccessTokenExpiryTime>3600</ax2393:userAccessTokenExpiryTime><ax2393:username>%s</ax2393:username></ns:return></ns:getOAuthApplicationDataResponse></soapenv:Body></soapenv:Envelope>`
+
+// recordedServiceProvider is the service provider dynamic client
+// registration leaves behind, as IdentityApplicationManagementService
+// getApplication returned it on 2026-09-06: local authentication, consent
+// asked. The name and the consumer key are filled in.
+const recordedServiceProvider = `<m:applicationID>97</m:applicationID><m:applicationName>%[1]s</m:applicationName><m:applicationResourceId>7b0c4a2e-0000-4000-8000-000000000097</m:applicationResourceId><m:certificateContent xsi:nil="true"/><m:claimConfig xsi:type="m:ClaimConfig"><m:alwaysSendMappedLocalSubjectId>false</m:alwaysSendMappedLocalSubjectId><m:localClaimDialect>true</m:localClaimDialect><m:roleClaimURI xsi:nil="true"/><m:userClaimURI xsi:nil="true"/></m:claimConfig><m:description>Service Provider for application %[1]s</m:description><m:discoverable>false</m:discoverable><m:inboundAuthenticationConfig xsi:type="m:InboundAuthenticationConfig"><m:inboundAuthenticationRequestConfigs xsi:type="m:InboundAuthenticationRequestConfig"><m:friendlyName xsi:nil="true"/><m:inboundAuthKey>%[2]s</m:inboundAuthKey><m:inboundAuthType>oauth2</m:inboundAuthType><m:inboundConfigType>standardAPP</m:inboundConfigType><m:inboundConfiguration xsi:nil="true"/><m:properties xsi:type="m:Property"><m:advanced>false</m:advanced><m:confidential>false</m:confidential><m:defaultValue xsi:nil="true"/><m:description xsi:nil="true"/><m:displayName xsi:nil="true"/><m:displayOrder>0</m:displayOrder><m:groupId>0</m:groupId><m:name>oauthConsumerSecret</m:name><m:required>false</m:required><m:type xsi:nil="true"/><m:value>%[2]s-secret</m:value></m:properties></m:inboundAuthenticationRequestConfigs></m:inboundAuthenticationConfig><m:inboundProvisioningConfig xsi:type="m:InboundProvisioningConfig"><m:dumbMode>false</m:dumbMode><m:provisioningEnabled>false</m:provisioningEnabled><m:provisioningUserStore xsi:nil="true"/></m:inboundProvisioningConfig><m:jwksUri></m:jwksUri><m:localAndOutBoundAuthenticationConfig xsi:type="m:LocalAndOutboundAuthenticationConfig"><m:alwaysSendBackAuthenticatedListOfIdPs>false</m:alwaysSendBackAuthenticatedListOfIdPs><m:authenticationScriptConfig xsi:nil="true"/><m:authenticationStepForAttributes xsi:nil="true"/><m:authenticationStepForSubject xsi:nil="true"/><m:authenticationType>default</m:authenticationType><m:enableAuthorization>false</m:enableAuthorization><m:skipConsent>false</m:skipConsent><m:skipLogoutConsent>false</m:skipLogoutConsent><m:subjectClaimUri xsi:nil="true"/><m:useTenantDomainInLocalSubjectIdentifier>false</m:useTenantDomainInLocalSubjectIdentifier><m:useUserstoreDomainInLocalSubjectIdentifier>false</m:useUserstoreDomainInLocalSubjectIdentifier><m:useUserstoreDomainInRoles>true</m:useUserstoreDomainInRoles></m:localAndOutBoundAuthenticationConfig><m:managementApp>false</m:managementApp><m:outboundProvisioningConfig xsi:type="m:OutboundProvisioningConfig"><m:provisionByRoleList xsi:nil="true"/></m:outboundProvisioningConfig><m:owner xsi:type="m:User"><m:loggableUserId>admin@carbon.super</m:loggableUserId><m:tenantDomain>carbon.super</m:tenantDomain><m:userName>admin</m:userName><m:userStoreDomain>PRIMARY</m:userStoreDomain></m:owner><m:permissionAndRoleConfig xsi:type="m:PermissionsAndRoleConfig"/><m:saasApp>false</m:saasApp><m:spProperties xsi:type="m:ServiceProviderProperty"><m:displayName>Is Management Application</m:displayName><m:name>isManagementApp</m:name><m:value>false</m:value></m:spProperties><m:spProperties xsi:type="m:ServiceProviderProperty"><m:displayName>Skip Consent</m:displayName><m:name>skipConsent</m:name><m:value>false</m:value></m:spProperties><m:templateId></m:templateId><m:tenantDomain>carbon.super</m:tenantDomain>`
+
+// recordedIdentityProvider is an identity provider registered before
+// bootstrap learned federation: JWT trust through jwksUri and the claim and
+// role mappings, no federated authenticator. It is what IdentityProviderMgtService
+// getIdPByName returned on 2026-09-06, the name filled in.
+const recordedIdentityProvider = `<m:alias>wso2-cli</m:alias><m:certificate xsi:nil="true"/><m:claimConfig xsi:type="m:ClaimConfig"><m:alwaysSendMappedLocalSubjectId>false</m:alwaysSendMappedLocalSubjectId><m:claimMappings xsi:type="m:ClaimMapping"><m:defaultValue xsi:nil="true"/><m:localClaim xsi:type="m:Claim"><m:claimId>0</m:claimId><m:claimUri>http://wso2.org/claims/role</m:claimUri></m:localClaim><m:mandatory>false</m:mandatory><m:remoteClaim xsi:type="m:Claim"><m:claimId>0</m:claimId><m:claimUri>groups</m:claimUri></m:remoteClaim><m:requested>false</m:requested></m:claimMappings><m:idpClaims xsi:type="m:Claim"><m:claimId>0</m:claimId><m:claimUri>groups</m:claimUri></m:idpClaims><m:localClaimDialect>false</m:localClaimDialect><m:roleClaimURI>groups</m:roleClaimURI><m:userClaimURI>sub</m:userClaimURI></m:claimConfig><m:displayName>%[1]s</m:displayName><m:enable>true</m:enable><m:federationHub>false</m:federationHub><m:homeRealmId xsi:nil="true"/><m:id>5</m:id><m:identityProviderDescription>ThunderID trusted for the CLI single login</m:identityProviderDescription><m:identityProviderName>%[1]s</m:identityProviderName><m:idpProperties xsi:type="m:IdentityProviderProperty"><m:displayName xsi:nil="true"/><m:name>jwksUri</m:name><m:value>http://host.docker.internal:8492/oauth2/jwks</m:value></m:idpProperties><m:idpProperties xsi:type="m:IdentityProviderProperty"><m:displayName xsi:nil="true"/><m:name>idpIssuerName</m:name><m:value>http://localhost:8492</m:value></m:idpProperties><m:justInTimeProvisioningConfig xsi:type="m:JustInTimeProvisioningConfig"><m:dumbMode>false</m:dumbMode><m:modifyUserNameAllowed>false</m:modifyUserNameAllowed><m:passwordProvisioningEnabled>false</m:passwordProvisioningEnabled><m:promptConsent>false</m:promptConsent><m:provisioningEnabled>false</m:provisioningEnabled><m:provisioningUserStore xsi:nil="true"/><m:userStoreClaimUri xsi:nil="true"/></m:justInTimeProvisioningConfig><m:permissionAndRoleConfig xsi:type="m:PermissionsAndRoleConfig"><m:idpRoles>Administrators</m:idpRoles><m:roleMappings xsi:type="m:RoleMapping"><m:localRole xsi:type="m:LocalRole"><m:localRoleName>admin</m:localRoleName><m:userStoreId xsi:nil="true"/></m:localRole><m:remoteRole>Administrators</m:remoteRole></m:roleMappings></m:permissionAndRoleConfig><m:primary>false</m:primary><m:provisioningRole xsi:nil="true"/>`

@@ -17,17 +17,18 @@ binds it by resource, with no default scopes, and lets a client-credentials
 identity mint it inline). One `wso2 login` establishes both sessions, and
 `whoami` reports the second as `apim/gateway`. Which client the management
 record needs depends on the identity. A browser identity
-needs a **public** client on API Manager federated to its login provider,
-registered by hand as
+needs a **public** client on API Manager federated to its login provider;
+`wso2 apim bootstrap --login-provider <issuer>` registers it, with the
+identity provider it federates through, as
 [the one-login guide](../../docs/guides/one-login-thunder-apim.md) section 3
-describes. `wso2 apim bootstrap` is the pipeline's route: it registers a
-**confidential** client on the resident key manager through dynamic client
-registration, once, with an administrator password the shell hands it
-through `WSO2_APIM_ADMIN_PASSWORD`, and prints the `connect` line that
-records it, with `--client-secret-variable`, on a client-credentials
-identity. Every other command runs under the identity's `apim` session,
-authorized for the scopes the product record holds; a command names none of
-its own.
+shows. Without `--login-provider`, `wso2 apim bootstrap` is the pipeline's
+route alone: it registers a **confidential** client on the resident key
+manager through dynamic client registration, once, with an administrator
+password the shell hands it through `WSO2_APIM_ADMIN_PASSWORD`, and prints
+the `connect` line that records it, with `--client-secret-variable`, on a
+client-credentials identity. Every other command runs under the identity's
+`apim` session, authorized for the scopes the product record holds; a
+command names none of its own.
 
 ```sh
 # From the repository root.
@@ -41,7 +42,7 @@ make install-module NAMESPACE=apim
 | Command | Scopes | What it does |
 | --- | --- | --- |
 | `wso2 apim status` | none | Version, endpoint, what to run first. |
-| `wso2 apim bootstrap --url <base>` | none | Registers the pipeline's confidential client (JWT token type), shows the secret once, and prints the `wso2 apim connect` line to run next on a client-credentials identity. That line names the variable to export, never the secret, and says that a browser identity needs the public federated client instead. |
+| `wso2 apim bootstrap --url <base> [--login-provider <issuer> --federation-client-id <id>]` | none | Registers the pipeline's confidential client (JWT token type), shows the secret once, and prints the `wso2 apim connect` line to run next on a client-credentials identity; that line names the variable to export, never the secret. With `--login-provider` it also registers, through dynamic client registration and the `OAuthAdminService`, `IdentityProviderMgtService` and `IdentityApplicationManagementService` admin services, the identity provider for that login provider (OpenID Connect authenticator for the federation client `wso2 iam apps create <id> --type federation` made, whose secret is read from `WSO2_APIM_FEDERATION_CLIENT_SECRET`; token and userinfo endpoints at `--login-provider-internal-url`; `groups` and `email` claim mappings; `--map-group <group>=<role>` role mappings, `Administrators=admin` by default; silent just-in-time provisioning) and the public client `wso2-cli-sso` (`--public-client-name`; four loopback callbacks, public, PKCE S256, JWT, one federated step through that identity provider, consent skipped). Each is read first and written only when the read differs (the pipeline client is registered by name every run, which API Manager answers with the one it holds); the rows say `(created)` or `(present)`, and the next line is the `wso2 apim connect <base> --client-id <public client id>` to run. Missing `--federation-client-id` or the secret is refused with `apim.missing_flag` naming the `iam apps create` line. |
 | `wso2 apim apis list \| import --file <openapi> --name --version --api-context --backend \| deploy <name/version> \| publish <name/version>` | `apim:api_view`, `apim:api_create`, `apim:api_publish` | Create from OpenAPI, deploy a revision and wait until the gateway has it, publish. |
 | `wso2 apim apps list \| create <name> \| subscribe <app> <name/version> \| keys <app> \| map-keys <app> --key-manager <km> --client-id <id>` | `apim:subscribe`, `apim:app_manage` | Applications, subscriptions, keys on the resident key manager (verified with one token request), and out-of-band keys from another issuer. `map-keys` is idempotent for the application that holds the mapping; a client already mapped onto another application is refused with `apim.client_mapped_elsewhere`, since the gateway checks the subscription on the application that holds the mapping. |
 | `wso2 apim key-managers list \| add <name> --well-known <issuer> [--jwks <url>]` | `apim:admin` | Register an external issuer as a custom key manager whose JWTs the gateway validates. |
