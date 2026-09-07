@@ -40,7 +40,7 @@ const Namespace = "apim"
 
 // PublisherAudience is the logical audience this module asks the shell for.
 // On API Manager the concrete audience is the registered client's id, which
-// bootstrap prints into the identity create line.
+// connect records from its --client-id.
 const PublisherAudience = "apim-publisher"
 
 // The scopes API Manager's REST APIs require. The module declares them
@@ -112,7 +112,9 @@ func commands() *cobratree.Tree {
 }
 
 func status(ctx context.Context, request module.Request) (result.Result, error) {
-	next := "Run wso2 apim bootstrap --url <base> once, then the wso2 identity create line it prints."
+	next := "Run wso2 apim connect <base> --client-id <id> on the logged-in identity, with the public " +
+		"client API Manager holds for this CLI, federated to the login provider; a pipeline runs " +
+		"wso2 apim bootstrap --url <base> once and the wso2 apim connect line it prints instead."
 	if request.Context.Endpoint != "" {
 		next = "Run wso2 apim apis list to see what this deployment publishes."
 	}

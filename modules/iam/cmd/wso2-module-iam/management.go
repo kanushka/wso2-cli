@@ -42,7 +42,7 @@ func managementClient(ctx context.Context, request module.Request) (*thunder.Cli
 	if request.Context.Endpoint == "" {
 		return nil, problem.New(problem.CategoryUsage, "iam.no_endpoint",
 			"the selected context does not name a ThunderID endpoint").
-			WithRecovery("Run wso2 iam bootstrap --url <issuer> and the wso2 identity create line it prints, " +
+			WithRecovery("Run wso2 iam bootstrap --url <issuer> and the wso2 iam connect line it prints, " +
 				"or record the endpoint with wso2 identity add-product <identity> iam --endpoint <url>.")
 	}
 	return thunder.New(request.Context.Endpoint, access.Token), nil

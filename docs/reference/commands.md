@@ -74,7 +74,7 @@ refusal is reported.
 | `wso2 bundle create` | Creates a platform-specific, self-installing offline bundle from catalog releases. |
 | `wso2 bundle inspect <file>` | Shows bundle contents without installing it. |
 | `wso2 bundle install <file>` | Imports a bundle when the WSO2 CLI is already installed. |
-| `wso2 doctor` | Built today: checks that the context document is valid, that the OS secure store is reachable, and that the selected context's identity has a stored session. The session check passes only when a session is stored for the login and for every product the identity records; a failure names the ones without one. `--online` adds a fourth check, module catalog reachability; without it, `wso2 doctor` makes no network call. On an unconfigured machine, the secure-store and session checks report not-applicable rather than failure; on a context document that fails to decode or validate, the session check reports not-applicable too, because no credential reference can be resolved from it, while the secure-store check still runs since it never reads the document. The session check is also not-applicable for a client-credentials identity, which acquires access inline and holds no session to check. Exits 0 when every check passes or is not-applicable, otherwise the exit class of the most severe failing check, in this rank: secure-store, then the document, then the session, then (only under `--online`) the catalog — a rank this command defines and not the numeric order of the exit classes those checks carry. Receipt, module integrity, compatibility, and protocol status are not built yet; see [architecture](../architecture.md#14-operational-behavior-and-recovery). |
+| `wso2 doctor` | Built today: checks that the context document is valid, that the OS secure store is reachable, and that the selected context's identity has a stored session. The session check passes only when a session is stored for the login and for every product the identity records; a failure names the ones without one. `--online` adds two more checks: that the OpenID configuration of every issuer the selected context's identity names can be read — the check that finds a certificate this machine does not trust, refused as `auth.certificate_untrusted` with the same recovery a product command gives, or `auth.discovery_failed` for any other reason — and module catalog reachability; without it, `wso2 doctor` makes no network call. On an unconfigured machine, the secure-store and session checks report not-applicable rather than failure; on a context document that fails to decode or validate, the session check reports not-applicable too, because no credential reference can be resolved from it, while the secure-store check still runs since it never reads the document. The session check is also not-applicable for a client-credentials identity, which acquires access inline and holds no session to check. Exits 0 when every check passes or is not-applicable, otherwise the exit class of the most severe failing check, in this rank: secure-store, then the document, then the session, then (only under `--online`) the issuer, then the catalog — a rank this command defines and not the numeric order of the exit classes those checks carry. Receipt, module integrity, compatibility, and protocol status are not built yet; see [architecture](../architecture.md#14-operational-behavior-and-recovery). |
 
 `project` commands are intentionally not included yet. Product-specific
 projects, deployment, and runtime operations remain within their product
@@ -137,14 +137,28 @@ module is handed `WSO2_NO_INPUT=1`, so a module reads one spelling.
 
 Every self-hosted product serves TLS with a self-signed certificate on a fresh
 install, and until it is trusted the shell cannot read the issuer's discovery
-document, so login fails before a browser opens. The operating system's trust
-store is the ordinary answer. Where it cannot be changed, `WSO2_CA_FILE` names
-a PEM file whose certificates the shell trusts beside the system roots, for
-every request the shell itself makes. It never narrows trust. A file that
-cannot be read, or holds no certificate, is refused with
+document, so login fails before a browser opens and every product command
+fails at the same point. The shell refuses with `auth.certificate_untrusted`
+and exit class `77`, naming the host and port it dialled and carrying the two
+commands below with them filled in; `wso2 doctor --online` reports the same
+refusal from its issuer check. The operating system's trust store is the
+ordinary answer. Where it cannot be changed, `WSO2_CA_FILE` names a PEM file
+whose certificates the shell trusts beside the system roots, for every request
+the shell itself makes:
+
+```sh
+openssl s_client -connect localhost:9443 -showcerts </dev/null 2>/dev/null \
+  | awk '/BEGIN CERT/,/END CERT/' > localhost-9443.pem
+export WSO2_CA_FILE=$PWD/localhost-9443.pem
+```
+
+The variable must be exported in the shell that runs `wso2`. It never narrows
+trust. A file that cannot be read, or holds no certificate, is refused with
 `shell.ca_file_unreadable` and exit class `64` before anything reaches the
 network. A product module is a separate process; it is handed the variable and
-applies the same trust on its own.
+applies the same trust on its own. The troubleshooting entry in the
+[login guide](../guides/login.md#authcertificate_untrusted) has the same
+commands.
 
 ## What a module may ask the broker for
 

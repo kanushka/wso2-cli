@@ -213,13 +213,19 @@ steps:
   - run: wso2 identity create apim-ci --issuer https://apim:9443/oauth2/token --client-id fg4d…
            --client-secret-variable WSO2_APIM_CLIENT_SECRET --product apim --endpoint https://apim:9443
            --audience fg4d… --scope apim:api_create --scope apim:api_publish
-  - run: wso2 iam roles assign "Mock API Caller" --user newuser --context thunder-ci
+  - run: wso2 iam roles create "Mock API Caller" --resource-server "Mock API"
+           --permission reference:status:read --permission orders:read --assign-user newuser --context thunder-ci
   - run: wso2 apim apis import --file mockapi-openapi.yaml --name MockAPI --version 1.1.0 --context apim-ci
   - run: wso2 apim apis publish MockAPI/1.1.0 --context apim-ci
 ```
 
-Better than the product tools: no administrator password, secrets only in
-environment variables, nothing written to disk. Still two secrets, two
+There is no `wso2 iam roles assign`. The built command is `roles create`,
+which on a role that already exists adds the assignments named and changes
+nothing else, so a job re-states the role's resource server and permissions
+to add one user; an `assign` subcommand that takes the role and the user
+alone is the target shape, and the target below writes it. Better than the
+product tools: no administrator password, secrets only in environment
+variables, nothing written to disk. Still two secrets, two
 identities, and `--context` everywhere. `wso2 whoami` and `wso2 doctor`
 report these identities as needing a login they can never do, and `wso2
 logout` fails the job.
@@ -237,7 +243,7 @@ env:
 steps:
   - run: wso2 iam connect http://thunder:8490 --client-id wso2-cli-ci --client-secret-variable WSO2_CI_CLIENT_SECRET
   - run: wso2 apim connect https://apim:9443
-  - run: wso2 iam roles assign "Mock API Caller" --user newuser
+  - run: wso2 iam roles assign "Mock API Caller" --user newuser   # target; see the note below
   - run: wso2 apim apis import --file mockapi-openapi.yaml --name MockAPI --version 1.1.0
   - run: wso2 apim apis publish MockAPI/1.1.0
   - run: wso2 doctor

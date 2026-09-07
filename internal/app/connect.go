@@ -251,11 +251,7 @@ func checkConnectFlags(namespace string, descriptor modules.ProductDescriptor, f
 				"client-credentials identity for it. " + usage)
 	}
 	if flags.clientID == "" && flags.clientIDVariable == "" {
-		return problem.New(problem.CategoryUsage, "shell.missing_required_flag",
-			fmt.Sprintf("the %s module's descriptor names no default client, so connect needs "+
-				"--client-id with the client the deployment registered for this CLI", namespace)).
-			WithRecovery(fmt.Sprintf("Run wso2 %s bootstrap to register one, then this command with "+
-				"the --client-id it prints. %s", namespace, usage))
+		return clientIDRequired(namespace, flags, usage)
 	}
 	if descriptor.LoginProvider() && flags.clientSecretVariable != "" &&
 		!descriptor.AllowsMachine(modules.MachineInline) {
@@ -277,6 +273,9 @@ type connectPlan struct {
 	created bool
 	// selected reports that the new context became the default one.
 	selected bool
+	// sole reports that, once written, the identity's context is the only
+	// one in the document and is selected, so the login needs no --context.
+	sole bool
 	// replaced reports that the product was recorded before.
 	replaced  bool
 	namespace string
@@ -359,7 +358,21 @@ func planConnect(document contexts.Document, namespace string, descriptor module
 		return connectPlan{}, err
 	}
 	plan.product = product
+	plan.sole = soleContext(document, plan)
 	return plan, nil
+}
+
+// soleContext reports whether the document, once the plan is applied, holds
+// exactly one context, it is the plan's identity's, and it is selected.
+func soleContext(document contexts.Document, plan connectPlan) bool {
+	if plan.created {
+		return plan.selected && len(document.Contexts) == 0
+	}
+	if len(document.Contexts) != 1 {
+		return false
+	}
+	only := document.Contexts[0]
+	return only.Identity == plan.identity.Name && document.DefaultContext == only.Name
 }
 
 // connectTarget is the identity a connect records on, when one can be
@@ -478,6 +491,31 @@ func machineNotAccepted(namespace, identity string, descriptor modules.ProductDe
 			"values stay there.", namespace))
 }
 
+// clientIDRequired refuses a product whose descriptor names no client when
+// the line names none either. Which client is wanted depends on the identity
+// the product lands on, and the document is not open yet, so the flags
+// decide: a secret variable on the line means a pipeline, which uses the
+// confidential client the product's bootstrap registers; none means a
+// browser identity, which needs the product's public client federated to the
+// login provider, a different registration that the bootstrap does not make.
+func clientIDRequired(namespace string, flags connectFlags, usage string) problem.Problem {
+	if flags.clientSecretVariable != "" {
+		return problem.New(problem.CategoryUsage, "shell.missing_required_flag",
+			fmt.Sprintf("the %s module's descriptor names no default client, so connect needs "+
+				"--client-id with the client the deployment registered for this CLI", namespace)).
+			WithRecovery(fmt.Sprintf("Run wso2 %s bootstrap to register one, then this command with "+
+				"the --client-id it prints. %s", namespace, usage))
+	}
+	return problem.New(problem.CategoryUsage, "shell.missing_required_flag",
+		fmt.Sprintf("the %s module's descriptor names no default client, so connect needs "+
+			"--client-id with the public client the deployment holds for this CLI", namespace)).
+		WithRecovery(fmt.Sprintf("On a browser identity that is a public client registered on the "+
+			"product itself and federated to the identity's login provider, not the confidential "+
+			"client wso2 %s bootstrap registers; docs/guides/one-login-thunder-apim.md section 3 "+
+			"registers one on API Manager. A pipeline passes the bootstrap's client instead, as "+
+			"--client-id <id> --client-secret-variable <VAR>. %s", namespace, usage))
+}
+
 // loginProviderRequired refuses a product with no identity to attach to.
 func loginProviderRequired(namespace, loginProvider string) problem.Problem {
 	message := fmt.Sprintf("the %s product is reached through a login provider, and no identity exists "+
@@ -541,6 +579,9 @@ func (s Shell) reportConnect(mode output.Mode, namespace string, plan connectPla
 		verb = "Replaced"
 	}
 	next := fmt.Sprintf("Run wso2 login --context %s.", identity.Name)
+	if plan.sole {
+		next = "Run wso2 login."
+	}
 	if identity.Auth.Kind == contexts.KindClientCredentials {
 		next = fmt.Sprintf("Run wso2 %s status --context %s.", namespace, identity.Name)
 	}

@@ -32,11 +32,17 @@ Three things follow:
 - **The audience is a URI.** A resource server's identifier must be an absolute
   URI, so `products.<namespace>.audience` is a URI here. The bare API resource
   identifier that works on Identity Server is refused.
-- **One login reaches one product.** Thunder accepts a single resource indicator
-  per authorization: *"Only a single resource parameter is supported"*. A
-  session is therefore bound to one resource server, and the context document
-  refuses an identity that names Thunder and declares more than one product.
-  Lifting that is [tracked separately](https://github.com/wso2/wso2-cli/issues/43).
+- **One authorization reaches one product.** Thunder accepts a single resource
+  indicator per authorization: *"Only a single resource parameter is
+  supported"*, so a session is bound to one resource server. Before the
+  per-product session model that meant one login reached one product, and the
+  context document refused an identity that named Thunder and declared more
+  than one. Under [ADR 0014](../adr/0014-one-login-one-session-per-product.md)
+  an identity holds one session per product and the shell runs one
+  authorization per product from the same sign-on, so a Thunder identity may
+  declare several; the binding is why each gets its own session.
+  [One login for ThunderID and API Manager](one-login-thunder-apim.md) walks
+  through it.
 - **The audience check means what it says.** On Asgardeo an access token's `aud`
   is the client ID and cannot distinguish one product from another. On Thunder it
   is the resource server identifier and nothing else, which is the strongest
@@ -298,12 +304,14 @@ form:
 }
 ```
 
-The same two rules that bind a Thunder browser identity bind this one, and the
-shell refuses the document rather than the grant if either is broken: **exactly
-one product**, and an **audience that is an absolute URI**. Carrying the login
-guide's `"audience": "reference-status"` over is refused at parse as not a URI,
-which is the cheap failure; omitting `provider` is the expensive one, because
-the document parses and the deployment refuses every grant.
+The rule that binds a Thunder browser identity binds this one, and the shell
+refuses the document rather than the grant if it is broken: an **audience that
+is an absolute URI**. Carrying the login guide's
+`"audience": "reference-status"` over is refused at parse as not a URI, which
+is the cheap failure; omitting `provider` is the expensive one, because the
+document parses and the deployment refuses every grant. A machine identity is
+minted once per product it declares, each with that product's resource
+indicator, so it may declare several.
 
 [Section 5.2 of the login guide](login.md#52-wire-the-job) has the job wiring,
 which is the same for all three products.
@@ -324,10 +332,14 @@ which is the same for all three products.
 
 ## 9. Declare the identity, then log in
 
-A Thunder login is bound to one protected resource from the moment it is
-established, so the shell has to know the resource before the browser
-opens. Declare the identity first, naming the provider and the one product
-it reaches, then log in:
+A Thunder authorization is bound to one protected resource from the moment
+it is established, so the shell has to know the resource before the browser
+opens. A module that carries a product descriptor is recorded from its URL
+alone: `wso2 iam connect https://localhost:8090` writes the identity, the
+product and the context, and [the one-login walkthrough](one-login-thunder-apim.md)
+takes that route. The reference module declares no descriptor, so declare
+the identity yourself, naming the provider and the product it reaches, then
+log in:
 
 ```console
 $ wso2 identity create thunder-local --issuer https://thunder.example.com \
@@ -393,10 +405,11 @@ identity's `auth` block.
 
 ### `contexts.document_malformed`, about one login and one product
 
-The identity derives access by resource and declares more than one product.
-Thunder accepts one resource indicator per authorization, so one session cannot
-reach two products. Split them across two identities, each with its own
-`credentialRef`.
+A shell from before the per-product session model refuses an identity that
+derives access by resource and declares more than one product, because one
+session then reached one product. A current shell holds one session per
+product ([ADR 0014](../adr/0014-one-login-one-session-per-product.md)) and
+accepts the document; update the shell rather than splitting the identity.
 
 ### `contexts.document_malformed`, about a product without an audience
 

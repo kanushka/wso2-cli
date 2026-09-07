@@ -36,7 +36,7 @@ const (
 	DefaultPasswordVariable = "WSO2_APIM_ADMIN_PASSWORD"
 	DefaultClientName       = "wso2-cli"
 	DefaultCallback         = "http://127.0.0.1:10425/callback"
-	// ClientSecretVariable is the variable the identity create line names.
+	// ClientSecretVariable is the variable the connect line names.
 	ClientSecretVariable = "WSO2_APIM_CLIENT_SECRET"
 	registrationPath     = "/client-registration/v0.17/register"
 )
@@ -105,9 +105,13 @@ func bootstrap(flags *bootstrapFlags) module.Handler {
 		// the connect line reads and leaves the value to be pasted in: a
 		// credential belongs in a variable, and the record of it is the
 		// variable's name.
-		next := fmt.Sprintf("export %s=<the client secret above, shown once>; then wso2 %s connect %s "+
-			"--client-id %s --client-secret-variable %s, on a client-credentials identity",
-			ClientSecretVariable, Namespace, base, registered.ClientID, ClientSecretVariable)
+		next := fmt.Sprintf("For a pipeline: export %s=<the client secret above, shown once>; then "+
+			"wso2 %s connect %s --client-id %s --client-secret-variable %s, on a client-credentials "+
+			"identity. A browser identity does not use this client: it needs a public client on "+
+			"API Manager federated to its login provider, registered by hand as "+
+			"docs/guides/one-login-thunder-apim.md section 3 describes, then wso2 %s connect %s "+
+			"--client-id <that client>.",
+			ClientSecretVariable, Namespace, base, registered.ClientID, ClientSecretVariable, Namespace, base)
 		return result.New(BootstrapSchema).
 			With("issuer", "Issuer", issuer).
 			With("clientId", "Client ID", registered.ClientID).

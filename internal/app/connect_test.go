@@ -137,10 +137,46 @@ func TestConnectANonProviderProductAttachesToTheSelectedIdentity(t *testing.T) {
 func TestConnectANonProviderProductNeedsAClientIDWhenTheDescriptorNamesNone(t *testing.T) {
 	shell, _, _ := newConnectShell(t)
 	connect(t, shell, "iam", "connect", thunderURL)
+	// No secret on the line: a browser identity, which needs the product's
+	// public federated client, not the one bootstrap registers.
 	code, _, errOut := connect(t, shell, "apim", "connect", apimURL)
 	if code != exit.Usage || !strings.Contains(errOut, "shell.missing_required_flag") ||
-		!strings.Contains(errOut, "--client-id") {
-		t.Fatalf("exit %d, stderr:\n%s", code, errOut)
+		!strings.Contains(errOut, "--client-id") || !strings.Contains(errOut, "public client") ||
+		!strings.Contains(errOut, "federated to the identity's login provider") ||
+		!strings.Contains(errOut, "docs/guides/one-login-thunder-apim.md") {
+		t.Fatalf("browser: exit %d, stderr:\n%s", code, errOut)
+	}
+	// A secret on the line: a pipeline, which uses the client bootstrap prints.
+	code, _, errOut = connect(t, shell, "apim", "connect", apimURL, "--client-secret-variable", "APIM_SECRET")
+	if code != exit.Usage || !strings.Contains(errOut, "shell.missing_required_flag") ||
+		!strings.Contains(errOut, "Run wso2 apim bootstrap to register one") ||
+		strings.Contains(errOut, "public client") {
+		t.Fatalf("pipeline: exit %d, stderr:\n%s", code, errOut)
+	}
+}
+
+func TestConnectNamesTheContextOnTheNextLineOnlyWhenItIsNotTheSoleSelectedOne(t *testing.T) {
+	shell, _, _ := newConnectShell(t)
+	code, out, errOut := connect(t, shell, "iam", "connect", thunderURL)
+	if code != exit.OK {
+		t.Fatalf("iam connect: exit %d: %s", code, errOut)
+	}
+	if !strings.Contains(out, "Next  Run wso2 login.") || strings.Contains(out, "--context") {
+		t.Errorf("the only context, just selected, is named:\n%s", out)
+	}
+	code, out, errOut = connect(t, shell, "apim", "connect", apimURL, "--client-id", apimClient)
+	if code != exit.OK {
+		t.Fatalf("apim connect: exit %d: %s", code, errOut)
+	}
+	if !strings.Contains(out, "Next  Run wso2 login.") || strings.Contains(out, "--context") {
+		t.Errorf("the only context, already selected, is named:\n%s", out)
+	}
+	code, out, errOut = connect(t, shell, "iam", "connect", "http://other.example", "--identity", "other")
+	if code != exit.OK {
+		t.Fatalf("second identity: exit %d: %s", code, errOut)
+	}
+	if !strings.Contains(out, "Next  Run wso2 login --context other.") {
+		t.Errorf("a second, unselected context is not named:\n%s", out)
 	}
 }
 
