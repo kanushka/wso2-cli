@@ -36,21 +36,18 @@ const (
 	adminPath     = "/api/am/admin/v4"
 )
 
-// managementClient acquires exactly the scopes a command needs and returns a
-// client on the context's endpoint.
-func managementClient(ctx context.Context, request module.Request, scopes ...string) (*apim.Client, error) {
-	access, err := request.Access.Acquire(ctx, module.AccessRequest{
-		Audience: PublisherAudience,
-		Scopes:   scopes,
-	})
+// managementClient returns a client on the context's endpoint. It names no
+// scopes: the shell answers with the scopes the identity's apim product
+// records, and that record is the ceiling for every command here.
+func managementClient(ctx context.Context, request module.Request) (*apim.Client, error) {
+	access, err := request.Access.Acquire(ctx, module.AccessRequest{Audience: PublisherAudience})
 	if err != nil {
 		return nil, err
 	}
 	if request.Context.Endpoint == "" {
 		return nil, problem.New(problem.CategoryUsage, "apim.no_endpoint",
 			"the selected context does not name an API Manager endpoint").
-			WithRecovery("Run wso2 apim bootstrap --url <base> and the wso2 identity create line it prints, " +
-				"or record the endpoint with wso2 identity add-product <identity> apim --endpoint <url>.")
+			WithRecovery("Run wso2 apim bootstrap --url <base> once, then the wso2 apim connect line it prints.")
 	}
 	return apim.New(request.Context.Endpoint, access.Token), nil
 }

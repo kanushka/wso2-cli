@@ -43,7 +43,8 @@ const Namespace = "apim"
 // bootstrap prints into the identity create line.
 const PublisherAudience = "apim-publisher"
 
-// The scopes API Manager's REST APIs require, asked for per command.
+// The scopes API Manager's REST APIs require. The module declares them
+// once, for the product record to hold; commands ask for none.
 const (
 	ScopeAPIView    = "apim:api_view"
 	ScopeAPICreate  = "apim:api_create"

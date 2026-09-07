@@ -100,7 +100,7 @@ func appCommands() (family, list, create, subscribe, keys, mapKeys *cobra.Comman
 }
 
 func appsList(ctx context.Context, request module.Request) (result.Result, error) {
-	client, err := managementClient(ctx, request, ScopeSubscribe)
+	client, err := managementClient(ctx, request)
 	if err != nil {
 		return result.Result{}, err
 	}
@@ -124,7 +124,7 @@ func appsCreate(command *cobra.Command, flags *appFlags) module.Handler {
 		if err != nil {
 			return result.Result{}, err
 		}
-		client, err := managementClient(ctx, request, ScopeAppManage, ScopeSubscribe)
+		client, err := managementClient(ctx, request)
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -156,7 +156,7 @@ func appsSubscribe(command *cobra.Command, flags *appFlags) module.Handler {
 		if err != nil {
 			return result.Result{}, err
 		}
-		client, err := managementClient(ctx, request, ScopeSubscribe)
+		client, err := managementClient(ctx, request)
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -205,7 +205,7 @@ func appsKeys(command *cobra.Command, flags *appFlags) module.Handler {
 		if err != nil {
 			return result.Result{}, err
 		}
-		client, err := managementClient(ctx, request, ScopeAppManage, ScopeSubscribe)
+		client, err := managementClient(ctx, request)
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -257,7 +257,7 @@ func appsMapKeys(command *cobra.Command, flags *appFlags) module.Handler {
 			return result.Result{}, missingFlag("apps map-keys", "--key-manager and --client-id",
 				"Name the key manager that issued the client and the client id to map.")
 		}
-		client, err := managementClient(ctx, request, ScopeAppManage, ScopeSubscribe)
+		client, err := managementClient(ctx, request)
 		if err != nil {
 			return result.Result{}, err
 		}

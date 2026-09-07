@@ -73,7 +73,7 @@ func keyManagerCommands() (family, list, add *cobra.Command, flags *keyManagerFl
 }
 
 func keyManagersList(ctx context.Context, request module.Request) (result.Result, error) {
-	client, err := managementClient(ctx, request, ScopeAdmin)
+	client, err := managementClient(ctx, request)
 	if err != nil {
 		return result.Result{}, err
 	}
@@ -101,7 +101,7 @@ func keyManagersAdd(command *cobra.Command, flags *keyManagerFlags) module.Handl
 			return result.Result{}, missingFlag("key-managers add", "--well-known",
 				"Pass --well-known <issuer>; its discovery document supplies the endpoints.")
 		}
-		client, err := managementClient(ctx, request, ScopeAdmin)
+		client, err := managementClient(ctx, request)
 		if err != nil {
 			return result.Result{}, err
 		}

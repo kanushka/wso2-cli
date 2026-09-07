@@ -99,7 +99,7 @@ func apiCommands() (family, list, importCommand, deploy, publish *cobra.Command,
 }
 
 func apisList(ctx context.Context, request module.Request) (result.Result, error) {
-	client, err := managementClient(ctx, request, ScopeAPIView)
+	client, err := managementClient(ctx, request)
 	if err != nil {
 		return result.Result{}, err
 	}
@@ -134,7 +134,7 @@ func apisImport(flags *apiImportFlags) module.Handler {
 				WithRecovery("Pass --file with a readable OpenAPI definition.")
 		}
 		defer definition.Close()
-		client, err := managementClient(ctx, request, ScopeAPICreate, ScopeAPIView)
+		client, err := managementClient(ctx, request)
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -183,7 +183,7 @@ func apisDeploy(command *cobra.Command, flags *apiDeployFlags) module.Handler {
 		if err != nil {
 			return result.Result{}, err
 		}
-		client, err := managementClient(ctx, request, ScopeAPIPublish, ScopeAPIView)
+		client, err := managementClient(ctx, request)
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -257,7 +257,7 @@ func apisPublish(command *cobra.Command) module.Handler {
 		if err != nil {
 			return result.Result{}, err
 		}
-		client, err := managementClient(ctx, request, ScopeAPIPublish, ScopeAPIView)
+		client, err := managementClient(ctx, request)
 		if err != nil {
 			return result.Result{}, err
 		}

@@ -24,16 +24,15 @@ import (
 	"time"
 )
 
-func TestEveryListAsksForItsOwnScopeAndEndsWithNext(t *testing.T) {
+func TestEveryListAsksForNoScopesAndEndsWithNext(t *testing.T) {
 	fake := newFakeAPIM(t)
-	for command, scope := range map[string]string{
-		"apis": ScopeAPIView, "apps": ScopeSubscribe, "key-managers": ScopeAdmin,
-	} {
+	for _, command := range []string{"apis", "apps", "key-managers"} {
 		outcome := fake.run(t, []string{command, "list"})
 		if outcome.Problem != nil {
 			t.Fatalf("%s list: %+v", command, outcome.Problem)
 		}
-		if scopesAsked(outcome) != scope || outcome.AccessRequests[0].Audience != PublisherAudience {
+		// No scopes: the product record names them, and is the ceiling.
+		if scopesAsked(outcome) != "" || outcome.AccessRequests[0].Audience != PublisherAudience {
 			t.Errorf("%s list asked for %+v", command, outcome.AccessRequests)
 		}
 		assertEndsWithNext(t, outcome)
@@ -60,7 +59,7 @@ func TestImportDeployPublishInOrder(t *testing.T) {
 		!strings.Contains(uploads[0], `"policies":["Unlimited"]`) {
 		t.Errorf("upload = %v", uploads)
 	}
-	if fields := fieldsOf(imported); fields["created"] != "true" || scopesAsked(imported) != ScopeAPICreate+" "+ScopeAPIView ||
+	if fields := fieldsOf(imported); fields["created"] != "true" || scopesAsked(imported) != "" ||
 		!strings.Contains(fields["next"], "apis deploy MockAPI/1.0.0") {
 		t.Errorf("import fields = %+v scopes %q", fields, scopesAsked(imported))
 	}
@@ -81,7 +80,7 @@ func TestImportDeployPublishInOrder(t *testing.T) {
 		t.Errorf("deploy requests = %v", fake.requests)
 	}
 	if fields := fieldsOf(deployed); fields["status"] != "live" || fields["revision"] != "rev-id-1" ||
-		scopesAsked(deployed) != ScopeAPIPublish+" "+ScopeAPIView {
+		scopesAsked(deployed) != "" {
 		t.Errorf("deploy fields = %+v", fields)
 	}
 
@@ -162,7 +161,7 @@ func TestKeyManagersAddDiscoversAndOverrides(t *testing.T) {
 		!strings.Contains(posts[0], `"type":"CustomKeyManager"`) || !strings.Contains(posts[0], `"consumerKeyClaim":"client_id"`) {
 		t.Errorf("key manager body = %v", posts)
 	}
-	if fields := fieldsOf(added); fields["created"] != "true" || scopesAsked(added) != ScopeAdmin ||
+	if fields := fieldsOf(added); fields["created"] != "true" || scopesAsked(added) != "" ||
 		!strings.Contains(fields["next"], "map-keys <app> --key-manager Thunder") {
 		t.Errorf("fields = %+v", fields)
 	}
