@@ -218,9 +218,14 @@ a command rather than returning a record the shell writes: a structured
 result the shell acted on would be a protocol change for one line of
 output, and the module contract stays as it is.
 
-`wso2 login` with no product recorded on a ThunderID identity is refused
-before the browser opens, naming `connect`. This closes the first-login
-failure recorded in the gap analysis.
+`wso2 login` with no product recorded on a ThunderID identity never opens
+a browser, which closes the first-login failure recorded in the gap
+analysis. The refusal comes from the document rather than from `login`:
+an identity bound to a resource is malformed without a product, so
+`identity create` refuses to write one and `connect` always records one,
+and the only way to hold that document is to have written it by hand.
+Nothing in `login` checks for it, because nothing the shell does can
+produce it.
 
 ## 7. Command surface
 
