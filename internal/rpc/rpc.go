@@ -40,6 +40,11 @@ import (
 
 // DefaultTimeout is how long the shell waits for a terminal message before it
 // closes the protocol stream and terminates the module.
+//
+// It counts the module's own time. While the shell is answering an access
+// request — which may mean opening a browser and waiting for the person at it —
+// the clock is held, and it resumes with what was left once the answer is
+// written; the broker bounds its own waits.
 const DefaultTimeout = 30 * time.Second
 
 // TerminationGrace is how long a module has to exit after its protocol input
@@ -96,7 +101,9 @@ type Invocation struct {
 	Context InvocationContext
 	// Interactive reports whether a terminal is attached.
 	Interactive bool
-	// Timeout bounds the whole exchange. Zero means DefaultTimeout.
+	// Timeout bounds the module's own time in the exchange; time the shell
+	// spends answering an access request is not counted. Zero means
+	// DefaultTimeout.
 	Timeout time.Duration
 }
 

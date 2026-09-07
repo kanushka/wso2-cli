@@ -150,7 +150,10 @@ enum OutputMode {
 message InvocationPolicy {
   // deadline_millis is the time the shell will wait for a terminal message
   // before it closes the protocol stream and terminates the module. Zero means
-  // the shell applies its own default.
+  // the shell applies its own default. It counts the module's own time: while
+  // the shell is answering the module's access request, which may mean a
+  // person at a browser, the clock is held and resumes once the answer is
+  // written, so a module that measures its own deadline must do the same.
   uint32 deadline_millis = 1;
 
   // interactive reports whether a terminal is attached. The architecture proof

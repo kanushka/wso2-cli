@@ -44,6 +44,10 @@ type Session struct {
 	// Broker answers the module's access requests. A session without one
 	// denies access rather than granting it.
 	Broker Broker
+	// holdDeadline pauses the launcher's answer deadline while the broker is
+	// consulted, returning what resumes it. A session run over in-memory
+	// streams has no deadline and leaves it nil.
+	holdDeadline func() (release func())
 }
 
 // Broker is the shell's authentication policy as the session sees it.
@@ -306,10 +310,15 @@ func (s Session) answerAccess(
 	issued *[]problem.Problem,
 ) error {
 	request := envelope.GetAcquireAccess()
+	// The broker may open a browser and wait for the person at it, which is
+	// the shell's time rather than the module's; the module's deadline is
+	// held for as long as it takes.
+	release := s.hold()
 	grant, err := s.acquire(auth.Request{
 		Audience: request.GetAudience(),
 		Scopes:   request.GetScopes(),
 	})
+	release()
 	if err != nil {
 		sent, reported := s.denial(err)
 		*issued = append(*issued, reported)
@@ -329,6 +338,14 @@ func (s Session) answerAccess(
 			ExpiresAtUnix: grant.ExpiresAt.Unix(),
 		}},
 	})
+}
+
+// hold pauses the answer deadline, when there is one to pause.
+func (s Session) hold() (release func()) {
+	if s.holdDeadline == nil {
+		return func() {}
+	}
+	return s.holdDeadline()
 }
 
 // acquire consults the broker, refusing when this invocation has none.

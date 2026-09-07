@@ -659,7 +659,10 @@ type InvocationPolicy struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// deadline_millis is the time the shell will wait for a terminal message
 	// before it closes the protocol stream and terminates the module. Zero means
-	// the shell applies its own default.
+	// the shell applies its own default. It counts the module's own time: while
+	// the shell is answering the module's access request, which may mean a
+	// person at a browser, the clock is held and resumes once the answer is
+	// written, so a module that measures its own deadline must do the same.
 	DeadlineMillis uint32 `protobuf:"varint,1,opt,name=deadline_millis,json=deadlineMillis,proto3" json:"deadline_millis,omitempty"`
 	// interactive reports whether a terminal is attached. The architecture proof
 	// never prompts, so a module must not depend on it.
