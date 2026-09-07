@@ -21,6 +21,7 @@ import (
 	"maps"
 	"net/url"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -49,6 +50,16 @@ type connectFlags struct {
 	scopes                                      []string
 	replace                                     bool
 }
+
+// connectVariablePattern is the shape a credential variable name has, and
+// connectVariableRule states it in the words a refusal uses. The document
+// enforces the same rule when it encodes the record; asking it here is what
+// lets connect complain about the flag the user typed rather than about the
+// file they never wrote to, whose recovery offers to remove it.
+var connectVariablePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
+
+const connectVariableRule = "upper-case letters, digits and underscores, starting with a letter, " +
+	"at most 64 characters"
 
 // connectUsage is the way back from connect's usage refusals.
 func connectUsage(namespace string) string {
@@ -214,6 +225,19 @@ func checkConnectFlags(namespace string, descriptor modules.ProductDescriptor, f
 			return err
 		}
 	}
+	for _, named := range []struct{ flag, value string }{
+		{"--client-secret-variable", flags.clientSecretVariable},
+		{"--client-id-variable", flags.clientIDVariable},
+	} {
+		if named.value == "" || connectVariablePattern.MatchString(named.value) {
+			continue
+		}
+		return problem.New(problem.CategoryUsage, "shell.invalid_argument",
+			fmt.Sprintf("%s does not name an environment variable", named.flag)).
+			WithRecovery(fmt.Sprintf("Pass the name of the variable holding the credential, not the "+
+				"credential: a variable name is %s. The value is not repeated here, in case it is the "+
+				"secret itself. %s", connectVariableRule, usage))
+	}
 	if flags.clientIDVariable != "" && flags.clientSecretVariable == "" {
 		return problem.New(problem.CategoryUsage, "shell.missing_required_flag",
 			"--client-id-variable names half a credential and needs --client-secret-variable").
@@ -276,6 +300,12 @@ func planConnect(document contexts.Document, namespace string, descriptor module
 		}
 		plan.identity = target
 	case descriptor.LoginProvider():
+		// The flag named an issuer no identity authenticates against, so
+		// creating one here would answer a line that asked for another
+		// identity by silently starting a session somewhere else.
+		if flags.loginProvider != "" && !found {
+			return connectPlan{}, loginProviderRequired(namespace, flags.loginProvider)
+		}
 		name := flags.identity
 		if name == "" {
 			name = descriptor.Provider
@@ -298,14 +328,17 @@ func planConnect(document contexts.Document, namespace string, descriptor module
 	default:
 		plan.identity = target
 	}
-	if plan.identity.Auth.Kind == contexts.KindClientCredentials && !descriptor.LoginProvider() &&
-		flags.clientSecretVariable == "" {
-		return connectPlan{}, problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
-			fmt.Sprintf("the %s product does not accept the machine client the %q identity holds, "+
-				"so it needs a credential of its own", namespace, plan.identity.Name)).
-			WithRecovery(fmt.Sprintf("Register a client for this CLI on the product (wso2 %s bootstrap "+
-				"does) and pass --client-id <id> --client-secret-variable <VAR> naming it; the secret "+
-				"stays in the environment.", namespace))
+	if plan.identity.Auth.Kind == contexts.KindClientCredentials && !descriptor.LoginProvider() {
+		// The flags say which machine strategy is being asked for: the client
+		// the identity already holds, or a credential the record carries. The
+		// descriptor says which the product serves, and only it knows.
+		asked := modules.MachineInline
+		if flags.clientSecretVariable != "" {
+			asked = modules.MachineCredential
+		}
+		if !descriptor.AllowsMachine(asked) {
+			return connectPlan{}, machineNotAccepted(namespace, plan.identity.Name, descriptor, asked)
+		}
 	}
 	if plan.identity.Auth.Kind != contexts.KindClientCredentials && !descriptor.LoginProvider() &&
 		flags.clientSecretVariable != "" {
@@ -416,14 +449,42 @@ func connectProduct(namespace string, descriptor modules.ProductDescriptor, prod
 	return product, nil
 }
 
-// loginProviderRequired refuses a non-provider product with no identity to
-// attach to.
+// machineNotAccepted refuses a product a client-credentials identity cannot
+// reach the way the flags ask. The descriptor's machine list is what the
+// deployment declared, and each of the three answers it can give has its own
+// way out: another identity, fewer flags, or the product's own credential.
+func machineNotAccepted(namespace, identity string, descriptor modules.ProductDescriptor,
+	asked string) problem.Problem {
+	switch {
+	case len(descriptor.Machine) == 0:
+		return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
+			fmt.Sprintf("the %s product declares no way for a client-credentials identity to reach it, "+
+				"and %q holds a machine client", namespace, identity)).
+			WithRecovery("Record the product on an identity that signs in through the browser, or " +
+				"install a version of the module whose descriptor says how a machine client reaches it.")
+	case asked == modules.MachineCredential:
+		return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
+			fmt.Sprintf("the %s product accepts the machine client %q already holds, so it carries no "+
+				"credential of its own", namespace, identity)).
+			WithRecovery("Omit --client-secret-variable and --client-id-variable: the identity's own " +
+				"client is what reaches this product.")
+	}
+	return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
+		fmt.Sprintf("the %s product does not accept the machine client the %q identity holds, "+
+			"so it needs a credential of its own", namespace, identity)).
+		WithRecovery(fmt.Sprintf("Register a client for this CLI on the product (wso2 %s bootstrap "+
+			"does) and pass --client-id <id> --client-secret-variable <VAR> naming its credential, "+
+			"adding --client-id-variable <VAR> when the client id is held in the environment too; the "+
+			"values stay there.", namespace))
+}
+
+// loginProviderRequired refuses a product with no identity to attach to.
 func loginProviderRequired(namespace, loginProvider string) problem.Problem {
 	message := fmt.Sprintf("the %s product is reached through a login provider, and no identity exists "+
 		"to record it on", namespace)
 	if loginProvider != "" {
-		message = fmt.Sprintf("the %s product is reached through a login provider, and no identity "+
-			"authenticates against the issuer --login-provider names", namespace)
+		message = fmt.Sprintf("no identity authenticates against the issuer --login-provider names, "+
+			"so the %s product has nowhere to be recorded", namespace)
 	}
 	return problem.New(problem.CategoryUsage, "shell.login_provider_required", message).
 		WithRecovery("Connect the login provider's own product first, as in wso2 iam connect <url>, " +
@@ -434,6 +495,11 @@ func loginProviderRequired(namespace, loginProvider string) problem.Problem {
 // apply writes the plan into the document.
 func (p connectPlan) apply(document contexts.Document) contexts.Document {
 	identity := p.identity
+	// Read before the insert: the login product is the one the namespace
+	// order chose out of the products the identity already had. Reading it
+	// afterwards would let a namespace that sorts earlier become the answer,
+	// which is the move the pin exists to prevent.
+	login := identity.LoginAccess().Namespace
 	products := maps.Clone(identity.Products)
 	if products == nil {
 		products = map[string]contexts.Product{}
@@ -444,7 +510,10 @@ func (p connectPlan) apply(document contexts.Document) contexts.Document {
 	// pin: to the product the namespace order already chose, so pinning
 	// never moves a login, and to this product when it is the first.
 	if identity.LoginProduct == "" && identity.Auth.Kind != contexts.KindClientCredentials {
-		identity.LoginProduct = identity.LoginAccess().Namespace
+		if login == "" {
+			login = identity.LoginAccess().Namespace
+		}
+		identity.LoginProduct = login
 	}
 	if p.created {
 		document.SchemaVersion = contexts.SchemaVersion

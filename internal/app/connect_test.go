@@ -231,7 +231,8 @@ func TestConnectAMachineIdentity(t *testing.T) {
 	// a credential of its own, and connect says which flags name it.
 	code, _, errOut = connect(t, shell, "apim", "connect", apimURL, "--client-id", apimClient)
 	if code != exit.AuthPolicy || !strings.Contains(errOut, "auth.product_not_configured") ||
-		!strings.Contains(errOut, "--client-id") || !strings.Contains(errOut, "--client-secret-variable") {
+		!strings.Contains(errOut, "--client-id-variable") ||
+		!strings.Contains(errOut, "--client-secret-variable") {
 		t.Fatalf("exit %d, stderr:\n%s", code, errOut)
 	}
 	code, out, errOut := connect(t, shell, "apim", "connect", apimURL,
@@ -305,5 +306,125 @@ func TestConnectRendersJSON(t *testing.T) {
 	}
 	if !strings.Contains(out, `"identity": "thunder"`) || !strings.Contains(out, `"strategy": "direct"`) {
 		t.Errorf("json:\n%s", out)
+	}
+}
+
+// unpinnedThunderDocument is an identity as wso2 identity create builds one:
+// a direct product and no pinned login product, which is also what a document
+// written before the field existed holds.
+func unpinnedThunderDocument() contexts.Document {
+	return contexts.Document{
+		SchemaVersion:  contexts.SchemaVersion,
+		DefaultContext: "thunder",
+		Identities: []contexts.Identity{{
+			Name: "thunder", Type: "onprem",
+			Auth: contexts.IdentityAuth{
+				Kind: contexts.KindOAuthBrowser, Issuer: thunderURL, ClientID: "wso2-cli",
+				Provider: contexts.ProviderThunder, CredentialRef: "thunder",
+			},
+			Products: map[string]contexts.Product{"zeta": {
+				Endpoint: thunderURL, Audience: "https://localhost:8090/zeta",
+				Scopes: []string{"system"},
+			}},
+		}},
+		Contexts: []contexts.Context{{Name: "thunder", Identity: "thunder"}},
+	}
+}
+
+func TestConnectKeepsTheLoginProductAnUnpinnedIdentityAlreadyHad(t *testing.T) {
+	shell, _, _ := newConnectShell(t)
+	// alpha is a second product at the same issuer, and its namespace sorts
+	// before the one the identity already logs in through.
+	installFixture(t, shell, fixture.Module{Namespace: "alpha", Version: "0.1.0",
+		AuthAudiences: []string{"thunder-system"}, AuthScopes: []string{"system"},
+		Product: &modules.ProductDescriptor{
+			Provider: contexts.ProviderThunder, ClientID: "wso2-cli",
+			Audience: modules.AudienceResource, DefaultAudience: "https://localhost:8090/alpha",
+			Scopes: []string{"system"}, Machine: []string{modules.MachineInline},
+		}})
+	installLogin(t, shell, unpinnedThunderDocument())
+	code, _, errOut := connect(t, shell, "alpha", "connect", thunderURL)
+	if code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	identity := loadDocument(t, shell).Identities[0]
+	if identity.LoginProduct != "zeta" {
+		t.Errorf("the login product moved to %q", identity.LoginProduct)
+	}
+	if access := identity.LoginAccess(); access.Namespace != "zeta" {
+		t.Errorf("the login runs against %q", access.Namespace)
+	}
+}
+
+func TestConnectRefusesACredentialVariableThatIsNotAVariableName(t *testing.T) {
+	shell, _, _ := newConnectShell(t)
+	connect(t, shell, "iam", "connect", thunderURL,
+		"--client-id", "wso2-cli-ci", "--client-secret-variable", "WSO2_CI_CLIENT_SECRET")
+	code, _, errOut := connect(t, shell, "apim", "connect", apimURL,
+		"--client-id", apimClient, "--client-secret-variable", "apim_secret")
+	if code != exit.Usage || !strings.Contains(errOut, "shell.invalid_argument") ||
+		!strings.Contains(errOut, "--client-secret-variable") {
+		t.Fatalf("exit %d, stderr:\n%s", code, errOut)
+	}
+	// The refusal is about the flag, not about the document it never opened,
+	// and it does not repeat what may be the secret itself.
+	if strings.Contains(errOut, "contexts.document_malformed") || strings.Contains(errOut, "apim_secret") {
+		t.Errorf("the document or the value is named:\n%s", errOut)
+	}
+	code, _, errOut = connect(t, shell, "apim", "connect", apimURL, "--client-id", apimClient,
+		"--client-id-variable", "apim_client", "--client-secret-variable", "WSO2_APIM_CLIENT_SECRET")
+	if code != exit.Usage || !strings.Contains(errOut, "shell.invalid_argument") ||
+		!strings.Contains(errOut, "--client-id-variable") || strings.Contains(errOut, "apim_client") {
+		t.Fatalf("a client id variable: exit %d, stderr:\n%s", code, errOut)
+	}
+}
+
+func TestConnectRefusesAProviderProductWhenNoIdentityHasTheLoginProvider(t *testing.T) {
+	shell, _, _ := newConnectShell(t)
+	connect(t, shell, "iam", "connect", thunderURL)
+	code, _, errOut := connect(t, shell, "iam", "connect", "http://other.example",
+		"--identity", "other", "--login-provider", "http://nosuch.example")
+	if code != exit.Usage || !strings.Contains(errOut, "shell.login_provider_required") {
+		t.Fatalf("exit %d, stderr:\n%s", code, errOut)
+	}
+	if document := loadDocument(t, shell); len(document.Identities) != 1 {
+		t.Errorf("an identity was created: %+v", document.Identities)
+	}
+}
+
+func TestConnectReadsTheMachineListOfANonProviderProduct(t *testing.T) {
+	shell, _, _ := newConnectShell(t)
+	// gateway accepts the machine client the identity already holds; legacy
+	// declares no machine strategy at all.
+	installFixture(t, shell, fixture.Module{Namespace: "gateway", Version: "0.1.0",
+		AuthAudiences: []string{"gateway"}, AuthScopes: []string{"gateway:invoke"},
+		Product: &modules.ProductDescriptor{
+			IssuerPath: "/oauth2/token", Audience: modules.AudienceClient,
+			Scopes: []string{"gateway:invoke"}, Grant: contexts.GrantFederated,
+			Machine: []string{modules.MachineInline},
+		}})
+	installFixture(t, shell, fixture.Module{Namespace: "legacy", Version: "0.1.0",
+		AuthAudiences: []string{"legacy"}, AuthScopes: []string{"legacy:read"},
+		Product: &modules.ProductDescriptor{
+			IssuerPath: "/oauth2/token", Audience: modules.AudienceClient,
+			Scopes: []string{"legacy:read"}, Grant: contexts.GrantFederated,
+		}})
+	if code, _, errOut := connect(t, shell, "iam", "connect", thunderURL,
+		"--client-id", "wso2-cli-ci", "--client-secret-variable", "WSO2_CI_CLIENT_SECRET"); code != exit.OK {
+		t.Fatalf("iam connect: exit %d: %s", code, errOut)
+	}
+	code, _, errOut := connect(t, shell, "gateway", "connect", "https://gateway.example",
+		"--client-id", "gateway-client")
+	if code != exit.OK {
+		t.Fatalf("gateway connect: exit %d: %s", code, errOut)
+	}
+	product := loadDocument(t, shell).Identities[0].Products["gateway"]
+	if product.ClientSecretVariable != "" {
+		t.Errorf("a credential was recorded: %+v", product)
+	}
+	code, _, errOut = connect(t, shell, "legacy", "connect", "https://legacy.example",
+		"--client-id", "legacy-client", "--client-secret-variable", "WSO2_LEGACY_CLIENT_SECRET")
+	if code != exit.AuthPolicy || !strings.Contains(errOut, "auth.product_not_configured") {
+		t.Fatalf("legacy connect: exit %d, stderr:\n%s", code, errOut)
 	}
 }
