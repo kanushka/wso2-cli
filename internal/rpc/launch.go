@@ -51,6 +51,9 @@ type Launcher struct {
 	// environment, as NAME=value entries: shell-owned facts the module is
 	// told, such as that nothing may prompt. Never a credential.
 	Environment []string
+	// WithheldEnvironment names variables that must not reach the module even
+	// under its own prefix: the ones the shell reads its credentials from.
+	WithheldEnvironment []string
 }
 
 // Invoke launches the module, runs one command, and returns its terminal
@@ -75,7 +78,8 @@ func (l Launcher) Invoke(ctx context.Context, invocation Invocation) (Outcome, e
 	// credential source the broker reads. Access reaches a module only as a
 	// short-lived token inside the protocol, so there is no ambient value for
 	// it to find, log, or pass on.
-	command.Env = append(modules.SanitizedEnvironment(l.Resolved.Receipt.Namespace), l.Environment...)
+	command.Env = append(modules.SanitizedEnvironment(l.Resolved.Receipt.Namespace, l.WithheldEnvironment...),
+		l.Environment...)
 
 	toModule, err := command.StdinPipe()
 	if err != nil {

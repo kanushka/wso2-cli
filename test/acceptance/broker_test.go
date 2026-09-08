@@ -157,11 +157,28 @@ func deployAs(t *testing.T, install installation) deployment {
 	installOAuthContext(t, stateRoot, issuer.URL, service.server.URL)
 
 	return deployment{
-		stateRoot:   stateRoot,
-		service:     service.server,
-		calls:       service.calls,
-		environment: shellEnvironment(stateRoot, oauthSecretVariable+"="+oauthClientSecret),
+		stateRoot: stateRoot,
+		service:   service.server,
+		calls:     service.calls,
+		// The identity names the OAuth secret, which the shell withholds
+		// from the module by name. The development canary is not this
+		// identity's credential, and a WSO2_REFERENCE_ variable the shell
+		// reads nothing from is the module's own by design, so it is not
+		// planted here where it would be handed over as such.
+		environment: withoutVariable(shellEnvironment(stateRoot, oauthSecretVariable+"="+oauthClientSecret),
+			credentialVariable),
 	}
+}
+
+// withoutVariable drops one variable from an environment.
+func withoutVariable(environment []string, name string) []string {
+	kept := environment[:0:0]
+	for _, entry := range environment {
+		if !strings.HasPrefix(entry, name+"=") {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
 }
 
 // deployInstalled starts the status service and writes the development-credential
@@ -542,8 +559,8 @@ func TestTheModuleEnvironmentCarriesNoAmbientCredential(t *testing.T) {
 	// module is launched with nothing at all, so there is no ambient value for
 	// it to find. Both kinds, because the ambient leak this test rules out
 	// could as easily be the OAuth client secret as the development
-	// credential — the sweep below already rejects any WSO2_-prefixed name, so
-	// it catches WSO2_REFERENCE_CLIENT_SECRET without change.
+	// credential — both sit under the module's own WSO2_REFERENCE_ prefix,
+	// which is exactly why the shell withholds them by name.
 	for _, kind := range bothCredentialKinds {
 		t.Run(kind.String(), func(t *testing.T) {
 			shell := buildShell(t)
@@ -563,7 +580,12 @@ func TestTheModuleEnvironmentCarriesNoAmbientCredential(t *testing.T) {
 					continue
 				}
 				name, _, _ := strings.Cut(reported, "=")
-				if strings.HasPrefix(name, "WSO2_") || name == state.RootEnvVar {
+				// A module is handed its own WSO2_<NAMESPACE>_ variables and
+				// nothing else of the shell's; the two the shell reads its
+				// credential from sit under that prefix and are withheld.
+				ownPrefix := strings.HasPrefix(name, "WSO2_REFERENCE_")
+				if (strings.HasPrefix(name, "WSO2_") && !ownPrefix) || name == state.RootEnvVar ||
+					name == credentialVariable || name == oauthSecretVariable {
 					t.Errorf("the module was launched with the shell's %q", name)
 				}
 			}

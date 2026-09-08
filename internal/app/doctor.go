@@ -228,8 +228,8 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 			return selErr
 		}
 		selected = &chosen
-		switch {
-		case selected.Identity.Auth.Kind == contexts.KindClientCredentials:
+		switch selected.Identity.Auth.Kind {
+		case contexts.KindClientCredentials:
 			// A client-credentials identity acquires access inline, one
 			// grant per command, and holds no session at all — there is
 			// nothing this check could find missing, so it is

@@ -741,11 +741,11 @@ it expired, or a concurrent run rotated it away. Run `wso2 login` again.
 
 ### `auth.logout_not_required`
 
-You ran `wso2 logout` against a context whose identity acquires access inline
-and never holds a session, which in practice means a `client-credentials`
-identity.
-Nothing is stored for it, so there is nothing to end. Remove the credential from
-the environment to stop the shell acquiring access with it.
+No longer raised. `wso2 logout` against a context whose identity acquires
+access inline, which in practice means a `client-credentials` identity, now
+reports that no session was stored and exits 0, so a pipeline that ends with
+it does not fail. Nothing is stored for such an identity; remove the
+credential from the environment to stop the shell acquiring access with it.
 
 ### `auth.keyring_unavailable`
 

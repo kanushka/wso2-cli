@@ -69,3 +69,19 @@ func TestAModuleSeesItsOwnNamespaceVariablesOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestAModuleNeverSeesTheShellsOwnCredentialVariables(t *testing.T) {
+	// The apim bootstrap suggests WSO2_APIM_CLIENT_SECRET for the identity's
+	// own secret, which sits under the module's prefix. The shell reads it;
+	// the module must not.
+	t.Setenv("WSO2_APIM_CLIENT_SECRET", "the-shells-secret")
+	t.Setenv("WSO2_APIM_ADMIN_PASSWORD", "the-modules-secret")
+
+	environment := SanitizedEnvironment("apim", "WSO2_APIM_CLIENT_SECRET")
+	if slices.Contains(environment, "WSO2_APIM_CLIENT_SECRET=the-shells-secret") {
+		t.Errorf("the shell's credential variable reached the module: %q", environment)
+	}
+	if !slices.Contains(environment, "WSO2_APIM_ADMIN_PASSWORD=the-modules-secret") {
+		t.Errorf("the module's own variable was withheld: %q", environment)
+	}
+}

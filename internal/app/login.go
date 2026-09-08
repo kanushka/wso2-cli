@@ -218,7 +218,9 @@ func establishedLabels(established []contexts.ProductAccess) []string {
 // access failed, on the diagnostic stream, so the partial state is visible
 // even when the error itself renders tersely.
 func (s Shell) reportPartialLogin(established []contexts.ProductAccess, failed contexts.ProductAccess) {
-	fmt.Fprintf(s.Streams.Err, "Established: %s. Not established: %s.\n",
+	// Best effort: the diagnostic stream is not a place a failure can be
+	// reported to, and the refusal that follows carries the same names.
+	_, _ = fmt.Fprintf(s.Streams.Err, "Established: %s. Not established: %s.\n",
 		strings.Join(establishedLabels(established), ", "), failed.Namespace)
 }
 

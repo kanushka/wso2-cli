@@ -71,7 +71,7 @@ func TestTheCAFileMakesASelfSignedDeploymentReachable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the named certificate was not trusted: %v", err)
 	}
-	response.Body.Close()
+	_ = response.Body.Close()
 	if response.StatusCode != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d", response.StatusCode, http.StatusNoContent)
 	}

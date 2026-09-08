@@ -166,6 +166,9 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 		},
 		InvocationID: invocationID,
 		Broker:       broker,
+		// The variables the shell reads its own credentials from, whatever
+		// their names, never reach the module.
+		WithheldEnvironment: credentialVariables(selection.Identity),
 	}
 	// The module is told that nothing may prompt through the one variable
 	// it already reads, whichever of the flag and the variable asked, so a
@@ -361,4 +364,24 @@ func unknownOutputMode(namespace, value string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "shell.unknown_output_mode",
 		fmt.Sprintf("%q is not an output mode this shell renders", value)).
 		WithRecovery(fmt.Sprintf("Run wso2 %s --output %s.", namespace, strings.Join(supported, " or --output ")))
+}
+
+// credentialVariables names every environment variable the identity reads a
+// credential from: its own client secret, and each product's client id and
+// secret. Names only, never values.
+func credentialVariables(identity contexts.Identity) []string {
+	var names []string
+	for _, name := range []string{identity.Auth.ClientSecretVariable, identity.Auth.CredentialVariable} {
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	for _, product := range identity.Products {
+		for _, name := range []string{product.ClientIDVariable, product.ClientSecretVariable} {
+			if name != "" {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
 }

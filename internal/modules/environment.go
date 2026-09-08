@@ -19,6 +19,7 @@ package modules
 import (
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 )
 
@@ -40,7 +41,14 @@ import (
 // what commands it serves, and again for every invocation. Two copies of this
 // rule would be two places for it to drift, and the one that drifted would be
 // the one nobody was looking at.
-func SanitizedEnvironment(namespace string) []string {
+//
+// withheld names variables that carry the shell's own credentials, read from
+// the context document: an identity's client secret variable and a product's
+// client id and secret variables. They may well sit under the namespace
+// prefix, since a bootstrap suggests WSO2_APIM_CLIENT_SECRET for the apim
+// identity, and a module must never see the credential the shell mints its
+// access from, so those are withheld whatever their name.
+func SanitizedEnvironment(namespace string, withheld ...string) []string {
 	names := []string{CAFileEnvVar}
 	if runtime.GOOS == "windows" {
 		// Windows cannot reliably start a process without these, and neither
@@ -56,7 +64,7 @@ func SanitizedEnvironment(namespace string) []string {
 	prefix := NamespaceEnvPrefix(namespace)
 	for _, entry := range os.Environ() {
 		name, value, _ := strings.Cut(entry, "=")
-		if strings.HasPrefix(name, prefix) && value != "" {
+		if strings.HasPrefix(name, prefix) && value != "" && !slices.Contains(withheld, name) {
 			environment = append(environment, entry)
 		}
 	}
