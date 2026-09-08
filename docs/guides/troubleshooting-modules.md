@@ -4,7 +4,7 @@
 **Related:** [Building a product module](building-product-modules.md),
 [module manifest](../reference/module-manifest.md),
 [module SDK](../reference/module-sdk.md)
-**Last reviewed:** 2026-08-30
+**Last reviewed:** 2026-09-07
 
 The failures a module author meets have a particular character: the module
 builds, its tests pass, and something refuses it anyway. That is by design.
@@ -18,7 +18,8 @@ shell prints in parentheses, which is stable and worth searching for.
 The single most useful habit: install your module locally and run it before you
 tag anything. `make install-module NAMESPACE=<namespace>` installs an
 unpublished build through the ordinary installer, so every check below runs
-against your module while you can still change it.
+against your module while you can still change it. Set `WSO2_HOME` to an empty
+directory first if you would rather the run not touch your own installation.
 
 ## The module builds and tests pass, but output is garbled or the shell reports a protocol failure
 
@@ -38,7 +39,15 @@ so a module that lands here is caught before release.
 
 > the "api" module asked for access its installation does not declare
 
-The manifest and the executable disagree about what the module may request.
+The manifest and the executable disagree about what the module may request, or
+a handler named a scope nobody recorded.
+
+A scope has two legal sources: the receipt, written from `module.json`, and the
+identity's product entry for the namespace, written by the user or by
+`connect`. A request naming no scopes asks for the entry's scopes and cannot
+fail this way. So the ordinary fix for `scope_not_declared` is to stop naming
+scopes in the request and declare in `module.json` every scope a command can
+need; name scopes only when one command should hold fewer than the entry allows.
 
 A module states its access twice: `capabilities` in `module.json`, and
 `AuthAudiences` and `AuthScopes` in the `module.Options` it serves.
@@ -145,6 +154,37 @@ category, the code, and the recovery text.
 `handler_panicked` is what it says. `invalid_result` means the result failed
 validation: no schema, no fields, a field with no name, or the same field name
 twice.
+
+## `shell.connect_unsupported`
+
+> the amp module declares no product descriptor, so the shell cannot write its record from a URL
+
+`wso2 <namespace> connect <url>` is the shell's, and it writes the identity's
+product record from `capabilities.product` in the module's receipt. A module
+that declares none has `connect` refused, and the recovery names
+`wso2 identity add-product`, which writes the same record by hand.
+
+For an author this is a choice rather than a defect. Declare a descriptor when
+the product's issuer can be named from the product's URL, and make the module's
+`status` point at `connect`; when it cannot, as for a product whose issuer has to
+be discovered from the product itself, declare none and make `status` point at
+`add-product`, as `modules/amp` does. Adding a descriptor to an installed module
+changes nothing until the module is released and reinstalled, because `connect`
+reads the receipt.
+
+## `modules.receipt_malformed` naming a product descriptor
+
+> module receipt declares a product descriptor with an audience kind "uri" that is neither resource nor client
+
+The descriptor in `module.json` carries a value the shell does not read: an
+audience kind other than `resource` or `client`, a provider other than
+`asgardeo`, `identity-server` or `thunder`, a grant other than `federated` or
+`jwt-bearer`, a machine strategy other than `inline` or `credential`, an empty
+`scopes` list, or an `issuerPath` that does not start with `/`. The table in
+the [manifest reference](../reference/module-manifest.md#capabilitiesproduct)
+has every field. A descriptor is checked when the receipt is read, so the
+module builds, tests, and installs, and every command then refuses until it is
+fixed, released, and reinstalled.
 
 ## The commands never reach the module
 

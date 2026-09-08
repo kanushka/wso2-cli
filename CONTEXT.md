@@ -24,6 +24,15 @@ A non-product module used only to prove and test the shell, SDK, and module
 contract before a real product is migrated.
 _Avoid_: Pilot module, Agent module
 
+**Product descriptor**:
+What a product module declares in its manifest about reaching its product:
+whether the product is an identity provider, how its issuer is named from a
+URL, how tokens are bound, the scopes its commands need, and the grant and
+machine strategies it accepts. `wso2 <namespace> connect` writes a product
+record from it; a module without one is recorded with `wso2 identity
+add-product` instead.
+_Avoid_: Product config, connect metadata
+
 **Module contract**:
 The mandatory versioned interaction between the shell and a product module.
 _Avoid_: Plugin API

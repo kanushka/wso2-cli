@@ -76,9 +76,10 @@ type Options struct {
 	AuthScopes    []string
 	// CommandTree is the module's declared command tree, which the shell reads
 	// to parse a product command line as precisely as this module would. A
-	// module built on Cobra fills it with cobratree.Tree.Declare; leaving it
-	// empty is supported and means the shell parses as it did before
-	// declarations existed. It is not part of the Descriptor because it
+	// module built on Cobra does not set it by hand: cobratree.Tree.Serve
+	// fills it from the tree it serves. Leaving it empty is supported and
+	// means the shell parses as it did before declarations existed, so it
+	// cannot answer --help or name a mistyped command for this module. It is not part of the Descriptor because it
 	// describes what the module accepts rather than what it is.
 	CommandTree commandtree.Tree
 }

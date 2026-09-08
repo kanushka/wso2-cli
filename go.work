@@ -24,5 +24,6 @@ use (
 	./modules/apim
 	./modules/iam
 	./modules/reference
+	./modules/amp
 	./sdk
 )

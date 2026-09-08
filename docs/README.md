@@ -81,8 +81,11 @@ described commands or schemas are currently available.
   what each step was measured to cost, gateway included.
 - [Building a product module](guides/building-product-modules.md) shows a
   product team how to add an independently released module, use the SDK and
-  authentication broker, test it, and release it through the generated catalog.
-  Its reader is a product team, not a first-time user.
+  authentication broker, tell the shell how the product is reached, test it
+  against a fake deployment and under a real shell, and release it through the
+  generated catalog. Every step was run to build the Agent Manager module,
+  `modules/amp`, which the guide follows throughout. Its reader is a product
+  team, not a first-time user.
 - [Troubleshooting a product module](guides/troubleshooting-modules.md) maps
   what a module author sees to what is wrong. Nearly everything the shell checks
   about a module it checks by reading `module.json` rather than by running
