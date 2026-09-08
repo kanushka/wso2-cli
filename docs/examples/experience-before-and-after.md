@@ -2,7 +2,7 @@
 
 **Status:** Target user experience, alongside two measured baselines
 **Date:** 2026-09-06
-**Authoritative:** [One login, one session per product](../superpowers/specs/2026-09-06-one-login-many-sessions-design.md)
+**Authoritative:** [One login, one session per product](https://github.com/wso2/wso2-cli/issues/167)
 **Evidence:** [CI pipelines without the shell](../research/2026-09-06-ci-pipelines-without-wso2-cli.md) ·
 the exercise records `iam-apim-journey-findings.md` and
 `HANDOFF-auth-derived-grant.md` ·

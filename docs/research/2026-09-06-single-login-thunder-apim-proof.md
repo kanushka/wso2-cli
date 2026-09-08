@@ -127,8 +127,8 @@ strategy: refresh the session for an ID token, present that ID token to
 the product's token endpoint under the JWT bearer grant as a public
 client, and verify the answer exactly as it verifies a narrowed refresh.
 The context document has to say, per product, which issuer and client to
-present the assertion to. The design is in
-`docs/superpowers/specs/2026-09-06-single-login-derived-grant-design.md`.
+present the assertion to. The design is recorded as
+[The derived jwt-bearer grant](https://github.com/wso2/wso2-cli/issues/165).
 
 ## Not tested
 

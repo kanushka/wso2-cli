@@ -2,7 +2,7 @@
 
 **Status:** Measured, 2026-09-06
 **Decides:** section 11 step 0 of
-`docs/superpowers/specs/2026-09-06-one-login-many-sessions-design.md`
+[One login, one session per product](https://github.com/wso2/wso2-cli/issues/167)
 **Against:** `cli-thunder3` (ThunderID v1.0.1, http://localhost:8492) and
 `cli-apim` (API Manager 4.7.0, https://localhost:9443)
 
