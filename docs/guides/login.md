@@ -24,12 +24,10 @@ They are alternatives. You need exactly one. Each is written to be read on its
 own, and each ends by handing you the four values section 2 asks for.
 
 **If the product you are reaching has a module with a product descriptor**,
-such as `iam` for ThunderID or `apim` for API Manager, you do not assemble
-those values at all: `wso2 <namespace> connect <url>` records the product
-from its URL, and one login then serves every product recorded on the
-identity. [One login for ThunderID and API Manager](one-login-thunder-apim.md)
-walks through that route end to end; this guide is the one for the context
-document itself and for a deployment recorded by hand.
+you do not assemble those values at all: `wso2 <namespace> connect <url>`
+records the product from its URL, and one login then serves every product
+recorded on the identity. This guide is the one for the context document
+itself and for a deployment recorded by hand.
 
 ---
 

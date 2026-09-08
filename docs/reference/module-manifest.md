@@ -194,13 +194,13 @@ The refusals above are made when the receipt is read, as `modules.receipt_malfor
 naming the field. A manifest carrying them builds and tests clean, so read the
 table before tagging.
 
-Two worked declarations are in the repository. `modules/iam` declares
-`provider: thunder`, so `wso2 iam connect <url>` creates the identity, the
-context, and pins the login product. `modules/apim` declares
-`issuerPath: /oauth2/token`, `audience: client`, `grant: federated` and
-`machine: [credential]`, so `wso2 apim connect <url> --client-id <id>` attaches
-API Manager to the identity already logged in, and a pipeline hands it a
-credential of API Manager's own.
+Two shapes occur. A product that is itself the login provider declares
+`provider`, so `wso2 <namespace> connect <url>` creates the identity, the
+context, and pins the login product. A product reached through a login
+provider declares `issuerPath`, `audience`, `grant: federated` and its
+`machine` strategies, so `wso2 <namespace> connect <url> --client-id <id>`
+attaches it to the identity already logged in, and a pipeline hands it a
+credential of the product's own.
 
 ### When not to declare one
 
@@ -210,9 +210,7 @@ Agent Manager's bundled ThunderID at a host of its own, found through RFC 9728
 protected-resource metadata, cannot be described here today, and a module for
 it declares none. The shell then refuses `wso2 <namespace> connect` with
 `shell.connect_unsupported`, naming `wso2 identity add-product`, and the module's
-`status` should name that command too. `modules/amp` is that case, and the
-guide's [section 4](../guides/building-product-modules.md#4-tell-the-shell-how-your-product-is-reached)
-shows the record written by hand.
+`status` should name that command too.
 
 ## What is deliberately absent
 

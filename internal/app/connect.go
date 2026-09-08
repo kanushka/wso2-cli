@@ -556,9 +556,8 @@ func clientIDRequired(namespace string, flags connectFlags, usage string) proble
 			"--client-id with the public client the deployment holds for this CLI", namespace)).
 		WithRecovery(fmt.Sprintf("On a browser identity that is a public client registered on the "+
 			"product itself and federated to the identity's login provider, not the confidential "+
-			"client wso2 %s bootstrap registers; docs/guides/one-login-thunder-apim.md section 3 "+
-			"registers one on API Manager. A pipeline passes the bootstrap's client instead, as "+
-			"--client-id <id> --client-secret-variable <VAR>. %s", namespace, usage))
+			"client wso2 %s bootstrap registers. A pipeline passes the bootstrap's client instead, "+
+			"as --client-id <id> --client-secret-variable <VAR>. %s", namespace, usage))
 }
 
 // loginProviderRequired refuses a product with no identity to attach to.

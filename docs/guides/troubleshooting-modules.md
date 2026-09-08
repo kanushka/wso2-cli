@@ -157,7 +157,7 @@ twice.
 
 ## `shell.connect_unsupported`
 
-> the amp module declares no product descriptor, so the shell cannot write its record from a URL
+> the <namespace> module declares no product descriptor, so the shell cannot write its record from a URL
 
 `wso2 <namespace> connect <url>` is the shell's, and it writes the identity's
 product record from `capabilities.product` in the module's receipt. A module
@@ -168,7 +168,7 @@ For an author this is a choice rather than a defect. Declare a descriptor when
 the product's issuer can be named from the product's URL, and make the module's
 `status` point at `connect`; when it cannot, as for a product whose issuer has to
 be discovered from the product itself, declare none and make `status` point at
-`add-product`, as `modules/amp` does. Adding a descriptor to an installed module
+`add-product`. Adding a descriptor to an installed module
 changes nothing until the module is released and reinstalled, because `connect`
 reads the receipt.
 

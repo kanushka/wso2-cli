@@ -152,8 +152,7 @@ func TestConnectANonProviderProductNeedsAClientIDWhenTheDescriptorNamesNone(t *t
 	code, _, errOut := connect(t, shell, "apim", "connect", apimURL)
 	if code != exit.Usage || !strings.Contains(errOut, "shell.missing_required_flag") ||
 		!strings.Contains(errOut, "--client-id") || !strings.Contains(errOut, "public client") ||
-		!strings.Contains(errOut, "federated to the identity's login provider") ||
-		!strings.Contains(errOut, "docs/guides/one-login-thunder-apim.md") {
+		!strings.Contains(errOut, "federated to the identity's login provider") {
 		t.Fatalf("browser: exit %d, stderr:\n%s", code, errOut)
 	}
 	// A secret on the line: a pipeline, which uses the client bootstrap prints.

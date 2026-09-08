@@ -192,7 +192,7 @@ user or the product's `connect` wrote down when the product was recorded, and
 those recorded scopes are the ceiling for every request whichever side named
 them. So a module declares every scope its commands can need once, in
 `module.json` and `Options`, and a handler names scopes only when one command
-should hold fewer than the entry allows. The `apim` and `amp` modules name none.
+should hold fewer than the entry allows.
 
 The token is opaque. Do not parse it, log it, return it, persist it, or pass it
 in command-line arguments. `ExpiresAt` lets a module fail early; the audience

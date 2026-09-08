@@ -121,7 +121,7 @@ step.
 wherever it is written, like `--verbose`, and never forwarded to the
 module. Wherever ends at a bare `--`, as it does for `--output` and
 `--context`: everything after the separator is the module's, unread, so
-`wso2 apim gateway invoke /x -- --no-input` hands the module the word and
+`wso2 <namespace> call /x -- --no-input` hands the module the word and
 leaves the shell interactive. A module flag whose value is that literal
 word takes it attached, `--description=--no-input`, because the shell
 reads the separated spelling before it knows which of the module's flags

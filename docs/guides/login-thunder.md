@@ -41,8 +41,6 @@ Three things follow:
   an identity holds one session per product and the shell runs one
   authorization per product from the same sign-on, so a Thunder identity may
   declare several; the binding is why each gets its own session.
-  [One login for ThunderID and API Manager](one-login-thunder-apim.md) walks
-  through it.
 - **The audience check means what it says.** On Asgardeo an access token's `aud`
   is the client ID and cannot distinguish one product from another. On Thunder it
   is the resource server identifier and nothing else, which is the strongest
@@ -335,9 +333,8 @@ which is the same for all three products.
 A Thunder authorization is bound to one protected resource from the moment
 it is established, so the shell has to know the resource before the browser
 opens. A module that carries a product descriptor is recorded from its URL
-alone: `wso2 iam connect https://localhost:8090` writes the identity, the
-product and the context, and [the one-login walkthrough](one-login-thunder-apim.md)
-takes that route. The reference module declares no descriptor, so declare
+alone: `wso2 <namespace> connect https://localhost:8090` writes the identity,
+the product and the context. The reference module declares no descriptor, so declare
 the identity yourself, naming the provider and the product it reaches, then
 log in:
 

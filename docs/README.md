@@ -73,19 +73,10 @@ described commands or schemas are currently available.
   [Identity Server 7.x](guides/login-identity-server.md), and
   [ThunderID](guides/login-thunder.md). They are alternatives; a reader needs
   exactly one, and each hands off to the login guide at its section 2.
-- [One login for ThunderID and API Manager](guides/one-login-thunder-apim.md)
-  is the developer walkthrough for the per-product session model: `wso2 iam
-  connect` and `wso2 apim connect` record the two products, the public client
-  API Manager needs is registered by hand, one `wso2 login` serves both, and a
-  mock API is registered, published and called through the gateway. It says
-  what each step was measured to cost, gateway included.
 - [Building a product module](guides/building-product-modules.md) shows a
   product team how to add an independently released module, use the SDK and
-  authentication broker, tell the shell how the product is reached, test it
-  against a fake deployment and under a real shell, and release it through the
-  generated catalog. Every step was run to build the Agent Manager module,
-  `modules/amp`, which the guide follows throughout. Its reader is a product
-  team, not a first-time user.
+  authentication broker, test it, and release it through the generated catalog.
+  Its reader is a product team, not a first-time user.
 - [Troubleshooting a product module](guides/troubleshooting-modules.md) maps
   what a module author sees to what is wrong. Nearly everything the shell checks
   about a module it checks by reading `module.json` rather than by running
