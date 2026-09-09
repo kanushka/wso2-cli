@@ -52,7 +52,7 @@ func broker(t *testing.T) *auth.Broker {
 		Selection: contexts.Selection{
 			Context: contexts.Context{
 				Name:         "reference-local",
-				Identity:     "reference-local",
+				Account:      "reference-local",
 				Organization: organization,
 			},
 			Identity: contexts.Account{
@@ -292,7 +292,7 @@ func productionBroker(t *testing.T, kind string) *auth.Broker {
 		Selection: contexts.Selection{
 			Context: contexts.Context{
 				Name:         "reference-cloud",
-				Identity:     "reference-cloud",
+				Account:      "reference-cloud",
 				Organization: homeTenant,
 			},
 			Identity: contexts.Account{

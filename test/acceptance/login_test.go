@@ -251,7 +251,7 @@ func browserDocument(issuerURL, endpoint string) contexts.Document {
 		}},
 		Contexts: []contexts.Context{{
 			Name:         referenceContextName,
-			Identity:     loginIdentityName,
+			Account:     loginIdentityName,
 			Organization: referenceOrganization,
 		}},
 	}

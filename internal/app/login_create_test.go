@@ -95,7 +95,7 @@ func TestLoginCreatesAnIdentityAndAContextWhenNoneMatches(t *testing.T) {
 	if len(identity.Products) != 0 {
 		t.Errorf("login wrote a products block: %v", identity.Products)
 	}
-	if document.Contexts[0].Name != "customer" || document.Contexts[0].Identity != "customer" {
+	if document.Contexts[0].Name != "customer" || document.Contexts[0].Account != "customer" {
 		t.Errorf("context = %+v, want customer authenticating as customer", document.Contexts[0])
 	}
 	// The names it assigned, because a name the user is not told is a name they
@@ -227,7 +227,7 @@ func TestLoginIsRefusedWhenAnIdentityOfThatNameDiffers(t *testing.T) {
 						CredentialRef: "customer",
 					},
 				}},
-				Contexts: []contexts.Context{{Name: "customer", Identity: "customer"}},
+				Contexts: []contexts.Context{{Name: "customer", Account: "customer"}},
 			})
 			before, err := os.ReadFile(contexts.Path(shell.StateRoot))
 			if err != nil {

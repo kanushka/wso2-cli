@@ -73,7 +73,7 @@ func sessionEstablisherDoc(loginIssuer string) contexts.Document {
 				},
 			},
 		}},
-		Contexts: []contexts.Context{{Name: "acme-dev", Identity: "acme-cloud", Organization: "acme"}},
+		Contexts: []contexts.Context{{Name: "acme-dev", Account: "acme-cloud", Organization: "acme"}},
 	}
 }
 

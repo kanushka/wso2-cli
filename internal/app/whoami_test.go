@@ -67,7 +67,7 @@ func decodeWhoamiReport(t *testing.T, rendered []byte) whoamiReport {
 func whoamiSeededDocument() contexts.Document {
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud", Organization: "acme-org"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "acme-org"}}
 	return seeded
 }
 
@@ -333,7 +333,7 @@ func TestWhoamiHonorsContextPrecedence(t *testing.T) {
 			CredentialRef: "beta-cloud",
 		},
 	})
-	seeded.Contexts = append(seeded.Contexts, contexts.Context{Name: "beta", Identity: "beta-cloud"})
+	seeded.Contexts = append(seeded.Contexts, contexts.Context{Name: "beta", Account: "beta-cloud"})
 	seedBetaSession := func(t *testing.T, shell app.Shell) {
 		t.Helper()
 		installLogin(t, shell, seeded)

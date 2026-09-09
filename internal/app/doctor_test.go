@@ -242,7 +242,7 @@ func TestDoctorHappyPathPassesEveryCheck(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
 	installLogin(t, shell, seeded)
 	store := session.Store{StateRoot: shell.StateRoot}
 	if err := store.Save("acme-cloud", session.Session{
@@ -294,7 +294,7 @@ func TestDoctorReportsALoggedOutContextAsNoneNotAFault(t *testing.T) {
 	keyring.MockInit()
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
 
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, seeded)
@@ -335,7 +335,7 @@ func TestDoctorStillFailsAnUnreadableStoredSession(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
 	installLogin(t, shell, seeded)
 	store := session.Store{StateRoot: shell.StateRoot}
 	if err := keyring.Set(session.Service, store.EntryName("acme-cloud"), "not json"); err != nil {
@@ -492,7 +492,7 @@ func TestDoctorRefusesAnUnknownContextAsUsage(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
 	installLogin(t, shell, seeded)
 
 	if code := shell.Run([]string{"doctor", "--context", "nosuch"}); code != exit.Usage {
@@ -522,8 +522,8 @@ func TestDoctorHonorsContextPrecedence(t *testing.T) {
 	})
 	seeded.DefaultContext = "acme"
 	seeded.Contexts = []contexts.Context{
-		{Name: "acme", Identity: "acme-cloud"},
-		{Name: "beta", Identity: "beta-cloud"},
+		{Name: "acme", Account: "acme-cloud"},
+		{Name: "beta", Account: "beta-cloud"},
 	}
 	// A session exists only for beta's identity, so "session: pass" is only
 	// possible when beta is the context doctor actually resolved.

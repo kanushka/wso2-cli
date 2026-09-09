@@ -261,13 +261,13 @@ func planLogin(document contexts.Document, name, issuer, clientID string) (conte
 	// Taken from the identity after the loop above, so a reused identity that
 	// recorded no tenant yields a context naming no organization, exactly as
 	// its earlier logins did.
-	selected := contexts.Context{Name: name, Identity: name,
+	selected := contexts.Context{Name: name, Account: name,
 		Organization: identity.Auth.Tenant}
 	for _, declared := range document.Contexts {
 		if declared.Name != name {
 			continue
 		}
-		if declared.Identity != name {
+		if declared.Account != name {
 			return contexts.Selection{}, contextExists(name)
 		}
 		// The declared context, because what it says stands: a login refreshes

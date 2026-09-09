@@ -47,7 +47,7 @@ func selfHostedDocument() contexts.Document {
 			},
 		}},
 		Contexts: []contexts.Context{{
-			Name: "idp-customer-example", Identity: "idp-customer-example",
+			Name: "idp-customer-example", Account: "idp-customer-example",
 		}},
 	}
 }

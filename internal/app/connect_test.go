@@ -372,7 +372,7 @@ func unpinnedThunderDocument() contexts.Document {
 				Scopes: []string{"system"},
 			}},
 		}},
-		Contexts: []contexts.Context{{Name: "thunder", Identity: "thunder"}},
+		Contexts: []contexts.Context{{Name: "thunder", Account: "thunder"}},
 	}
 }
 

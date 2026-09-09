@@ -50,7 +50,7 @@ func TestIdentityCreateWritesABrowserIdentityWithOneProduct(t *testing.T) {
 		t.Errorf("product = %+v", got)
 	}
 	if document.DefaultContext != "thunder-admin" || len(document.Contexts) != 1 ||
-		document.Contexts[0].Identity != "thunder-admin" {
+		document.Contexts[0].Account != "thunder-admin" {
 		t.Errorf("context not written or selected: %+v", document)
 	}
 	if !strings.Contains(out.String(), "Next  Run wso2 login --context thunder-admin") {

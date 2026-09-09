@@ -87,7 +87,7 @@ func TestContextCreateWritesASchemaVersionTwoContext(t *testing.T) {
 		t.Errorf("schemaVersion = %d, want %d", document.SchemaVersion, contexts.SchemaVersion)
 	}
 	created := contextNamed(t, document, "acme")
-	if created.Identity != "acme-cloud" || created.Organization != "acme" || created.Project != "retail" {
+	if created.Account != "acme-cloud" || created.Organization != "acme" || created.Project != "retail" {
 		t.Errorf("created context = %+v, want the identity, organization and project that were named", created)
 	}
 }
@@ -96,7 +96,7 @@ func TestContextCreateIsRefusedWhenTheNameIsTaken(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud", Organization: "first"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "first"}}
 	installLogin(t, shell, seeded)
 
 	code := shell.Run([]string{"context", "create", "acme", "--identity", "acme-cloud",
@@ -215,8 +215,8 @@ func TestContextUseSelectsAndWritesNothingElse(t *testing.T) {
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
 	seeded.Contexts = []contexts.Context{
-		{Name: "acme", Identity: "acme-cloud", Organization: "acme"},
-		{Name: "beta", Identity: "acme-cloud", Organization: "beta"},
+		{Name: "acme", Account: "acme-cloud", Organization: "acme"},
+		{Name: "beta", Account: "acme-cloud", Organization: "beta"},
 	}
 	installLogin(t, shell, seeded)
 	before := loadDocument(t, shell)
@@ -240,7 +240,7 @@ func TestContextUseIsRefusedForAnUnknownName(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
 	installLogin(t, shell, seeded)
 
 	if code := shell.Run([]string{"context", "use", "nosuch"}); code != exit.Usage {
@@ -259,8 +259,8 @@ func TestContextListRendersEveryContextAndMarksTheDefault(t *testing.T) {
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "beta"
 	seeded.Contexts = []contexts.Context{
-		{Name: "acme", Identity: "acme-cloud"},
-		{Name: "beta", Identity: "acme-cloud"},
+		{Name: "acme", Account: "acme-cloud"},
+		{Name: "beta", Account: "acme-cloud"},
 	}
 	installLogin(t, shell, seeded)
 
@@ -299,7 +299,7 @@ func TestContextCurrentReportsTheSelectedContext(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud", Organization: "acme"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "acme"}}
 	installLogin(t, shell, seeded)
 
 	if code := shell.Run([]string{"context", "current"}); code != exit.OK {
@@ -339,8 +339,8 @@ func TestEveryContextSubcommandRendersJSON(t *testing.T) {
 			seeded := identityOnlyDocument()
 			seeded.DefaultContext = "acme"
 			seeded.Contexts = []contexts.Context{
-				{Name: "acme", Identity: "acme-cloud"},
-				{Name: "beta", Identity: "acme-cloud"},
+				{Name: "acme", Account: "acme-cloud"},
+				{Name: "beta", Account: "acme-cloud"},
 			}
 			installLogin(t, shell, seeded)
 
@@ -422,8 +422,8 @@ func TestNoContextSubcommandOpensANetworkConnection(t *testing.T) {
 			seeded := identityOnlyDocument()
 			seeded.DefaultContext = "acme"
 			seeded.Contexts = []contexts.Context{
-				{Name: "acme", Identity: "acme-cloud"},
-				{Name: "beta", Identity: "acme-cloud"},
+				{Name: "acme", Account: "acme-cloud"},
+				{Name: "beta", Account: "acme-cloud"},
 			}
 			installLogin(t, shell, seeded)
 			// The exit code is not asserted: what is asserted is that whatever

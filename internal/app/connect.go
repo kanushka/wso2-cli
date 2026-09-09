@@ -358,7 +358,7 @@ func planConnect(document contexts.Document, namespace string, descriptor module
 			return connectPlan{}, contextExists(name)
 		}
 		plan.identity = newConnectIdentity(name, descriptor, issuer, flags)
-		plan.context = contexts.Context{Name: name, Identity: name}
+		plan.context = contexts.Context{Name: name, Account: name}
 		plan.created = true
 		plan.selected = document.DefaultContext == ""
 	case !found:
@@ -417,7 +417,7 @@ func soleIdentityContext(document contexts.Document, identity string) bool {
 		return false
 	}
 	only := document.Contexts[0]
-	return only.Identity == identity && document.DefaultContext == only.Name
+	return only.Account == identity && document.DefaultContext == only.Name
 }
 
 // connectTarget is the identity a connect records on, when one can be
