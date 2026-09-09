@@ -59,7 +59,7 @@ func healthyShellAgainst(t *testing.T, issuer string) (app.Shell, *bytes.Buffer,
 	seeded := identityOnlyDocument()
 	seeded.Accounts[0].Auth.Issuer = issuer
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
 	installLogin(t, shell, seeded)
 	store := session.Store{StateRoot: shell.StateRoot}
 	if err := store.Save("acme-cloud", session.Session{Issuer: issuer, RefreshToken: "rt-1"}); err != nil {

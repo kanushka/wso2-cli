@@ -158,7 +158,7 @@ func (s Shell) whoami(command *cobra.Command) error {
 		}
 		report.Configured = true
 		report.Context = selected.Context.Name
-		report.Identity = selected.Context.Identity
+		report.Identity = selected.Context.Account
 		report.Organization = selected.Context.Organization
 
 		store := session.Store{StateRoot: root}

@@ -85,7 +85,7 @@ func documentV2() contexts.Document {
 			},
 		}},
 		Contexts: []contexts.Context{
-			{Name: "acme-dev", Identity: "acme-cloud", Organization: "acme"},
+			{Name: "acme-dev", Account: "acme-cloud", Organization: "acme"},
 		},
 	}
 }
@@ -98,7 +98,7 @@ func TestDecodeV2(t *testing.T) {
 	if len(document.Accounts) != 1 || document.Accounts[0].Auth.Kind != contexts.KindOAuthBrowser {
 		t.Fatalf("identity not decoded: %+v", document.Accounts)
 	}
-	if document.Contexts[0].Identity != "acme-cloud" {
+	if document.Contexts[0].Account != "acme-cloud" {
 		t.Fatalf("context does not reference its identity: %+v", document.Contexts[0])
 	}
 }
@@ -212,7 +212,7 @@ func TestAContextRecordsNoCredentialValue(t *testing.T) {
 	// The document names where credentials come from. It must have nowhere to
 	// put a credential itself, so a reviewer can prove the absence from the
 	// types rather than from every writer of them.
-	allowedContext := []string{"name", "identity", "organization", "project"}
+	allowedContext := []string{"name", "account", "organization", "project"}
 	// loginProduct names which product the login is run for: a namespace,
 	// not a secret.
 	allowedIdentity := []string{"name", "type", "auth", "products", "loginProduct"}
@@ -620,5 +620,29 @@ func TestAV2DocumentIsReadAsAccountsAndWrittenBackAsV3(t *testing.T) {
 	if !strings.Contains(string(encoded), `"accounts"`) ||
 		strings.Contains(string(encoded), `"identities"`) {
 		t.Fatalf("the document was not written back under the accounts key:\n%s", encoded)
+	}
+}
+
+func TestAContextNamesItsAccountUnderTheAccountKey(t *testing.T) {
+	// The schema bump renames the concept, not one key of it. A v3 document
+	// that listed "accounts" at the top and still said "identity" inside every
+	// context would spell the same concept two ways in one file, which is the
+	// ambiguity ADR 0015 exists to remove.
+	document, err := contexts.Decode([]byte(validV2()))
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if document.Contexts[0].Account != "acme-cloud" {
+		t.Fatalf("a v2 context's account reference was not read: %+v", document.Contexts[0])
+	}
+	encoded, err := document.Encode()
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"account": "acme-cloud"`) {
+		t.Fatalf("the context does not name its account under the account key:\n%s", encoded)
+	}
+	if strings.Contains(string(encoded), `"identity":`) {
+		t.Fatalf("the written document still spells the concept as identity:\n%s", encoded)
 	}
 }

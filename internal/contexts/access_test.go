@@ -158,7 +158,7 @@ func TestAProductCredentialIsBothVariablesOrNeither(t *testing.T) {
 	identity.Products["apim"] = contexts.Product{Endpoint: "https://localhost:9443", Audience: "https://localhost:9443/apim",
 		ClientIDVariable: "WSO2_APIM_CLIENT_ID"}
 	document := contexts.Document{SchemaVersion: contexts.SchemaVersion, Accounts: []contexts.Account{identity},
-		Contexts: []contexts.Context{{Name: "ci", Identity: "thunder"}}, DefaultContext: "ci"}
+		Contexts: []contexts.Context{{Name: "ci", Account: "thunder"}}, DefaultContext: "ci"}
 	if _, err := document.Encode(); err == nil {
 		t.Fatal("a product naming only a client id variable was accepted")
 	}
@@ -227,7 +227,7 @@ func TestAPinNamingAnUnreachableProductIsMalformed(t *testing.T) {
 		identity.LoginProduct = pin
 		document := contexts.Document{SchemaVersion: contexts.SchemaVersion, DefaultContext: "thunder",
 			Accounts: []contexts.Account{identity},
-			Contexts: []contexts.Context{{Name: "thunder", Identity: "thunder"}}}
+			Contexts: []contexts.Context{{Name: "thunder", Account: "thunder"}}}
 		root := t.TempDir()
 		if err := contexts.Save(root, document); err == nil {
 			t.Errorf("a pin naming %q was written", pin)

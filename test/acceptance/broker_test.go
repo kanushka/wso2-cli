@@ -229,7 +229,7 @@ func installOAuthContext(t *testing.T, stateRoot, issuerURL, endpoint string) {
 		}},
 		Contexts: []contexts.Context{{
 			Name:         referenceContextName,
-			Identity:     oauthIdentityName,
+			Account:     oauthIdentityName,
 			Organization: referenceOrganization,
 		}},
 	}); err != nil {

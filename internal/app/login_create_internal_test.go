@@ -166,7 +166,7 @@ func TestPlanLoginKeepsADeclaredContextsOrganization(t *testing.T) {
 			},
 		}},
 		Contexts: []contexts.Context{{
-			Name: "acme-asgardeo", Identity: "acme-asgardeo",
+			Name: "acme-asgardeo", Account: "acme-asgardeo",
 			Organization: "acme-partner",
 		}},
 		DefaultContext: "acme-asgardeo",

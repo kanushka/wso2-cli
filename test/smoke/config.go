@@ -352,7 +352,7 @@ func (c Config) Document() contexts.Document {
 		}},
 		Contexts: []contexts.Context{{
 			Name:     ContextName,
-			Identity: IdentityName,
+			Account: IdentityName,
 			// The context stays in the identity's home tenant. Naming any other
 			// organization would provoke auth.organization_switch_unsupported,
 			// which is a refusal about the document rather than the deployment.
@@ -399,7 +399,7 @@ func (c Config) CIDocument() contexts.Document {
 		}},
 		Contexts: []contexts.Context{{
 			Name:         CIContextName,
-			Identity:     CIIdentityName,
+			Account:     CIIdentityName,
 			Organization: c.Tenant,
 		}},
 	}

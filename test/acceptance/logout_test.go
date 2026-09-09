@@ -297,7 +297,7 @@ func TestLogoutNamesEveryContextSharingTheSession(t *testing.T) {
 		func(document *contexts.Document) {
 			document.Contexts = append(document.Contexts, contexts.Context{
 				Name:         secondContext,
-				Identity:     loginIdentityName,
+				Account:     loginIdentityName,
 				Organization: referenceOrganization,
 			})
 		})
@@ -328,7 +328,7 @@ func TestLogoutNamesContextsReachingTheSessionThroughAnotherIdentity(t *testing.
 			document.Accounts = append(document.Accounts, alias)
 			document.Contexts = append(document.Contexts, contexts.Context{
 				Name:         secondContext,
-				Identity:     secondIdentity,
+				Account:     secondIdentity,
 				Organization: referenceOrganization,
 			})
 		})

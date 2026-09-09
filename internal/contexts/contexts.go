@@ -102,13 +102,13 @@ type Document struct {
 	Contexts []Context `json:"contexts"`
 }
 
-// Context is one target a command can run against. It references an identity
+// Context is one target a command can run against. It references an account
 // for authentication and narrows it to an organization and project.
 type Context struct {
 	// Name identifies the context.
 	Name string `json:"name"`
-	// Identity names the identity this context authenticates as.
-	Identity string `json:"identity"`
+	// Account names the account this context authenticates as.
+	Account string `json:"account"`
 	// Organization is the organization commands run within. Access is bound
 	// to it, so a token minted here is refused elsewhere.
 	Organization string `json:"organization,omitempty"`
@@ -182,11 +182,22 @@ func Decode(data []byte) (Document, error) {
 // exactly the path a current one does, which is what keeps one schema's
 // validation from drifting from the other's.
 func decodeAccountsSchema(data []byte) (Document, error) {
+	// Both spellings the rename changed are read here: the document's list of
+	// accounts, and each context's reference to one. A shim that read only the
+	// first would decode every context with an empty account reference, which
+	// validation would then refuse as a context naming no account — a refusal
+	// whose cause is this decode rather than anything the user wrote.
+	type shimContext struct {
+		Name         string `json:"name"`
+		Account      string `json:"identity"`
+		Organization string `json:"organization,omitempty"`
+		Project      string `json:"project,omitempty"`
+	}
 	var shim struct {
-		SchemaVersion  int       `json:"schemaVersion"`
-		DefaultContext string    `json:"defaultContext"`
-		Accounts       []Account `json:"identities"`
-		Contexts       []Context `json:"contexts"`
+		SchemaVersion  int           `json:"schemaVersion"`
+		DefaultContext string        `json:"defaultContext"`
+		Accounts       []Account     `json:"identities"`
+		Contexts       []shimContext `json:"contexts"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	if err := decoder.Decode(&shim); err != nil {
@@ -199,7 +210,12 @@ func decodeAccountsSchema(data []byte) (Document, error) {
 		SchemaVersion:  SchemaVersion,
 		DefaultContext: shim.DefaultContext,
 		Accounts:       shim.Accounts,
-		Contexts:       shim.Contexts,
+	}
+	for _, c := range shim.Contexts {
+		document.Contexts = append(document.Contexts, Context{
+			Name: c.Name, Account: c.Account,
+			Organization: c.Organization, Project: c.Project,
+		})
 	}
 	if err := document.validate(); err != nil {
 		return Document{}, err
@@ -289,7 +305,7 @@ func (d Document) Select(name string) (Selection, error) {
 	}
 	for _, candidate := range d.Contexts {
 		if candidate.Name == wanted {
-			return Selection{Context: candidate, Identity: d.identity(candidate.Identity)}, nil
+			return Selection{Context: candidate, Identity: d.identity(candidate.Account)}, nil
 		}
 	}
 	return Selection{}, unknownContext(wanted)
@@ -313,7 +329,7 @@ func (d Document) ContextsUsingCredential(ref string) []string {
 	}
 	var names []string
 	for _, candidate := range d.Contexts {
-		if d.identity(candidate.Identity).Auth.CredentialRef == ref {
+		if d.identity(candidate.Account).Auth.CredentialRef == ref {
 			names = append(names, candidate.Name)
 		}
 	}
@@ -379,9 +395,9 @@ func (d Document) validate() error {
 			return malformed(fmt.Sprintf("declares the context %q more than once", candidate.Name))
 		}
 		seen[candidate.Name] = struct{}{}
-		if _, found := identities[candidate.Identity]; !found {
+		if _, found := identities[candidate.Account]; !found {
 			return malformed(fmt.Sprintf("the context %q references the identity %q, which the document does not declare",
-				candidate.Name, candidate.Identity))
+				candidate.Name, candidate.Account))
 		}
 	}
 

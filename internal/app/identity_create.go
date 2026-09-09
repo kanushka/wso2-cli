@@ -108,7 +108,7 @@ func (s Shell) identityCreate(command *cobra.Command, name string, flags identit
 		}
 		document.SchemaVersion = contexts.SchemaVersion
 		document.Accounts = append(document.Accounts, identity)
-		document.Contexts = append(document.Contexts, contexts.Context{Name: name, Identity: name})
+		document.Contexts = append(document.Contexts, contexts.Context{Name: name, Account: name})
 		if document.DefaultContext == "" {
 			document.DefaultContext = name
 			selected = true

@@ -57,7 +57,7 @@ func TestSaveRefusesADocumentTheShellWouldNotRead(t *testing.T) {
 	invalid := contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: "acme-dev",
-		Contexts:       []contexts.Context{{Name: "acme-dev", Identity: "missing"}},
+		Contexts:       []contexts.Context{{Name: "acme-dev", Account: "missing"}},
 	}
 
 	err := contexts.Save(root, invalid)
@@ -122,7 +122,7 @@ func TestUpdateAppliesTheChange(t *testing.T) {
 
 	err := contexts.Update(root, func(d contexts.Document) (contexts.Document, error) {
 		d.Contexts = append(d.Contexts, contexts.Context{
-			Name: "acme-prod", Identity: "acme-cloud", Organization: "acme",
+			Name: "acme-prod", Account: "acme-cloud", Organization: "acme",
 		})
 		return d, nil
 	})
@@ -176,7 +176,7 @@ func TestUpdateRefusesAChangeTheShellWouldNotRead(t *testing.T) {
 	}
 
 	err = contexts.Update(root, func(d contexts.Document) (contexts.Document, error) {
-		d.Contexts = append(d.Contexts, contexts.Context{Name: "acme-prod", Identity: "missing"})
+		d.Contexts = append(d.Contexts, contexts.Context{Name: "acme-prod", Account: "missing"})
 		return d, nil
 	})
 	assertProblemCode(t, err, "contexts.document_malformed")
@@ -411,7 +411,7 @@ func TestConcurrentUpdatesDoNotDiscardEachOther(t *testing.T) {
 			defer group.Done()
 			errs <- contexts.Update(root, func(d contexts.Document) (contexts.Document, error) {
 				d.Contexts = append(d.Contexts, contexts.Context{
-					Name: name, Identity: "acme-cloud", Organization: "acme",
+					Name: name, Account: "acme-cloud", Organization: "acme",
 				})
 				return d, nil
 			})

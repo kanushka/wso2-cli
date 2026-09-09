@@ -90,7 +90,7 @@ func decodeLegacy(data []byte) (Document, error) {
 		document.Accounts = append(document.Accounts, identity)
 		document.Contexts = append(document.Contexts, Context{
 			Name:         candidate.Name,
-			Identity:     candidate.Name,
+			Account:      candidate.Name,
 			Organization: candidate.OrganizationID,
 		})
 	}

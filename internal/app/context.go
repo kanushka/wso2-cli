@@ -262,7 +262,7 @@ func (s Shell) contextCreate(command *cobra.Command, name, identity, organizatio
 		document.SchemaVersion = contexts.SchemaVersion
 		document.Contexts = append(document.Contexts, contexts.Context{
 			Name:         name,
-			Identity:     identity,
+			Account:      identity,
 			Organization: organization,
 			Project:      project,
 		})
@@ -354,7 +354,7 @@ func (s Shell) contextList(command *cobra.Command) error {
 	for _, configured := range document.Contexts {
 		listing.Contexts = append(listing.Contexts, contextEntry{
 			Name:         configured.Name,
-			Identity:     configured.Identity,
+			Identity:     configured.Account,
 			Organization: configured.Organization,
 			Project:      configured.Project,
 			Selected:     configured.Name == document.DefaultContext,
@@ -401,7 +401,7 @@ func (s Shell) contextCurrent(command *cobra.Command) error {
 		current = contextCurrent{
 			Configured:   true,
 			Context:      selected.Context.Name,
-			Identity:     selected.Context.Identity,
+			Identity:     selected.Context.Account,
 			Organization: selected.Context.Organization,
 			Project:      selected.Context.Project,
 		}

@@ -59,7 +59,7 @@ func browserDoc(issuerURL string) contexts.Document {
 				},
 			},
 		}},
-		Contexts: []contexts.Context{{Name: "acme-dev", Identity: "acme-cloud", Organization: "acme"}},
+		Contexts: []contexts.Context{{Name: "acme-dev", Account: "acme-cloud", Organization: "acme"}},
 	}
 }
 
@@ -522,7 +522,7 @@ func TestLoginSelectsTheContextNamedByTheFlag(t *testing.T) {
 		},
 	})
 	document.Contexts = append(document.Contexts,
-		contexts.Context{Name: "acme-ci", Identity: "acme-ci", Organization: "acme"})
+		contexts.Context{Name: "acme-ci", Account: "acme-ci", Organization: "acme"})
 	installLogin(t, shell, document)
 
 	if code := shell.Run([]string{"login", "--context", "acme-ci"}); code != exit.AuthPolicy {
