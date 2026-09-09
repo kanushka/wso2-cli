@@ -493,7 +493,7 @@ func (s Shell) moduleAvailable() error {
 		_, err := fmt.Fprintln(s.Streams.Out, "The module catalog publishes no modules.")
 		return err
 	}
-	table := output.NewTable("module", "channel", "version")
+	table := output.NewTable("product", "channel", "version")
 	for _, module := range available {
 		for _, channel := range module.Channels {
 			table.Append(module.Namespace, channel.Channel, "v"+channel.Version)
@@ -544,10 +544,10 @@ func (s Shell) moduleList() error {
 	}
 
 	if len(statuses) == 0 {
-		_, err := fmt.Fprintln(s.Streams.Out, "No modules are installed.")
+		_, err := fmt.Fprintln(s.Streams.Out, "No products are installed.")
 		return err
 	}
-	table := output.NewTable("module", "installed", "channel", "update")
+	table := output.NewTable("product", "installed", "channel", "update")
 	for _, status := range statuses {
 		table.Append(status.Namespace, "v"+status.Installed, channelColumn(status), updateColumn(status))
 	}
@@ -582,10 +582,10 @@ func (s Shell) moduleListOffline(installer install.Installer, unreachable proble
 		return err
 	}
 	if len(statuses) == 0 {
-		_, err := fmt.Fprintln(s.Streams.Out, "No modules are installed.")
+		_, err := fmt.Fprintln(s.Streams.Out, "No products are installed.")
 		return err
 	}
-	table := output.NewTable("module", "installed", "channel", "update")
+	table := output.NewTable("product", "installed", "channel", "update")
 	for _, status := range statuses {
 		update := "unknown"
 		if status.Pinned {
@@ -808,7 +808,7 @@ func (s Shell) moduleUpdate(opts updateOptions) error {
 		return err
 	}
 	if len(outcomes) == 0 {
-		_, err := fmt.Fprintln(s.Streams.Out, "No modules are installed.")
+		_, err := fmt.Fprintln(s.Streams.Out, "No products are installed.")
 		return err
 	}
 
@@ -848,7 +848,7 @@ func (s Shell) reportUpdatePlan(installer install.Installer, namespaces []string
 		return err
 	}
 	if len(statuses) == 0 {
-		_, err := fmt.Fprintln(s.Streams.Out, "No modules are installed.")
+		_, err := fmt.Fprintln(s.Streams.Out, "No products are installed.")
 		return err
 	}
 	for _, status := range statuses {
