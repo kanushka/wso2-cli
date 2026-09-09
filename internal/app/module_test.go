@@ -723,7 +723,7 @@ func TestModuleListCountsAPinnedModuleInAFinishedSentence(t *testing.T) {
 	if code := shell.Run([]string{"module", "list"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	if !strings.Contains(out.String(), "1 module is pinned and will not be updated.") {
+	if !strings.Contains(out.String(), "1 product is pinned and will not be updated.") {
 		t.Errorf("stdout does not count the pinned module in a finished sentence:\n%s", out)
 	}
 }
