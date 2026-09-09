@@ -74,7 +74,7 @@ func (s Store) Resolve(namespace string, shell ShellIdentity) (Resolved, error) 
 	if !namespacePattern.MatchString(namespace) {
 		return Resolved{}, problem.New(problem.CategoryUsage, "modules.invalid_namespace",
 			fmt.Sprintf("%q is not a valid module namespace", namespace)).
-			WithRecovery("Run wso2 version to see the installed modules.")
+			WithRecovery("Run wso2 version to see the installed products.")
 	}
 
 	active, err := s.ReadActive(namespace)

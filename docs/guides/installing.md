@@ -68,7 +68,7 @@ $ wso2 product available
 MODULE      CHANNEL      VERSION
 reference   prerelease   v0.1.0-rc.4
 
-Run wso2 product install <module> to install one.
+Run wso2 product install <product> to install one.
 ```
 
 Asking for it explicitly by channel installs it:

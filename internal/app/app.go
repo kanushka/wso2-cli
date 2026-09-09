@@ -333,7 +333,7 @@ func (s Shell) help(root *cobra.Command) error {
 // module answers to. Dispatch and the help command refuse with it alike, so a
 // typo costs the same message whichever way it was asked about.
 func unknownNamespace(root *cobra.Command, namespace string) error {
-	recovery := "Run wso2 help to see the shell commands, or wso2 version to see the installed modules."
+	recovery := "Run wso2 help to see the shell commands, or wso2 version to see the installed products."
 	if suggestion := suggestionFor(root, namespace); suggestion != "" {
 		recovery = suggestion + " " + recovery
 	}
