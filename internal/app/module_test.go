@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Confirming before wso2 module remove and wso2 module update --all destroy
+// Confirming before wso2 product remove and wso2 product update --all destroy
 // anything (#112 §7). These tests drive the shell in-process rather than
 // through the built binary, which is the whole reason Shell grew a reader
 // (#86): a piped-stdin refusal is proved against the real, unmodified
@@ -305,7 +305,7 @@ func catalogServing(t *testing.T, body string) {
 }
 
 // TestModuleUpdateAllRefusesToPromptOnPipedStdin is update's half of the same
-// trap remove is proved against: wso2 module update --all is the form #112
+// trap remove is proved against: wso2 product update --all is the form #112
 // §7 names as acting immediately today. An unpinned module is installed so
 // NothingWouldMove (F6, fix round 1) does not skip the confirmation this test
 // is proving: without something that might move, there would be nothing to
@@ -553,10 +553,10 @@ func TestModuleUpdateNamedModuleDryRunReportsWithoutChanging(t *testing.T) {
 }
 
 // TestModuleUpdateOfOneNamedModuleNeedsNoConfirmation pins the scope judgment
-// call this task left open: #112 §7 names wso2 module update --all as the
+// call this task left open: #112 §7 names wso2 product update --all as the
 // form that acts immediately, not a named update, which is already as
 // explicit an intent as this shell asks anywhere else (the same intent a
-// single wso2 module remove <module> already carries). No reader is
+// single wso2 product remove <module> already carries). No reader is
 // injected and no answer is possible, so this also proves the confirmation
 // gate is not consulted for a named target: a real (non-failing) reader
 // would be needed if it were.
@@ -670,7 +670,7 @@ func TestModuleListOfflineNamesTheConfigFixForAConfiguredOrigin(t *testing.T) {
 }
 
 // TestModuleAvailableStillFailsWhenTheCatalogIsUnreachable pins the boundary
-// of F4's degradation: wso2 module available's whole question is the catalog,
+// of F4's degradation: wso2 product available's whole question is the catalog,
 // so with the origin unreachable there is no local half to answer and the
 // command keeps failing outright.
 func TestModuleAvailableStillFailsWhenTheCatalogIsUnreachable(t *testing.T) {
@@ -685,7 +685,7 @@ func TestModuleAvailableStillFailsWhenTheCatalogIsUnreachable(t *testing.T) {
 
 // TestModuleUpdateOfAPinnedModuleNamesTheClearingCommand pins the escape
 // hatch at the command seam: an update run that passes a pinned module over
-// tells the user how to release it, because a plain wso2 module install being
+// tells the user how to release it, because a plain wso2 product install being
 // the way to clear a pin is documented nowhere else the user would be looking
 // at that moment (F7).
 func TestModuleUpdateOfAPinnedModuleNamesTheClearingCommand(t *testing.T) {
@@ -701,7 +701,7 @@ func TestModuleUpdateOfAPinnedModuleNamesTheClearingCommand(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	want := "reference is pinned to v0.1.0 and was not updated. " +
-		"Run wso2 module install reference to clear the pin."
+		"Run wso2 product install reference to clear the pin."
 	if !strings.Contains(out.String(), want) {
 		t.Errorf("stdout does not report the pin with its way out:\n%s", out)
 	}
@@ -738,7 +738,7 @@ func TestTheProductCommandReplacesModuleAndModuleStaysAsAnAlias(t *testing.T) {
 	}
 	out.Reset()
 	if code := shell.Run([]string{"module", "list"}); code != exit.OK {
-		t.Fatalf("wso2 module list exited %d, so the alias was not kept: %s", code, errOut)
+		t.Fatalf("wso2 product list exited %d, so the alias was not kept: %s", code, errOut)
 	}
 }
 
@@ -747,7 +747,7 @@ func TestTheModuleAliasIsMarkedDeprecated(t *testing.T) {
 	// then outlives the release that replaced it.
 	shell, _, errOut := newShell(t)
 	if code := shell.Run([]string{"module", "list"}); code != exit.OK {
-		t.Fatalf("wso2 module list exited %d: %s", code, errOut)
+		t.Fatalf("wso2 product list exited %d: %s", code, errOut)
 	}
 	if !strings.Contains(errOut.String(), "wso2 product") {
 		t.Fatalf("the deprecated alias does not name the command that replaced it:\n%s", errOut)

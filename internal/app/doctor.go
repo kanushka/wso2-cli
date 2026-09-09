@@ -369,7 +369,7 @@ func catalogCheck(stateRoot string, log catalog.DebugLog) (doctorFinding, *probl
 	origin := catalog.Origin(stateRoot)
 	// The log is the same one --verbose turns on for module commands, so a
 	// probe that fails for transport reasons surfaces the raw detail there
-	// exactly as wso2 module list would (review on #161).
+	// exactly as wso2 product list would (review on #161).
 	client := catalog.Client{Origin: origin, OriginConfigured: catalog.OriginConfigured(stateRoot), Log: log}
 	if _, err := client.Index(ctx); err != nil {
 		typed := doctorProblem(err)

@@ -28,12 +28,12 @@
 // generator, and the ordinary installer reads that catalog from a loopback
 // origin that lives only for the length of the run. What lands in the module
 // store is therefore indistinguishable from a published install apart from its
-// version, and wso2 module list, update, and remove all work on it. See
+// version, and wso2 product list, update, and remove all work on it. See
 // docs/adr/0011-local-module-install-through-a-development-origin.md.
 //
 // The version is a prerelease and it is pinned, so a developer's own build is
 // never offered to anyone following stable and is never replaced by a published
-// release behind their back. Take it off again with wso2 module remove.
+// release behind their back. Take it off again with wso2 product remove.
 //
 // This is contributor tooling rather than a released artifact: nothing a user
 // installs contains it, and installing an unverified local build is not
@@ -122,7 +122,7 @@ func run() error {
 		result.Namespace, result.Version, result.Platform, result.StoreRoot)
 	fmt.Printf("It was installed by the ordinary installer from a catalog served at %s for the length of this run.\n",
 		result.Origin)
-	fmt.Printf("The version is pinned, so wso2 module update leaves this build alone.\n")
+	fmt.Printf("The version is pinned, so wso2 product update leaves this build alone.\n")
 	// The module's own commands are not named, because this command does not
 	// know them: a module declares no command tree yet (#86), so the shell
 	// cannot answer "wso2 <namespace> --help" and neither can this. Printing a

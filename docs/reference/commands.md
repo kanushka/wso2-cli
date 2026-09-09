@@ -19,11 +19,11 @@ These are built: `wso2 context create <name>`, `wso2 context use <context>`,
 `wso2 login`,
 `wso2 login --url <issuer> --client-id <id>`, `wso2 login --only <namespace>`,
 `wso2 login --no-products`, `wso2 logout`, `wso2 whoami`, `wso2 doctor`,
-`wso2 module available`, `wso2 module list`,
-`wso2 module install <module>`, `wso2 module install <module>@<version>`,
-`wso2 module install <module> --channel <channel>`,
-`wso2 module update <module>`, `wso2 module update --all`,
-`wso2 module remove <module>`, `wso2 config list`, `wso2 config get <key>`,
+`wso2 product available`, `wso2 product list`,
+`wso2 product install <module>`, `wso2 product install <module>@<version>`,
+`wso2 product install <module> --channel <channel>`,
+`wso2 product update <module>`, `wso2 product update --all`,
+`wso2 product remove <module>`, `wso2 config list`, `wso2 config get <key>`,
 `wso2 config set <key> <value>`, `wso2 org current`, and `wso2 org use
 <organization>`. The
 [module catalog](module-catalog.md) reference describes what they select, what
@@ -60,17 +60,17 @@ refusal is reported.
 | `wso2 config set <key> <value>` | Built today: changes one shell preference. An unknown key is refused the same way `config get` refuses one; a value a key does not accept is refused with `config.invalid_value`, naming what is acceptable (`table` or `json` for `output`; an absolute http or https URL for `catalog-origin`). Each preference is the lowest-precedence source for what it governs: `--output` wins over a configured output mode, and `WSO2_CLI_CATALOG_ORIGIN` wins over a configured catalog origin — a saved preference can never override either. `output` governs exactly the commands that accept `--output`: `wso2 whoami`, `wso2 doctor`, `wso2 logout`, and the `context`, `account`, `config` and `org` families. It does not reach `wso2 version` or the `module` family, which render fixed prose and refuse `--output` with `shell.unsupported_flag`; a preference that silently did nothing for them would be a worse contract than a flag refused out loud. A colour preference is not in this set: `output.ColorEnabled` has no production caller yet, so a key that claimed to govern colour would change nothing observable; it is the obvious first key to add once something renders in colour. |
 | `wso2 update` | Applies the approved installation-channel policy for root shell updates. |
 | `wso2 module` | With no subcommand, prints this family's help on standard output and exits 0: naming a family without a subcommand is an incomplete command, not a failed one, and every subcommand it names works. The help names `available`, `install`, `list`, `remove` and `update`. A subcommand the family does not have is a different case and is still refused with `shell.unknown_command` and the usage exit class (#133), so a typo is never reported to a script as success. |
-| `wso2 module available` | Lists official modules the module catalog publishes. |
-| `wso2 module install <module>` | Installs the latest compatible stable release of a module. |
-| `wso2 module install <module>@<version>` | Installs an exact compatible module version. |
-| `wso2 module list` | Lists installed modules, versions, and update availability. |
-| `wso2 module info <module>` | Shows catalog, compatibility, and installation information. |
-| `wso2 module update <module>` | Updates one product module. Naming a module is already an explicit target, so this does not prompt; `--dry-run` still reports what it would do without changing anything. A module the catalog publishes no version of on its followed channel — withdrawn, renamed, or moved to a channel this install no longer follows — is reported by name rather than called current, since the catalog cannot say whether the installed version is current when it does not publish the module at all; this does not change the exit status. |
-| `wso2 module update --all` | Built today: updates every installed product module that has a newer version on its followed channel, skipping a pinned one. Being unbounded, it prompts for confirmation before moving anything; `--yes` skips the prompt, `--dry-run` reports what it would do without changing anything, and `--no-input` (or `WSO2_NO_INPUT`) refuses rather than prompt. Refuses `shell.non_interactive` when it may not prompt and `--yes` was not given — either because `--no-input` or `WSO2_NO_INPUT` asked that nothing prompt, or because standard input is not a terminal; the refusal names the control that fired and offers the one way out that applies to it, and `shell.conflicting_arguments` for `--yes` with `--dry-run`. A module the catalog publishes no version of on its followed channel — withdrawn, renamed, or moved to a channel this install no longer follows — is reported by name rather than called current, since the catalog cannot say whether the installed version is current when it does not publish the module at all; this does not change the exit status, so a scheduled `--all` run does not start failing the moment one module goes unpublished upstream. |
-| `wso2 module verify <module>` | Verifies an installed module and its receipt. |
-| `wso2 module rollback <module>` | Reactivates a retained compatible version. |
-| `wso2 module remove <module>` | Built today: removes one installed module, leaving configuration and credentials alone. Prompts for confirmation after confirming the module is installed; `--yes` skips the prompt, `--dry-run` reports what it would remove without removing anything, and `--no-input` (or `WSO2_NO_INPUT`) refuses rather than prompt. Refuses `shell.module_not_installed` before any prompt when the module is not installed, `shell.non_interactive` when it may not prompt and `--yes` was not given — either because `--no-input` or `WSO2_NO_INPUT` asked that nothing prompt, or because standard input is not a terminal; the refusal names the control that fired and offers the one way out that applies to it, and `shell.conflicting_arguments` for `--yes` with `--dry-run`. |
-| `wso2 module install --file <module.wso2module>` | Installs one module from an offline file. |
+| `wso2 product available` | Lists official modules the module catalog publishes. |
+| `wso2 product install <module>` | Installs the latest compatible stable release of a module. |
+| `wso2 product install <module>@<version>` | Installs an exact compatible module version. |
+| `wso2 product list` | Lists installed modules, versions, and update availability. |
+| `wso2 product info <module>` | Shows catalog, compatibility, and installation information. |
+| `wso2 product update <module>` | Updates one product module. Naming a module is already an explicit target, so this does not prompt; `--dry-run` still reports what it would do without changing anything. A module the catalog publishes no version of on its followed channel — withdrawn, renamed, or moved to a channel this install no longer follows — is reported by name rather than called current, since the catalog cannot say whether the installed version is current when it does not publish the module at all; this does not change the exit status. |
+| `wso2 product update --all` | Built today: updates every installed product module that has a newer version on its followed channel, skipping a pinned one. Being unbounded, it prompts for confirmation before moving anything; `--yes` skips the prompt, `--dry-run` reports what it would do without changing anything, and `--no-input` (or `WSO2_NO_INPUT`) refuses rather than prompt. Refuses `shell.non_interactive` when it may not prompt and `--yes` was not given — either because `--no-input` or `WSO2_NO_INPUT` asked that nothing prompt, or because standard input is not a terminal; the refusal names the control that fired and offers the one way out that applies to it, and `shell.conflicting_arguments` for `--yes` with `--dry-run`. A module the catalog publishes no version of on its followed channel — withdrawn, renamed, or moved to a channel this install no longer follows — is reported by name rather than called current, since the catalog cannot say whether the installed version is current when it does not publish the module at all; this does not change the exit status, so a scheduled `--all` run does not start failing the moment one module goes unpublished upstream. |
+| `wso2 product verify <module>` | Verifies an installed module and its receipt. |
+| `wso2 product rollback <module>` | Reactivates a retained compatible version. |
+| `wso2 product remove <module>` | Built today: removes one installed module, leaving configuration and credentials alone. Prompts for confirmation after confirming the module is installed; `--yes` skips the prompt, `--dry-run` reports what it would remove without removing anything, and `--no-input` (or `WSO2_NO_INPUT`) refuses rather than prompt. Refuses `shell.module_not_installed` before any prompt when the module is not installed, `shell.non_interactive` when it may not prompt and `--yes` was not given — either because `--no-input` or `WSO2_NO_INPUT` asked that nothing prompt, or because standard input is not a terminal; the refusal names the control that fired and offers the one way out that applies to it, and `shell.conflicting_arguments` for `--yes` with `--dry-run`. |
+| `wso2 product install --file <module.wso2module>` | Installs one module from an offline file. |
 | `wso2 bundle create` | Creates a platform-specific, self-installing offline bundle from catalog releases. |
 | `wso2 bundle inspect <file>` | Shows bundle contents without installing it. |
 | `wso2 bundle install <file>` | Imports a bundle when the WSO2 CLI is already installed. |
@@ -314,13 +314,13 @@ with `contexts.unknown_account`.
 ### Module inventory
 
 ```text
-$ wso2 module list
+$ wso2 product list
 MODULE        INSTALLED   CHANNEL   UPDATE
 api           v0.9.0      stable    current
 agent         v1.2.0      stable    v1.3.0 available
 integration   v0.4.0      —         pinned to v0.4.0
 
-1 module(s) have an update available. Run wso2 module update --all to take them.
+1 module(s) have an update available. Run wso2 product update --all to take them.
 ```
 
 CHANNEL names the channel a module follows for updates; it shows `—` for a

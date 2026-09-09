@@ -246,7 +246,7 @@ func parseUndeclaredProductArgs(namespace string, args []string) (productLine, e
 func undeclaredModuleHelp(namespace string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "shell.module_help_undeclared",
 		fmt.Sprintf("the installed %s module does not describe its commands to the shell", namespace)).
-		WithRecovery(fmt.Sprintf("Run wso2 module install %s --channel stable to install a build that does, "+
+		WithRecovery(fmt.Sprintf("Run wso2 product install %s --channel stable to install a build that does, "+
 			"or see the module's own documentation.", namespace))
 }
 

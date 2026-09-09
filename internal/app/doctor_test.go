@@ -453,7 +453,7 @@ func TestDoctorOnlineChecksCatalogReachability(t *testing.T) {
 				code, exit.ModuleProcess, errOut)
 		}
 		// The probe shares the module commands' diagnostic log, so --verbose
-		// surfaces the raw transport detail here exactly as wso2 module list
+		// surfaces the raw transport detail here exactly as wso2 product list
 		// would. Without the wiring this line is absent and the raw cause is
 		// dropped for good.
 		if !strings.Contains(errOut.String(), "a catalog request failed") {

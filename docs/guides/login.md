@@ -516,7 +516,7 @@ jobs:
 **A caveat about that last step, so it does not surprise you.** `wso2 reference
 status` is the example module this repository ships, and `wso2` dispatches any
 namespace it does not own itself to an installed module. Module *installation*
-commands (`wso2 module install`) are proposed and are not in this release, so
+commands (`wso2 product install`) are proposed and are not in this release, so
 the module has to already be in the managed module store under
 `$WSO2_HOME/cli/modules` for that step to resolve; otherwise it exits with
 `shell.unknown_command`. The account, the secret variable, and the inline

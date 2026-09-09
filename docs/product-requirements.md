@@ -57,7 +57,7 @@ Root commands manage capabilities shared across products:
 wso2 login
 wso2 whoami
 wso2 context list
-wso2 module list
+wso2 product list
 wso2 version
 wso2 doctor
 ```
@@ -378,16 +378,16 @@ work is picked up.
 Proposed command surface:
 
 ```shell
-wso2 module available
-wso2 module install api
-wso2 module install api@1.8.0
-wso2 module list
-wso2 module info api
-wso2 module update api
-wso2 module update --all
-wso2 module verify api
-wso2 module rollback api
-wso2 module remove api
+wso2 product available
+wso2 product install api
+wso2 product install api@1.8.0
+wso2 product list
+wso2 product info api
+wso2 product update api
+wso2 product update --all
+wso2 product verify api
+wso2 product rollback api
+wso2 product remove api
 ```
 
 The exact distinction between catalog refresh and binary upgrade will be

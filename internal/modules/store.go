@@ -194,7 +194,7 @@ func (s Store) Installed(namespace string) (bool, error) {
 	if !ValidNamespace(namespace) {
 		return false, problem.New(problem.CategoryUsage, "modules.invalid_namespace",
 			fmt.Sprintf("%q is not a valid module namespace", namespace)).
-			WithRecovery("Run wso2 module list to see the installed modules.")
+			WithRecovery("Run wso2 product list to see the installed modules.")
 	}
 	switch _, err := os.Stat(s.NamespaceDir(namespace)); {
 	case os.IsNotExist(err):
@@ -230,7 +230,7 @@ func (s Store) Remove(namespace string) (bool, error) {
 	if !ValidNamespace(namespace) {
 		return false, problem.New(problem.CategoryUsage, "modules.invalid_namespace",
 			fmt.Sprintf("%q is not a valid module namespace", namespace)).
-			WithRecovery("Run wso2 module list to see the installed modules.")
+			WithRecovery("Run wso2 product list to see the installed modules.")
 	}
 
 	directory := s.NamespaceDir(namespace)

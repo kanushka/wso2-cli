@@ -292,7 +292,7 @@ exit=64
 ## 5. Modules
 
 ```
-$ wso2 module list
+$ wso2 product list
 MODULE      INSTALLED    CHANNEL   UPDATE
 reference   v0.0.0-dev   —         pinned to v0.0.0-dev
 
@@ -310,11 +310,11 @@ The closing line contradicts the row above it, which is
 > above is left as it was recorded.
 
 ```
-$ wso2 module available
+$ wso2 product available
 MODULE      CHANNEL      VERSION
 reference   prerelease   v0.1.0-rc.4
 
-Run wso2 module install <module> to install one.
+Run wso2 product install <module> to install one.
 exit=0
 ```
 
@@ -322,7 +322,7 @@ exit=0
 reasoning about a stable channel the catalog does not publish:
 
 ```
-$ wso2 module update --all --dry-run
+$ wso2 product update --all --dry-run
 reference is pinned to v0.0.0-dev and would not be updated.
 
 Nothing was changed. Run without --dry-run to apply this.
@@ -332,7 +332,7 @@ exit=0
 An unknown module name is distinguished from a network failure explicitly:
 
 ```
-$ wso2 module install nosuchmodule
+$ wso2 product install nosuchmodule
 error: no module named "nosuchmodule" is published in the module catalog (catalog.unknown_module)
   Check the module name. This is not a network failure: the catalog was read and names no such module.
 exit=64
@@ -341,16 +341,16 @@ exit=64
 Flags are scoped to the subcommand that can act on them:
 
 ```
-$ wso2 module available --channel stable
+$ wso2 product available --channel stable
 error: unknown flag: --channel (shell.unknown_flag)
-  Run wso2 module available.
+  Run wso2 product available.
 exit=64
 ```
 
 ```
-$ wso2 module list --all
+$ wso2 product list --all
 error: unknown flag: --all (shell.unknown_flag)
-  Run wso2 module list.
+  Run wso2 product list.
 exit=64
 ```
 
@@ -360,12 +360,12 @@ exit=64
 $ make install-module NAMESPACE=reference
 Installed reference v0.0.0-dev for darwin/arm64 into /Users/…/.wso2/cli/modules.
 It was installed by the ordinary installer from a catalog served at http://127.0.0.1:56736 for the length of this run.
-The version is pinned, so wso2 module update leaves this build alone.
+The version is pinned, so wso2 product update leaves this build alone.
 
 Confirm it is installed:
   ./bin/wso2 version
 Take it off again:
-  ./bin/wso2 module remove reference
+  ./bin/wso2 product remove reference
 ```
 
 Both closing commands work. The previous recording ended with
@@ -546,16 +546,16 @@ It is refused on the whole `module` family and on `version`, as before. But the
 long and short spellings of the same flag now produce different errors:
 
 ```
-$ wso2 module list --output json
-error: wso2 module list does not take the flag --output (shell.unsupported_flag)
-  Run wso2 module list --help to see the flags it accepts.
+$ wso2 product list --output json
+error: wso2 product list does not take the flag --output (shell.unsupported_flag)
+  Run wso2 product list --help to see the flags it accepts.
 exit=64
 ```
 
 ```
-$ wso2 module list -o json
+$ wso2 product list -o json
 error: unknown shorthand flag: 'o' in -o (shell.unknown_flag)
-  Run wso2 module list.
+  Run wso2 product list.
 exit=64
 ```
 
@@ -614,14 +614,14 @@ a family's subcommands:
 
 ```
 Usage: wso2 config list [flags]      Usage: wso2 doctor
-Usage: wso2 module available [flags] Usage: wso2 version
+Usage: wso2 product available [flags] Usage: wso2 version
 Usage: wso2 org current [flags]      Usage: wso2 login
 ```
 
 ### F2. The installer recommended a command that fails — fixed
 
 Fixed in `006c66e`. `make install-module` now closes with `./bin/wso2 version`
-and `./bin/wso2 module remove reference`. Both work.
+and `./bin/wso2 product remove reference`. Both work.
 
 ### F3. `help` never names an installed module's commands — open
 
@@ -703,14 +703,14 @@ shell's own refusal and the short one never gets there — it fails inside pflag
 first:
 
 ```
-$ wso2 module list --output json
-error: wso2 module list does not take the flag --output (shell.unsupported_flag)
-  Run wso2 module list --help to see the flags it accepts.
+$ wso2 product list --output json
+error: wso2 product list does not take the flag --output (shell.unsupported_flag)
+  Run wso2 product list --help to see the flags it accepts.
 exit=64
 
-$ wso2 module list -o json
+$ wso2 product list -o json
 error: unknown shorthand flag: 'o' in -o (shell.unknown_flag)
-  Run wso2 module list.
+  Run wso2 product list.
 exit=64
 ```
 
@@ -831,7 +831,7 @@ make install-module NAMESPACE=reference
 ```
 
 The module store at `~/.wso2/cli/modules` holds `reference v0.0.0-dev` from
-this checkout, pinned. `./bin/wso2 module remove reference` takes it off.
+this checkout, pinned. `./bin/wso2 product remove reference` takes it off.
 
 The shell blocks reproduce at 417537c. The product blocks need the uncommitted
 `status`/`call` split in the working tree, and `make install-module` must be

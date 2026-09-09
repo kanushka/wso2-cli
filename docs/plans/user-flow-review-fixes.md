@@ -50,7 +50,7 @@ Only the help generation is wrong. Two ways to fix it:
   and 17 describe.
 
 Either way, the refusal must name the command typed, not its family:
-`wso2 module available --output json` currently reports "wso2 module does not
+`wso2 product available --output json` currently reports "wso2 module does not
 take the flag --output".
 
 **Needs a decision.** See [Decisions](#decisions-needed).
