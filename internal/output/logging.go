@@ -54,7 +54,7 @@ const redactedValue = "[redacted]"
 //     session and of an issuer's token response (internal/auth/session).
 //   - token: the bare spelling used by the token and introspection endpoints,
 //     and by the fixture token the broker mints (internal/auth/devtoken).
-//   - clientsecret: the secret a client-credentials identity presents, read
+//   - clientsecret: the secret a client-credentials account presents, read
 //     from the environment variable the context document names.
 //   - code, devicecode, usercode: the authorization code of a browser login
 //     and RFC 8628's two device-flow codes, each exchangeable for a token

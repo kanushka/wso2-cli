@@ -188,7 +188,10 @@ func decodeAccountsSchema(data []byte) (Document, error) {
 	// validation would then refuse as a context naming no account — a refusal
 	// whose cause is this decode rather than anything the user wrote.
 	type shimContext struct {
-		Name         string `json:"name"`
+		Name string `json:"name"`
+		// The pre-rename spelling, deliberately: this shim exists to read a
+		// document written before the rename, and reading it under the new key
+		// would decode every context with an empty account reference.
 		Account      string `json:"identity"`
 		Organization string `json:"organization,omitempty"`
 		Project      string `json:"project,omitempty"`

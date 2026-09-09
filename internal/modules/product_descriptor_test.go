@@ -189,3 +189,21 @@ func TestAMalformedGatewayBlockIsRefused(t *testing.T) {
 		})
 	}
 }
+
+func TestADescriptorMayDeclareTheExchangeGrant(t *testing.T) {
+	// A product reached by exchanging the login session is the shape the API
+	// Platform takes, and connect is the command that records it. A descriptor
+	// that could not name the grant would leave every such product recorded by
+	// hand with wso2 account add-product.
+	receipt := validReceipt()
+	receipt.Capabilities.Product = thunderDescriptor()
+	receipt.Capabilities.Product.Grant = "exchange"
+	// And no scopes, which is not an omission: an exchanged token carries no
+	// resource-server permissions at all, so the product authorizes the call
+	// from the claims it carries. A descriptor forced to name scopes here
+	// would be declaring a narrowing the deployment never performs.
+	receipt.Capabilities.Product.Scopes = nil
+	if err := receipt.Validate(); err != nil {
+		t.Fatalf("a descriptor naming the exchange grant was refused: %v", err)
+	}
+}

@@ -387,7 +387,7 @@ func (g Grant) AssertionScopes() []string {
 	return scopes
 }
 
-// Direct reports whether the identity's own session answers for this product.
+// Direct reports whether the account's own session answers for this product.
 // A product with a grant is derived instead, at another issuer.
 func (p Product) Direct() bool { return p.Grant == nil }
 
@@ -420,7 +420,7 @@ func (i Account) validate() error {
 		if i.Products[namespace].ClientSecretVariable != "" && i.Auth.Kind != KindClientCredentials {
 			return malformed(fmt.Sprintf(
 				"declares a product credential on the interactive identity %q; a product credential "+
-					"belongs to a client-credentials identity", i.Name))
+					"belongs to a client-credentials account", i.Name))
 		}
 	}
 	if i.LoginProduct != "" {
@@ -675,7 +675,7 @@ func (g Grant) validate(identity string) error {
 			"declares a product grant on the identity %q of a kind this shell does not implement", identity))
 	}
 	if g.Kind == GrantExchange {
-		// An exchange is run at the identity's own issuer, as its own client,
+		// An exchange is run at the account's own issuer, as its own client,
 		// for the product's own audience. A document that named an issuer or
 		// a client here would be stating something the shell already holds and
 		// could contradict, so naming either is refused rather than ignored.

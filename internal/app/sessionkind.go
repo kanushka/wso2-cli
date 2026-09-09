@@ -50,7 +50,7 @@ type kindGate struct {
 	inline func(contextName string) problem.Problem
 }
 
-// check reports why the selected identity cannot hold an interactive session,
+// check reports why the selected account cannot hold an interactive session,
 // or nil when it can.
 func (g kindGate) check(selected contexts.Selection) error {
 	switch selected.Identity.Auth.Kind {
@@ -100,7 +100,7 @@ var loginKindGate = kindGate{
 
 // logoutKindGate refuses an identity wso2 logout has no session to end for.
 //
-// inline is nil, unlike loginKindGate's: a client-credentials identity holds
+// inline is nil, unlike loginKindGate's: a client-credentials account holds
 // no session for wso2 login to refuse establishing, but wso2 logout still has
 // something to report for one — an empty, no-op end of session — so it is not
 // refused at all. See logout's own doc comment.

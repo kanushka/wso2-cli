@@ -157,7 +157,7 @@ func TestGrantResourceWithoutGrantIsRefused(t *testing.T) {
 }
 
 func TestAddProductRecordsAnExchangeGrantFromTheKindAlone(t *testing.T) {
-	// An exchange runs at the identity's own issuer as its own client, so
+	// An exchange runs at the account's own issuer as its own client, so
 	// --grant-issuer and --grant-client-id have nothing to name. Requiring
 	// them, as every other grant does, would make a user invent values the
 	// shell then has to ignore.
@@ -216,7 +216,7 @@ func TestAnExchangeGrantIsSummarizedWithoutAnEmptyIssuerAndClient(t *testing.T) 
 	if strings.Contains(out.String(), "at  as") {
 		t.Fatalf("the exchange grant was summarized with an empty issuer and client:\n%s", out)
 	}
-	if !strings.Contains(out.String(), "exchange at the identity's own issuer") {
+	if !strings.Contains(out.String(), "exchange at the account's own issuer") {
 		t.Fatalf("the exchange grant summary does not say where it runs:\n%s", out)
 	}
 }

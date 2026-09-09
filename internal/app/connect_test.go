@@ -147,12 +147,12 @@ func TestConnectANonProviderProductAttachesToTheSelectedIdentity(t *testing.T) {
 func TestConnectANonProviderProductNeedsAClientIDWhenTheDescriptorNamesNone(t *testing.T) {
 	shell, _, _ := newConnectShell(t)
 	connect(t, shell, "iam", "connect", thunderURL)
-	// No secret on the line: a browser identity, which needs the product's
+	// No secret on the line: a browser account, which needs the product's
 	// public federated client, not the one bootstrap registers.
 	code, _, errOut := connect(t, shell, "apim", "connect", apimURL)
 	if code != exit.Usage || !strings.Contains(errOut, "shell.missing_required_flag") ||
 		!strings.Contains(errOut, "--client-id") || !strings.Contains(errOut, "public client") ||
-		!strings.Contains(errOut, "federated to the identity's login provider") {
+		!strings.Contains(errOut, "federated to the account's login provider") {
 		t.Fatalf("browser: exit %d, stderr:\n%s", code, errOut)
 	}
 	// A secret on the line: a pipeline, which uses the client bootstrap prints.
@@ -314,7 +314,7 @@ func TestConnectRefusesAMachineIdentityOnAProductThatDoesNotAllowIt(t *testing.T
 	code, _, errOut = connect(t, shell, "apim", "connect", apimURL, "--client-id", apimClient,
 		"--client-secret-variable", "B")
 	if code != exit.Usage || !strings.Contains(errOut, "shell.conflicting_arguments") {
-		t.Fatalf("a product credential on a browser identity: exit %d, stderr:\n%s", code, errOut)
+		t.Fatalf("a product credential on a browser account: exit %d, stderr:\n%s", code, errOut)
 	}
 }
 
@@ -349,7 +349,7 @@ func TestConnectRendersJSON(t *testing.T) {
 	if code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !strings.Contains(out, `"identity": "thunder"`) || !strings.Contains(out, `"strategy": "direct"`) {
+	if !strings.Contains(out, `"account": "thunder"`) || !strings.Contains(out, `"strategy": "direct"`) {
 		t.Errorf("json:\n%s", out)
 	}
 }

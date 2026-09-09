@@ -358,7 +358,7 @@ func TestTheIdentityKindDecidesWhichPolicyTheBrokerApplies(t *testing.T) {
 			kind: "browser-pkce",
 			code: "auth.method_unsupported",
 		},
-		"a browser identity that configures no product": {
+		"a browser account that configures no product": {
 			kind:   contexts.KindOAuthBrowser,
 			mutate: func(b *auth.Broker) { b.Selection.Identity.Products = nil },
 			code:   "auth.product_not_configured",
@@ -367,7 +367,7 @@ func TestTheIdentityKindDecidesWhichPolicyTheBrokerApplies(t *testing.T) {
 		// refused here. The two vocabularies are not comparable, and the
 		// binding is proved against the issued token instead; see
 		// TestAccessIsGrantedWhenTheDeploymentBindsTheRegisteredAudience.
-		"a browser identity that registers no audience": {
+		"a browser account that registers no audience": {
 			kind: contexts.KindOAuthBrowser,
 			mutate: func(b *auth.Broker) {
 				withProduct(b, contexts.Product{
@@ -377,7 +377,7 @@ func TestTheIdentityKindDecidesWhichPolicyTheBrokerApplies(t *testing.T) {
 			},
 			code: "auth.product_not_configured",
 		},
-		"a browser identity whose product does not carry the scope": {
+		"a browser account whose product does not carry the scope": {
 			kind: contexts.KindOAuthBrowser,
 			mutate: func(b *auth.Broker) {
 				withProduct(b, contexts.Product{
@@ -388,17 +388,17 @@ func TestTheIdentityKindDecidesWhichPolicyTheBrokerApplies(t *testing.T) {
 			},
 			code: "auth.product_not_configured",
 		},
-		"a browser identity asked to act outside its home tenant": {
+		"a browser account asked to act outside its home tenant": {
 			kind:   contexts.KindOAuthBrowser,
 			mutate: func(b *auth.Broker) { b.Selection.Context.Organization = "another-org" },
 			code:   "auth.organization_switch_unsupported",
 		},
-		"a client-credentials identity that configures no product": {
+		"a client-credentials account that configures no product": {
 			kind:   contexts.KindClientCredentials,
 			mutate: func(b *auth.Broker) { b.Selection.Identity.Products = nil },
 			code:   "auth.product_not_configured",
 		},
-		"a client-credentials identity asked to act outside its home tenant": {
+		"a client-credentials account asked to act outside its home tenant": {
 			kind:   contexts.KindClientCredentials,
 			mutate: func(b *auth.Broker) { b.Selection.Context.Organization = "another-org" },
 			code:   "auth.organization_switch_unsupported",

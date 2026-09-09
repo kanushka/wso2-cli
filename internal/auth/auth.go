@@ -265,7 +265,7 @@ func (b *Broker) credential() (string, error) {
 	return b.namedSecret(b.Selection.Identity.Auth.CredentialVariable, "the credential")
 }
 
-// namedSecret reads the environment variable an identity names, into process
+// namedSecret reads the environment variable an account names, into process
 // memory and nowhere else.
 //
 // It is the one door a secret comes through, so the shape of its refusal is

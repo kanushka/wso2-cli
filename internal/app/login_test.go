@@ -210,7 +210,7 @@ func TestTheNoInputRefusalNamesTheControlThatFired(t *testing.T) {
 			// needs, so the recovery must say so and name the file to edit
 			// rather than advertise a command that does not exist.
 			if !strings.Contains(errOut.String(), "No command creates one yet") {
-				t.Errorf("the recovery does not say no command creates a client-credentials identity:\n%s", errOut)
+				t.Errorf("the recovery does not say no command creates a client-credentials account:\n%s", errOut)
 			}
 			if !strings.Contains(errOut.String(), contexts.Path(shell.StateRoot)) {
 				t.Errorf("the recovery does not name the context document's path:\n%s", errOut)
@@ -528,7 +528,7 @@ func TestLoginSelectsTheContextNamedByTheFlag(t *testing.T) {
 	if code := shell.Run([]string{"login", "--context", "acme-ci"}); code != exit.AuthPolicy {
 		t.Fatalf("exit code = %d, want %d (auth policy); stderr: %s", code, exit.AuthPolicy, errOut)
 	}
-	// The default context is a browser identity, so this code can only come
+	// The default context is a browser account, so this code can only come
 	// from the context the flag named.
 	requireRefusal(t, errOut.String(), "auth.login_not_required")
 }

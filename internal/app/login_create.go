@@ -107,7 +107,7 @@ func (s Shell) loginCreating(flags loginFlags) error {
 		if !declaresIdentity(document, name) {
 			// The identity planLogin built is written as planned, so what the
 			// report describes and what the document holds cannot disagree.
-			// Its credential reference is the identity's own name, which is
+			// Its credential reference is the account's own name, which is
 			// legal by construction: a reference and a name are held to the
 			// same pattern, so a name the document accepts is a reference it
 			// accepts. It carries no products, because this login discovers
@@ -376,7 +376,7 @@ func (s Shell) reportLoginWrite(written loginWrite, identity contexts.Account) e
 	if len(identity.Products) > 0 {
 		return nil
 	}
-	// The justification is picked by the identity's own deployment kind,
+	// The justification is picked by the account's own deployment kind,
 	// because it is only true of one of them: a self-hosted deployment
 	// publishes no catalogue of what it serves, so "not discoverable" is its
 	// honest explanation, while a user who just authenticated against WSO2's
