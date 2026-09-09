@@ -556,7 +556,7 @@ func TestModuleUpdateNamedModuleDryRunReportsWithoutChanging(t *testing.T) {
 // call this task left open: #112 §7 names wso2 product update --all as the
 // form that acts immediately, not a named update, which is already as
 // explicit an intent as this shell asks anywhere else (the same intent a
-// single wso2 product remove <module> already carries). No reader is
+// single wso2 product remove <product> already carries). No reader is
 // injected and no answer is possible, so this also proves the confirmation
 // gate is not consulted for a named target: a real (non-failing) reader
 // would be needed if it were.

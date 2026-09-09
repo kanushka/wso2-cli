@@ -82,7 +82,7 @@ func (s Store) ReadPolicy(namespace string) (Policy, error) {
 	if !namespacePattern.MatchString(namespace) {
 		return Policy{}, problem.New(problem.CategoryUsage, "modules.invalid_namespace",
 			fmt.Sprintf("%q is not a valid module namespace", namespace)).
-			WithRecovery("Run wso2 version to see the installed modules.")
+			WithRecovery("Run wso2 version to see the installed products.")
 	}
 
 	data, err := os.ReadFile(s.PolicyPath(namespace))
