@@ -29,7 +29,7 @@ func TestAddProductRecordsAGrantAtItsOwnIssuer(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, selfHostedDocument())
 
-	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "apim",
+	code := shell.Run([]string{"account", "add-product", "idp-customer-example", "apim",
 		"--endpoint", "https://apim.customer.example",
 		"--audience", "apim-cli-client",
 		"--scopes", "apim:api_view,apim:api_create",
@@ -56,7 +56,7 @@ func TestAPartialGrantIsRefusedInTheUsageClass(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, selfHostedDocument())
 
-	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "apim",
+	code := shell.Run([]string{"account", "add-product", "idp-customer-example", "apim",
 		"--endpoint", "https://apim.customer.example", "--audience", "apim-cli-client",
 		"--grant", "jwt-bearer"})
 	if code != exit.Usage {
@@ -76,7 +76,7 @@ func TestAGrantProductJoinsAThunderIdentityWithADirectOne(t *testing.T) {
 	}
 	installLogin(t, shell, seeded)
 
-	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "apim",
+	code := shell.Run([]string{"account", "add-product", "idp-customer-example", "apim",
 		"--endpoint", "https://apim.customer.example", "--audience", "apim-cli-client",
 		"--scopes", "apim:api_view",
 		"--grant", "jwt-bearer", "--grant-issuer", "https://apim.customer.example/oauth2/token",
@@ -94,7 +94,7 @@ func TestAGrantProductJoinsAThunderIdentityWithADirectOne(t *testing.T) {
 func TestAnUnknownGrantKindIsRefused(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	installLogin(t, shell, selfHostedDocument())
-	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "apim",
+	code := shell.Run([]string{"account", "add-product", "idp-customer-example", "apim",
 		"--endpoint", "https://apim.customer.example", "--audience", "apim-cli-client",
 		"--grant", "saml-bearer", "--grant-issuer", "https://apim.customer.example/oauth2/token",
 		"--grant-client-id", "apim-cli-client"})
@@ -115,7 +115,7 @@ func TestAFederatedGrantIsRecorded(t *testing.T) {
 	}
 	installLogin(t, shell, seeded)
 
-	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "apim",
+	code := shell.Run([]string{"account", "add-product", "idp-customer-example", "apim",
 		"--endpoint", "https://apim.customer.example", "--audience", "apim-cli-client",
 		"--grant", "federated", "--grant-issuer", "https://apim.customer.example/oauth2/token",
 		"--grant-client-id", "apim-cli-client"})
@@ -142,7 +142,7 @@ func TestGrantResourceWithoutGrantIsRefused(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	installLogin(t, shell, selfHostedDocument())
 
-	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "apim",
+	code := shell.Run([]string{"account", "add-product", "idp-customer-example", "apim",
 		"--endpoint", "https://apim.customer.example",
 		"--grant-resource", "https://apim.customer.example/oauth2/token"})
 	if code != exit.Usage {
@@ -164,7 +164,7 @@ func TestAddProductRecordsAnExchangeGrantFromTheKindAlone(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, selfHostedDocument())
 
-	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "apip",
+	code := shell.Run([]string{"account", "add-product", "idp-customer-example", "apip",
 		"--endpoint", "https://apip.customer.example",
 		"--audience", "https://apip.customer.example",
 		"--grant", "exchange"})
@@ -188,7 +188,7 @@ func TestAnExchangeGrantIsRefusedWithAnIssuerOrAClient(t *testing.T) {
 		t.Run(strings.TrimPrefix(extra[0], "--"), func(t *testing.T) {
 			shell, out, errOut := newShell(t)
 			installLogin(t, shell, selfHostedDocument())
-			code := shell.Run(append([]string{"identity", "add-product", "idp-customer-example", "apip",
+			code := shell.Run(append([]string{"account", "add-product", "idp-customer-example", "apip",
 				"--endpoint", "https://apip.customer.example",
 				"--audience", "https://apip.customer.example",
 				"--grant", "exchange"}, extra...))
@@ -206,7 +206,7 @@ func TestAnExchangeGrantIsSummarizedWithoutAnEmptyIssuerAndClient(t *testing.T) 
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, selfHostedDocument())
 
-	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "apip",
+	code := shell.Run([]string{"account", "add-product", "idp-customer-example", "apip",
 		"--endpoint", "https://apip.customer.example",
 		"--audience", "https://apip.customer.example",
 		"--grant", "exchange"})

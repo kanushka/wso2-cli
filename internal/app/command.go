@@ -159,7 +159,7 @@ func (s Shell) rootCommand() *cobra.Command {
 	declareContextFlag(root.Flags())
 	declareOutputFlag(root.Flags())
 
-	root.AddCommand(s.configCommand(), s.contextCommand(), s.doctorCommand(), s.identityCommand(),
+	root.AddCommand(s.configCommand(), s.contextCommand(), s.doctorCommand(), s.accountCommand(),
 		s.loginCommand(), s.logoutCommand(), s.moduleCommand(), s.orgCommand(), s.versionCommand(),
 		s.whoamiCommand())
 

@@ -62,7 +62,7 @@ func TestADocumentCarryingAGatewayRecordDecodesAndOneWithoutAnAudienceIsRefused(
 	shell, _, errOut := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
 	installLogin(t, shell, gatewayDoc("http://login.example", "http://apim.example"))
-	if code := shell.Run([]string{"identity", "list"}); code != exit.OK {
+	if code := shell.Run([]string{"account", "list"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	// The same document, edited by hand to drop the gateway's audience, on a
@@ -79,7 +79,7 @@ func TestADocumentCarryingAGatewayRecordDecodesAndOneWithoutAnAudienceIsRefused(
 		t.Fatal(err)
 	}
 	errOut.Reset()
-	if code := shell.Run([]string{"identity", "list"}); code != exit.Usage ||
+	if code := shell.Run([]string{"account", "list"}); code != exit.Usage ||
 		!strings.Contains(errOut.String(), "contexts.document_malformed") ||
 		!strings.Contains(errOut.String(), "gateway") {
 		t.Fatalf("exit %d, stderr:\n%s", code, errOut)
@@ -467,14 +467,14 @@ func TestIdentityListShowsTheGatewayRecordUnderTheProduct(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
 	installLogin(t, shell, gatewayDoc("http://login.example", "http://apim.example"))
-	if code := shell.Run([]string{"identity", "list"}); code != exit.OK {
+	if code := shell.Run([]string{"account", "list"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	if !regexp.MustCompile(`apim/gateway\s+` + regexp.QuoteMeta(gatewayURL) + `\s+hello:read,orders:read`).MatchString(out.String()) {
 		t.Fatalf("no gateway row:\n%s", out)
 	}
 	out.Reset()
-	if code := shell.Run([]string{"identity", "list", "--output", "json"}); code != exit.OK {
+	if code := shell.Run([]string{"account", "list", "--output", "json"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	if !strings.Contains(out.String(), `"gateway": {`) || !strings.Contains(out.String(), `"endpoint": "`+gatewayURL+`"`) {

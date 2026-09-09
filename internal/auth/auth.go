@@ -206,7 +206,7 @@ func (b *Broker) checkDeclared(request Request) error {
 				fmt.Sprintf("the %q module asked for a permission neither its installation nor the "+
 					"identity's product entry declares", b.namespace()),
 				"Reinstall the module, or record the permission on this identity's product entry "+
-					"with wso2 identity add-product --replace. The shell grants only the permissions "+
+					"with wso2 account add-product --replace. The shell grants only the permissions "+
 					"a module receipt or the product entry declares.")
 		}
 	}

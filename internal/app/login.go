@@ -268,7 +268,7 @@ func (s Shell) loginAccesses(selected contexts.Selection, flags loginFlags) ([]c
 				fmt.Sprintf("the %q identity records no %q product to authorize",
 					selected.Identity.Name, flags.only)).
 				WithRecovery("Name a product the identity records, or one record of it as " +
-					"<namespace>/gateway; wso2 identity list shows them.")
+					"<namespace>/gateway; wso2 account list shows them.")
 		}
 		accesses := []contexts.ProductAccess{access}
 		// A product namespace names the whole product: its own record and its
@@ -309,7 +309,7 @@ func checkLoginAccessBinds(identity contexts.Account) error {
 	return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
 		fmt.Sprintf("the %q identity records no product its login can bind to; every product it "+
 			"records is reached by a grant", identity.Name)).
-		WithRecovery("Record a direct product with wso2 identity add-product, then run wso2 login.")
+		WithRecovery("Record a direct product with wso2 account add-product, then run wso2 login.")
 }
 
 // checkDerivedResource refuses to open a browser for a derived access this
@@ -327,7 +327,7 @@ func checkDerivedResource(identity contexts.Account, access contexts.ProductAcce
 	return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
 		fmt.Sprintf("the %q product's jwt-bearer grant names no resource for its assertion "+
 			"session, which this deployment binds access by", access.Namespace)).
-		WithRecovery(fmt.Sprintf("Record the resource with wso2 identity add-product --replace "+
+		WithRecovery(fmt.Sprintf("Record the resource with wso2 account add-product --replace "+
 			"--grant-resource <uri>, then run wso2 login --only %s.", access.Namespace))
 }
 

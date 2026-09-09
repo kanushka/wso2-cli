@@ -386,7 +386,7 @@ func (s Shell) reportLoginWrite(written loginWrite, identity contexts.Account) e
 		_, err := fmt.Fprintf(s.Streams.Out,
 			"\nNo products are configured for this identity. A self-hosted deployment is not\n"+
 				"discoverable, so each product's endpoint has to be recorded:\n\n"+
-				"  wso2 identity add-product %s <namespace> \\\n"+
+				"  wso2 account add-product %s <namespace> \\\n"+
 				"      --endpoint <url> --audience <resource-id> --scopes <list>\n",
 			written.Identity)
 		return err
@@ -394,7 +394,7 @@ func (s Shell) reportLoginWrite(written loginWrite, identity contexts.Account) e
 	_, err := fmt.Fprintf(s.Streams.Out,
 		"\nNo products are configured for this identity yet. Product endpoints are not\n"+
 			"discovered automatically, so each product's endpoint has to be recorded:\n\n"+
-			"  wso2 identity add-product %s <namespace> \\\n"+
+			"  wso2 account add-product %s <namespace> \\\n"+
 			"      --endpoint <url> --audience <resource-id> --scopes <list>\n",
 		written.Identity)
 	return err

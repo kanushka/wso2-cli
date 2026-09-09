@@ -322,7 +322,7 @@ func TestConnectIsRefusedForAModuleWithoutADescriptor(t *testing.T) {
 	shell, _, _ := newConnectShell(t)
 	code, _, errOut := connect(t, shell, "reference", "connect", "http://reference.example")
 	if code != exit.Usage || !strings.Contains(errOut, "shell.connect_unsupported") ||
-		!strings.Contains(errOut, "wso2 identity add-product") {
+		!strings.Contains(errOut, "wso2 account add-product") {
 		t.Fatalf("exit %d, stderr:\n%s", code, errOut)
 	}
 }
@@ -354,7 +354,7 @@ func TestConnectRendersJSON(t *testing.T) {
 	}
 }
 
-// unpinnedThunderDocument is an identity as wso2 identity create builds one:
+// unpinnedThunderDocument is an identity as wso2 account create builds one:
 // a direct product and no pinned login product, which is also what a document
 // written before the field existed holds.
 func unpinnedThunderDocument() contexts.Document {

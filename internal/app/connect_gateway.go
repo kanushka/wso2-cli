@@ -155,14 +155,14 @@ func productRequired(namespace string) problem.Problem {
 			"of a product, not a product of its own", namespace)).
 		WithRecovery(fmt.Sprintf("Run wso2 %s connect <management-url> first, then this command; or pass "+
 			"--identity <name> or --login-provider <issuer-url> naming an identity that records the "+
-			"product. wso2 identity list shows them.", namespace))
+			"product. wso2 account list shows them.", namespace))
 }
 
 // gatewayExists refuses a second gateway on a product without --replace.
 func gatewayExists(identity, namespace string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "contexts.product_exists",
 		fmt.Sprintf("the identity %q already records a gateway for the %q product", identity, namespace)).
-		WithRecovery("Run wso2 identity list to see what it records. " +
+		WithRecovery("Run wso2 account list to see what it records. " +
 			"Pass --replace to overwrite the gateway record, which replaces the whole of it.")
 }
 

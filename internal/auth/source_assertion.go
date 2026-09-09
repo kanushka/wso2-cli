@@ -155,7 +155,7 @@ func (s assertionSource) orNotAuthorized(issued tokenResponse, request Request, 
 			s.session.namespace, scopeList(request.Scopes)),
 		fmt.Sprintf("Ask an administrator of %s to map this user's groups to a role that carries %s. "+
 			"If the user already holds one, this product's record may not request the claim that "+
-			"issuer maps roles from: set the grant's assertion scopes with wso2 identity add-product "+
+			"issuer maps roles from: set the grant's assertion scopes with wso2 account add-product "+
 			"--replace --grant-scopes, then run wso2 login --only %s.",
 			s.grant.Issuer, scopeList(request.Scopes), s.session.product))
 }
