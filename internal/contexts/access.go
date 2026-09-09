@@ -124,7 +124,7 @@ func (i Account) Access(namespace string) (ProductAccess, bool) {
 			access.Strategy = StrategySibling
 		}
 	case product.Grant.Kind == GrantExchange:
-		// The exchange runs at the identity's own issuer, as its own client,
+		// The exchange runs at the account's own issuer, as its own client,
 		// and asks for the product's audience: the access already carries
 		// both, so only the strategy and the resource are set here. The
 		// session reference is cleared because an exchanged product keeps no
@@ -152,7 +152,7 @@ func (i Account) Access(namespace string) (ProductAccess, bool) {
 // the product records one. A gateway validates tokens from the login
 // provider, so the record is always reached there, under the API's own
 // resource and scope set: direct when those happen to be the login
-// session's, else sibling; inline for a client-credentials identity, minted
+// session's, else sibling; inline for a client-credentials account, minted
 // from its machine client with the gateway audience as the resource.
 func (i Account) gatewayAccess(namespace string) (ProductAccess, bool) {
 	product, recorded := i.Products[namespace]
@@ -170,6 +170,18 @@ func (i Account) gatewayAccess(namespace string) (ProductAccess, bool) {
 	}
 	if i.Auth.Kind == KindClientCredentials {
 		access.Strategy = StrategyInline
+		return access, true
+	}
+	// A gateway is reached the way its product is when the product is reached
+	// by exchanging the login session: the gateway validates the same login
+	// provider's tokens, through the same JWKS its control plane does, so
+	// there is nothing for it to authorize separately. Leaving it a sibling
+	// would make a login open a browser for the one record on the product that
+	// never needed one.
+	if product.Grant != nil && product.Grant.Kind == GrantExchange {
+		access.Strategy = StrategyExchanged
+		access.Resource = gateway.Audience
+		access.SessionRef = ""
 		return access, true
 	}
 	login := i.LoginAccess()
@@ -196,7 +208,7 @@ func (i Account) RecordKeys() []string {
 	return keys
 }
 
-// inlineAccess is a client-credentials identity's plan for one product: no
+// inlineAccess is a client-credentials account's plan for one product: no
 // session, one grant per command, at the product's own issuer when it names
 // one.
 func (i Account) inlineAccess(namespace string, product Product) ProductAccess {

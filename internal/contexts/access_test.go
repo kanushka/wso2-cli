@@ -175,7 +175,7 @@ func TestAProductCredentialIsBothVariablesOrNeither(t *testing.T) {
 	// itself, not just to the local identity variable, to be seen.
 	document.Accounts = []contexts.Account{identity}
 	if _, err := document.Encode(); err == nil {
-		t.Fatal("a product credential on a browser identity was accepted")
+		t.Fatal("a product credential on a browser account was accepted")
 	}
 }
 
@@ -243,7 +243,7 @@ func TestAnExchangeGrantIsReachedAtTheLoginIssuerWithTheProductAudienceAsItsReso
 	if !ok || access.Strategy != contexts.StrategyExchanged {
 		t.Fatalf("apip access = %+v, %v, want an exchanged strategy", access, ok)
 	}
-	// The exchange runs at the identity's own issuer, as the identity's own
+	// The exchange runs at the account's own issuer, as the account's own
 	// client: it is the login session that is exchanged, so nothing about
 	// the product's own deployment takes part in obtaining the token.
 	if access.Issuer != "http://localhost:8492" || access.ClientID != "wso2-cli" {
@@ -280,5 +280,39 @@ func TestALoginRunsNoAuthorizationForAnExchangedProduct(t *testing.T) {
 	}
 	if accesses[0].Namespace != "thunder" || accesses[0].Strategy != contexts.StrategyDirect {
 		t.Fatalf("the one authorization is %+v, want the direct login product", accesses[0])
+	}
+}
+
+func TestAnExchangedProductsGatewayIsExchangedToo(t *testing.T) {
+	// A gateway validates the login provider's tokens through the same JWKS
+	// its control plane does, so a product reached by exchanging the login
+	// session reaches its gateway the same way. Leaving the gateway a sibling
+	// would make wso2 login open a browser for the one record on the product
+	// that never needed one.
+	identity := contexts.Account{Name: "c1", Type: "onprem",
+		Auth: contexts.AccountAuth{Kind: contexts.KindOAuthBrowser, Issuer: "http://localhost:8501",
+			ClientID: "wso2-cli", CredentialRef: "c1", Provider: contexts.ProviderThunder},
+		Products: map[string]contexts.Product{
+			"identity": {Endpoint: "http://localhost:8501", Audience: "https://localhost:8090/mcp",
+				Scopes: []string{"system"}},
+			"api": {Endpoint: "http://localhost:9251", Audience: "http://localhost:9251",
+				Grant:   &contexts.Grant{Kind: contexts.GrantExchange},
+				Gateway: &contexts.Gateway{Endpoint: "http://localhost:9091", Audience: "http://localhost:9091"}},
+		}}
+	gateway, recorded := identity.Access(contexts.GatewayKey("api"))
+	if !recorded {
+		t.Fatal("the gateway record was not resolved")
+	}
+	if gateway.Strategy != contexts.StrategyExchanged {
+		t.Fatalf("the gateway strategy is %q, want exchanged", gateway.Strategy)
+	}
+	if gateway.Resource != "http://localhost:9091" || gateway.SessionRef != "" {
+		t.Fatalf("the gateway access is %+v, want the gateway audience and no session", gateway)
+	}
+	// And a login runs no authorization for it.
+	for _, access := range identity.Accesses() {
+		if access.Namespace == contexts.GatewayKey("api") {
+			t.Fatalf("a login would authorize the exchanged gateway: %+v", access)
+		}
 	}
 }

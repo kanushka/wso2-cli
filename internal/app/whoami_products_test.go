@@ -67,7 +67,7 @@ func TestWhoamiReportsAClientCredentialsIdentityAsInline(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	if !strings.Contains(out.String(), "inline") || strings.Contains(out.String(), "wso2 login") {
-		t.Fatalf("a client-credentials identity was told to log in:\n%s", out)
+		t.Fatalf("a client-credentials account was told to log in:\n%s", out)
 	}
 }
 

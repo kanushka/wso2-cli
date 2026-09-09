@@ -173,7 +173,7 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 		// docs is written that way — so the honest advice names the file.
 		return loginOutcome{}, problem.New(problem.CategoryAuthPolicy, "auth.non_interactive",
 			mode+" cannot run in non-interactive mode, which "+control+" asked for").
-			WithRecovery(fmt.Sprintf("Automation uses a client-credentials identity, which "+
+			WithRecovery(fmt.Sprintf("Automation uses a client-credentials account, which "+
 				"acquires access inline without a login step. No command creates one yet: "+
 				"declare it in the context document at %s.", contexts.Path(root)))
 	}
@@ -277,7 +277,13 @@ func (s Shell) loginAccesses(selected contexts.Selection, flags loginFlags) ([]c
 		if gateway, recorded := selected.Identity.Access(contexts.GatewayKey(flags.only)); recorded {
 			accesses = append(accesses, gateway)
 		}
-		return accesses, nil
+		// An exchanged record has no authorization to run: its access is
+		// minted from the login session when a command needs it. Accesses()
+		// skips one for the same reason, and --only resolves a record directly
+		// rather than through Accesses, so without this the shell would open a
+		// browser for a product that can never answer one and then wait on a
+		// loopback listener until the login deadline.
+		return withoutExchanged(accesses), nil
 	case flags.noProducts:
 		if err := checkLoginAccessBinds(selected.Identity); err != nil {
 			return nil, err
@@ -289,6 +295,18 @@ func (s Shell) loginAccesses(selected contexts.Selection, flags loginFlags) ([]c
 		}
 		return selected.Identity.Accesses(), nil
 	}
+}
+
+// withoutExchanged drops the records a login has no authorization to run.
+func withoutExchanged(accesses []contexts.ProductAccess) []contexts.ProductAccess {
+	kept := make([]contexts.ProductAccess, 0, len(accesses))
+	for _, access := range accesses {
+		if access.Strategy == contexts.StrategyExchanged {
+			continue
+		}
+		kept = append(kept, access)
+	}
+	return kept
 }
 
 // checkLoginAccessBinds refuses a login whose first authorization has nothing
@@ -314,7 +332,7 @@ func checkLoginAccessBinds(identity contexts.Account) error {
 
 // checkDerivedResource refuses to open a browser for a derived access this
 // deployment could never carry out: a jwt-bearer grant's assertion session
-// runs at the identity's own issuer, and on a deployment that binds access by
+// runs at the account's own issuer, and on a deployment that binds access by
 // resource that session needs one exactly as the login session does. A
 // document written before this was required still decodes — see
 // contexts.Identity.validateDerivation — so the refusal belongs here, at the
@@ -414,7 +432,7 @@ func (s Shell) establishProduct(selected contexts.Selection, access contexts.Pro
 	return result, nil
 }
 
-// establishSession runs the login mode the selected identity's kind names, for
+// establishSession runs the login mode the selected account's kind names, for
 // one access.
 //
 // The two modes differ in how a person proves who they are and in nothing else:

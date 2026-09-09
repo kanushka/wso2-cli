@@ -71,7 +71,7 @@ func healthyShellAgainst(t *testing.T, issuer string) (app.Shell, *bytes.Buffer,
 // TestDoctorOnlineReportsAnUntrustedIssuerCertificate is the defect wso2
 // doctor missed: every offline check passed against an API Manager whose
 // self-signed certificate no product command could get past. Under --online
-// the issuer check dials the selected identity's issuer and reports the
+// the issuer check dials the selected account's issuer and reports the
 // certificate, with the same recovery a product command gives.
 func TestDoctorOnlineReportsAnUntrustedIssuerCertificate(t *testing.T) {
 	keyring.MockInit()

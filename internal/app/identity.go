@@ -156,14 +156,14 @@ func (g grantFlags) product() (*contexts.Grant, error) {
 				" or --grant " + contexts.GrantExchange + ". " + identityAddProductUsage)
 	}
 	if g.kind == contexts.GrantExchange {
-		// An exchange runs at the identity's own issuer as its own client, and
+		// An exchange runs at the account's own issuer as its own client, and
 		// asks for the product's registered audience. There is nothing left
 		// for these flags to name, so naming one is a mistake worth catching
 		// here rather than a value to accept and ignore.
 		if g.issuer != "" || g.clientID != "" {
 			return nil, problem.New(problem.CategoryUsage, "shell.invalid_argument",
 				"--grant-issuer and --grant-client-id do not belong to an exchange grant, which runs "+
-					"at the identity's own issuer as its own client").
+					"at the account's own issuer as its own client").
 				WithRecovery("Omit both flags. " + identityAddProductUsage)
 		}
 		if len(g.scopes) > 0 || g.resource != "" {
@@ -198,7 +198,7 @@ func (g grantFlags) product() (*contexts.Grant, error) {
 // that were never there to load.
 func grantSummary(grant contexts.Grant) string {
 	if grant.Kind == contexts.GrantExchange {
-		return grant.Kind + " at the identity's own issuer, as its own client"
+		return grant.Kind + " at the account's own issuer, as its own client"
 	}
 	return grant.Kind + " at " + grant.Issuer + " as " + grant.ClientID
 }
@@ -323,7 +323,7 @@ func (s Shell) identityAddProduct(
 	// "to" for the ordinary case and "on" for the replacement, because the two
 	// are worth telling apart at a glance: one added something that was not
 	// there and the other overwrote something that was.
-	line := fmt.Sprintf("Added product %q to identity %q.", namespace, identity)
+	line := fmt.Sprintf("Added product %q to account %q.", namespace, identity)
 	if added.Replaced {
 		line = fmt.Sprintf("Replaced product %q on identity %q.", namespace, identity)
 	}
@@ -399,7 +399,7 @@ func (s Shell) identityList(command *cobra.Command) error {
 			table.Append(entry.Name, entry.Type, entry.Issuer, "", "", "")
 			continue
 		}
-		// One row per product, and the identity's own columns repeated on each:
+		// One row per product, and the account's own columns repeated on each:
 		// what a reader of this table wants is the pair, and a blank identity
 		// column on the second row would leave them counting upward to find it.
 		for _, product := range entry.Products {

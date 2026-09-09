@@ -27,7 +27,7 @@ import (
 // checked rather than refused for a length nobody chose.
 const nameLimit = 64
 
-// IdentityNameForIssuer derives an identity name from an issuer URL.
+// IdentityNameForIssuer derives an account name from an issuer URL.
 //
 // The rule is deliberately mechanical — take the host, drop the port, lower-case
 // it, and replace each label separator with a hyphen — because the name is

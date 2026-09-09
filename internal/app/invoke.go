@@ -134,7 +134,7 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 	// terms a module is allowed to hear, which is deliberately less than a
 	// maintainer needs. This is where that missing half is written: the
 	// invocation the access will be bound to, the ceiling the receipt declares,
-	// and the derivation the selected identity will be narrowed by. Everything
+	// and the derivation the selected account will be narrowed by. Everything
 	// here is public — a namespace, an audience list, a scheme name — and the
 	// credential the broker reads is named nowhere, in keeping with a denial
 	// never naming it either.

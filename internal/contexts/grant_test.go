@@ -163,7 +163,7 @@ func TestAThunderJWTBearerGrantDecodesWithOrWithoutAnAssertionResource(t *testin
 }
 
 func TestAnExchangeGrantNamesNeitherAnIssuerNorAClient(t *testing.T) {
-	// The exchange runs at the identity's own issuer as its own client, so a
+	// The exchange runs at the account's own issuer as its own client, so a
 	// document that repeated either would be stating something the shell
 	// already knows and could contradict.
 	document, err := contexts.Decode([]byte(strings.Replace(
@@ -223,7 +223,7 @@ func TestAnExchangeProductMustRegisterAnAbsoluteURIAudience(t *testing.T) {
 }
 
 func TestAnExchangeGrantWritesNoEmptyIssuerAndClient(t *testing.T) {
-	// An exchange uses the identity's own issuer and client, so writing the
+	// An exchange uses the account's own issuer and client, so writing the
 	// members as empty strings puts two fields in the document that are not
 	// merely unset but meaningless — and that a reader would try to fill in.
 	document, err := contexts.Decode([]byte(strings.Replace(

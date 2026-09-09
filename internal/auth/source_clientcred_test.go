@@ -268,7 +268,7 @@ func TestNoInlineRefusalOrGrantRevealsTheClientSecret(t *testing.T) {
 	}
 }
 
-// clientCredentialsBroker builds the broker a client-credentials identity that
+// clientCredentialsBroker builds the broker a client-credentials account that
 // logs in at issuer would use, with its own client secret in
 // WSO2_ACME_CLIENT_SECRET. Individual tests register whichever products they
 // need and override Credentials when a test names a different set of

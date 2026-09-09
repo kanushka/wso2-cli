@@ -435,7 +435,7 @@ type (
 	// contextCreated is what wso2 context create reports.
 	contextCreated struct {
 		Context      string `json:"context"`
-		Identity     string `json:"identity"`
+		Identity     string `json:"account"`
 		Organization string `json:"organization"`
 		Project      string `json:"project"`
 		// Selected reports whether this context is now the one commands run
@@ -456,7 +456,7 @@ type (
 		// empty name" out of empty strings.
 		Configured   bool   `json:"configured"`
 		Context      string `json:"context"`
-		Identity     string `json:"identity"`
+		Identity     string `json:"account"`
 		Organization string `json:"organization"`
 		Project      string `json:"project"`
 	}
@@ -466,7 +466,7 @@ type (
 	// unset value, and the other results in this family omit nothing either.
 	contextEntry struct {
 		Name         string `json:"name"`
-		Identity     string `json:"identity"`
+		Identity     string `json:"account"`
 		Organization string `json:"organization"`
 		Project      string `json:"project"`
 		Selected     bool   `json:"selected"`
@@ -481,7 +481,7 @@ type (
 func (c contextCreated) fields() [][2]string {
 	return [][2]string{
 		{"Context", c.Context},
-		{"Identity", c.Identity},
+		{"Account", c.Identity},
 		{"Organization", c.Organization},
 		{"Project", c.Project},
 		{"Selected", yesNo(c.Selected)},
@@ -491,7 +491,7 @@ func (c contextCreated) fields() [][2]string {
 func (c contextCurrent) fields() [][2]string {
 	return [][2]string{
 		{"Context", c.Context},
-		{"Identity", c.Identity},
+		{"Account", c.Identity},
 		{"Organization", c.Organization},
 		{"Project", c.Project},
 	}

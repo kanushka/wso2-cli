@@ -47,7 +47,7 @@ func gatewayUsage(namespace string) string {
 // checkGatewayFlags refuses a --gateway line the shell could not write from,
 // before the document is opened.
 //
-// A gateway record is reached at the identity's login provider as the
+// A gateway record is reached at the account's login provider as the
 // identity's own client, so the flags that name another client — the one
 // the management record presents at the product's own issuer — describe
 // nothing a gateway record can hold.
@@ -62,7 +62,7 @@ func checkGatewayFlags(namespace string, descriptor modules.ProductDescriptor, f
 	}
 	if flags.clientIDSet || flags.clientSecretVariable != "" || flags.clientIDVariable != "" {
 		return problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
-			"--gateway records a gateway reached at the identity's login provider as the identity's own "+
+			"--gateway records a gateway reached at the account's login provider as the account's own "+
 				"client, so --client-id, --client-id-variable and --client-secret-variable name a client "+
 				"it never presents").
 			WithRecovery("Omit them. " + usage)
@@ -117,9 +117,9 @@ func planGateway(document contexts.Document, namespace string, descriptor module
 	}
 	if target.Auth.Kind == contexts.KindClientCredentials && !descriptor.Gateway.AllowsMachine(modules.MachineInline) {
 		return gatewayPlan{}, problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
-			fmt.Sprintf("the %s product's gateway does not accept the machine client the %q identity "+
+			fmt.Sprintf("the %s product's gateway does not accept the machine client the %q account "+
 				"holds", namespace, target.Name)).
-			WithRecovery("Record the gateway on an identity that signs in through the browser, or install " +
+			WithRecovery("Record the gateway on an account that signs in through the browser, or install " +
 				"a version of the module whose descriptor says how a machine client reaches its gateway.")
 	}
 	plan := gatewayPlan{identity: target, namespace: namespace}
@@ -154,7 +154,7 @@ func productRequired(namespace string) problem.Problem {
 		fmt.Sprintf("the %s product is not recorded on the identity, and a gateway is a second record "+
 			"of a product, not a product of its own", namespace)).
 		WithRecovery(fmt.Sprintf("Run wso2 %s connect <management-url> first, then this command; or pass "+
-			"--account <name> or --login-provider <issuer-url> naming an identity that records the "+
+			"--account <name> or --login-provider <issuer-url> naming an account that records the "+
 			"product. wso2 account list shows them.", namespace))
 }
 
@@ -210,8 +210,8 @@ func (s Shell) reportGateway(mode output.Mode, root string, plan gatewayPlan) er
 	reported := result.New(connectSchema).
 		With("product", "Product", plan.namespace).
 		With("record", "Record", recordGateway).
-		With("identity", "Identity", plan.identity.Name).
-		With("created", "Identity created", "false").
+		With("account", "Account", plan.identity.Name).
+		With("created", "Account created", "false").
 		With("endpoint", "Endpoint", plan.gateway.Endpoint).
 		With("issuer", "Issuer", access.Issuer).
 		With("clientId", "Client ID", access.ClientID).
@@ -223,7 +223,7 @@ func (s Shell) reportGateway(mode output.Mode, root string, plan gatewayPlan) er
 	if mode == output.ModeJSON {
 		return output.Report(s.Streams.Out, mode, reported)
 	}
-	if _, err := fmt.Fprintf(s.Streams.Out, "\n%s the %q gateway on the %q identity.\n\n",
+	if _, err := fmt.Fprintf(s.Streams.Out, "\n%s the %q gateway on the %q account.\n\n",
 		verb, plan.namespace, plan.identity.Name); err != nil {
 		return err
 	}

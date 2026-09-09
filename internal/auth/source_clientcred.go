@@ -48,10 +48,10 @@ type clientCredentialsSource struct {
 	namespace string
 	// contextName is the selected context, named in refusals.
 	contextName string
-	// issuer is where the grant is presented: the identity's own issuer, or
+	// issuer is where the grant is presented: the account's own issuer, or
 	// the product's own issuer when the product is reached through a grant.
 	issuer string
-	// clientID is the OAuth client presented at issuer: the identity's own,
+	// clientID is the OAuth client presented at issuer: the account's own,
 	// or the product's own when the product records a credential of its own.
 	clientID string
 	// resource is the RFC 8707 resource indicator to send, empty when the

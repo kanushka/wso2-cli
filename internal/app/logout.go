@@ -331,7 +331,7 @@ type logoutOutcome struct {
 	shared []string
 	// productSessions names, in namespace order, what happened to every
 	// session beyond the login one: "<ns> ended" or "<ns> none" per product.
-	// It is nil for a client-credentials identity and for one with no
+	// It is nil for a client-credentials account and for one with no
 	// product session beyond the login session.
 	productSessions []string
 	// browserSession is one of the browserSession* outcomes: what happened

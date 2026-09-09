@@ -56,7 +56,7 @@ const (
 	// refresh-token lifetime has passed. Unlike whoamiSessionPresent, this
 	// session cannot renew itself: whatever it could do expired along with it.
 	whoamiSessionExpired = "expired"
-	// whoamiSessionInline is what a client-credentials identity reports for
+	// whoamiSessionInline is what a client-credentials account reports for
 	// itself and for every product it accesses: it acquires access with a
 	// grant per command and holds nothing in the secure store, so "none" (a
 	// state that invites "run wso2 login") would misdescribe a healthy
@@ -291,7 +291,7 @@ type whoamiReport struct {
 	// of empty strings.
 	Configured   bool   `json:"configured"`
 	Context      string `json:"context"`
-	Identity     string `json:"identity"`
+	Identity     string `json:"account"`
 	Organization string `json:"organization"`
 	// Subject is unknownSubject for a pre-R6 session, and empty when there is
 	// no session at all — see whoamiSessionNone.
@@ -314,7 +314,7 @@ type whoamiReport struct {
 	// expired case; TestWhoamiReportsAPresentSessionWithUndisclosedExpiry
 	// pins the one case where it must be empty.
 	Recovery string `json:"recovery,omitempty"`
-	// Products is every record the selected identity declares — each product
+	// Products is every record the selected account declares — each product
 	// and, under its gateway key, its gateway record — with what
 	// Identity.Access says about how it is reached and what the secure store
 	// says about its session. It is nil for an unconfigured machine or an
@@ -338,7 +338,7 @@ type whoamiProduct struct {
 func (w whoamiReport) fields() [][2]string {
 	pairs := [][2]string{
 		{"Context", w.Context},
-		{"Identity", w.Identity},
+		{"Account", w.Identity},
 		{"Organization", w.Organization},
 		{"Subject", w.Subject},
 		{"Session", w.Session},

@@ -38,7 +38,7 @@ const identityCreateSchema = "shell.identity-created/v1"
 
 // identityCreateFlags is what the command takes. None of it is a credential:
 // the secret variable is a name, and the credential reference the browser kind
-// records is the identity's own name (ADR 0012).
+// records is the account's own name (ADR 0012).
 type identityCreateFlags struct {
 	issuer, clientID, secretVariable, provider string
 	product, endpoint, audience                string
@@ -56,7 +56,7 @@ func (s Shell) identityCreateCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "create <name> --issuer <url> --client-id <id>",
 		Short: "Declare an identity and a same-named context without a login.",
-		Args:  exactlyOneArgument("an identity name", identityCreateUsage),
+		Args:  exactlyOneArgument("an account name", identityCreateUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.identityCreate(command, args[0], flags)
 		},
@@ -65,7 +65,7 @@ func (s Shell) identityCreateCommand() *cobra.Command {
 	f.StringVar(&flags.issuer, "issuer", "", "The token issuer this identity authenticates against.")
 	f.StringVar(&flags.clientID, "client-id", "", "The OAuth application the shell presents.")
 	f.StringVar(&flags.secretVariable, "client-secret-variable", "",
-		"The environment variable holding the client secret; makes this a client-credentials identity.")
+		"The environment variable holding the client secret; makes this a client-credentials account.")
 	f.StringVar(&flags.provider, "provider", "",
 		"The identity provider: "+strings.Join(contexts.Providers(), ", ")+".")
 	f.StringVar(&flags.product, "product", "", "A product namespace this identity reaches.")
@@ -140,8 +140,8 @@ func (s Shell) identityCreate(command *cobra.Command, name string, flags identit
 func plannedIdentity(name string, flags identityCreateFlags) (contexts.Account, error) {
 	if !contexts.ValidName(name) {
 		return contexts.Account{}, problem.New(problem.CategoryUsage, "shell.invalid_argument",
-			fmt.Sprintf("%q cannot be used as an identity name", name)).
-			WithRecovery(fmt.Sprintf("An identity name is %s. %s", contexts.NameRule, identityCreateUsage))
+			fmt.Sprintf("%q cannot be used as an account name", name)).
+			WithRecovery(fmt.Sprintf("An account name is %s. %s", contexts.NameRule, identityCreateUsage))
 	}
 	if flags.issuer == "" {
 		return contexts.Account{}, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
@@ -221,6 +221,6 @@ func identityCreateNext(name string, identity contexts.Account) string {
 
 func identityExists(name string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "contexts.identity_exists",
-		fmt.Sprintf("an identity named %q is already declared in the context document", name)).
+		fmt.Sprintf("an account named %q is already declared in the context document", name)).
 		WithRecovery("Run wso2 account list to see it, or pick another name.")
 }

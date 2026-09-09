@@ -35,7 +35,7 @@ import (
 
 // newCreatingLogin is a shell whose browser hook follows the authorization URL,
 // against an issuer whose identifier carries a hostname. The hostname matters:
-// an issuer at 127.0.0.1 has no name to derive an identity name from, which is
+// an issuer at 127.0.0.1 has no name to derive an account name from, which is
 // the refusal TestLoginRefusesAnIssuerNoNameCanBeDerivedFrom covers instead.
 func newCreatingLogin(t *testing.T) (app.Shell, *bytes.Buffer, *bytes.Buffer, *fakeissuer.Issuer) {
 	t.Helper()

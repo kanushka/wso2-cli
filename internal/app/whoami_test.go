@@ -36,7 +36,7 @@ import (
 type whoamiReport struct {
 	Configured    bool   `json:"configured"`
 	Context       string `json:"context"`
-	Identity      string `json:"identity"`
+	Identity      string `json:"account"`
 	Organization  string `json:"organization"`
 	Subject       string `json:"subject"`
 	Session       string `json:"session"`

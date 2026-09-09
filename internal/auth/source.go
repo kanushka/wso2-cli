@@ -203,7 +203,7 @@ func (b *Broker) checkProduct(request Request) error {
 	}
 	if b.Selection.Identity.Auth.Derivation() == contexts.DerivationTokenResource &&
 		product.Grant != nil && product.Grant.Kind == contexts.GrantJWTBearer && product.Grant.Resource == "" {
-		// The identity's assertion session runs at the identity's own issuer,
+		// The identity's assertion session runs at the account's own issuer,
 		// which this derivation binds by resource exactly as the login
 		// session is. A document written before this field was required
 		// still decodes — see contexts.Identity.validateDerivation — so the
@@ -327,8 +327,8 @@ func (b *Broker) developmentSource() (source, error) {
 // two are validated together, so recording one is recording both. A product
 // reached through a grant but naming no credential of its own has nothing to
 // present there and is refused rather than sent with a client the target
-// issuer never registered. Anything else uses the identity's own client and
-// secret, at the identity's own issuer.
+// issuer never registered. Anything else uses the account's own client and
+// secret, at the account's own issuer.
 //
 // The secret is read here rather than at the moment of the grant, so a job that
 // forgot to export it is told so before the shell reaches out to an issuer that
@@ -338,7 +338,7 @@ func (b *Broker) inlineSource(request Request) (source, error) {
 	product := b.Selection.Identity.Products[b.Namespace]
 	clientID := b.Selection.Identity.Auth.ClientID
 	secretVariable := b.Selection.Identity.Auth.ClientSecretVariable
-	// A gateway record is minted from the identity's own machine client at
+	// A gateway record is minted from the account's own machine client at
 	// the login provider, whatever credential the product's own record
 	// carries for its own issuer, so the product's credential and grant are
 	// consulted only for the product's own record. There the secret belongs
