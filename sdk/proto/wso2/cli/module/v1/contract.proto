@@ -243,6 +243,36 @@ message Result {
   // fields are the result's values in presentation order. The shell renders
   // them in this order in every output mode.
   repeated ResultField fields = 2;
+
+  // columns declare what each row carries, in presentation order. They are
+  // empty for a result that reports one thing rather than a listing.
+  //
+  // Columns are declared once rather than restated by every row, which is what
+  // makes "every row has the same columns" a fact the shell can check instead
+  // of something two rows could disagree about.
+  repeated ResultColumn columns = 3;
+
+  // rows are a listing's items, one per row, each carrying one value per
+  // declared column in the same order. A result carrying rows and no columns
+  // is refused, as is a row whose value count differs from the columns.
+  repeated ResultRow rows = 4;
+}
+
+// ResultColumn declares one column of a listing.
+message ResultColumn {
+  // name is the stable machine name, used as the JSON key of this column's
+  // value in every row.
+  string name = 1;
+  // label is the human-readable header. It falls back to name.
+  string label = 2;
+}
+
+// ResultRow is one item of a listing.
+message ResultRow {
+  // values are the row's cells, one per declared column, in the order the
+  // columns were declared. Every value is a string for the same reason a
+  // field's is: the shell renders a product's result without interpreting it.
+  repeated string values = 1;
 }
 
 // ResultField is one named value of a result.

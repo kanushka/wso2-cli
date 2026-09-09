@@ -85,7 +85,23 @@ func EncodeResult(produced result.Result) *contractv1.Result {
 			Value: field.Value,
 		})
 	}
-	return &contractv1.Result{Schema: produced.Schema, Fields: fields}
+	columns := make([]*contractv1.ResultColumn, 0, len(produced.Columns))
+	for _, column := range produced.Columns {
+		columns = append(columns, &contractv1.ResultColumn{
+			Name:  column.Name,
+			Label: column.Label,
+		})
+	}
+	rows := make([]*contractv1.ResultRow, 0, len(produced.Rows))
+	for _, row := range produced.Rows {
+		rows = append(rows, &contractv1.ResultRow{Values: append([]string(nil), row.Values...)})
+	}
+	return &contractv1.Result{
+		Schema:  produced.Schema,
+		Fields:  fields,
+		Columns: columns,
+		Rows:    rows,
+	}
 }
 
 // DecodeResult reads a command result from the wire.
@@ -100,6 +116,20 @@ func DecodeResult(encoded *contractv1.Result) result.Result {
 			Name:  field.GetName(),
 			Label: field.GetLabel(),
 			Value: field.GetValue(),
+		})
+	}
+	for _, column := range encoded.GetColumns() {
+		decoded.Columns = append(decoded.Columns, result.Column{
+			Name:  column.GetName(),
+			Label: column.GetLabel(),
+		})
+	}
+	for _, row := range encoded.GetRows() {
+		// The values are copied rather than aliased: the decoded result
+		// outlives the wire message, and a caller that mutated one would be
+		// reaching into a buffer it does not own.
+		decoded.Rows = append(decoded.Rows, result.Row{
+			Values: append([]string(nil), row.GetValues()...),
 		})
 	}
 	return decoded
