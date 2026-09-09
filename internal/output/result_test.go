@@ -202,3 +202,88 @@ func TestANextFieldRendersAsATrailingLine(t *testing.T) {
 	}
 	t.Errorf("report did not end with the next line:\n%s", out.String())
 }
+
+// listingResult is a result of the shape a product listing takes: a summary
+// field, one row per item under declared columns, and a next line.
+func listingResult() result.Result {
+	return result.New("identity.resourceServers/v1").
+		With("count", "Resource servers", "2").
+		WithColumn("name", "Name").
+		WithColumn("identifier", "Identifier").
+		WithRow("System", "https://localhost:8090/mcp").
+		WithRow("Hello API", "http://localhost:8801/hello").
+		With("next", "Next", "Record one on an account.")
+}
+
+func TestTableOutputRendersARowPerItemRatherThanAColumnPerItem(t *testing.T) {
+	// The whole reason rows exist. Before them a listing could only be one
+	// field per item, which the renderer turned into one column per item: five
+	// resource servers became a six-column row no terminal could show.
+	var rendered bytes.Buffer
+	if err := output.Result(&rendered, output.ModeTable, listingResult()); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(rendered.String()), "\n")
+	if len(lines) < 4 {
+		t.Fatalf("the listing did not render as a table:\n%s", rendered.String())
+	}
+	if !strings.Contains(rendered.String(), "NAME") || !strings.Contains(rendered.String(), "IDENTIFIER") {
+		t.Fatalf("the declared columns are not the table's headers:\n%s", rendered.String())
+	}
+	// Each item is its own line, which is what a reader scans.
+	for _, item := range []string{"System", "Hello API"} {
+		found := false
+		for _, line := range lines {
+			if strings.HasPrefix(strings.TrimSpace(line), item) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%q does not start a line of its own:\n%s", item, rendered.String())
+		}
+	}
+	// The summary field and the next line still surround the table: a listing
+	// says how many there are and what to do about them.
+	if !strings.Contains(rendered.String(), "Resource servers") ||
+		!strings.Contains(rendered.String(), "Record one on an account.") {
+		t.Fatalf("the summary field or the next line was dropped:\n%s", rendered.String())
+	}
+}
+
+func TestARowThatDoesNotMatchTheDeclaredColumnsIsRefused(t *testing.T) {
+	// A table whose rows disagree about their columns is not a table, and the
+	// disagreement would surface as a misaligned cell rather than an error.
+	invalid := result.New("x/v1").
+		WithColumn("a", "A").
+		WithColumn("b", "B").
+		WithRow("only-one-value")
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("a row shorter than the declared columns was accepted")
+	}
+}
+
+func TestJSONOutputCarriesEveryRowKeyedByColumn(t *testing.T) {
+	// Table mode and JSON mode must not disagree about what the answer is. A
+	// JSON rendering that dropped the rows would leave a script reading only
+	// the summary and concluding the listing was empty.
+	var rendered bytes.Buffer
+	if err := output.Result(&rendered, output.ModeJSON, listingResult()); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+	var decoded struct {
+		Count string              `json:"count"`
+		Rows  []map[string]string `json:"rows"`
+	}
+	if err := json.Unmarshal(rendered.Bytes(), &decoded); err != nil {
+		t.Fatalf("the rendering is not valid JSON: %v\n%s", err, rendered.String())
+	}
+	if len(decoded.Rows) != 2 {
+		t.Fatalf("JSON carried %d rows, want 2:\n%s", len(decoded.Rows), rendered.String())
+	}
+	// Keyed by the column's machine name, not its label: the label is for a
+	// person reading a table and may change without a schema change.
+	if decoded.Rows[0]["name"] != "System" ||
+		decoded.Rows[0]["identifier"] != "https://localhost:8090/mcp" {
+		t.Fatalf("the first row is not keyed by column name: %+v", decoded.Rows[0])
+	}
+}

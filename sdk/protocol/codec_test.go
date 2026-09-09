@@ -152,3 +152,31 @@ func TestVersionsAreFormattedNewestFirstForDiagnostics(t *testing.T) {
 		t.Errorf("FormatVersions reported %q for an empty list, want %q", got, "no version")
 	}
 }
+
+func TestAListingSurvivesTheRoundTrip(t *testing.T) {
+	// Rows crossing the wire is the whole point: a module builds them and the
+	// shell renders them, so a codec that dropped either half would leave a
+	// listing that works in the module's own tests and is empty in the shell.
+	listing := result.New("identity.resourceServers/v1").
+		With("count", "Resource servers", "2").
+		WithColumn("name", "Name").
+		WithColumn("identifier", "Identifier").
+		WithRow("System", "https://localhost:8090/mcp").
+		WithRow("Hello API", "http://localhost:8801/hello")
+
+	decoded := protocol.DecodeResult(protocol.EncodeResult(listing))
+	if err := decoded.Validate(); err != nil {
+		t.Fatalf("the decoded listing does not validate: %v", err)
+	}
+	if len(decoded.Columns) != 2 || decoded.Columns[1].Name != "identifier" ||
+		decoded.Columns[1].Label != "Identifier" {
+		t.Fatalf("the columns did not survive: %+v", decoded.Columns)
+	}
+	if len(decoded.Rows) != 2 {
+		t.Fatalf("the rows did not survive: %+v", decoded.Rows)
+	}
+	if decoded.Rows[1].Values[0] != "Hello API" ||
+		decoded.Rows[1].Values[1] != "http://localhost:8801/hello" {
+		t.Fatalf("a row's values did not survive in order: %+v", decoded.Rows[1])
+	}
+}
