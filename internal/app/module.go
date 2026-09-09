@@ -62,10 +62,10 @@ const moduleRecovery = "Run wso2 module available to see what can be installed, 
 // bare boolean flag has only one to get right. Declaring all of them together
 // is what retires the loops rather than leaving a mix of declared and scanned
 // flags in the same command bodies.
-func (s Shell) moduleCommand() *cobra.Command {
+func (s Shell) productCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:                   "module <subcommand>",
-		Short:                 "Install, list, and update product modules from the module catalog.",
+		Use:                   "product <subcommand>",
+		Short:                 "Install, list, and update products from the product catalog.",
 		Long:                  moduleRecovery,
 		DisableFlagsInUseLine: true,
 		// A RunE is declared for the reason org's and identity's are: Cobra
@@ -74,14 +74,14 @@ func (s Shell) moduleCommand() *cobra.Command {
 		// subcommand. Never cobra.NoArgs or cobra.ExactArgs here — both bypass
 		// the flag-error hook and exit 70 instead of 64.
 		//
-		// A bare wso2 module is the other arm, and is deliberately not a
+		// A bare wso2 product is the other arm, and is deliberately not a
 		// refusal. See helpForBareFamily.
 		RunE: func(command *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return helpForBareFamily(command)
 			}
 			return problem.New(problem.CategoryUsage, "shell.unknown_command",
-				fmt.Sprintf("%q is not a wso2 module subcommand", args[0])).
+				fmt.Sprintf("%q is not a wso2 product subcommand", args[0])).
 				WithRecovery(moduleRecovery)
 		},
 	}
@@ -923,4 +923,36 @@ func asProblem(err error) problem.Problem {
 		return typed
 	}
 	return problem.New(problem.CategoryModuleProcess, "modules.update_failed", err.Error())
+}
+
+// moduleAliasCommand keeps wso2 module working, as the deprecated spelling of
+// wso2 product.
+//
+// It is a whole command rather than a Cobra alias because Cobra's aliases are
+// matched on a subcommand, not on a root family, and because the deprecation
+// has to be said out loud: an alias that works silently teaches nobody the new
+// word, and the old one then outlives the release that replaced it. The notice
+// goes to the diagnostic stream, so a script parsing the result on stdout is
+// unaffected by it.
+//
+// ADR 0015 keeps this alias and refuses one for identity. The difference is
+// not politeness: no product is named module, so this word shadows no
+// namespace and reserving it stops one claiming it later, while identity is a
+// namespace the shell must leave free to dispatch.
+func (s Shell) moduleAliasCommand() *cobra.Command {
+	command := s.productCommand()
+	command.Use = "module <subcommand>"
+	command.Short = "Deprecated spelling of wso2 product."
+	command.Hidden = true
+	// PersistentPreRunE and not PersistentPreRun, and it calls the root's hook
+	// rather than replacing it: Cobra runs only the closest hook in the chain,
+	// so a hook declared here silently disables the shell-flag handling the
+	// root declares — --output, --context and --verbose would all stop working
+	// under the alias while continuing to work under wso2 product.
+	command.PersistentPreRunE = func(command *cobra.Command, args []string) error {
+		_, _ = fmt.Fprintln(s.Streams.Err,
+			"wso2 module is the deprecated spelling of wso2 product; run wso2 product instead.")
+		return s.applyShellFlags(command, args)
+	}
+	return command
 }
