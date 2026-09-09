@@ -349,13 +349,13 @@ func TestVerboseIsHonoredAfterTheCommandName(t *testing.T) {
 	// wso2 module list takes no arguments, so before the strip this refused
 	// with shell.unexpected_argument — a message that describes the wrong
 	// mistake. Stripping the flag before the argument check settles both.
-	t.Run("module list", func(t *testing.T) {
+	t.Run("product list", func(t *testing.T) {
 		shell, _, errOut := newShell(t)
-		if code := shell.Run([]string{"module", "list", "--verbose"}); code != exit.OK {
+		if code := shell.Run([]string{"product", "list", "--verbose"}); code != exit.OK {
 			t.Fatalf("module list failed: exit %d, stderr %s", code, errOut)
 		}
 		if !strings.Contains(errOut.String(), "the shell started") {
-			t.Fatalf("wso2 module list --verbose wrote no diagnostics:\n%s", errOut)
+			t.Fatalf("wso2 product list --verbose wrote no diagnostics:\n%s", errOut)
 		}
 	})
 }
@@ -367,7 +367,7 @@ func TestVerboseIsHonoredAfterTheCommandName(t *testing.T) {
 // it.
 func TestVerboseWrittenTwiceEnablesTheLogOnce(t *testing.T) {
 	shell, _, errOut := newShell(t)
-	if code := shell.Run([]string{"--verbose", "module", "list", "--verbose"}); code != exit.OK {
+	if code := shell.Run([]string{"--verbose", "product", "list", "--verbose"}); code != exit.OK {
 		t.Fatalf("module list failed: exit %d, stderr %s", code, errOut)
 	}
 	if started := strings.Count(errOut.String(), "the shell started"); started != 1 {
@@ -379,7 +379,7 @@ func TestVerboseWrittenTwiceEnablesTheLogOnce(t *testing.T) {
 // stripped like any other, and it does not turn the log on.
 func TestVerboseWithAnExplicitValueIsRead(t *testing.T) {
 	shell, _, errOut := newShell(t)
-	if code := shell.Run([]string{"module", "list", "--verbose=false"}); code != exit.OK {
+	if code := shell.Run([]string{"product", "list", "--verbose=false"}); code != exit.OK {
 		t.Fatalf("module list failed: exit %d, stderr %s", code, errOut)
 	}
 	if errOut.Len() != 0 {
@@ -387,7 +387,7 @@ func TestVerboseWithAnExplicitValueIsRead(t *testing.T) {
 	}
 
 	shell, _, errOut = newShell(t)
-	if code := shell.Run([]string{"module", "list", "--verbose=true"}); code != exit.OK {
+	if code := shell.Run([]string{"product", "list", "--verbose=true"}); code != exit.OK {
 		t.Fatalf("module list failed: exit %d, stderr %s", code, errOut)
 	}
 	if !strings.Contains(errOut.String(), "the shell started") {
@@ -395,7 +395,7 @@ func TestVerboseWithAnExplicitValueIsRead(t *testing.T) {
 	}
 
 	shell, _, errOut = newShell(t)
-	if code := shell.Run([]string{"module", "list", "--verbose=maybe"}); code != exit.Usage {
+	if code := shell.Run([]string{"product", "list", "--verbose=maybe"}); code != exit.Usage {
 		t.Fatalf("--verbose=maybe exited %d, want the usage class %d; stderr: %s",
 			code, exit.Usage, errOut)
 	}
@@ -427,10 +427,10 @@ func TestVerboseTakesItsLastOccurrence(t *testing.T) {
 		args []string
 		want bool
 	}{
-		{name: "bare then off", args: []string{"module", "list", "--verbose", "--verbose=false"}},
-		{name: "off then bare", args: []string{"module", "list", "--verbose=false", "--verbose"}, want: true},
-		{name: "off then on", args: []string{"module", "list", "--verbose=false", "--verbose=true"}, want: true},
-		{name: "on then off", args: []string{"module", "list", "--verbose=true", "--verbose=false"}},
+		{name: "bare then off", args: []string{"product", "list", "--verbose", "--verbose=false"}},
+		{name: "off then bare", args: []string{"product", "list", "--verbose=false", "--verbose"}, want: true},
+		{name: "off then on", args: []string{"product", "list", "--verbose=false", "--verbose=true"}, want: true},
+		{name: "on then off", args: []string{"product", "list", "--verbose=true", "--verbose=false"}},
 		// The same spelling on the root's own parser, which is what the three
 		// arms above are pinned to rather than to a rule stated twice.
 		{name: "bare then off, before the command name", args: []string{"--verbose", "--verbose=false", "version"}},

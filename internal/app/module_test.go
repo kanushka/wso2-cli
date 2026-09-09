@@ -727,3 +727,29 @@ func TestModuleListCountsAPinnedModuleInAFinishedSentence(t *testing.T) {
 		t.Errorf("stdout does not count the pinned module in a finished sentence:\n%s", out)
 	}
 }
+
+func TestTheProductCommandReplacesModuleAndModuleStaysAsAnAlias(t *testing.T) {
+	// Unlike identity, module keeps an alias: no product is named "module", so
+	// the word shadows nothing, and keeping it reserved stops a namespace
+	// claiming it later. ADR 0015.
+	shell, out, errOut := newShell(t)
+	if code := shell.Run([]string{"product", "list"}); code != exit.OK {
+		t.Fatalf("wso2 product list exited %d: %s", code, errOut)
+	}
+	out.Reset()
+	if code := shell.Run([]string{"module", "list"}); code != exit.OK {
+		t.Fatalf("wso2 module list exited %d, so the alias was not kept: %s", code, errOut)
+	}
+}
+
+func TestTheModuleAliasIsMarkedDeprecated(t *testing.T) {
+	// An alias that says nothing teaches nobody the new word, and the old one
+	// then outlives the release that replaced it.
+	shell, _, errOut := newShell(t)
+	if code := shell.Run([]string{"module", "list"}); code != exit.OK {
+		t.Fatalf("wso2 module list exited %d: %s", code, errOut)
+	}
+	if !strings.Contains(errOut.String(), "wso2 product") {
+		t.Fatalf("the deprecated alias does not name the command that replaced it:\n%s", errOut)
+	}
+}

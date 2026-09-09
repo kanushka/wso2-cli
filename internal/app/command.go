@@ -160,7 +160,7 @@ func (s Shell) rootCommand() *cobra.Command {
 	declareOutputFlag(root.Flags())
 
 	root.AddCommand(s.configCommand(), s.contextCommand(), s.doctorCommand(), s.accountCommand(),
-		s.loginCommand(), s.logoutCommand(), s.moduleCommand(), s.orgCommand(), s.versionCommand(),
+		s.loginCommand(), s.logoutCommand(), s.productCommand(), s.moduleAliasCommand(), s.orgCommand(), s.versionCommand(),
 		s.whoamiCommand())
 
 	// Cobra's generated help command describes itself generically. The shell
