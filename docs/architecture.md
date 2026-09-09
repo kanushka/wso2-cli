@@ -692,7 +692,7 @@ versions and disable implicit metadata refresh or installation.
 
 The rules below are the original design. What is built is described by the
 [module catalog](reference/module-catalog.md) reference: an explicit
-`wso2 module list` or `wso2 module update` reads the catalog index when it
+`wso2 product list` or `wso2 product update` reads the catalog index when it
 runs, the shell caches no catalog metadata and performs no background refresh,
 and rule 3 filters by channel, pin, protocol, and platform only, because the
 catalog carries no publisher or revocation field. Rules 4 to 6 are not built.
@@ -700,8 +700,8 @@ catalog carries no publisher or revocation field. Rules 4 to 6 are not built.
 The shell uses the catalog to distinguish the installed version from newer
 available releases. Update discovery follows these rules:
 
-1. Explicit lifecycle commands such as `wso2 module list`,
-   `wso2 module update <name>`, and `wso2 module update --all` may refresh
+1. Explicit lifecycle commands such as `wso2 product list`,
+   `wso2 product update <name>`, and `wso2 product update --all` may refresh
    catalog metadata when network policy allows it.
 2. Interactive use may perform a background catalog refresh no more than once
    per configurable interval, initially 24 hours. Fresh verified metadata is
@@ -778,7 +778,7 @@ revocation-metadata policy as online installation.
 
 An individual `.wso2module` file packages one module's signed release metadata,
 artifact, provenance, and required trust metadata. It is imported by an
-existing shell with `wso2 module install --file <module.wso2module>`.
+existing shell with `wso2 product install --file <module.wso2module>`.
 
 A fresh machine uses a platform-specific, self-installing offline bundle. The
 bundle contains a signed bootstrap installer, an exact root-shell release, the
@@ -963,16 +963,16 @@ Installed modules
 NAME   VERSION   PLATFORM
 api    v0.8.1    darwin/arm64
 
-$ wso2 module list
+$ wso2 product list
 MODULE   INSTALLED   CHANNEL   UPDATE
 api      v0.8.1      stable    v0.9.0 available
 
-1 module(s) have an update available. Run wso2 module update --all to take
+1 module(s) have an update available. Run wso2 product update --all to take
 them.
 ```
 
 `wso2 version` reads receipts only: it never launches a module and never opens
-a network connection. `wso2 module list` reads the catalog index, and costs one
+a network connection. `wso2 product list` reads the catalog index, and costs one
 request whatever is installed, because a check selects no version and a version
 history is what selecting is for. Neither report claims anything beyond the
 integrity facts above: the executable matches the digest in its receipt. There

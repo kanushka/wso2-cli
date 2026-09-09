@@ -197,7 +197,7 @@ func (s Shell) productFooter() string {
 		return genericProductFooter
 	}
 	if len(installed) == 0 {
-		return genericProductFooter + " None are installed; run wso2 module available to see what can be."
+		return genericProductFooter + " None are installed; run wso2 product available to see what can be."
 	}
 	namespaces := make([]string, 0, len(installed))
 	for _, entry := range installed {
@@ -554,8 +554,8 @@ func ownsShellFlag(root *cobra.Command, name string) bool {
 //
 // Both spellings are read, because pflag words them differently and reading
 // only the long one meant a flag refused by its shorthand never reached the
-// shell's own refusal. "wso2 module list --output json" was answered with
-// shell.unsupported_flag and "wso2 module list -o json" with pflag's own
+// shell's own refusal. "wso2 product list --output json" was answered with
+// shell.unsupported_flag and "wso2 product list -o json" with pflag's own
 // "unknown shorthand flag: 'o' in -o" — one request, two problem codes, and the
 // second leaking the parser's vocabulary into user-facing text. #154.
 //

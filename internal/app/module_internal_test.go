@@ -52,7 +52,7 @@ func TestTheThreeUpdateRenderingsAgreeOnAnUnpublishedModule(t *testing.T) {
 		if !strings.Contains(line, "stable") {
 			t.Errorf("the %s does not name the channel that publishes nothing: %q", name, line)
 		}
-		if !strings.Contains(line, "wso2 module available") {
+		if !strings.Contains(line, "wso2 product available") {
 			t.Errorf("the %s does not name a way to find out what is published: %q", name, line)
 		}
 	}
@@ -109,7 +109,7 @@ func TestChannelColumnNamesARecordedChannel(t *testing.T) {
 }
 
 // TestTheListSummaryNeverCallsANonCurrentModuleCurrent pins #143: the summary
-// beneath wso2 module list's table used to be driven by the Update boolean
+// beneath wso2 product list's table used to be driven by the Update boolean
 // alone, which is false for a pinned module and for one the catalog does not
 // publish as well as for a current one. So a table whose UPDATE column said
 // "pinned to v0.1.0" was followed three lines later by "Every installed module
@@ -146,7 +146,7 @@ func TestTheListSummaryNeverCallsANonCurrentModuleCurrent(t *testing.T) {
 		},
 		"an unpublished module alone": {
 			statuses: []install.Status{unpublished},
-			mustName: []string{"not published", "wso2 module available"},
+			mustName: []string{"not published", "wso2 product available"},
 		},
 		"a pinned module beside a current one": {
 			statuses: []install.Status{pinned, current},
@@ -154,7 +154,7 @@ func TestTheListSummaryNeverCallsANonCurrentModuleCurrent(t *testing.T) {
 		},
 		"an update beside a pin": {
 			statuses: []install.Status{updatable, pinned},
-			mustName: []string{"update available", "wso2 module update --all", "pinned"},
+			mustName: []string{"update available", "wso2 product update --all", "pinned"},
 		},
 		"every module genuinely current": {
 			statuses:         []install.Status{current},
@@ -208,7 +208,7 @@ func TestTheListSummaryAndTheUpdateColumnCannotDisagree(t *testing.T) {
 }
 
 // TestAPinnedUpdateSkipNamesTheClearingCommand pins the escape hatch onto
-// both renderings of a passed-over module: a plain wso2 module install clears
+// both renderings of a passed-over module: a plain wso2 product install clears
 // a pin, and that fact is written nowhere else a user watching an update run
 // would look (F7). The two lines are asserted together for the same reason
 // TestTheThreeUpdateRenderingsAgreeOnAnUnpublishedModule holds its three
@@ -233,7 +233,7 @@ func TestAPinnedUpdateSkipNamesTheClearingCommand(t *testing.T) {
 	}
 
 	for name, line := range map[string]string{"dry run": dryRun, "real run": real} {
-		if !strings.Contains(line, "wso2 module install reference to clear the pin") {
+		if !strings.Contains(line, "wso2 product install reference to clear the pin") {
 			t.Errorf("the %s does not name the command that clears the pin: %q", name, line)
 		}
 	}
@@ -267,11 +267,11 @@ func TestTheListSummaryCountsReadAsFinishedSentences(t *testing.T) {
 		},
 		"one updatable": {
 			statuses: []install.Status{updatable, pinned},
-			want:     "1 product has an update available. Run wso2 module update --all to take it.",
+			want:     "1 product has an update available. Run wso2 product update --all to take it.",
 		},
 		"two updatable": {
 			statuses: []install.Status{updatable, second(updatable)},
-			want:     "2 products have an update available. Run wso2 module update --all to take them.",
+			want:     "2 products have an update available. Run wso2 product update --all to take them.",
 		},
 		"one current beside a pin": {
 			statuses: []install.Status{current, pinned},

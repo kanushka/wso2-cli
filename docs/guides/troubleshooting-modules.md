@@ -138,7 +138,7 @@ The executable changed after installation. The shell recomputes the digest on
 every launch and refuses when it moved.
 
 For an author this usually means a build was copied over an installed version to
-avoid reinstalling. Reinstall instead: `wso2 module remove api`, then install
+avoid reinstalling. Reinstall instead: `wso2 product remove api`, then install
 again. Removal leaves no receipt or version directory behind, so the next
 install resolves cleanly.
 
@@ -229,7 +229,7 @@ or has been released only as a prerelease while the install is asking for the
 stable channel. Ask for the channel:
 
 ```sh
-wso2 module install api --channel prerelease
+wso2 product install api --channel prerelease
 ```
 
 To run a build that has never been released at all, install it locally rather

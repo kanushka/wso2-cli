@@ -346,7 +346,7 @@ func TestVerboseIsHonoredAfterTheCommandName(t *testing.T) {
 		}
 	})
 
-	// wso2 module list takes no arguments, so before the strip this refused
+	// wso2 product list takes no arguments, so before the strip this refused
 	// with shell.unexpected_argument — a message that describes the wrong
 	// mistake. Stripping the flag before the argument check settles both.
 	t.Run("product list", func(t *testing.T) {

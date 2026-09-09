@@ -415,7 +415,7 @@ unpublished module and find out:
 ```sh
 make install-module NAMESPACE=api
 ./bin/wso2 api --help
-./bin/wso2 module remove api
+./bin/wso2 product remove api
 ```
 
 The module is built, packed, and installed by the ordinary installer, reading a
@@ -485,7 +485,7 @@ flowchart LR
     B --> R["Publish archives and checksums"]
     R --> C["Generate catalog from all module tags"]
     C --> P["Publish index.json and modules/api.json"]
-    P --> I["wso2 module install api"]
+    P --> I["wso2 product install api"]
 ```
 
 The release tool builds archives for the supported shell platforms, injects the
@@ -539,24 +539,24 @@ the same as a user's machine the first time they install anything:
 
 ```console
 $ export WSO2_HOME=$(mktemp -d)
-$ wso2 module available
+$ wso2 product available
 MODULE      CHANNEL      VERSION
 reference   prerelease   v0.1.0-rc.4
 
-Run wso2 module install <module> to install one.
+Run wso2 product install <module> to install one.
 ```
 
 Installing without naming a channel resolves the stable channel, and the
 reference module has never published to it:
 
 ```console
-$ wso2 module install reference
+$ wso2 product install reference
 error: the "reference" module publishes no version on the stable channel (catalog.empty_channel)
   It publishes on prerelease. Choose one with --channel.
 ```
 
 ```console
-$ wso2 module install reference --channel prerelease
+$ wso2 product install reference --channel prerelease
 Installed reference v0.1.0-rc.4 for darwin/arm64.
 The artifact was checked against the digest the catalog publishes. Artifacts are integrity-checked, not signed.
 ```
@@ -571,7 +571,7 @@ when you need it, but the channel-following form above is what stays correct
 as new prerelease versions ship.
 
 ```console
-$ wso2 module list
+$ wso2 product list
 MODULE      INSTALLED     CHANNEL      UPDATE
 reference   v0.1.0-rc.4   prerelease   current
 
@@ -579,11 +579,11 @@ Every installed module is current.
 ```
 
 ```console
-$ wso2 module update reference
+$ wso2 product update reference
 reference is current at v0.1.0-rc.4.
 ```
 
-`wso2 module update --all` does the same for every installed module at once,
+`wso2 product update --all` does the same for every installed module at once,
 and asks for confirmation first unless you pass `--yes`.
 
 Removing takes the module off the machine, meaning its versions, its receipts,
@@ -591,7 +591,7 @@ its active-version pointer, and its version policy, and touches nothing else. It
 is not a logout: your configuration and credentials are left as they were.
 
 ```console
-$ wso2 module remove reference --yes
+$ wso2 product remove reference --yes
 Removed the reference module.
 ```
 
@@ -599,9 +599,9 @@ Removing something that is not installed is refused rather than reported as
 done, so a typo is distinguishable from a no-op:
 
 ```console
-$ wso2 module remove reference --yes
+$ wso2 product remove reference --yes
 error: no reference module is installed (shell.module_not_installed)
-  Run wso2 module list to see what is installed.
+  Run wso2 product list to see what is installed.
 ```
 
 Remove and reinstall freely while iterating: removal leaves no receipt or
