@@ -66,7 +66,7 @@ const productFooterAnnotation = "productFooter"
 // genericProductFooter is what the footer says when the module store cannot
 // say more. Help has to render whatever state the machine is in, so an
 // unreadable store costs the reader the listing, never the page.
-const genericProductFooter = "Product commands are provided by installed modules."
+const genericProductFooter = "Product commands are provided by installed products."
 
 // rootCommand builds the shell's command tree.
 //
@@ -203,7 +203,7 @@ func (s Shell) productFooter() string {
 	for _, entry := range installed {
 		namespaces = append(namespaces, entry.Namespace)
 	}
-	return fmt.Sprintf("%s Installed: %s.\nRun wso2 <namespace> --help to see a module's commands.",
+	return fmt.Sprintf("%s Installed: %s.\nRun wso2 <namespace> --help to see a product's commands.",
 		genericProductFooter, strings.Join(namespaces, ", "))
 }
 
@@ -618,7 +618,7 @@ func (s Shell) loginCommand() *cobra.Command {
 	var flags loginFlags
 	command := &cobra.Command{
 		Use:                   "login",
-		Short:                 "Log in, creating the identity and context when an issuer is named.",
+		Short:                 "Log in, creating the account and context when an issuer is named.",
 		DisableFlagsInUseLine: true,
 		Args:                  noArguments(loginUsageRecovery),
 		RunE: func(command *cobra.Command, args []string) error {
@@ -634,7 +634,7 @@ func (s Shell) loginCommand() *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&flags.issuer, "url", "",
-		"Log in against this issuer, creating the identity and context it authenticates.")
+		"Log in against this issuer, creating the account and context it authenticates.")
 	command.Flags().StringVar(&flags.clientID, "client-id", "",
 		"Present this registered OAuth application. Required with --url.")
 	command.Flags().BoolVar(&flags.noInput, "no-input", false,
@@ -680,7 +680,7 @@ func (s Shell) logoutCommand() *cobra.Command {
 func (s Shell) versionCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:                   "version",
-		Short:                 "Show the shell, protocol, and installed module versions.",
+		Short:                 "Show the shell, protocol, and installed product versions.",
 		DisableFlagsInUseLine: true,
 		// version declares neither shell flag. It renders fixed prose about
 		// this build and the modules installed beside it, and selects no
