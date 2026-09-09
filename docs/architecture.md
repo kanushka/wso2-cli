@@ -141,7 +141,7 @@ func main() {
 
 The SDK provides:
 
-- protocol handshake and module identity;
+- protocol handshake and module account;
 - standard Cobra construction and help templates;
 - common flags such as `--context`, `--output`, `--no-input`, `--quiet`, and
   `--verbose`;
@@ -168,7 +168,7 @@ The broker:
 - identifies the already integrity-checked module through the launch
   handshake;
 - checks the module's declared audience and scope capabilities;
-- resolves the selected context, its identity, and the relevant product
+- resolves the selected context, its account, and the relevant product
   session;
 - refreshes credentials without exposing refresh tokens;
 - returns short-lived or invocation-scoped access material and restricts
@@ -180,17 +180,17 @@ The broker:
 
 The IPC endpoint must not be a world-discoverable local port.
 
-#### Identity
+#### Account
 
-An **identity** is one reusable login session, together with every product for
+An **account** is one reusable login session, together with every product for
 which the broker can derive valid access from that session without another
 login or an independently supplied credential.
 
-An identity is not an issuer. Two products configured against the same issuer
-URL do not share an identity unless that session can actually produce access
+An account is not an issuer. Two products configured against the same issuer
+URL do not share an account unless that session can actually produce access
 each of them accepts. A product that validates only its own resident issuer, or
 that requires its own separately authenticated OAuth client, personal access
-token, or password, belongs to a different identity and therefore to a
+token, or password, belongs to a different account and therefore to a
 different context.
 
 Whether a session can derive access for a product is a property of the running
@@ -200,7 +200,7 @@ authorization failure when a command needs access, never as a malformed
 document.
 
 The broker derives product-specific access bound to the product's
-audience/resource and to scopes. One identity therefore does not mean one
+audience/resource and to scopes. One account therefore does not mean one
 access token: a separate short-lived token may be derived for each product
 invocation. How narrowly that derivation can be bound is a per-backend
 capability, so the broker resolves a downscoping strategy per deployment and
@@ -224,12 +224,12 @@ that rather than presenting it as equivalent.
 >
 > The device grant is reached through the `oauth-device` **kind**, not yet
 > through a login-time flag: `wso2 login --device-code` is not in this release.
-> So the mode-not-kind rule below states the target, and today an identity that
+> So the mode-not-kind rule below states the target, and today an account that
 > can only be established by device says so in its kind.
 
 Browser Authorization Code with PKCE and the Device Authorization Grant are two
-**login modes for the same interactive OIDC identity**, not two stored
-authentication methods. An identity records that it authenticates interactively
+**login modes for the same interactive OIDC account**, not two stored
+authentication methods. An account records that it authenticates interactively
 against an issuer; the mode is chosen at login time, by the machine the user is
 sitting at.
 
@@ -252,14 +252,14 @@ authorization is still interactive and must not be used by CI.
 
 #### On-premises login
 
-An on-premises context explicitly configures its identity: the products it
+An on-premises context explicitly configures its account: the products it
 reaches, their endpoints, and the authentication method. The shell uses only
 mechanisms that deployment supports.
 
 The CLI must not infer that an on-premises endpoint supports WSO2 Cloud SSO,
 WSO2 Identity Server, shared authentication, or device authorization. Products
-that one login cannot reach belong to separate identities, and therefore to
-separate contexts. A single identity never mixes authentication methods across
+that one login cannot reach belong to separate accounts, and therefore to
+separate contexts. A single account never mixes authentication methods across
 its products.
 
 #### CI authentication
@@ -268,7 +268,7 @@ CI is always non-interactive. It authenticates with:
 
 - client credentials, which are the preferred CI method;
 - a personal access token, where the product issues one;
-- a future workload-identity mechanism.
+- a future workload-account mechanism.
 
 Browser Authorization Code and Device Authorization flows are invalid in CI
 or any invocation using non-interactive mode. The CLI must fail with a stable
@@ -282,7 +282,7 @@ With client credentials the shell holds the client secret, performs the token
 exchange itself, and passes the module only the resulting short-lived access
 token; the secret never leaves the shell. A personal access token that a
 product accepts directly as bearer material cannot be narrowed or derived from,
-so it is compatibility-adapter territory under the identity rules above rather
+so it is compatibility-adapter territory under the account rules above rather
 than an equivalent CI method.
 
 The CI platform injects the secret from its secret store. The shell reads it
@@ -294,34 +294,34 @@ configuration, or module environment.
 
 The configuration store contains non-secret data:
 
-- named identities, as defined in §4.6;
+- named accounts, as defined in §4.6;
 - named cloud and on-premises contexts;
 - default context, and any per-namespace context bindings;
 - module pins and update policy;
 - mirror/offline policy;
 - output and interaction defaults.
 
-#### Identities and contexts
+#### Accounts and contexts
 
-**Each context references exactly one identity. One identity may back several
+**Each context references exactly one account. One account may back several
 contexts.** Several projects or organizations reached through the same login
-are several contexts over one identity, not several logins.
+are several contexts over one account, not several logins.
 
 Configuration divides along that boundary:
 
-- an **identity** carries the authentication kind, the issuer, the client
+- an **account** carries the authentication kind, the issuer, the client
   identifier, and an opaque OS-secure-store reference or CI variable name;
-- a **product entry** on an identity carries the endpoint plus the
+- a **product entry** on an account carries the endpoint plus the
   audience/resource metadata the broker needs to target access;
 - a **context** carries targeting only, the organization and project, plus the
-  name of its identity.
+  name of its account.
 
 A context therefore never mixes authentication methods across products. Where
-an identity's authentication cannot reach a product, that product belongs to
-another identity and another context.
+an account's authentication cannot reach a product, that product belongs to
+another account and another context.
 
 Where authentication itself needs a tenant, meaning a home organization at the
-issuer, that belongs to the identity's authentication configuration and is named
+issuer, that belongs to the account's authentication configuration and is named
 distinctly from the context's target organization, which the broker may reach
 through an organization-switch exchange on the same session.
 
@@ -359,7 +359,7 @@ assigns and is reported; it never silently replaces an existing context.
 #### Credentials
 
 The store never contains access tokens, refresh tokens, personal access tokens,
-client secrets, passwords, or private keys. Importing or exporting an identity
+client secrets, passwords, or private keys. Importing or exporting an account
 or context therefore moves target and authentication configuration but never a
 credential.
 
@@ -372,18 +372,18 @@ remain owned by the CI secret store and exist in the CLI only in job memory.
 The architecture proof holds the invariant that no shell command can write a
 context, so no shell command can grant itself access. A production
 `wso2 context create` ends that invariant, and replaces it with one that
-survives a writable store: **writing a context or an identity grants nothing.**
+survives a writable store: **writing a context or an account grants nothing.**
 Why the invariant is stated this way, rather than as a rule about which
 command is allowed to write, is recorded in
-[ADR 0012](adr/0012-writing-a-context-or-identity-grants-nothing.md).
+[ADR 0012](adr/0012-writing-a-context-or-account-grants-nothing.md).
 
 It holds through five properties, each of which is testable:
 
 1. the types have nowhere to put a credential, and a value supplied where a
    reference or variable name belongs is rejected rather than stored;
-2. a created identity and context, with no login, yield an
+2. a created account and context, with no login, yield an
    authentication-class refusal on first use;
-3. an imported identity and context grant the importer nothing they did not
+3. an imported account and context grant the importer nothing they did not
    already hold in their own OS secure store;
 4. a secure-store reference is a lookup key, not a capability: naming an entry
    the invoking OS user cannot read fails as an authentication problem;
@@ -443,17 +443,17 @@ diagnostics, and only the shell writes user-facing standard output. See
 [ADR 0002](adr/0002-module-transport.md) and
 [ADR 0003](adr/0003-shell-owned-output.md).
 
-### 5.1 Identity
+### 5.1 Account
 
 The module reports:
 
 - namespace;
 - module version;
 - protocol versions supported;
-- build identity;
+- build account;
 - declared capabilities.
 
-The root checks this identity against the signed manifest and receipt before
+The root checks this account against the signed manifest and receipt before
 the product operation proceeds.
 
 ### 5.2 Description
@@ -487,7 +487,7 @@ For normal execution:
    session;
 4. it launches the module with sanitized environment and original product
    arguments;
-5. the SDK completes the identity/protocol handshake;
+5. the SDK completes the account/protocol handshake;
 6. the module runs its product command and requests authentication if required;
 7. the module returns a typed result or problem;
 8. the shell renders output or diagnostics and exits with the centrally
@@ -674,7 +674,7 @@ activation leaves no executable and no receipt behind.
    status.
 6. Safely extract it, rejecting absolute paths, traversal, links escaping the
    destination, unexpected files, and unsafe permissions.
-7. Verify module identity and run the non-mutating health check.
+7. Verify module account and run the non-mutating health check.
 8. Write an immutable receipt containing the signed release metadata and
    verification result.
 9. Atomically update the active-version state.
@@ -751,7 +751,7 @@ Verification checks:
 - release revocation;
 - host/protocol compatibility;
 - executable digest and secure file ownership/permissions;
-- identity and health handshake.
+- account and health handshake.
 
 The active executable's integrity is checked before launch. Performance
 optimizations must not turn file timestamps alone into the trust decision.
@@ -773,7 +773,7 @@ longer does; when it is picked up, its trust claims have to be reconciled with
 section 9.2 first.
 
 Offline mode never means unsigned mode. Every offline path follows the same
-identity, compatibility, verification, activation, receipt, rollback, and
+account, compatibility, verification, activation, receipt, rollback, and
 revocation-metadata policy as online installation.
 
 An individual `.wso2module` file packages one module's signed release metadata,
@@ -840,7 +840,7 @@ Sensitive credentials do not appear in this tree.
 Three threats the earlier design claimed are not defended today: a forged or
 rewritten catalog, a rollback or freeze of catalog metadata, and an
 unauthorized publication. The first two follow from the catalog being
-unsigned, and the third from there being no publisher identity to be
+unsigned, and the third from there being no publisher account to be
 unauthorized. Section 9.2 states the position rather than implying one.
 
 ### 9.2 Publishing trust
@@ -1095,7 +1095,7 @@ Migration proceeds in increasing levels of conformance:
    namespace and compatibility, and publish it through the catalog as a
    managed executable. There is no signing step: artifacts are
    integrity-checked, as section 9.2 states.
-2. Add the SDK identity, description, health, and invocation bootstrap.
+2. Add the SDK account, description, health, and invocation bootstrap.
 3. Replace independent credential handling with the authentication broker.
 4. Replace custom output and errors with typed SDK results and problems.
 5. Adopt common help, flags, exit codes, and secret redaction.
@@ -1137,7 +1137,7 @@ for the first architecture proof are maintained in the
 
 Every module is tested against the same black-box suite:
 
-- identity and protocol negotiation;
+- account and protocol negotiation;
 - help and command-schema generation;
 - standard flags;
 - table/JSON/YAML equivalence;
@@ -1157,14 +1157,14 @@ Every module is tested against the same black-box suite:
 - Device Authorization as the explicit headless login mode, and its refusal
   with a stable error where the backend does not advertise the grant;
 - rejection of browser and device authorization in CI/non-interactive mode;
-- on-premises identities without assuming WSO2 Cloud SSO or Identity Server;
-- one identity backing several contexts: a single login serving every context
+- on-premises accounts without assuming WSO2 Cloud SSO or Identity Server;
+- one account backing several contexts: a single login serving every context
   that references it, with no further authentication on switch;
 - per-product access derived from one session and bound to each product's
   audience and scopes, rather than one token reused across products;
 - refusal, rather than a broader grant, where a requested narrowing is
   unavailable;
-- a product the selected context's identity cannot reach failing with guidance
+- a product the selected context's account cannot reach failing with guidance
   that names the contexts that can;
 - recorded namespace bindings selecting a context, and no selection occurring
   without an explicit flag, variable, binding, or default;
@@ -1176,7 +1176,7 @@ Every module is tested against the same black-box suite:
 - OS secure-store integration for interactive credentials;
 - CI secret-variable and stdin inputs with no filesystem or secure-store
   persistence;
-- identity and context import/export proving that no credential values are
+- account and context import/export proving that no credential values are
   present.
 
 ### End-to-end tests

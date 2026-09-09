@@ -92,14 +92,14 @@ noticed: the SDK version to build against, and the module contract
 versions to declare.
 
 Choose the namespace before you run it. It is the user's top-level command, the
-tag prefix, the catalog identity, the executable name, and the installed-store
+tag prefix, the catalog account, the executable name, and the installed-store
 key, so changing it later is a migration rather than a rename. Four namespaces
 are refused, and nothing is written when one is:
 
 ```console
 $ make new-module NAMESPACE=login
 go run ./cmd/wso2-module-new -namespace 'login'
-wso2-module-new: "login" is a shell command, so a module owning that namespace could never be reached; the shell owns config, context, doctor, help, identity, login, logout, module, org, version, whoami
+wso2-module-new: "login" is a shell command, so a module owning that namespace could never be reached; the shell owns config, context, doctor, help, account, login, logout, module, org, version, whoami
 exit status 1
 make: *** [new-module] Error 1
 ```
@@ -203,7 +203,7 @@ See [ADR 0009](../adr/0009-sdk-versioning-and-publication.md).
 
 ## 2. Build commands with the SDK
 
-The module executable supplies its identity and maps command paths to handlers.
+The module executable supplies its account and maps command paths to handlers.
 The SDK handles handshake, framing, access-broker messages, result validation,
 and protocol failures.
 

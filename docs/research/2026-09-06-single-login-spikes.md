@@ -51,7 +51,7 @@ A new service provider `wso2-cli-sso`, registered through dynamic client
 registration with the four loopback callbacks, then set to public with
 mandatory S256 PKCE and JWT tokens (`OAuthAdminService`), and its
 authentication set to one federated step through `Thunder3`
-(`IdentityApplicationManagementService`), consent skipped.
+(`AccountApplicationManagementService`), consent skipped.
 
 ## 2. The measured run
 

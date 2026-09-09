@@ -25,7 +25,7 @@ deployment; command shapes are quoted from the sources named.
   personal access token with its own lifecycle except the Developer Platform
   (Choreo) console.
 
-## 1. Identity Server 7.x, WSO2 Identity Platform (Asgardeo), ThunderID
+## 1. Identity Server 7.x, WSO2 Account Platform (Asgardeo), ThunderID
 
 ### 1.1 Identity Server 7.x
 
@@ -77,10 +77,10 @@ Source: [promote configurations, IS 7.1.0](https://is.docs.wso2.com/en/7.1.0/dep
   management-application step "(Automation will be implemented in the
   future)". No workflow YAML is published.
 
-Sources: [README](https://github.com/wso2-extensions/identity-tools-cli/blob/master/README.md),
-[cli-mode.md](https://github.com/wso2-extensions/identity-tools-cli/blob/master/docs/cli-mode.md),
-[env-specific-variables.md](https://github.com/wso2-extensions/identity-tools-cli/blob/master/docs/env-specific-variables.md),
-[resource-propagation.md](https://github.com/wso2-extensions/identity-tools-cli/blob/master/docs/resource-propagation.md).
+Sources: [README](https://github.com/wso2-extensions/account-tools-cli/blob/master/README.md),
+[cli-mode.md](https://github.com/wso2-extensions/account-tools-cli/blob/master/docs/cli-mode.md),
+[env-specific-variables.md](https://github.com/wso2-extensions/account-tools-cli/blob/master/docs/env-specific-variables.md),
+[resource-propagation.md](https://github.com/wso2-extensions/account-tools-cli/blob/master/docs/resource-propagation.md).
 
 **Server configuration as code.** `<IS_HOME>/repository/conf/deployment.toml`
 accepts `$env{ENV_VAR}` and `$sys{system.property}` placeholders, for example
@@ -96,12 +96,12 @@ provider. No provider for IS 7 configuration was found.
 | Tool | Auth methods | Credential storage | CI sample |
 | --- | --- | --- | --- |
 | REST APIs (`/api/server/v1/...`) | Basic; OAuth2 bearer (password, client credentials, `internal_*` scopes); mTLS | caller's choice | none |
-| `iamctl` | client credentials of an M2M app | `serverConfig.json` (secret in file) or env vars | prose only ([resource-propagation.md](https://github.com/wso2-extensions/identity-tools-cli/blob/master/docs/resource-propagation.md)) |
+| `iamctl` | client credentials of an M2M app | `serverConfig.json` (secret in file) or env vars | prose only ([resource-propagation.md](https://github.com/wso2-extensions/account-tools-cli/blob/master/docs/resource-propagation.md)) |
 | `deployment.toml` | n/a | `$env{}`, `$secret{}` | none |
 
-### 1.2 WSO2 Identity Platform (Asgardeo)
+### 1.2 WSO2 Account Platform (Asgardeo)
 
-The docs home states Asgardeo is now branded WSO2 Identity Platform
+The docs home states Asgardeo is now branded WSO2 Account Platform
 ([home](https://wso2.com/asgardeo/docs/)). No CLI, Terraform provider, or
 "config management" tool for the hosted service was found in the docs or
 under the `wso2` and `asgardeo` GitHub organizations.
@@ -119,7 +119,7 @@ curl https://api.asgardeo.io/t/{organization_name}/oauth2/token \
 
 The sample response is an opaque-looking token (`decc891e-...`), `expires_in`
 3600. Organization (sub-org) APIs "require an additional token exchange
-step". Sources: [API authentication](https://wso2.com/identity-platform/docs/apis/),
+step". Sources: [API authentication](https://wso2.com/account-platform/docs/apis/),
 [grant types](https://wso2.com/asgardeo/docs/references/grant-types/),
 [M2M app](https://wso2.com/asgardeo/docs/guides/applications/register-machine-to-machine-app/),
 [organization API access](https://wso2.com/asgardeo/docs/apis/organization-apis/authentication/).
@@ -425,8 +425,8 @@ No GitHub Actions or Jenkins sample was found. Source:
 The shell model, per [architecture §4.6](../architecture.md) and the
 2026-09-06 design "one login, one session per product, acquired through
 shared sign-on":
-one identity per login provider; one product record per product on that
-identity; in CI, client credentials minted per product (with a `resource`
+one account per login provider; one product record per product on that
+account; in CI, client credentials minted per product (with a `resource`
 indicator on Thunder) or a jwt-bearer derivation to a product with its own
 issuer; the client secret read from a named environment variable and never
 written to configuration.
@@ -436,7 +436,7 @@ written to configuration.
 | Product | CI user today | With the shell | Remaining gap |
 | --- | --- | --- | --- |
 | Identity Server 7.x | M2M app; `iamctl` with `CLIENT_SECRET` in `serverConfig.json` or env; or raw REST with Basic admin creds | one M2M client per IS record; secret from a named env var; `internal_*` scopes on the record | `iamctl`'s export/import format and keyword replacement are not in the shell; both would run side by side unless an IS module wraps `exportAll`/`importAll` (proposal) |
-| Identity Platform (Asgardeo) | M2M app, hand-written `curl` to `/t/{org}/oauth2/token`; no CLI | same as IS, tenant URL on the record | organization APIs need the extra exchange step; the shell has no organization-switch design yet |
+| Account Platform (Asgardeo) | M2M app, hand-written `curl` to `/t/{org}/oauth2/token`; no CLI | same as IS, tenant URL on the record | organization APIs need the extra exchange step; the shell has no organization-switch design yet |
 | ThunderID | admin user login scripted through `/flow/execute` (as the project's own CI does) or a DCR client with `resource`; `POST /import` needs `system` scope | client credentials with `resource` set to Thunder's own API and `system` scope requested | whether a client-credentials token can carry `system` for `/import` is not confirmed; if not, CI would still need the user-login script |
 | API Manager 4.x | `apictl login -u -p` (password grant, base64 file) or `--token` from a hand-run DCR + token call; Jenkins/Actions samples inline the admin password | jwt-bearer derivation from the login provider, or client credentials at APIM's token endpoint | a machine client must still map to `Internal/publisher`-class roles for `apim:*` scopes; the role-to-scope path for a client-credentials subject is not documented; apictl's export/import project format stays in apictl |
 | Platform Gateway 1.x | `ap` with `WSO2AP_GW_TOKEN` or basic env vars; token minted elsewhere | client credentials at the configured IdP; bearer presented to the controller | controller config has no audience key, so a token for one product could be replayed to another unless the IdP scopes differ; `ap`'s project workflow is not in the shell |

@@ -202,8 +202,8 @@ The slice implements only these semantic messages:
 
 | Message | Direction | Purpose |
 | --- | --- | --- |
-| `Hello` | module to shell | Runtime identity, supported protocols, and capabilities |
-| `Welcome` | shell to module | Selected protocol, invocation identity, and non-secret context |
+| `Hello` | module to shell | Runtime account, supported protocols, and capabilities |
+| `Welcome` | shell to module | Selected protocol, invocation account, and non-secret context |
 | `Invoke` | shell to module | Product arguments, output mode, and invocation policy |
 | `AcquireAccess` | module to shell | Requested audience and scopes |
 | `AccessGranted` | shell to module | Short-lived fixture token and expiry |
@@ -219,7 +219,7 @@ The sequence is:
 1. The shell launches the integrity-checked module with a sanitized
    environment.
 2. The module sends `Hello`.
-3. The shell compares runtime identity with the receipt, selects one mutually
+3. The shell compares runtime account with the receipt, selects one mutually
    supported protocol, and sends `Welcome`.
 4. The shell sends `Invoke` for `reference status`.
 5. The module sends `AcquireAccess` for the declared reference-status audience
@@ -324,7 +324,7 @@ Gate:
 
 - `wso2 reference status` reaches a static handler and returns equivalent table
   and JSON results;
-- receipt and runtime identity must match;
+- receipt and runtime account must match;
 - malformed, oversized, incompatible, and partial messages fail closed;
 - module standard output cannot contaminate user output; and
 - crash, non-zero exit, and timeout produce stable shell problems.
@@ -376,7 +376,7 @@ production hardening gate, not a condition of this architecture proof.
 ## 11. Explicitly deferred
 
 - real WSO2 product namespaces, APIs, and module migrations;
-- browser, device-code, on-premises, and workload-identity authentication;
+- browser, device-code, on-premises, and workload-account authentication;
 - login, logout, session refresh, secure-store persistence, and OS keychains;
 - signed catalog metadata, publisher verification, provenance, SBOMs,
   revocation, installation, update, rollback, and garbage collection;

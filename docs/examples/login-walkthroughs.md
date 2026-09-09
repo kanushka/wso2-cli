@@ -14,7 +14,7 @@ developer asks first: **"what do I type, and what happens?"**
 
 > **These walkthroughs describe the intended end state, not what the first
 > implementation slice delivers.** A login that names an issuer now creates the
-> identity and context it authenticated, and `wso2 context create` writes one
+> account and context it authenticated, and `wso2 context create` writes one
 > directly, so a hand-authored context is no longer required to get started;
 > browser PKCE and inline client credentials remain the only methods, and
 > fresh-machine cloud tenant resolution, a WSO2-published CLI client, and
@@ -54,7 +54,7 @@ Two rules hold in every walkthrough:
 
 ## Why the file has two blocks
 
-Every configuration below has an `identities:` list and a `contexts:` list. In
+Every configuration below has an `accounts:` list and a `contexts:` list. In
 the simplest case, one login and one target, that looks like overhead, and it
 is: A.1's file would be shorter as a single block.
 
@@ -85,11 +85,11 @@ Three problems, in increasing order of seriousness:
    entries must change together.
 2. **The file stops saying how many logins there are.** Three
    `credentialRef` values that happen to be equal *look* like three stored
-   sessions. Split, one identity with three contexts states plainly that there
+   sessions. Split, one account with three contexts states plainly that there
    is one login.
 3. **Equality becomes load-bearing.** The shell would have to infer "these are
    the same session" from string-matching issuer and credential fields. A typo
-   silently becomes a second login. Referencing a named identity makes sharing
+   silently becomes a second login. Referencing a named account makes sharing
    explicit and a typo an error.
 
 This is also the direction the industry moved, not away from: AWS CLI v2
@@ -99,8 +99,8 @@ names. kubectl separates `clusters`, `users`, and `contexts` for the same
 reason.
 
 **What this means for the person using the CLI:** they think in contexts.
-`wso2 login` writes the identity; `wso2 context use` switches targets. The
-identity block is machine-managed, and most users never edit it by hand, the
+`wso2 login` writes the account; `wso2 context use` switches targets. The
+account block is machine-managed, and most users never edit it by hand, the
 same way most people never hand-edit the `users:` block of a kubeconfig.
 
 ## Scenario A: WSO2 Cloud
@@ -144,7 +144,7 @@ nothing was asked of the person at the keyboard.
 **What the shell wrote:**
 
 ```yaml
-identities:
+accounts:
   - name: acme-cloud
     type: cloud
     auth:
@@ -154,13 +154,13 @@ identities:
 
 contexts:
   - name: acme
-    identity: acme-cloud
+    account: acme-cloud
     organization: acme
 
 defaultContext: acme
 ```
 
-`products` is absent. `clientId` is absent because the cloud identity uses the
+`products` is absent. `clientId` is absent because the cloud account uses the
 WSO2-published CLI client, which does not exist yet
 ([gap 2](#gaps-these-walkthroughs-depend-on)).
 
@@ -181,11 +181,11 @@ message:
 | What is wrong | Who detects it | What the user does |
 | --- | --- | --- |
 | The `api` module is not installed | the shell, locally, before any network call | install the module |
-| The shell cannot derive a token for that audience | the broker | log in to the identity that reaches it, or fix the context |
+| The shell cannot derive a token for that audience | the broker | log in to the account that reaches it, or fix the context |
 | The product rejects a valid token | the product | request entitlement; this is **authorization**, not authentication |
 
 The third row is the one most easily mistaken for a login problem. One login
-**authenticates** for every product in its identity domain; it **authorizes**
+**authenticates** for every product in its account domain; it **authorizes**
 nothing. A user who is signed in but not entitled must get an authorization
 failure that does not invite them to log in again:
 
@@ -211,7 +211,7 @@ it probes only when asked rather than slowing every login:
 
 ```console
 $ wso2 status                                                   # proposed
-Context "acme"  ·  identity "acme-cloud"  ·  signed in as kanushka@acme.com
+Context "acme"  ·  account "acme-cloud"  ·  signed in as kanushka@acme.com
 
   api           ✓ reachable
   integration   ✓ reachable
@@ -223,14 +223,14 @@ Context "acme"  ·  identity "acme-cloud"  ·  signed in as kanushka@acme.com
 ```console
 $ wso2 context create retail-prod \                             # proposed
     --organization acme --project retail-prod
-Created context "retail-prod" on identity "acme-cloud".
+Created context "retail-prod" on account "acme-cloud".
 No login required: "acme-cloud" is already authenticated.
 
 $ wso2 context use retail-prod                                  # decided
 Now using context "retail-prod".
 ```
 
-No browser opened. This is the case the identity/context split exists for: one
+No browser opened. This is the case the account/context split exists for: one
 login, several targets.
 
 **On `--project`.** The value is supplied by the user, who knows their own
@@ -242,7 +242,7 @@ context creation. **Project discovery has no agreed flow**
 persisting a value the user already has.
 
 ```yaml
-identities:
+accounts:
   - name: acme-cloud
     type: cloud
     auth:
@@ -252,10 +252,10 @@ identities:
 
 contexts:
   - name: acme
-    identity: acme-cloud
+    account: acme-cloud
     organization: acme
   - name: retail-prod
-    identity: acme-cloud
+    account: acme-cloud
     organization: acme
     project: retail-prod
 
@@ -266,7 +266,7 @@ defaultContext: retail-prod
 
 ```console
 $ wso2 context create partner --organization acme-partner       # proposed
-Created context "partner" on identity "acme-cloud".
+Created context "partner" on account "acme-cloud".
 Organization acme-partner is reached by organization switch on the existing
 session. No login required.
 ```
@@ -281,19 +281,19 @@ during the command that needs access, not at `context create` and not at
 | Move | Mechanism | New login? |
 | --- | --- | --- |
 | Root tenant → sub-organization of the same root | `organization_switch` exchange | No |
-| Root tenant → a different root tenant | Different issuer, different discovery document | **Yes**, a different identity |
+| Root tenant → a different root tenant | Different issuer, different discovery document | **Yes**, a different account |
 
 **Evidence status.** Asgardeo and IS both advertise the `organization_switch`
 grant, and `iamctl` uses it in production, but with a *confidential* client
 authenticating by client credentials
-([setup.go](https://github.com/wso2-extensions/identity-tools-cli/blob/master/iamctl/pkg/utils/setup.go)).
+([setup.go](https://github.com/wso2-extensions/account-tools-cli/blob/master/iamctl/pkg/utils/setup.go)).
 Two things this flow depends on are untested:
 
 1. whether a **public client** holding a PKCE-obtained *user* token may perform
    the switch at all;
 2. whether the switch response carries a **refresh token for the sub-organization**,
    or whether the broker must re-exchange from the root session each time.
-   That decides whether the secure store holds one entry per identity or one
+   That decides whether the secure store holds one entry per account or one
    per context.
 
 Both need a live-tenant test before this walkthrough is implementable.
@@ -302,9 +302,9 @@ Both need a live-tenant test before this walkthrough is implementable.
 
 A.1 assumes every product validates the cloud identity provider. Today it does
 not, so an estate that is entirely *hosted* in WSO2 Cloud may still span several
-identity domains:
+account domains:
 
-| Product | Validates | Same identity as A.1? |
+| Product | Validates | Same account as A.1? |
 | --- | --- | --- |
 | API Platform | the configured cloud issuer | Yes |
 | Agent Manager | its own provisioned Thunder | **No**, shown below |
@@ -334,17 +334,17 @@ $ wso2 login --url https://thunder.acme.wso2.cloud \            # decided
     --client-id wso2-cli --context acme-agent
 ✓ Signed in as kanushka@acme.com
   Issuer: https://thunder.acme.wso2.cloud
-Created identity "acme-agent" and context "acme-agent".
+Created account "acme-agent" and context "acme-agent".
 
-$ wso2 identity add-product acme-agent agent \                  # decided
+$ wso2 account add-product acme-agent agent \                  # decided
     --endpoint https://agent.acme.wso2.cloud \
     --audience https://agent.acme.wso2.cloud \
     --scopes agent:read,agent:write
-Added product "agent" to identity "acme-agent".
+Added product "agent" to account "acme-agent".
 ```
 
 ```yaml
-identities:
+accounts:
   - name: acme-cloud
     type: cloud
     auth:
@@ -367,10 +367,10 @@ identities:
 
 contexts:
   - name: acme
-    identity: acme-cloud
+    account: acme-cloud
     organization: acme
   - name: acme-agent
-    identity: acme-agent
+    account: acme-agent
 
 defaultContext: acme
 ```
@@ -425,28 +425,28 @@ Subject    ops
 Email      ops@customer.example
 Products   none configured
 
-Created identity "idp-customer-example" and context "idp-customer-example".
+Created account "idp-customer-example" and context "idp-customer-example".
 It is the first context, so it is now the selected one.
 
-No products are configured for this identity. A self-hosted deployment is not
+No products are configured for this account. A self-hosted deployment is not
 discoverable, so each product's endpoint has to be recorded:
 
-  wso2 identity add-product idp-customer-example <namespace> \
+  wso2 account add-product idp-customer-example <namespace> \
       --endpoint <url> --audience <resource-id> --scopes <list>
 ```
 
 The names are the issuer host with each dot replaced by a hyphen, which is the
 whole rule: the name is written into a document the operator later reads and
 types, and a rule they cannot predict is worse than a name they would not have
-chosen. `--context <name>` names the identity and the context directly, and is
+chosen. `--context <name>` names the account and the context directly, and is
 the only way through for an issuer whose host cannot make a legal name — one
 at a bare IP address, or a host whose first label starts with a digit.
 
 The name is yours to shorten. The context name is what you type on every
 `--context` and every `wso2 context use`, so pass `--context <short-name>` at
 login if the derived one is longer than you want to live with, or add a shorter
-handle to the same identity later with
-`wso2 context create <name> --identity <identity>`.
+handle to the same account later with
+`wso2 context create <name> --account <account>`.
 
 `--client-id` is required. No WSO2-published client exists for self-hosted
 deployments, so the operator registers an application and supplies its ID; the
@@ -459,33 +459,33 @@ leaves no half-written context to delete before the corrected command can run.
 ### B.2 Recording what the login reaches
 
 ```console
-$ wso2 identity add-product idp-customer-example api \                  # decided
+$ wso2 account add-product idp-customer-example api \                  # decided
     --endpoint https://api.customer.example \
     --audience https://api.customer.example \
     --scopes api:read,api:write
 
-Added product "api" to identity "idp-customer-example".
-Identity   idp-customer-example
+Added product "api" to account "idp-customer-example".
+Account   idp-customer-example
 Product    api
 Endpoint   https://api.customer.example
 Audience   https://api.customer.example
 Scopes     api:read,api:write
 Replaced   no
 
-$ wso2 identity add-product idp-customer-example integration \          # decided
+$ wso2 account add-product idp-customer-example integration \          # decided
     --endpoint https://esb.customer.example \
     --audience https://esb.customer.example \
     --scopes integration:read
 
-Added product "integration" to identity "idp-customer-example".
-Identity   idp-customer-example
+Added product "integration" to account "idp-customer-example".
+Account   idp-customer-example
 Product    integration
 Endpoint   https://esb.customer.example
 Audience   https://esb.customer.example
 Scopes     integration:read
 Replaced   no
 
-$ wso2 identity list                                            # decided
+$ wso2 account list                                            # decided
 IDENTITY               TYPE     ISSUER                         PRODUCT       ENDPOINT                       SCOPES
 idp-customer-example   onprem   https://idp.customer.example   api           https://api.customer.example   api:read,api:write
 idp-customer-example   onprem   https://idp.customer.example   integration   https://esb.customer.example   integration:read
@@ -498,7 +498,7 @@ orders              3.1.0     published
 **What the shell wrote.** Every value came from a flag or the login response:
 
 ```yaml
-identities:
+accounts:
   - name: idp-customer-example
     type: onprem
     auth:
@@ -518,12 +518,12 @@ identities:
 
 contexts:
   - name: idp-customer-example
-    identity: idp-customer-example
+    account: idp-customer-example
 
 defaultContext: idp-customer-example
 ```
 
-Recording a namespace the identity already carries is refused rather than
+Recording a namespace the account already carries is refused rather than
 overwritten: the endpoint, audience and scopes it held are written down nowhere
 else, and the ordinary way to reach that refusal is a second run from shell
 history with one flag corrected. `--replace` is how an operator says they meant
@@ -537,7 +537,7 @@ one explicitly.
 
 ### B.3 What this configuration asserts, and how it fails
 
-Listing a product under an identity is the operator's **assertion** that the
+Listing a product under an account is the operator's **assertion** that the
 shared session reaches it. The shell does not verify it at write time or at
 login. A wrong assertion surfaces where it matters:
 
@@ -548,7 +548,7 @@ Error: authentication failed for product "integration"
   The integration service did not accept access derived from the
   "idp-customer-example" login. It may validate a different issuer.
 
-  If this product requires its own login, it belongs to a separate identity
+  If this product requires its own login, it belongs to a separate account
   and context. See: wso2 login --url <its issuer> --context <name>
 ```
 
@@ -559,9 +559,9 @@ never a silent fallback to another credential.
 
 An on-premises Agent Manager behind its own identity provider, an on-premises
 API Manager configured for its own credentials, and integration in WSO2 Cloud.
-**Three identities and three credential establishments**, two interactive
+**Three accounts and three credential establishments**, two interactive
 logins and one stored product token. "Three logins" would be wrong: the adapter
-identity has no session to establish.
+account has no session to establish.
 
 ### C.1 Two logins and one adapter
 
@@ -576,15 +576,15 @@ $ wso2 login --url https://thunder.own.example \                # decided
     --client-id wso2-cli --context own-agent
 ✓ Signed in as ops@own.example
   Issuer: https://thunder.own.example
-Created identity "own-agent" and context "own-agent".
+Created account "own-agent" and context "own-agent".
 
-No products are configured for this identity.
+No products are configured for this account.
 
-$ wso2 identity add-product own-agent agent \                # decided
+$ wso2 account add-product own-agent agent \                # decided
     --endpoint https://agent.own.example \
     --audience https://agent.own.example \
     --scopes agent:read,agent:write
-Added product "agent" to identity "own-agent".
+Added product "agent" to account "own-agent".
 ```
 
 The third product refuses interactive login:
@@ -600,10 +600,10 @@ Error: this deployment advertises no interactive login method the CLI supports
 
   An API Manager deployment can be configured to trust an external issuer
   through its Key Manager framework. If yours is, log in against that issuer
-  instead and add "api" to its identity.
+  instead and add "api" to its account.
 
-  Otherwise, configure a compatibility-adapter identity:
-    wso2 identity create own-api --kind pat \
+  Otherwise, configure a compatibility-adapter account:
+    wso2 account create own-api --kind pat \
         --product api --endpoint https://api.own.example
 ```
 
@@ -612,17 +612,17 @@ supported path*, and is not a claim that API Manager can never accept
 IdP-issued tokens. Its Key Manager framework supports named and custom OIDC
 connectors, so an operator can wire it deliberately.
 
-### C.2 The adapter identity
+### C.2 The adapter account
 
 ```console
-$ wso2 identity create own-api --kind pat \                     # proposed
+$ wso2 account create own-api --kind pat \                     # proposed
     --product api --endpoint https://api.own.example
-Created identity "own-api" and context "own-api".
+Created account "own-api" and context "own-api".
 
 Store the product-issued token:
-  wso2 identity set-credential own-api
+  wso2 account set-credential own-api
 
-$ wso2 identity set-credential own-api                          # proposed
+$ wso2 account set-credential own-api                          # proposed
 Paste the token (read from stdin, not echoed, never stored in configuration):
 ✓ Stored in the OS secure store as own-api
 ```
@@ -631,7 +631,7 @@ Read from stdin, never from a flag, matching Choreo's shipping `--with-token`
 practice and requirements §7.2's rule against secrets in arguments.
 
 ```yaml
-identities:
+accounts:
   - name: acme-cloud
     type: cloud
     auth:
@@ -663,12 +663,12 @@ identities:
 
 contexts:
   - name: acme
-    identity: acme-cloud
+    account: acme-cloud
     organization: acme
   - name: own-agent
-    identity: own-agent
+    account: own-agent
   - name: own-api
-    identity: own-api
+    account: own-api
 
 defaultContext: acme
 ```
@@ -727,7 +727,7 @@ $ wso2 api import ./api.yaml                                    # decided
 $ wso2 login --context ci                                       # decided
 Error: context "ci" needs no login
 
-  Identity "ci-release" uses client credentials. Access is acquired during the
+  Account "ci-release" uses client credentials. Access is acquired during the
   command that needs it, so there is no session to establish.
 ```
 
@@ -738,7 +738,7 @@ browser that will never open:
 $ wso2 login --no-input                                         # decided
 Error: browser login cannot run in non-interactive mode, which --no-input asked for
 
-  Automation uses a client-credentials identity, which acquires access inline
+  Automation uses a client-credentials account, which acquires access inline
   without a login step. No command creates one yet: declare it in the context
   document at $WSO2_HOME/cli/contexts.json.
 ```
@@ -746,7 +746,7 @@ Error: browser login cannot run in non-interactive mode, which --no-input asked 
 **The configuration this runs against.** Authored once, no login ever:
 
 ```yaml
-identities:
+accounts:
   - name: ci-release
     type: onprem
     auth:
@@ -762,7 +762,7 @@ identities:
 
 contexts:
   - name: ci
-    identity: ci-release
+    account: ci-release
     organization: customer
 ```
 
@@ -772,14 +772,14 @@ or the module environment.
 
 ## What each command writes
 
-| Command | Identity | Context | Secure store | Network |
+| Command | Account | Context | Secure store | Network |
 | --- | --- | --- | --- | --- |
 | `wso2 login` | creates or reuses | may create | writes session | yes |
 | `wso2 login --url <issuer>` | creates or reuses | may create | writes session | yes |
 | `wso2 context create` | never | creates | never | no |
 | `wso2 context use` | never | selection only | never | **no** |
-| `wso2 identity add-product` | modifies | never | never | no |
-| `wso2 identity set-credential` | never | never | writes | no |
+| `wso2 account add-product` | modifies | never | never | no |
+| `wso2 account set-credential` | never | never | writes | no |
 | `wso2 logout` | never | never | removes entry | best effort |
 
 `wso2 logout` is the one row whose network column is not a yes or a no. It asks
@@ -810,7 +810,7 @@ Stated plainly, because several of these flows do not work today.
    ([evidence](../research/product-authentication-compatibility.md) §1.1).
 3. **Organization switch is not in slice 1, and is unverified for this client
    type.** A.3 depends on it. Until it ships, a context may target only its
-   identity's home tenant; anything else is refused with
+   account's home tenant; anything else is refused with
    `auth.organization_switch_unsupported`. The two live-test unknowns are in
    A.3.
 4. **Whether per-product narrowing works on Asgardeo is unverified.** If
@@ -822,8 +822,8 @@ Stated plainly, because several of these flows do not work today.
    it cannot be enumerated at login: on a fresh machine no product module is
    installed to ask. `--project` persists a value the user supplies; discovering
    valid values is per-product work with no agreed command surface.
-6. **Login-created contexts and identities are built.** `wso2 login --url
-   <issuer> --client-id <id>` creates the identity and the context it
+6. **Login-created contexts and accounts are built.** `wso2 login --url
+   <issuer> --client-id <id>` creates the account and the context it
    authenticated and reports both names, so B.1 no longer needs a hand-authored
    context. The zero-flag `wso2 login` in A.1 still does: it depends on gap 1
    and gap 7 rather than on anything in this repository. **Closed.**
@@ -847,8 +847,8 @@ later slices. Item 6 is closed.
 
 ## Open questions for review
 
-1. Are `wso2 identity create`, `identity add-product`, and
-   `identity set-credential` the right surface, or should identities only ever
+1. Are `wso2 account create`, `account add-product`, and
+   `account set-credential` the right surface, or should accounts only ever
    be produced by `login` plus hand-editing? Scenario B needs *some* way to
    record endpoints that cannot be discovered.
 2. Should `wso2 login` create a context when it can, as shown, or authenticate

@@ -17,15 +17,15 @@ data), public GitHub source code, and OpenAPI/REST reference content. Every
 claim below is labeled **confirmed** (Asgardeo's own docs/API reference say
 this explicitly), **inferred from WSO2 IS** (found in WSO2 Identity Server
 docs or source, not stated by Asgardeo, but IS and Asgardeo share
-`carbon-identity-framework`/`identity-inbound-auth-oauth` lineage per the
+`carbon-account-framework`/`account-inbound-auth-oauth` lineage per the
 parent document's landscape research), or **unknown from public sources**
 (no authoritative statement found; an empirical test is described instead).
 **Rebrand note:** During this research, `wso2.com/asgardeo/docs/...` URLs
-began redirecting to `wso2.com/identity-platform/docs/...` — the docs site
-now carries a banner "Asgardeo is now WSO2 Identity Platform." Citations
+began redirecting to `wso2.com/account-platform/docs/...` — the docs site
+now carries a banner "Asgardeo is now WSO2 Account Platform." Citations
 below use the original `asgardeo/docs` paths (matching the parent document's
 convention and still live via redirect); the rendered page title/URL is
-"WSO2 Identity Platform" where noted.
+"WSO2 Account Platform" where noted.
 
 ## 1. Loopback redirect URI support
 
@@ -58,7 +58,7 @@ convention and still live via redirect); the rendered page title/URL is
   Nothing in the schema disallows the string `http://127.0.0.1:8080/callback`
   as a registered value.
   [Application management API](https://wso2.com/asgardeo/docs/apis/application-management/),
-  [OpenAPI schema (`applications.yaml`, `callbackURLs`)](https://github.com/wso2/identity-api-server/blob/master/components/org.wso2.carbon.identity.api.server.application.management/org.wso2.carbon.identity.api.server.application.management.v1/src/main/resources/applications.yaml)
+  [OpenAPI schema (`applications.yaml`, `callbackURLs`)](https://github.com/wso2/account-api-server/blob/master/components/org.wso2.carbon.account.api.server.application.management/org.wso2.carbon.account.api.server.application.management.v1/src/main/resources/applications.yaml)
 - **Net verdict for 1.1:** a fixed-port loopback URI is very likely
   registrable and usable (nothing in the docs or schema forbids it, and the
   `localhost:5173` quickstart example demonstrates the closely related
@@ -73,7 +73,7 @@ convention and still live via redirect); the rendered page title/URL is
   app-registration guide, the Application Management API reference, and the
   OAuth2 grant-types reference returned no matches. Asgardeo does not
   document any any-port or wildcard-port loopback behavior.
-- **Inferred from WSO2 IS, not confirmed for Asgardeo.** WSO2 Identity
+- **Inferred from WSO2 IS, not confirmed for Asgardeo.** WSO2 Account
   Server's "Advanced Configurations" guide has a dedicated, explicit
   (collapsible, easy to miss on a static fetch) section titled "Click for
   information on configuring loopback callback URLs," which states verbatim:
@@ -130,7 +130,7 @@ convention and still live via redirect); the rendered page title/URL is
   [Application management API](https://wso2.com/asgardeo/docs/apis/application-management/)
   — the same example string appears verbatim in the upstream OpenAPI
   schema's `callbackURLs` field definition.
-  [`applications.yaml`, `OpenIDConnectConfiguration.callbackURLs`](https://github.com/wso2/identity-api-server/blob/master/components/org.wso2.carbon.identity.api.server.application.management/org.wso2.carbon.identity.api.server.application.management.v1/src/main/resources/applications.yaml#L3921)
+  [`applications.yaml`, `OpenIDConnectConfiguration.callbackURLs`](https://github.com/wso2/account-api-server/blob/master/components/org.wso2.carbon.account.api.server.application.management/org.wso2.carbon.account.api.server.application.management.v1/src/main/resources/applications.yaml#L3921)
 - **Confirmed by Asgardeo's app-registration guide, but only as loose
   prose, no concrete syntax.** "Web-based applications: Use exact URLs...";
   "Mobile apps with deep links: Wildcard support may be acceptable, but it
@@ -185,7 +185,7 @@ convention and still live via redirect); the rendered page title/URL is
   [OAuth2 grant types — Refresh token grant](https://wso2.com/asgardeo/docs/references/grant-types/#refresh-token-grant)
 - **Inferred from WSO2 IS source code, not confirmed for Asgardeo
   directly.** `RefreshGrantHandler.validateScope()` in
-  `wso2-extensions/identity-inbound-auth-oauth` — the literal OAuth2
+  `wso2-extensions/account-inbound-auth-oauth` — the literal OAuth2
   grant-handler implementation underlying WSO2 IS, and per the parent
   document's landscape research the same lineage Asgardeo is built on —
   implements RFC 6749 §6 verbatim, per its own Javadoc:
@@ -208,7 +208,7 @@ convention and still live via redirect); the rendered page title/URL is
   - If no `scope` parameter is sent at all, the method returns `true`
     without narrowing, so the new token retains the original full granted
     scope set (RFC 6749 §6's "if omitted" clause, implemented as specified).
-  [`RefreshGrantHandler.java`, `validateScope`](https://github.com/wso2-extensions/identity-inbound-auth-oauth/blob/master/components/org.wso2.carbon.identity.oauth/src/main/java/org/wso2/carbon/identity/oauth2/token/handlers/grant/RefreshGrantHandler.java)
+  [`RefreshGrantHandler.java`, `validateScope`](https://github.com/wso2-extensions/account-inbound-auth-oauth/blob/master/components/org.wso2.carbon.account.oauth/src/main/java/org/wso2/carbon/account/oauth2/token/handlers/grant/RefreshGrantHandler.java)
 - **Corroboration that this exact code path is live, shipping behavior (not
   dead code), with one known edge-case defect.**
   [wso2/product-is issue #19474](https://github.com/wso2/product-is/issues/19474)
@@ -329,7 +329,7 @@ ran this; the deployment's advertised public URL was changed to match, which is
 what the walkthrough's port-offset recipe does.
 
 **This product answers a question the other two never raise**, so the table has
-a row they do not: where the audience is decided. On Asgardeo and Identity
+a row they do not: where the audience is decided. On Asgardeo and Account
 Server it is decided by the application's registration. On Thunder it is decided
 per request, by an RFC 8707 resource indicator.
 
@@ -364,14 +364,14 @@ whose audience model can avoid it.
 **What this changed in the shell.** Unlike §3 and §3.1, this measurement forced
 production code. The scoped refresh the broker implements cannot establish a
 session on a Thunder deployment at all, because the refusal happens at
-authorization, before any session exists. An identity may now name its identity
+authorization, before any session exists. An account may now name its account
 provider, and the shell sends the indicator where it does — on the authorization
 request, and on the client-credentials grant. The refresh grant was left alone,
 because the binding is inherited.
 
 **A consequence worth stating separately.** One resource indicator per
 authorization means one Thunder session reaches one product. The context schema
-refuses an identity that derives this way and declares more than one product,
+refuses an account that derives this way and declares more than one product,
 rather than letting the contradiction surface at the end of a browser sign-in.
 Lifting that needs per-product sessions, which is
 [its own issue](https://github.com/wso2/wso2-cli/issues/43) and was already
@@ -400,7 +400,7 @@ not.
 
 The runs live in `test/smoke/asgardeo_empirical_test.go` behind the `smoke`
 build tag, so they never execute in the default test gate. To produce the
-verdicts, against a real Asgardeo tenant and again against a local Identity
+verdicts, against a real Asgardeo tenant and again against a local Account
 Server 7.x:
 
 ```sh

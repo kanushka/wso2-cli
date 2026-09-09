@@ -29,7 +29,7 @@ What a product module declares in its manifest about reaching its product:
 whether the product is an identity provider, how its issuer is named from a
 URL, how tokens are bound, the scopes its commands need, and the grant and
 machine strategies it accepts. `wso2 <namespace> connect` writes a product
-record from it; a module without one is recorded with `wso2 identity
+record from it; a module without one is recorded with `wso2 account
 add-product` instead.
 _Avoid_: Product config, connect metadata
 
@@ -94,39 +94,48 @@ A non-production vertical slice that validates the riskiest architectural
 boundaries without claiming user-ready product value.
 _Avoid_: Pilot release, minimum viable product
 
+**Account**:
+One login provider and one person, together with the products that person
+reaches through it. It is what a context authenticates as, what a session is
+held under, and what `wso2 account` records and reports. Naming it identity
+would spend the word twice: `identity` is a product namespace, and an identity
+provider is a deployment this shell authenticates against rather than anything
+it records.
+_Avoid_: Identity, user, profile
+
 **Login mode**:
-How one interactive identity's session is established on the machine at hand —
+How one interactive account's session is established on the machine at hand —
 through a browser on this machine, or through a code approved on another
-device. It is a property of the machine and the moment, not of the identity's
-credentials, so the same identity may be established either way.
+device. It is a property of the machine and the moment, not of the account's
+credentials, so the same account may be established either way.
 _Avoid_: Login type, authentication kind
 
 **Sign-on**:
 The identity provider's own browser session, held by the browser rather than
 by the shell. One sign-on answers every authorization the shell runs for that
-identity, so a person enters credentials once however many products follow.
+account, so a person enters credentials once however many products follow.
 _Avoid_: SSO session, browser login, auto sign-in
 
 **Product session**:
-The authorization one interactive identity holds on this machine for one
-product namespace, kept in the OS secure store under that identity's
+The authorization one interactive account holds on this machine for one
+product namespace, kept in the OS secure store under that account's
 credential reference. It is bound to one issuer, one client and one scope
 set, so no product session carries another product's authority.
 _Avoid_: Session, login, credential, token
 
 **Login session**:
-The product session of an identity's login product. Its authorization is the
+The product session of an account's login product. Its authorization is the
 one that establishes the sign-on every other product session is obtained
 through.
 _Avoid_: Master session, primary session, parent session
 
 **Login product**:
-The product an identity logs in through, fixed when the identity first
+The product an account logs in through, fixed when the account first
 records one so that a product recorded later cannot displace it.
 _Avoid_: Default product, primary product
 
 **Acquisition strategy**:
-How one product's session is obtained for an identity: direct, sibling,
-derived, or federated. It follows from what the identity records about the
+How one product's session is obtained for an account: direct, sibling,
+derived, or federated. It follows from what the account records about the
 product, not from a choice made at the command line.
 _Avoid_: Auth method, grant type, flow

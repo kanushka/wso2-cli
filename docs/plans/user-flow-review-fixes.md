@@ -34,7 +34,7 @@ installer's broken advice is separable and worth fixing now.
 have no common source, so help advertises what the command refuses, and the
 refusal's recovery points back at the help that advertised it.
 
-Reproduces on `config`, `context`, `org`, `identity`, `login`, `version`, and
+Reproduces on `config`, `context`, `org`, `account`, `login`, `version`, and
 every `module` subcommand.
 
 The allowlist is right and well reasoned — each entry carries its justification.

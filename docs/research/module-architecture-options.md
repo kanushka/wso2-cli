@@ -89,7 +89,7 @@ The following are source-supported observations, not WSO2-specific decisions:
   mix-and-match, and wrong-artifact attacks
   ([TUF specification](https://theupdateframework.github.io/specification/latest/)).
   Sigstore's Cosign can additionally verify artifact digest and publisher
-  identity and can package verification material for offline use
+  account and can package verification material for offline use
   ([Cosign verification](https://docs.sigstore.dev/cosign/verifying/verify/)).
 
 ## Feasible architecture options
@@ -144,7 +144,7 @@ module needs a control protocol and the shared SDK.
 ### Option 3: subprocess module with a versioned RPC contract
 
 The shell launches the module on demand and establishes a private local RPC
-channel. The module declares its identity and capabilities, accepts a typed
+channel. The module declares its account and capabilities, accepts a typed
 invocation request, calls shell services such as the auth broker, and returns
 structured events/results.
 
@@ -420,12 +420,12 @@ verified module, and the prior version is recoverable.
 
 1. **Wire technology:** plain protobuf framing versus gRPC. The semantic
    contract should be agreed before selecting the library.
-2. **Token service support:** which cloud and on-premises identity deployments
+2. **Token service support:** which cloud and on-premises account deployments
    can issue audience/scope-restricted exchanged tokens, and the fallback for
    each product.
 3. **Capability policy:** exact audiences/scopes per namespace and which new
    capabilities require user/admin approval.
-4. **Trust infrastructure:** TUF repository ownership, signing identities,
+4. **Trust infrastructure:** TUF repository ownership, signing accounts,
    threshold/root-key operations, revocation SLA, and offline trust-root
    distribution.
 5. **Compatibility policy:** supported shell range, protocol support window,

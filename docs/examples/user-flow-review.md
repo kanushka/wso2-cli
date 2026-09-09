@@ -20,7 +20,7 @@ the output it actually produced, with the process exit code. Nothing here is
 illustrative: where the output is surprising, it is reproduced as-is and the
 surprise is named in [Findings](#findings).
 
-The machine had two contexts (`kanushka-dev`, `local-ci`) and two identities.
+The machine had two contexts (`kanushka-dev`, `local-ci`) and two accounts.
 `kanushka-dev` carried a live Asgardeo session throughout, established by a
 human in a browser on 2026-09-01 and deliberately left in place. The
 no-session paths are therefore recorded against `local-ci`, which has no
@@ -63,13 +63,13 @@ Shell commands
    context       Create, select, and list the targets commands run against.
    doctor        Check the shell's context, secure-store, and session health.
    help          Show the shell command tree.
-   identity      Record and inspect what an identity reaches.
-   login         Log in, creating the identity and context when an issuer is named.
+   account      Record and inspect what an account reaches.
+   login         Log in, creating the account and context when an issuer is named.
    logout        End the selected context's session.
    module        Install, list, and update product modules from the module catalog.
    org           Show and change the organization the selected context runs within.
    version       Show the shell, protocol, and installed module versions.
-   whoami        Show who is signed in, and to what context, identity, and session.
+   whoami        Show who is signed in, and to what context, account, and session.
 
 Flags
       --context string   Use the named context instead of the selected one.
@@ -105,7 +105,7 @@ exit=0
 ```
 $ wso2 whoami
 Context          kanushka-dev
-Identity         kanushka-cloud
+Account         kanushka-cloud
 Organization     kanushka
 Subject          24e39564-859a-4063-bcea-28471ce5cd1d
 Session          present
@@ -116,14 +116,14 @@ exit=0
 ```
 $ wso2 context current
 Context        kanushka-dev
-Identity       kanushka-cloud
+Account       kanushka-cloud
 Organization   kanushka
 Project
 exit=0
 ```
 
 ```
-$ wso2 identity list
+$ wso2 account list
 IDENTITY         TYPE     ISSUER                                            PRODUCT     ENDPOINT                  SCOPES
 kanushka-cloud   cloud    https://api.asgardeo.io/t/kanushka/oauth2/token   reference   https://api.asgardeo.io   reference:status:read,reference:status:write
 local-machine    onprem   https://localhost:9443/oauth2/token               reference   https://localhost:9443    reference:status:read
@@ -135,7 +135,7 @@ The other context has no session, and says so without treating it as an error:
 ```
 $ wso2 whoami --context local-ci
 Context          local-ci
-Identity         local-machine
+Account         local-machine
 Organization
 Subject
 Session          none
@@ -283,9 +283,9 @@ exit=0
 A subcommand that needs arguments names them and counts what it got:
 
 ```
-$ wso2 identity add-product
-error: wso2 identity add-product needs an identity and a product namespace, got 0 (shell.missing_argument)
-  Run wso2 identity add-product <identity> <namespace> --endpoint <url> [--audience <resource-id>] [--scopes <list>] [--replace].
+$ wso2 account add-product
+error: wso2 account add-product needs an account and a product namespace, got 0 (shell.missing_argument)
+  Run wso2 account add-product <account> <namespace> --endpoint <url> [--audience <resource-id>] [--scopes <list>] [--replace].
 exit=64
 ```
 
@@ -405,7 +405,7 @@ mentioned anywhere in the previous recording.
 ```
 $ wso2 reference call
 error: the reference status service at https://api.asgardeo.io/status answered with something this module cannot read (reference.status_unavailable)
-  Check that this endpoint is a reference status service; it is recorded for the reference product in wso2 identity list. Retrying will not change this answer.
+  Check that this endpoint is a reference status service; it is recorded for the reference product in wso2 account list. Retrying will not change this answer.
 exit=75
 ```
 
@@ -415,7 +415,7 @@ still `75`. See [F5](#f5-a-permanent-failure-is-named-honestly-and-still-exits-7
 ```
 $ wso2 reference whoami
 error: the reference status service at https://api.asgardeo.io/whoami answered with something this module cannot read (reference.status_unavailable)
-  Check that this endpoint is a reference status service; it is recorded for the reference product in wso2 identity list. Retrying will not change this answer.
+  Check that this endpoint is a reference status service; it is recorded for the reference product in wso2 account list. Retrying will not change this answer.
 exit=75
 ```
 
@@ -472,15 +472,15 @@ The help a command prints now matches the flags it accepts, and a refusal
 names the command typed rather than its family:
 
 ```
-$ wso2 identity list --context local-ci
-error: wso2 identity list does not take the flag --context (shell.unsupported_flag)
-  Run wso2 identity list --help to see the flags it accepts.
+$ wso2 account list --context local-ci
+error: wso2 account list does not take the flag --context (shell.unsupported_flag)
+  Run wso2 account list --help to see the flags it accepts.
 exit=64
 ```
 
 ```
-$ wso2 identity list --help
-Usage: wso2 identity list [flags]
+$ wso2 account list --help
+Usage: wso2 account list [flags]
 
 Flags
   -h, --help            Show help for a command.
@@ -511,12 +511,12 @@ Flags
       --context string     Use the named context instead of the selected one.
   -h, --help               Show help for a command.
       --no-input           Refuse rather than prompt, open a browser, or wait for a human.
-      --url string         Log in against this issuer, creating the identity and context it authenticates.
+      --url string         Log in against this issuer, creating the account and context it authenticates.
       --verbose            Write diagnostics about what the shell attempted to stderr.
 exit=0
 ```
 
-`-o json` still works on `whoami`, `identity list`, `doctor`, `config list`,
+`-o json` still works on `whoami`, `account list`, `doctor`, `config list`,
 and the `context` family:
 
 ```
@@ -525,14 +525,14 @@ $ wso2 context list -o json
   "contexts": [
     {
       "name": "kanushka-dev",
-      "identity": "kanushka-cloud",
+      "account": "kanushka-cloud",
       "organization": "kanushka",
       "project": "",
       "selected": true
     },
     {
       "name": "local-ci",
-      "identity": "local-machine",
+      "account": "local-machine",
       "organization": "",
       "project": "",
       "selected": false
@@ -569,7 +569,7 @@ See [F7](#f7--o-and---output-are-refused-with-different-errors-and-one-of-them-i
 $ wso2 whoami --verbose
 time=2026-09-02T11:30:22.337+05:30 level=DEBUG msg="the shell started" command=whoami shell_version=1.0.0-dev platform=darwin/arm64 output_mode=table
 Context          kanushka-dev
-Identity         kanushka-cloud
+Account         kanushka-cloud
 …
 exit=0
 ```
@@ -603,8 +603,8 @@ HTTP call `call` then makes, so a failing `call` is still undiagnosable from
 
 Fixed in `fc85700`. Each built-in declares its own flags, so `--help` renders
 the set the command enforces, and the refusal names the command typed:
-`wso2 identity list`, not `wso2 identity`. Verified on `config`, `context`,
-`org`, `identity`, `login`, `version`, and every `module` subcommand.
+`wso2 account list`, not `wso2 account`. Verified on `config`, `context`,
+`org`, `account`, `login`, `version`, and every `module` subcommand.
 
 Two residues, both new and both small: [F7](#f7--o-and---output-are-refused-with-different-errors-and-one-of-them-is-pflags),
 and the usage line is now inconsistent. Every nested subcommand renders
@@ -662,7 +662,7 @@ advice is withdrawn:
 ```
 $ wso2 reference call
 error: the reference status service at https://api.asgardeo.io/status answered with something this module cannot read (reference.status_unavailable)
-  Check that this endpoint is a reference status service; it is recorded for the reference product in wso2 identity list. Retrying will not change this answer.
+  Check that this endpoint is a reference status service; it is recorded for the reference product in wso2 account list. Retrying will not change this answer.
 exit=75
 ```
 
@@ -768,7 +768,7 @@ bare form.
 
 The fix folded each family's recovery sentence into its `Long`, so it is still
 the first thing printed and `wso2 config` and `wso2 config --help` now agree.
-All five families — `config`, `org`, `context`, `identity`, `module` — share one
+All five families — `config`, `org`, `context`, `account`, `module` — share one
 helper, so they cannot drift apart.
 
 ### Minor: a JSON request gets a plain-text error
@@ -818,7 +818,7 @@ the dotted problem code most useful to a script is the part left unparseable.
   restore it.
 - `wso2 org use`, `wso2 context create`, and `wso2 config set` past their
   `--help` — all mutate state that the rest of this recording depends on.
-- `wso2 login --url` creating a new identity and context.
+- `wso2 login --url` creating a new account and context.
 - The device-code and client-credentials grants.
 - A successful `wso2 reference call`. Blocked by F6.
 
