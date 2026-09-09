@@ -29,7 +29,7 @@ import (
 	"github.com/wso2/wso2-cli/sdk/result"
 )
 
-const identityCreateUsage = "Run wso2 identity create <name> --issuer <url> --client-id <id> " +
+const identityCreateUsage = "Run wso2 account create <name> --issuer <url> --client-id <id> " +
 	"[--client-secret-variable <VAR>] [--provider <name>] " +
 	"[--product <namespace> --endpoint <url> [--audience <uri>] [--scope <scope>]...]."
 
@@ -145,7 +145,7 @@ func plannedIdentity(name string, flags identityCreateFlags) (contexts.Account, 
 	}
 	if flags.issuer == "" {
 		return contexts.Account{}, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
-			"wso2 identity create needs the issuer the identity authenticates against").
+			"wso2 account create needs the issuer the identity authenticates against").
 			WithRecovery(identityCreateUsage)
 	}
 	if err := refuseNonIssuerURL(flags.issuer); err != nil {
@@ -153,7 +153,7 @@ func plannedIdentity(name string, flags identityCreateFlags) (contexts.Account, 
 	}
 	if flags.clientID == "" {
 		return contexts.Account{}, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
-			"wso2 identity create needs the client id of the OAuth application the shell presents").
+			"wso2 account create needs the client id of the OAuth application the shell presents").
 			WithRecovery(identityCreateUsage)
 	}
 	if flags.provider != "" && !slices.Contains(contexts.Providers(), flags.provider) {
@@ -175,7 +175,7 @@ func plannedIdentity(name string, flags identityCreateFlags) (contexts.Account, 
 	}
 	if flags.product != "" && flags.endpoint == "" {
 		return contexts.Account{}, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
-			"wso2 identity create needs the endpoint the product is served at").
+			"wso2 account create needs the endpoint the product is served at").
 			WithRecovery(identityCreateUsage + " A self-hosted deployment publishes no " +
 				"catalogue of what it serves, so the endpoint can only come from you.")
 	}
@@ -216,11 +216,11 @@ func identityCreateNext(name string, identity contexts.Account) string {
 	for namespace := range identity.Products {
 		return fmt.Sprintf("Run wso2 %s status --context %s.", namespace, name)
 	}
-	return fmt.Sprintf("Run wso2 identity add-product %s <namespace> --endpoint <url> to record what it reaches.", name)
+	return fmt.Sprintf("Run wso2 account add-product %s <namespace> --endpoint <url> to record what it reaches.", name)
 }
 
 func identityExists(name string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "contexts.identity_exists",
 		fmt.Sprintf("an identity named %q is already declared in the context document", name)).
-		WithRecovery("Run wso2 identity list to see it, or pick another name.")
+		WithRecovery("Run wso2 account list to see it, or pick another name.")
 }

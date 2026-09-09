@@ -73,7 +73,7 @@ func TestTheProductlessLoginReportMatchesTheDeploymentKind(t *testing.T) {
 			wants: []string{
 				"No products are configured for this identity yet.",
 				"discovered automatically",
-				"wso2 identity add-product customer",
+				"wso2 account add-product customer",
 			},
 			refuses: []string{"self-hosted"},
 		},
@@ -83,7 +83,7 @@ func TestTheProductlessLoginReportMatchesTheDeploymentKind(t *testing.T) {
 			wants: []string{
 				"No products are configured for this identity.",
 				"A self-hosted deployment is not\ndiscoverable",
-				"wso2 identity add-product customer",
+				"wso2 account add-product customer",
 			},
 			refuses: []string{"discovered automatically"},
 		},

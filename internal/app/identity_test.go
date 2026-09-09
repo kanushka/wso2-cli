@@ -68,7 +68,7 @@ func TestAddProductRecordsAnEndpointAudienceAndScopes(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, selfHostedDocument())
 
-	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "api",
+	code := shell.Run([]string{"account", "add-product", "idp-customer-example", "api",
 		"--endpoint", "https://api.customer.example",
 		"--audience", "https://api.customer.example",
 		"--scopes", "api:read,api:write"})
@@ -97,7 +97,7 @@ func TestAddProductCreatesNoIdentityAndNoContext(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, selfHostedDocument())
 
-	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "api",
+	code := shell.Run([]string{"account", "add-product", "idp-customer-example", "api",
 		"--endpoint", "https://api.customer.example"})
 	if code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stdout: %s stderr: %s", code, exit.OK, out, errOut)
@@ -118,7 +118,7 @@ func TestAddProductIsRefusedForAnUnknownIdentity(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, selfHostedDocument())
 
-	code := shell.Run([]string{"identity", "add-product", "nosuch", "api",
+	code := shell.Run([]string{"account", "add-product", "nosuch", "api",
 		"--endpoint", "https://api.customer.example"})
 	if code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stdout: %s stderr: %s",
@@ -140,7 +140,7 @@ func TestAddingANamespaceTheIdentityAlreadyCarriesIsRefused(t *testing.T) {
 	}
 	installLogin(t, shell, seeded)
 
-	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "api",
+	code := shell.Run([]string{"account", "add-product", "idp-customer-example", "api",
 		"--endpoint", "https://elsewhere.customer.example"})
 	if code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stdout: %s stderr: %s",
@@ -168,7 +168,7 @@ func TestReplacingAnExistingNamespaceRequiresTheReplaceFlag(t *testing.T) {
 	}
 	installLogin(t, shell, seeded)
 
-	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "api",
+	code := shell.Run([]string{"account", "add-product", "idp-customer-example", "api",
 		"--endpoint", "https://elsewhere.customer.example", "--replace"})
 	if code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stdout: %s stderr: %s", code, exit.OK, out, errOut)
@@ -189,7 +189,7 @@ func TestAnEndpointEmbeddingUserInformationIsRefused(t *testing.T) {
 	installLogin(t, shell, selfHostedDocument())
 
 	const endpoint = "https://ops:hunter2@api.customer.example"
-	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "api",
+	code := shell.Run([]string{"account", "add-product", "idp-customer-example", "api",
 		"--endpoint", endpoint})
 	if code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stdout: %s stderr: %s",
@@ -223,7 +223,7 @@ func TestAnInvalidNamespaceIsRefusedAsTheArgumentItIs(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, selfHostedDocument())
 
-	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "API",
+	code := shell.Run([]string{"account", "add-product", "idp-customer-example", "API",
 		"--endpoint", "https://api.customer.example"})
 	if code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stdout: %s stderr: %s",
@@ -243,7 +243,7 @@ func TestAddProductWithoutAnEndpointIsRefusedAsAMissingFlag(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, selfHostedDocument())
 
-	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "api"})
+	code := shell.Run([]string{"account", "add-product", "idp-customer-example", "api"})
 	if code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stdout: %s stderr: %s",
 			code, exit.Usage, out, errOut)
@@ -255,10 +255,10 @@ func TestAddProductWithoutAnEndpointIsRefusedAsAMissingFlag(t *testing.T) {
 
 func TestAddProductRefusesAWrongArgumentCountInTheUsageClass(t *testing.T) {
 	for name, args := range map[string][]string{
-		"no arguments":  {"identity", "add-product"},
-		"one argument":  {"identity", "add-product", "idp-customer-example"},
-		"three":         {"identity", "add-product", "idp-customer-example", "api", "extra"},
-		"list, a stray": {"identity", "list", "extra"},
+		"no arguments":  {"account", "add-product"},
+		"one argument":  {"account", "add-product", "idp-customer-example"},
+		"three":         {"account", "add-product", "idp-customer-example", "api", "extra"},
+		"list, a stray": {"account", "list", "extra"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			shell, out, errOut := newShell(t)
@@ -288,7 +288,7 @@ func TestIdentityListShowsWhatEachIdentityReaches(t *testing.T) {
 	}
 	installLogin(t, shell, seeded)
 
-	if code := shell.Run([]string{"identity", "list"}); code != exit.OK {
+	if code := shell.Run([]string{"account", "list"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	rendered := out.String()
@@ -312,7 +312,7 @@ func TestIdentityListShowsWhatEachIdentityReaches(t *testing.T) {
 func TestIdentityListOnAMachineWithNoDocumentSaysSoPlainly(t *testing.T) {
 	shell, out, errOut := newShell(t)
 
-	if code := shell.Run([]string{"identity", "list"}); code != exit.OK {
+	if code := shell.Run([]string{"account", "list"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	// An unconfigured machine is a state, not a breakage, and login is the only
@@ -326,14 +326,14 @@ func TestIdentitySubcommandsRenderJSON(t *testing.T) {
 	t.Run("add-product", func(t *testing.T) {
 		shell, out, errOut := newShell(t)
 		installLogin(t, shell, selfHostedDocument())
-		code := shell.Run([]string{"--output", "json", "identity", "add-product",
+		code := shell.Run([]string{"--output", "json", "account", "add-product",
 			"idp-customer-example", "api", "--endpoint", "https://api.customer.example",
 			"--scopes", "api:read,api:write"})
 		if code != exit.OK {
 			t.Fatalf("exit code = %d, want %d; stdout: %s stderr: %s", code, exit.OK, out, errOut)
 		}
 		var added struct {
-			Identity  string   `json:"identity"`
+			Account   string   `json:"account"`
 			Namespace string   `json:"namespace"`
 			Endpoint  string   `json:"endpoint"`
 			Scopes    []string `json:"scopes"`
@@ -342,7 +342,7 @@ func TestIdentitySubcommandsRenderJSON(t *testing.T) {
 		if err := json.Unmarshal(out.Bytes(), &added); err != nil {
 			t.Fatalf("the output is not JSON: %v\n%s", err, out)
 		}
-		if added.Identity != "idp-customer-example" || added.Namespace != "api" ||
+		if added.Account != "idp-customer-example" || added.Namespace != "api" ||
 			added.Endpoint != "https://api.customer.example" ||
 			!slices.Equal(added.Scopes, []string{"api:read", "api:write"}) || added.Replaced {
 			t.Errorf("the result does not carry what was recorded: %+v", added)
@@ -356,7 +356,7 @@ func TestIdentitySubcommandsRenderJSON(t *testing.T) {
 			"api": {Endpoint: "https://api.customer.example", Scopes: []string{"api:read"}},
 		}
 		installLogin(t, shell, seeded)
-		if code := shell.Run([]string{"--output", "json", "identity", "list"}); code != exit.OK {
+		if code := shell.Run([]string{"--output", "json", "account", "list"}); code != exit.OK {
 			t.Fatalf("exit code = %d, want %d; stdout: %s stderr: %s", code, exit.OK, out, errOut)
 		}
 		var listing struct {
@@ -403,25 +403,25 @@ func TestNoIdentitySubcommandOpensANetworkConnection(t *testing.T) {
 	http.DefaultTransport = failingTransport{t: t, family: "identity"}
 
 	invocations := map[string][]string{
-		"add-product": {"identity", "add-product", "idp-customer-example", "integration",
+		"add-product": {"account", "add-product", "idp-customer-example", "integration",
 			"--endpoint", "https://esb.customer.example"},
-		"add-product, replacing": {"identity", "add-product", "idp-customer-example", "api",
+		"add-product, replacing": {"account", "add-product", "idp-customer-example", "api",
 			"--endpoint", "https://elsewhere.customer.example", "--replace"},
-		"list": {"identity", "list"},
+		"list": {"account", "list"},
 		// The refusals matter more than the successes: a refusal is where a
 		// well-meaning "let me check the endpoint before I complain" would be
 		// added, and it is the path a first-run user reaches first.
-		"add-product, unknown identity": {"identity", "add-product", "nosuch", "api",
+		"add-product, unknown identity": {"account", "add-product", "nosuch", "api",
 			"--endpoint", "https://api.customer.example"},
-		"add-product, taken namespace": {"identity", "add-product", "idp-customer-example", "api",
+		"add-product, taken namespace": {"account", "add-product", "idp-customer-example", "api",
 			"--endpoint", "https://elsewhere.customer.example"},
-		"add-product, user information": {"identity", "add-product", "idp-customer-example",
+		"add-product, user information": {"account", "add-product", "idp-customer-example",
 			"integration", "--endpoint", "https://ops:hunter2@esb.customer.example"},
-		"add-product, illegal namespace": {"identity", "add-product", "idp-customer-example",
+		"add-product, illegal namespace": {"account", "add-product", "idp-customer-example",
 			"API", "--endpoint", "https://api.customer.example"},
-		"add-product, no endpoint":  {"identity", "add-product", "idp-customer-example", "integration"},
-		"add-product, no arguments": {"identity", "add-product"},
-		"unsupported shell flag":    {"--context", "idp-customer-example", "identity", "list"},
+		"add-product, no endpoint":  {"account", "add-product", "idp-customer-example", "integration"},
+		"add-product, no arguments": {"account", "add-product"},
+		"unsupported shell flag":    {"--context", "idp-customer-example", "account", "list"},
 	}
 	for name, args := range invocations {
 		t.Run(name, func(t *testing.T) {
@@ -452,7 +452,7 @@ func TestASecondProductOnAResourceBoundIdentityIsRecorded(t *testing.T) {
 	}
 	installLogin(t, shell, seeded)
 
-	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "integration",
+	code := shell.Run([]string{"account", "add-product", "idp-customer-example", "integration",
 		"--endpoint", "https://esb.customer.example",
 		"--audience", "https://esb.customer.example"})
 	if code != exit.OK {
@@ -470,9 +470,17 @@ func TestASecondProductOnAResourceBoundIdentityIsRecorded(t *testing.T) {
 // TestIdentityIsAReservedNamespace guards the consequence of adding the family:
 // a module namespace called "identity" is unreachable now, so the scaffold has
 // to refuse it before anyone publishes one.
-func TestIdentityIsAReservedNamespace(t *testing.T) {
-	if !slices.Contains(app.CommandNames(), "identity") {
-		t.Errorf("CommandNames() = %v, which does not reserve identity", app.CommandNames())
+// TestIdentityIsNoLongerAShellCommand pins the inversion ADR 0015 made. The
+// shell used to reserve the word; it now hands it to a product namespace, and
+// a shell command of that name would shadow the module for good — isShellCommand
+// answers before the module store is ever opened.
+func TestIdentityIsNoLongerAShellCommand(t *testing.T) {
+	if slices.Contains(app.CommandNames(), "identity") {
+		t.Errorf("CommandNames() = %v, which still reserves identity from the product namespace",
+			app.CommandNames())
+	}
+	if !slices.Contains(app.CommandNames(), "account") {
+		t.Errorf("CommandNames() = %v, which does not own account", app.CommandNames())
 	}
 }
 
@@ -493,17 +501,17 @@ func TestTheSelfHostedFirstRunPathRunsWithoutAnEditor(t *testing.T) {
 	// The name login assigned, read back rather than assumed: B.1's whole
 	// point is that login reports it and the next command takes it.
 	identity := loadDocument(t, shell).Accounts[0].Name
-	if !strings.Contains(out.String(), "wso2 identity add-product") {
+	if !strings.Contains(out.String(), "wso2 account add-product") {
 		t.Errorf("login does not name the command that carries on from here:\n%s", out)
 	}
 	out.Reset()
 
 	for _, args := range [][]string{
-		{"identity", "add-product", identity, "api",
+		{"account", "add-product", identity, "api",
 			"--endpoint", "https://api.customer.example",
 			"--audience", "https://api.customer.example",
 			"--scopes", "api:read,api:write"},
-		{"identity", "add-product", identity, "integration",
+		{"account", "add-product", identity, "integration",
 			"--endpoint", "https://esb.customer.example",
 			"--audience", "https://esb.customer.example",
 			"--scopes", "integration:read"},
@@ -522,7 +530,7 @@ func TestTheSelfHostedFirstRunPathRunsWithoutAnEditor(t *testing.T) {
 		t.Errorf("the integration product is not what B.2 records: %+v", recorded["integration"])
 	}
 	out.Reset()
-	if code := shell.Run([]string{"identity", "list"}); code != exit.OK {
+	if code := shell.Run([]string{"account", "list"}); code != exit.OK {
 		t.Fatalf("identity list exited %d; stderr: %s", code, errOut)
 	}
 	for _, want := range []string{"api", "integration",
@@ -541,4 +549,34 @@ func TestTheSelfHostedFirstRunPathRunsWithoutAnEditor(t *testing.T) {
 // identityAddProductUsageProbe is the fragment the listing prints only while an
 // identity still has no product. Spelled here rather than imported: the command
 // constant is unexported and this is an external test package.
-const identityAddProductUsageProbe = "Run wso2 identity add-product"
+const identityAddProductUsageProbe = "Run wso2 account add-product"
+
+func TestTheAccountCommandReplacesIdentity(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	installLogin(t, shell, selfHostedDocument())
+	if code := shell.Run([]string{"account", "list"}); code != exit.OK {
+		t.Fatalf("wso2 account list exited %d: %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "idp-customer-example") {
+		t.Fatalf("wso2 account list did not report the account:\n%s", out)
+	}
+}
+
+func TestAMovedAccountVerbNamesWhereItWent(t *testing.T) {
+	// The commonest thing a user does after the rename is type the command
+	// that shipped. Both dispatch paths refuse it, and neither refusal knows
+	// the word moved, so the refusal has to say so itself.
+	for _, verb := range []string{"create", "add-product", "list"} {
+		t.Run(verb, func(t *testing.T) {
+			shell, _, errOut := newShell(t)
+			installLogin(t, shell, selfHostedDocument())
+			code := shell.Run([]string{"identity", verb})
+			if code == exit.OK {
+				t.Fatalf("wso2 account %s succeeded; it should redirect", verb)
+			}
+			if !strings.Contains(errOut.String(), "wso2 account "+verb) {
+				t.Fatalf("the refusal does not name where the command went:\n%s", errOut)
+			}
+		})
+	}
+}

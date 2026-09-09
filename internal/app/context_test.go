@@ -132,8 +132,8 @@ func TestContextCreateIsRefusedWhenTheIdentityDoesNotExist(t *testing.T) {
 	}
 	// An identity exists here, so the likeliest fault is a mistyped name, and
 	// the recovery names the command that shows what login recorded.
-	if !strings.Contains(errOut.String(), "wso2 identity list") {
-		t.Errorf("the recovery does not name wso2 identity list:\n%s", errOut)
+	if !strings.Contains(errOut.String(), "wso2 account list") {
+		t.Errorf("the recovery does not name wso2 account list:\n%s", errOut)
 	}
 	if len(loadDocument(t, shell).Contexts) != 0 {
 		t.Error("a refused create wrote a context")
@@ -142,7 +142,7 @@ func TestContextCreateIsRefusedWhenTheIdentityDoesNotExist(t *testing.T) {
 
 func TestContextCreateWithNoIdentitiesAtAllPointsAtLoginAlone(t *testing.T) {
 	// A machine nobody has logged in on holds no identities, so there is
-	// nothing for wso2 identity list to show: offering it, or offering wso2
+	// nothing for wso2 account list to show: offering it, or offering wso2
 	// context create again, would walk a first-run user in a circle. Login is
 	// the one honest way forward.
 	shell, out, errOut := newShell(t)
@@ -161,8 +161,8 @@ func TestContextCreateWithNoIdentitiesAtAllPointsAtLoginAlone(t *testing.T) {
 	if !strings.Contains(errOut.String(), "wso2 login") {
 		t.Errorf("the recovery does not name wso2 login:\n%s", errOut)
 	}
-	if strings.Contains(errOut.String(), "wso2 identity list") {
-		t.Errorf("the recovery offers wso2 identity list with nothing to list:\n%s", errOut)
+	if strings.Contains(errOut.String(), "wso2 account list") {
+		t.Errorf("the recovery offers wso2 account list with nothing to list:\n%s", errOut)
 	}
 }
 

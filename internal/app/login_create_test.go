@@ -170,8 +170,8 @@ func TestASelfHostedLoginNamesIdentityAddProduct(t *testing.T) {
 		"--client-id", "wso2-cli", "--context", "customer"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
-	if !strings.Contains(out.String(), "wso2 identity add-product customer") {
-		t.Errorf("the report does not name wso2 identity add-product:\n%s", out)
+	if !strings.Contains(out.String(), "wso2 account add-product customer") {
+		t.Errorf("the report does not name wso2 account add-product:\n%s", out)
 	}
 }
 

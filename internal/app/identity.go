@@ -32,26 +32,26 @@ import (
 
 // The way back from each subcommand's usage refusals.
 const (
-	identityAddProductUsage = "Run wso2 identity add-product <identity> <namespace> " +
+	identityAddProductUsage = "Run wso2 account add-product <identity> <namespace> " +
 		"--endpoint <url> [--audience <resource-id>] [--scopes <list>] [--replace]."
-	identityListUsage = "Run wso2 identity list [--output table|json]."
+	identityListUsage = "Run wso2 account list [--output table|json]."
 )
 
 // identityRecovery is what every refusal from the identity command itself,
 // rather than one of its subcommands, points a user at.
-const identityRecovery = "Run wso2 identity list to see what login recorded, or " +
-	"wso2 identity add-product to record what a self-hosted deployment reaches. " +
+const identityRecovery = "Run wso2 account list to see what login recorded, or " +
+	"wso2 account add-product to record what a self-hosted deployment reaches. " +
 	"Logging in is what creates an identity."
 
-// identityCommand builds the wso2 identity tree.
+// accountCommand builds the wso2 account tree.
 //
 // There is no create subcommand. Logging in is the only thing that creates an
 // identity (#112 D3), and this family only modifies and reads what login
 // already wrote, which is why adding it does not reopen that decision.
-func (s Shell) identityCommand() *cobra.Command {
+func (s Shell) accountCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:                   "identity <subcommand>",
-		Short:                 "Record and inspect what an identity reaches.",
+		Use:                   "account <subcommand>",
+		Short:                 "Record and inspect what an account reaches.",
 		Long:                  identityRecovery,
 		DisableFlagsInUseLine: true,
 		// A RunE is declared because Cobra validates a non-leaf command's
@@ -60,20 +60,20 @@ func (s Shell) identityCommand() *cobra.Command {
 		// whatever ran it. Never cobra.NoArgs or cobra.ExactArgs for this —
 		// both bypass the flag-error hook and exit 70 instead of 64.
 		//
-		// A bare wso2 identity is the other arm, and is deliberately not a
+		// A bare wso2 account is the other arm, and is deliberately not a
 		// refusal. See helpForBareFamily.
 		RunE: func(command *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return helpForBareFamily(command)
 			}
 			return problem.New(problem.CategoryUsage, "shell.unknown_command",
-				fmt.Sprintf("%q is not a wso2 identity subcommand", args[0])).
+				fmt.Sprintf("%q is not a wso2 account subcommand", args[0])).
 				WithRecovery(identityRecovery)
 		},
 	}
 	// The family renders a machine-readable result, and takes no --context: an
 	// identity is named by this family's own arguments, and a selection flag
-	// alongside "wso2 identity list" would be a second answer to a question
+	// alongside "wso2 account list" would be a second answer to a question
 	// nothing asked.
 	declareOutputFlag(command.PersistentFlags())
 	command.AddCommand(s.identityCreateCommand(), s.identityAddProductCommand(), s.identityListCommand())
@@ -144,7 +144,7 @@ func (g grantFlags) product() (*contexts.Grant, error) {
 	}
 	if g.kind == "" {
 		return nil, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
-			"wso2 identity add-product needs --grant with --grant-issuer and --grant-client-id").
+			"wso2 account add-product needs --grant with --grant-issuer and --grant-client-id").
 			WithRecovery("Pass --grant " + contexts.GrantJWTBearer + " or --grant " + contexts.GrantFederated +
 				" to derive this product's access. " + identityAddProductUsage)
 	}
@@ -177,7 +177,7 @@ func (g grantFlags) product() (*contexts.Grant, error) {
 	}
 	if g.issuer == "" || g.clientID == "" {
 		return nil, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
-			"wso2 identity add-product needs --grant-issuer and --grant-client-id with --grant").
+			"wso2 account add-product needs --grant-issuer and --grant-client-id with --grant").
 			WithRecovery("Name the product's own issuer and the public client the shell presents " +
 				"there. " + identityAddProductUsage)
 	}
@@ -241,7 +241,7 @@ func (s Shell) identityAddProduct(
 		// as contexts.document_malformed, which tells a user their file is
 		// wrong over a flag they simply did not type.
 		return problem.New(problem.CategoryUsage, "shell.missing_required_flag",
-			"wso2 identity add-product needs the endpoint the product is served at").
+			"wso2 account add-product needs the endpoint the product is served at").
 			WithRecovery(identityAddProductUsage + " A self-hosted deployment publishes no " +
 				"catalogue of what it serves, so the endpoint can only come from you.")
 	}
@@ -271,7 +271,7 @@ func (s Shell) identityAddProduct(
 		"document", contexts.Path(root))
 
 	added := productAdded{
-		Identity:  identity,
+		Account:   identity,
 		Namespace: namespace,
 		Endpoint:  product.Endpoint,
 		Audience:  product.Audience,
@@ -393,7 +393,7 @@ func (s Shell) identityList(command *cobra.Command) error {
 			"Run wso2 login --url <issuer> --client-id <id> to create one.")
 		return err
 	}
-	table := output.NewTable("identity", "type", "issuer", "product", "endpoint", "scopes")
+	table := output.NewTable("account", "type", "issuer", "product", "endpoint", "scopes")
 	for _, entry := range listing.Identities {
 		if len(entry.Products) == 0 {
 			table.Append(entry.Name, entry.Type, entry.Issuer, "", "", "")
@@ -449,9 +449,9 @@ func exactlyTwoArguments(what, usage string) cobra.PositionalArgs {
 // The results this family reports. They are rendered the way the context family
 // renders its own; see the comment on that family's result types.
 type (
-	// productAdded is what wso2 identity add-product reports.
+	// productAdded is what wso2 account add-product reports.
 	productAdded struct {
-		Identity  string   `json:"identity"`
+		Account   string   `json:"account"`
 		Namespace string   `json:"namespace"`
 		Endpoint  string   `json:"endpoint"`
 		Audience  string   `json:"audience"`
@@ -484,7 +484,7 @@ type (
 		Products []productEntry `json:"products"`
 	}
 
-	// identityListing is what wso2 identity list reports.
+	// identityListing is what wso2 account list reports.
 	identityListing struct {
 		Identities []identityEntry `json:"identities"`
 	}
@@ -492,7 +492,7 @@ type (
 
 func (p productAdded) fields() [][2]string {
 	fields := [][2]string{
-		{"Identity", p.Identity},
+		{"Account", p.Account},
 		{"Product", p.Namespace},
 		{"Endpoint", p.Endpoint},
 		{"Audience", p.Audience},
@@ -516,7 +516,7 @@ func productExists(identity, namespace string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "contexts.product_exists",
 		fmt.Sprintf("the identity %q already records a product in the %q namespace",
 			identity, namespace)).
-		WithRecovery("Run wso2 identity list to see what it records. " +
+		WithRecovery("Run wso2 account list to see what it records. " +
 			"Pass --replace to overwrite it, which replaces the whole record.")
 }
 
@@ -562,7 +562,7 @@ func (s Shell) explainProductRefusal(stateRoot string, changed bool, err error) 
 // This lives here rather than beside the check in internal/contexts because it
 // is advice about commands.
 func productRefusalRecovery() string {
-	return "The context document was not changed. Run wso2 identity list to see what the " +
+	return "The context document was not changed. Run wso2 account list to see what the " +
 		"identity records, then correct the command and run it again. " +
 		identityAddProductUsage
 }

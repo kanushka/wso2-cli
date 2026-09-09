@@ -467,8 +467,8 @@ func TestAProductNamespaceTheIdentityDoesNotConfigureIsRefused(t *testing.T) {
 	// The command that records a product registration exists, so the recovery
 	// names it — with this identity and namespace filled in — rather than
 	// sending the user to edit a file by hand.
-	if !strings.Contains(refusal.Problem.Recovery, "wso2 identity add-product reference-cloud api") {
-		t.Errorf("the recovery %q does not name wso2 identity add-product for this identity and namespace",
+	if !strings.Contains(refusal.Problem.Recovery, "wso2 account add-product reference-cloud api") {
+		t.Errorf("the recovery %q does not name wso2 account add-product for this identity and namespace",
 			refusal.Problem.Recovery)
 	}
 }

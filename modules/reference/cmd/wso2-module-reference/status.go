@@ -136,7 +136,7 @@ func statusFailure(target string, status int) error {
 		// change that, so this must not be reported as a service that failed.
 		return problem.New(problem.CategoryProductService, "reference.status_not_served",
 			"no reference status service is served at "+target).
-			WithRecovery("Check the endpoint recorded for the reference product in wso2 identity list. " +
+			WithRecovery("Check the endpoint recorded for the reference product in wso2 account list. " +
 				"Retrying will not change this answer.")
 	default:
 		return unavailable(target, "could not report its status")
@@ -149,7 +149,7 @@ func statusFailure(target string, status int) error {
 // The endpoint is named because the module is the only party that knows which
 // URL it called: the shell's diagnostics stop at the access it brokered, and a
 // user reading this error would otherwise have to cross-reference
-// wso2 identity list against this module's source to find out (#147).
+// wso2 account list against this module's source to find out (#147).
 func unavailable(target, what string) problem.Problem {
 	return problem.New(problem.CategoryProductService, "reference.status_unavailable",
 		"the reference status service at "+target+" "+what).
@@ -168,5 +168,5 @@ func unreadable(target, what string) problem.Problem {
 	return problem.New(problem.CategoryProductService, "reference.status_unavailable",
 		"the reference status service at "+target+" "+what).
 		WithRecovery("Check that this endpoint is a reference status service; it is recorded for the " +
-			"reference product in wso2 identity list. Retrying will not change this answer.")
+			"reference product in wso2 account list. Retrying will not change this answer.")
 }

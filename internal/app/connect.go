@@ -86,7 +86,7 @@ func (s Shell) connect(namespace string, receipt modules.Receipt, args []string)
 		return problem.New(problem.CategoryUsage, "shell.connect_unsupported",
 			fmt.Sprintf("the %s module declares no product descriptor, so the shell cannot write its "+
 				"record from a URL", namespace)).
-			WithRecovery(fmt.Sprintf("Record the product with wso2 identity add-product <identity> %s "+
+			WithRecovery(fmt.Sprintf("Record the product with wso2 account add-product <identity> %s "+
 				"--endpoint <url> [--audience <value>] [--scopes <list>], or install a version of the "+
 				"module that declares one.", namespace))
 	}
@@ -497,7 +497,7 @@ func connectProduct(namespace string, descriptor modules.ProductDescriptor, prod
 			fmt.Sprintf("the %s product declares no grant, so it can only be reached from its own "+
 				"provider, and the %q identity logs in elsewhere", namespace, identity.Name)).
 			WithRecovery("Select an identity whose login provider serves this product, or record the " +
-				"product with wso2 identity add-product.")
+				"product with wso2 account add-product.")
 	}
 	product.Grant = &contexts.Grant{Kind: descriptor.Grant, Issuer: issuer, ClientID: flags.clientID}
 	if flags.clientSecretVariable != "" {
@@ -571,7 +571,7 @@ func loginProviderRequired(namespace, loginProvider string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "shell.login_provider_required", message).
 		WithRecovery("Connect the login provider's own product first, as in wso2 iam connect <url>, " +
 			"then this one; or pass --login-provider <issuer-url> naming an identity that exists. " +
-			"wso2 identity list shows them.")
+			"wso2 account list shows them.")
 }
 
 // apply writes the plan into the document.

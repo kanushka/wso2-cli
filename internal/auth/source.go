@@ -185,7 +185,7 @@ func (b *Broker) checkProduct(request Request) error {
 		return denial("auth.product_not_configured",
 			fmt.Sprintf("the identity the %q context authenticates as does not configure the %q product",
 				b.Selection.Context.Name, b.namespace()),
-			fmt.Sprintf("Run wso2 identity add-product %s %s --endpoint <url> --audience "+
+			fmt.Sprintf("Run wso2 account add-product %s %s --endpoint <url> --audience "+
 				"<resource-id> --scopes <list> to register it, or select a context whose "+
 				"identity reaches it.", b.Selection.Identity.Name, b.namespace()))
 	}
@@ -212,7 +212,7 @@ func (b *Broker) checkProduct(request Request) error {
 		return denial("auth.product_not_configured",
 			fmt.Sprintf("the %q product's jwt-bearer grant names no resource for its assertion "+
 				"session, which this deployment binds access by", b.namespace()),
-			fmt.Sprintf("Record the resource with wso2 identity add-product --replace "+
+			fmt.Sprintf("Record the resource with wso2 account add-product --replace "+
 				"--grant-resource <uri>, then run wso2 login --only %s.", b.namespace()))
 	}
 	if len(product.Scopes) > 0 {
