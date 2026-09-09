@@ -40,6 +40,28 @@ product is named `module`, so the alias collides with nothing and keeps the
 name reserved against a namespace claiming it later. The identity command has
 no such room, because the word becomes a namespace the shell must dispatch.
 
+An alias is impossible; a redirect is not, and the two were conflated. Every
+`wso2 identity <verb>` that shipped keeps being typed after the rename, out of
+habit and out of scripts and pages written before it, and both paths it can
+take end nowhere: an uninstalled namespace refuses with `shell.unknown_command`
+and an installed one refuses with `shell.unknown_product_command`, which reads
+as a command that exists nowhere rather than one that moved. So the account
+verbs the shell used to own — `create`, `add-product`, `list` — are recognized
+by name at both refusals and answered by naming `wso2 account`. That shadows no
+namespace and reserves no word: the module still owns `identity`, and a module
+command sharing one of those three names is reached exactly as before, because
+the redirect is only ever reached after dispatch has already failed.
+
+The identity namespace answers for two products whose command trees are not the
+same, and ADR 0013 parses a tree only from the local receipt, so the tree cannot
+vary by the deployment a command is pointed at. It is the union, and each
+command declares which providers it serves. Help marks the ones a provider does
+not answer for, and a command run against a provider it does not serve is
+refused by the module before any request is made, naming the provider it
+belongs to. The intersection was rejected: ThunderID resource servers have no
+Identity Server counterpart, and a namespace that could not manage them would
+leave the product's own setup outside the shell.
+
 The help page states what a machine can reach before anything is installed. It
 carries two sections, one for shell commands and one for product commands, and
 the product section names every product the release knows about, marking those
@@ -49,8 +71,14 @@ output, and the shell only carries a copy of one. It also keeps help offline,
 which a help page has to be. `scripts/released-shell-protocols.sh` already
 reads the published release rather than the checkout for the same reason.
 
-Each product declares a short title in its `module.json`, and
-`cmd/wso2-catalog` carries the title into `index.json`. A table of titles held
+The product section names only namespaces the release knows a published
+version for, so help never advertises a product `wso2 product install` would
+then fail to find; a namespace that exists in the monorepo without a release is
+absent rather than marked. Each product declares a short title in its
+`module.json`, and `cmd/wso2-catalog` carries the title into `index.json`. A
+title is rendered into a terminal and, per ADR 0006, nothing attests to the
+authenticity of a catalog entry, so it is bounded in length and stripped of
+control characters before it is printed. A table of titles held
 in the shell was rejected: it would make the shell curate what exists, and a
 product released later would need a shell release before its name could be
 printed.
@@ -78,6 +106,11 @@ shipping them in one release costs users one migration rather than two.
   them is the odd word a reader has to learn.
 - Naming it `thunder` or `is` names a deployment rather than a product, and
   the namespace would have to move the first time a user ran the other one.
+- Leaving the moved account verbs to refuse in the ordinary way keeps the
+  dispatch path free of special cases. It was rejected because the ordinary
+  refusal is wrong here rather than merely unhelpful: it tells a user the
+  command does not exist, at the one moment the shell knows both that it did
+  and where it went.
 - Folding the account command under `context` would free the word without
   inventing a synonym. It states a containment the model does not have:
   several contexts may name one account, so the account is not part of any of
