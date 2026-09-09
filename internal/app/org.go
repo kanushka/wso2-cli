@@ -42,7 +42,7 @@ const orgRecovery = "Run wso2 org current to show the organization the selected 
 // because it is the same fact and the shell must not invent a second sentence
 // for it.
 const noContextRecovery = "Run wso2 login to create an identity and a context, " +
-	"or wso2 context create <name> --identity <identity> if you already have one."
+	"or wso2 context create <name> --account <identity> if you already have one."
 
 // orgCommand builds the wso2 org tree.
 //
@@ -156,7 +156,7 @@ func (s Shell) orgCurrent(command *cobra.Command) error {
 		_, err = fmt.Fprintln(s.Streams.Out,
 			"No context is configured, so commands run against nothing.\n\n"+
 				"Run wso2 login to create an identity and a context, "+
-				"or wso2 context create <name> --identity <identity> if you already have one.")
+				"or wso2 context create <name> --account <identity> if you already have one.")
 	case report.Organization == "":
 		_, err = fmt.Fprintf(s.Streams.Out,
 			"The %q context is selected and names no organization.\n\n"+

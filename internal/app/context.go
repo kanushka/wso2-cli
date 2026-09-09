@@ -31,7 +31,7 @@ import (
 
 // The way back from each subcommand's usage refusals.
 const (
-	contextCreateUsage = "Run wso2 context create <name> --identity <identity> " +
+	contextCreateUsage = "Run wso2 context create <name> --account <identity> " +
 		"[--organization <name>] [--project <name>]."
 	contextUseUsage     = "Run wso2 context use <name>."
 	contextListUsage    = "Run wso2 context list [--output table|json]."
@@ -92,8 +92,8 @@ func (s Shell) contextCreateCommand() *cobra.Command {
 			return s.contextCreate(command, args[0], identity, organization, project)
 		},
 	}
-	command.Flags().StringVar(&identity, "identity", "",
-		"Authenticate this context as the named identity.")
+	command.Flags().StringVar(&identity, "account", "",
+		"Authenticate this context as the named account.")
 	command.Flags().StringVar(&organization, "organization", "",
 		"Run commands within this organization.")
 	// Accepted and left unvalidated on purpose: the field is already in schema
@@ -417,7 +417,7 @@ func (s Shell) contextCurrent(command *cobra.Command) error {
 	_, err = fmt.Fprintln(s.Streams.Out,
 		"No context is configured, so commands run against nothing.\n\n"+
 			"Run wso2 login to create an identity and a context, "+
-			"or wso2 context create <name> --identity <identity> if you already have one.")
+			"or wso2 context create <name> --account <identity> if you already have one.")
 	return err
 }
 

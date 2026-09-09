@@ -68,7 +68,7 @@ const connectVariableRule = "upper-case letters, digits and underscores, startin
 
 // connectUsage is the way back from connect's usage refusals.
 func connectUsage(namespace string) string {
-	return fmt.Sprintf("Run wso2 %s connect <url> [--identity <name>] [--login-provider <issuer-url>] "+
+	return fmt.Sprintf("Run wso2 %s connect <url> [--account <name>] [--login-provider <issuer-url>] "+
 		"[--client-id <id>] [--client-secret-variable <VAR>] [--audience <value>] "+
 		"[--scopes <list>] [--replace], or wso2 %s connect <gateway-url> --gateway to record the "+
 		"product's gateway.", namespace, namespace)
@@ -127,7 +127,7 @@ func (s Shell) connectCommand(namespace string, descriptor modules.ProductDescri
 	// Declared by hand, as the root declares its own: Cobra's default help
 	// text names the command by the first word of Use, which here is wso2.
 	f.BoolP("help", "h", false, "Show help for a command.")
-	f.StringVar(&flags.identity, "identity", "",
+	f.StringVar(&flags.identity, "account", "",
 		"The identity to record the product on, or to create; defaults to the selected context's, "+
 			"or to the provider's name for a new one.")
 	f.StringVar(&flags.loginProvider, "login-provider", "",
@@ -351,7 +351,7 @@ func planConnect(document contexts.Document, namespace string, descriptor module
 		if declaresIdentity(document, name) {
 			return connectPlan{}, problem.New(problem.CategoryUsage, "contexts.identity_exists",
 				fmt.Sprintf("an identity named %q already exists and authenticates against another issuer", name)).
-				WithRecovery("Pass --identity <name> to create this deployment's identity under another " +
+				WithRecovery("Pass --account <name> to create this deployment's identity under another " +
 					"name. Connecting never replaces an identity.")
 		}
 		if declaresContext(document, name) {

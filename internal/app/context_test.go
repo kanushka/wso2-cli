@@ -78,7 +78,7 @@ func TestContextCreateWritesASchemaVersionTwoContext(t *testing.T) {
 	installLogin(t, shell, identityOnlyDocument())
 
 	code := shell.Run([]string{"context", "create", "acme",
-		"--identity", "acme-cloud", "--organization", "acme", "--project", "retail"})
+		"--account", "acme-cloud", "--organization", "acme", "--project", "retail"})
 	if code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stdout: %s stderr: %s", code, exit.OK, out, errOut)
 	}
@@ -99,7 +99,7 @@ func TestContextCreateIsRefusedWhenTheNameIsTaken(t *testing.T) {
 	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "first"}}
 	installLogin(t, shell, seeded)
 
-	code := shell.Run([]string{"context", "create", "acme", "--identity", "acme-cloud",
+	code := shell.Run([]string{"context", "create", "acme", "--account", "acme-cloud",
 		"--organization", "second"})
 	if code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stdout: %s stderr: %s",
@@ -117,7 +117,7 @@ func TestContextCreateIsRefusedWhenTheIdentityDoesNotExist(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, identityOnlyDocument())
 
-	code := shell.Run([]string{"context", "create", "acme", "--identity", "nosuch"})
+	code := shell.Run([]string{"context", "create", "acme", "--account", "nosuch"})
 	if code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stdout: %s stderr: %s",
 			code, exit.Usage, out, errOut)
@@ -147,7 +147,7 @@ func TestContextCreateWithNoIdentitiesAtAllPointsAtLoginAlone(t *testing.T) {
 	// the one honest way forward.
 	shell, out, errOut := newShell(t)
 
-	code := shell.Run([]string{"context", "create", "acme", "--identity", "nosuch"})
+	code := shell.Run([]string{"context", "create", "acme", "--account", "nosuch"})
 	if code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stdout: %s stderr: %s",
 			code, exit.Usage, out, errOut)
@@ -173,7 +173,7 @@ func TestContextCreateNamesTheFlagWhenNoIdentityIsGiven(t *testing.T) {
 	if code := shell.Run([]string{"context", "create", "acme"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
 	}
-	if !strings.Contains(errOut.String(), "--identity") {
+	if !strings.Contains(errOut.String(), "--account") {
 		t.Errorf("the refusal does not name --identity:\n%s", errOut)
 	}
 }
@@ -182,7 +182,7 @@ func TestTheFirstContextCreatedBecomesTheDefault(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, identityOnlyDocument())
 
-	if code := shell.Run([]string{"context", "create", "acme", "--identity", "acme-cloud"}); code != exit.OK {
+	if code := shell.Run([]string{"context", "create", "acme", "--account", "acme-cloud"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	if selected := loadDocument(t, shell).DefaultContext; selected != "acme" {
@@ -199,10 +199,10 @@ func TestASecondContextCreatedDoesNotStealTheDefault(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	installLogin(t, shell, identityOnlyDocument())
 
-	if code := shell.Run([]string{"context", "create", "acme", "--identity", "acme-cloud"}); code != exit.OK {
+	if code := shell.Run([]string{"context", "create", "acme", "--account", "acme-cloud"}); code != exit.OK {
 		t.Fatalf("first create: exit code = %d; stderr: %s", code, errOut)
 	}
-	if code := shell.Run([]string{"context", "create", "beta", "--identity", "acme-cloud"}); code != exit.OK {
+	if code := shell.Run([]string{"context", "create", "beta", "--account", "acme-cloud"}); code != exit.OK {
 		t.Fatalf("second create: exit code = %d; stderr: %s", code, errOut)
 	}
 	if selected := loadDocument(t, shell).DefaultContext; selected != "acme" {
@@ -329,7 +329,7 @@ func TestContextCurrentOnAMachineWithNoDocumentSaysSoPlainly(t *testing.T) {
 
 func TestEveryContextSubcommandRendersJSON(t *testing.T) {
 	for name, args := range map[string][]string{
-		"create":  {"context", "create", "gamma", "--identity", "acme-cloud", "--output", "json"},
+		"create":  {"context", "create", "gamma", "--account", "acme-cloud", "--output", "json"},
 		"use":     {"context", "use", "beta", "--output", "json"},
 		"list":    {"context", "list", "--output", "json"},
 		"current": {"context", "current", "--output", "json"},
@@ -404,13 +404,13 @@ func TestNoContextSubcommandOpensANetworkConnection(t *testing.T) {
 	// where a well-meaning "let me check the issuer before I complain" would be
 	// added, and it is the path a first-run user reaches first.
 	invocations := map[string][]string{
-		"create":                 {"context", "create", "gamma", "--identity", "acme-cloud", "--organization", "acme"},
+		"create":                 {"context", "create", "gamma", "--account", "acme-cloud", "--organization", "acme"},
 		"use":                    {"context", "use", "beta"},
 		"list":                   {"context", "list"},
 		"current":                {"context", "current"},
-		"create, taken name":     {"context", "create", "acme", "--identity", "acme-cloud"},
-		"create, no identity":    {"context", "create", "delta", "--identity", "nosuch"},
-		"create, illegal name":   {"context", "create", "Delta", "--identity", "acme-cloud"},
+		"create, taken name":     {"context", "create", "acme", "--account", "acme-cloud"},
+		"create, no identity":    {"context", "create", "delta", "--account", "nosuch"},
+		"create, illegal name":   {"context", "create", "Delta", "--account", "acme-cloud"},
 		"create, no name":        {"context", "create"},
 		"use, unknown name":      {"context", "use", "nosuch"},
 		"list, stray argument":   {"context", "list", "extra"},
@@ -488,7 +488,7 @@ func TestContextCreateOnAVersionOneDocumentExplainsWhatToDo(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	installLegacy(t, shell)
 
-	if code := shell.Run([]string{"context", "create", "acme", "--identity", "legacy"}); code != exit.Usage {
+	if code := shell.Run([]string{"context", "create", "acme", "--account", "legacy"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
 	}
 	reported := errOut.String()
@@ -537,7 +537,7 @@ func TestSelectedIsABooleanWhereverItAppears(t *testing.T) {
 	installLogin(t, shell, identityOnlyDocument())
 
 	if code := shell.Run([]string{"context", "create", "acme",
-		"--identity", "acme-cloud", "--output", "json"}); code != exit.OK {
+		"--account", "acme-cloud", "--output", "json"}); code != exit.OK {
 		t.Fatalf("create: exit code = %d; stderr: %s", code, errOut)
 	}
 	var created map[string]any
@@ -632,7 +632,7 @@ func TestContextCreateRefusesANameTheDocumentCannotHold(t *testing.T) {
 			shell, _, errOut := newShell(t)
 			installLogin(t, shell, identityOnlyDocument())
 
-			code := shell.Run([]string{"context", "create", name, "--identity", "acme-cloud"})
+			code := shell.Run([]string{"context", "create", name, "--account", "acme-cloud"})
 			if code != exit.Usage {
 				t.Fatalf("exit code = %d, want the usage class %d; stderr: %s",
 					code, exit.Usage, errOut)
@@ -662,7 +662,7 @@ func TestTheFrozenDocumentRecoveryRoutesThroughLogin(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	installLegacy(t, shell)
 
-	if code := shell.Run([]string{"context", "create", "acme", "--identity", "legacy"}); code != exit.Usage {
+	if code := shell.Run([]string{"context", "create", "acme", "--account", "legacy"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
 	}
 	reported := errOut.String()
