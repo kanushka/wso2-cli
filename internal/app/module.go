@@ -660,29 +660,29 @@ func listSummary(statuses []install.Status) []string {
 		counts[stateOf(status)]++
 	}
 	if counts[stateCurrent] == len(statuses) {
-		return []string{"Every installed module is current."}
+		return []string{"Every installed product is current."}
 	}
 
 	var lines []string
 	if n := counts[stateUpdatable]; n > 0 {
 		lines = append(lines, fmt.Sprintf(
 			"%d %s an update available. Run wso2 module update --all to take %s.",
-			n, pluralize(n, "module has", "modules have"), pluralize(n, "it", "them")))
+			n, pluralize(n, "product has", "products have"), pluralize(n, "it", "them")))
 	}
 	if n := counts[stateCurrent]; n > 0 {
 		lines = append(lines, fmt.Sprintf("%d %s current.",
-			n, pluralize(n, "module is", "modules are")))
+			n, pluralize(n, "product is", "products are")))
 	}
 	if n := counts[statePinned]; n > 0 {
 		lines = append(lines, fmt.Sprintf(
 			"%d %s pinned and will not be updated.",
-			n, pluralize(n, "module is", "modules are")))
+			n, pluralize(n, "product is", "products are")))
 	}
 	if n := counts[stateUnpublished]; n > 0 {
 		lines = append(lines, fmt.Sprintf(
 			"%d %s not published on the channel %s, so whether %s current is unknown. "+
 				"Run wso2 module available to see what the catalog publishes.",
-			n, pluralize(n, "module is", "modules are"),
+			n, pluralize(n, "product is", "products are"),
 			pluralize(n, "it follows", "they follow"),
 			pluralize(n, "it is", "they are")))
 	}
