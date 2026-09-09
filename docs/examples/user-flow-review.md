@@ -604,7 +604,7 @@ HTTP call `call` then makes, so a failing `call` is still undiagnosable from
 Fixed in `fc85700`. Each built-in declares its own flags, so `--help` renders
 the set the command enforces, and the refusal names the command typed:
 `wso2 account list`, not `wso2 account`. Verified on `config`, `context`,
-`org`, `account`, `login`, `version`, and every `module` subcommand.
+`org`, `account`, `login`, `version`, and every `product` subcommand.
 
 Two residues, both new and both small: [F7](#f7--o-and---output-are-refused-with-different-errors-and-one-of-them-is-pflags),
 and the usage line is now inconsistent. Every nested subcommand renders
@@ -768,7 +768,7 @@ bare form.
 
 The fix folded each family's recovery sentence into its `Long`, so it is still
 the first thing printed and `wso2 config` and `wso2 config --help` now agree.
-All five families — `config`, `org`, `context`, `account`, `module` — share one
+All five families — `config`, `org`, `context`, `account`, `product` — share one
 helper, so they cannot drift apart.
 
 ### Minor: a JSON request gets a plain-text error

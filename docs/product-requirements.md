@@ -158,7 +158,7 @@ Requirements are classified as:
 - **P1:** The shell can suggest installation when a known official namespace is
   not installed.
 
-Initial namespace candidates are `agent`, `api`, `account`, and `integration`.
+Initial namespace candidates are `agent`, `api`, `identity`, and `integration`.
 The final names will be agreed with the product owners before the public
 contract is frozen.
 
