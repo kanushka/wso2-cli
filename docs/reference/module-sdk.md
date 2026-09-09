@@ -204,8 +204,10 @@ A denial arrives as a typed problem and should be returned unchanged.
 
 ```go
 type Result struct {
-	Schema string
-	Fields []Field
+	Schema  string
+	Fields  []Field
+	Columns []Column
+	Rows    []Row
 }
 
 type Field struct {
