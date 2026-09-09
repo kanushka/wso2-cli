@@ -48,10 +48,10 @@ func TestLoginGivesUpWhenTheBrowserNeverComesBack(t *testing.T) {
 	if err := fixture.WriteV2(root, contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: "acme-dev",
-		Identities: []contexts.Identity{{
+		Accounts: []contexts.Account{{
 			Name: "acme-cloud",
 			Type: "cloud",
-			Auth: contexts.IdentityAuth{
+			Auth: contexts.AccountAuth{
 				Kind:          contexts.KindOAuthBrowser,
 				Issuer:        issuer.URL,
 				ClientID:      "client-123",

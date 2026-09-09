@@ -301,7 +301,7 @@ func (s Shell) loginAccesses(selected contexts.Selection, flags loginFlags) ([]c
 // deployment that binds a login to one protected resource, RFC 8707 gives it
 // nothing to name, and sending the authorization anyway would ask an issuer
 // that requires a resource indicator for one this identity cannot supply.
-func checkLoginAccessBinds(identity contexts.Identity) error {
+func checkLoginAccessBinds(identity contexts.Account) error {
 	if identity.Auth.Derivation() != contexts.DerivationTokenResource ||
 		len(identity.Products) == 0 || identity.LoginAccess().Namespace != "" {
 		return nil
@@ -319,7 +319,7 @@ func checkLoginAccessBinds(identity contexts.Identity) error {
 // document written before this was required still decodes — see
 // contexts.Identity.validateDerivation — so the refusal belongs here, at the
 // one place that actually needs the resource, rather than at document load.
-func checkDerivedResource(identity contexts.Identity, access contexts.ProductAccess) error {
+func checkDerivedResource(identity contexts.Account, access contexts.ProductAccess) error {
 	if access.Strategy != contexts.StrategyDerived || access.Resource != "" ||
 		identity.Auth.Derivation() != contexts.DerivationTokenResource {
 		return nil
@@ -501,7 +501,7 @@ func (s Shell) reportLogin(selected contexts.Selection, outcome loginOutcome) er
 
 // productNamespaces names the product namespaces this identity claims to reach,
 // in a stable order.
-func productNamespaces(identity contexts.Identity) string {
+func productNamespaces(identity contexts.Account) string {
 	namespaces := slices.Sorted(maps.Keys(identity.Products))
 	if len(namespaces) == 0 {
 		return "none configured"

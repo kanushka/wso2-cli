@@ -70,8 +70,8 @@ func TestAPartialGrantIsRefusedInTheUsageClass(t *testing.T) {
 func TestAGrantProductJoinsAThunderIdentityWithADirectOne(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := selfHostedDocument()
-	seeded.Identities[0].Auth.Provider = contexts.ProviderThunder
-	seeded.Identities[0].Products = map[string]contexts.Product{
+	seeded.Accounts[0].Auth.Provider = contexts.ProviderThunder
+	seeded.Accounts[0].Products = map[string]contexts.Product{
 		"iam": {Endpoint: "https://thunder.customer.example", Audience: "https://thunder.customer.example/system"},
 	}
 	installLogin(t, shell, seeded)
@@ -109,8 +109,8 @@ func TestAnUnknownGrantKindIsRefused(t *testing.T) {
 func TestAFederatedGrantIsRecorded(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := selfHostedDocument()
-	seeded.Identities[0].Auth.Provider = contexts.ProviderThunder
-	seeded.Identities[0].Products = map[string]contexts.Product{
+	seeded.Accounts[0].Auth.Provider = contexts.ProviderThunder
+	seeded.Accounts[0].Products = map[string]contexts.Product{
 		"iam": {Endpoint: "https://thunder.customer.example", Audience: "https://thunder.customer.example/system"},
 	}
 	installLogin(t, shell, seeded)

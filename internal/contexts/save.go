@@ -227,6 +227,15 @@ func refuseFrozenDocument(stateRoot string) error {
 	if probe.SchemaVersion == SchemaVersion {
 		return nil
 	}
+	// The schema before the rename is understood completely — the accounts
+	// were named identities and nothing else differed — so it is upgraded in
+	// place rather than frozen. Freezing it would make every document an
+	// earlier shell wrote read-only, and the first command after an upgrade
+	// would refuse instead of working. Decode has already rewritten it to the
+	// current shape by the time anything is written back.
+	if probe.SchemaVersion == SchemaVersionAccounts {
+		return nil
+	}
 	return documentFrozen(path, probe.SchemaVersion)
 }
 

@@ -50,7 +50,7 @@ import (
 func deviceDeployment(t *testing.T, options fakeissuer.Options) *loginDeployment {
 	t.Helper()
 	return deployLogin(t, options, func(document *contexts.Document) {
-		document.Identities[0].Auth.Kind = contexts.KindOAuthDevice
+		document.Accounts[0].Auth.Kind = contexts.KindOAuthDevice
 	})
 }
 

@@ -46,9 +46,9 @@ const (
 // gateway one at the login provider for the API's own resource server.
 func gatewayDoc(loginIssuer, productIssuer string) contexts.Document {
 	document := browserDoc(loginIssuer)
-	document.Identities[0].Auth.Provider = contexts.ProviderThunder
-	document.Identities[0].LoginProduct = "iam"
-	document.Identities[0].Products = map[string]contexts.Product{
+	document.Accounts[0].Auth.Provider = contexts.ProviderThunder
+	document.Accounts[0].LoginProduct = "iam"
+	document.Accounts[0].Products = map[string]contexts.Product{
 		"iam": {Endpoint: loginIssuer, Audience: "https://localhost:8090/mcp", Scopes: []string{"system"}},
 		"apim": {Endpoint: productIssuer, Audience: "apim-cli", Scopes: []string{"apim:api_view"},
 			Grant: &contexts.Grant{Kind: contexts.GrantFederated, Issuer: productIssuer, ClientID: "apim-cli"},
@@ -146,7 +146,7 @@ func TestConnectGatewayRecordsTheGatewayOnTheProductAndReportsItsStrategy(t *tes
 	if code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	identity := loadDocument(t, shell).Identities[0]
+	identity := loadDocument(t, shell).Accounts[0]
 	product := identity.Products["apim"]
 	if product.Gateway == nil || product.Gateway.Endpoint != gatewayURL || product.Gateway.Audience != gatewayAudience ||
 		!slices.Equal(product.Gateway.Scopes, []string{"hello:read", "orders:read"}) {
@@ -174,7 +174,7 @@ func TestConnectGatewayRecordsTheGatewayOnTheProductAndReportsItsStrategy(t *tes
 	if code != exit.OK {
 		t.Fatalf("with --replace: exit %d: %s", code, errOut)
 	}
-	replaced := loadDocument(t, shell).Identities[0].Products["apim"].Gateway
+	replaced := loadDocument(t, shell).Accounts[0].Products["apim"].Gateway
 	if replaced.Endpoint != "https://other.example:8243" || replaced.Audience != "http://localhost:18090/orders" ||
 		len(replaced.Scopes) != 0 || !strings.Contains(out, "Replaced") {
 		t.Fatalf("gateway = %+v\n%s", replaced, out)
@@ -225,7 +225,7 @@ func TestConnectGatewayNeedsTheManagementRecordFirst(t *testing.T) {
 			t.Fatalf("%s: exit %d, stderr:\n%s", step, code, errOut)
 		}
 	}
-	if identity := loadDocument(t, shell).Identities[0]; identity.Products["apim"].Gateway != nil {
+	if identity := loadDocument(t, shell).Accounts[0]; identity.Products["apim"].Gateway != nil {
 		t.Errorf("a gateway was written: %+v", identity.Products)
 	}
 }
@@ -419,10 +419,10 @@ func TestWhoamiShowsTheGatewayRecordBesideTheManagementOne(t *testing.T) {
 	// A client-credentials identity reaches the gateway inline, like every
 	// other record.
 	machine := gatewayDoc("http://login.example", "http://apim.example")
-	machine.Identities[0].Auth.Kind = contexts.KindClientCredentials
-	machine.Identities[0].Auth.CredentialRef = ""
-	machine.Identities[0].Auth.ClientSecretVariable = "WSO2_CI_CLIENT_SECRET"
-	machine.Identities[0].LoginProduct = ""
+	machine.Accounts[0].Auth.Kind = contexts.KindClientCredentials
+	machine.Accounts[0].Auth.CredentialRef = ""
+	machine.Accounts[0].Auth.ClientSecretVariable = "WSO2_CI_CLIENT_SECRET"
+	machine.Accounts[0].LoginProduct = ""
 	installLogin(t, shell, machine)
 	out.Reset()
 	if code := shell.Run([]string{"whoami"}); code != exit.OK {

@@ -37,10 +37,10 @@ import (
 func identityOnlyDocument() contexts.Document {
 	return contexts.Document{
 		SchemaVersion: contexts.SchemaVersion,
-		Identities: []contexts.Identity{{
+		Accounts: []contexts.Account{{
 			Name: "acme-cloud",
 			Type: "cloud",
-			Auth: contexts.IdentityAuth{
+			Auth: contexts.AccountAuth{
 				Kind:          contexts.KindOAuthBrowser,
 				Issuer:        "https://idp.example",
 				ClientID:      "wso2-cli",

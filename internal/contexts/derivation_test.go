@@ -31,7 +31,7 @@ func TestAnIdentityDeclaringNothingDerivesByScopedRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got := document.Identities[0].Auth.Derivation(); got != contexts.DerivationScopedRefresh {
+	if got := document.Accounts[0].Auth.Derivation(); got != contexts.DerivationScopedRefresh {
 		t.Fatalf("an identity declaring no derivation derived by %q, want %q",
 			got, contexts.DerivationScopedRefresh)
 	}
@@ -45,7 +45,7 @@ func TestNamingThunderImpliesResourceBoundDerivation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got := document.Identities[0].Auth.Derivation(); got != contexts.DerivationTokenResource {
+	if got := document.Accounts[0].Auth.Derivation(); got != contexts.DerivationTokenResource {
 		t.Fatalf("a Thunder identity derived by %q, want %q",
 			got, contexts.DerivationTokenResource)
 	}
@@ -60,7 +60,7 @@ func TestAnExplicitDerivationOverridesWhatTheProviderImplies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got := document.Identities[0].Auth.Derivation(); got != contexts.DerivationScopedRefresh {
+	if got := document.Accounts[0].Auth.Derivation(); got != contexts.DerivationScopedRefresh {
 		t.Fatalf("an explicit derivation was overridden: got %q, want %q",
 			got, contexts.DerivationScopedRefresh)
 	}
@@ -76,7 +76,7 @@ func TestNamingAsgardeoOrIdentityServerLeavesTheDerivationAlone(t *testing.T) {
 			if err != nil {
 				t.Fatalf("decode: %v", err)
 			}
-			if got := document.Identities[0].Auth.Derivation(); got != contexts.DerivationScopedRefresh {
+			if got := document.Accounts[0].Auth.Derivation(); got != contexts.DerivationScopedRefresh {
 				t.Fatalf("provider %q derived by %q, want %q",
 					provider, got, contexts.DerivationScopedRefresh)
 			}

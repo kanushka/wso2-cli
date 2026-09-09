@@ -255,7 +255,7 @@ func (s Shell) contextCreate(command *cobra.Command, name, identity, organizatio
 			return document, contextExists(name)
 		}
 		if !declaresIdentity(document, identity) {
-			return document, unknownIdentity(identity, len(document.Identities) > 0)
+			return document, unknownIdentity(identity, len(document.Accounts) > 0)
 		}
 		// A fresh machine yields the zero document, whose schema version is
 		// zero rather than the one the shell writes.
@@ -582,7 +582,7 @@ func declaresContext(document contexts.Document, name string) bool {
 
 // declaresIdentity reports whether the document declares this identity.
 func declaresIdentity(document contexts.Document, name string) bool {
-	for _, candidate := range document.Identities {
+	for _, candidate := range document.Accounts {
 		if candidate.Name == name {
 			return true
 		}

@@ -35,10 +35,10 @@ func TestIdentityCreateWritesABrowserIdentityWithOneProduct(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	document := loadDocument(t, shell)
-	if len(document.Identities) != 1 {
-		t.Fatalf("identities = %+v", document.Identities)
+	if len(document.Accounts) != 1 {
+		t.Fatalf("identities = %+v", document.Accounts)
 	}
-	identity := document.Identities[0]
+	identity := document.Accounts[0]
 	if identity.Name != "thunder-admin" || identity.Type != "onprem" ||
 		identity.Auth.Kind != contexts.KindOAuthBrowser || identity.Auth.Provider != "thunder" ||
 		identity.Auth.Issuer != "http://localhost:8490" || identity.Auth.ClientID != "wso2-cli" ||
@@ -68,7 +68,7 @@ func TestIdentityCreateWithASecretVariableIsClientCredentials(t *testing.T) {
 	if code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	identity := loadDocument(t, shell).Identities[0]
+	identity := loadDocument(t, shell).Accounts[0]
 	if identity.Auth.Kind != contexts.KindClientCredentials ||
 		identity.Auth.ClientSecretVariable != "WSO2_APIM_CLIENT_SECRET" || identity.Auth.CredentialRef != "" {
 		t.Errorf("identity = %+v", identity)
@@ -94,8 +94,8 @@ func TestIdentityCreateRefusesAThunderProductWithoutAnAudience(t *testing.T) {
 		!strings.Contains(errOut.String(), "--audience") {
 		t.Errorf("stderr:\n%s", errOut)
 	}
-	if document := loadDocument(t, shell); len(document.Identities) != 0 {
-		t.Errorf("a refused identity was written: %+v", document.Identities)
+	if document := loadDocument(t, shell); len(document.Accounts) != 0 {
+		t.Errorf("a refused identity was written: %+v", document.Accounts)
 	}
 }
 

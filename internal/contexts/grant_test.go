@@ -44,7 +44,7 @@ func TestAProductMayNameAGrantAtAnotherIssuer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	product := document.Identities[0].Products["apim"]
+	product := document.Accounts[0].Products["apim"]
 	if product.Grant == nil {
 		t.Fatal("the grant was not read")
 	}
@@ -61,7 +61,7 @@ func TestAProductMayNameAGrantAtAnotherIssuer(t *testing.T) {
 	if !strings.Contains(string(encoded), `"grant"`) || !strings.Contains(string(encoded), `"jwt-bearer"`) {
 		t.Fatalf("the grant did not survive encoding:\n%s", encoded)
 	}
-	if !document.Identities[0].Products["reference"].Direct() || product.Direct() {
+	if !document.Accounts[0].Products["reference"].Direct() || product.Direct() {
 		t.Fatal("Direct did not tell the two products apart")
 	}
 }
@@ -119,8 +119,8 @@ func TestAThunderIdentityMayServeASecondProductByGrant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a Thunder identity with one direct product and one grant product was refused: %v", err)
 	}
-	if len(document.Identities[0].Products) != 2 {
-		t.Fatalf("read %d products, want 2", len(document.Identities[0].Products))
+	if len(document.Accounts[0].Products) != 2 {
+		t.Fatalf("read %d products, want 2", len(document.Accounts[0].Products))
 	}
 	// A second direct product is a sibling session under its own resource
 	// indicator, exactly as it is without a grant product alongside it: the
@@ -145,8 +145,8 @@ func TestAThunderJWTBearerGrantDecodesWithOrWithoutAnAssertionResource(t *testin
 	if err != nil {
 		t.Fatalf("a Thunder jwt-bearer grant without resource was refused: %v", err)
 	}
-	if len(document.Identities[0].Products) != 2 {
-		t.Fatalf("read %d products, want 2", len(document.Identities[0].Products))
+	if len(document.Accounts[0].Products) != 2 {
+		t.Fatalf("read %d products, want 2", len(document.Accounts[0].Products))
 	}
 
 	grantWithResource := `{"kind": "jwt-bearer", ` +
@@ -157,8 +157,8 @@ func TestAThunderJWTBearerGrantDecodesWithOrWithoutAnAssertionResource(t *testin
 	if err != nil {
 		t.Fatalf("a Thunder jwt-bearer grant with resource was refused: %v", err)
 	}
-	if len(document.Identities[0].Products) != 2 {
-		t.Fatalf("read %d products, want 2", len(document.Identities[0].Products))
+	if len(document.Accounts[0].Products) != 2 {
+		t.Fatalf("read %d products, want 2", len(document.Accounts[0].Products))
 	}
 }
 
@@ -172,7 +172,7 @@ func TestAnExchangeGrantNamesNeitherAnIssuerNorAClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	product := document.Identities[0].Products["apim"]
+	product := document.Accounts[0].Products["apim"]
 	if product.Grant == nil || product.Grant.Kind != contexts.GrantExchange {
 		t.Fatalf("the exchange grant was read as %+v", product.Grant)
 	}

@@ -112,7 +112,7 @@ func (s Shell) loginCreating(flags loginFlags) error {
 			// same pattern, so a name the document accepts is a reference it
 			// accepts. It carries no products, because this login discovers
 			// none, and the report names the command that records them.
-			document.Identities = append(document.Identities, planned.Identity)
+			document.Accounts = append(document.Accounts, planned.Identity)
 			written.CreatedIdentity = true
 		}
 		if !declaresContext(document, name) {
@@ -221,14 +221,14 @@ func refuseNonIssuerURL(issuer string) error {
 // replaced — the issuer and client it names are not recorded anywhere else, so
 // overwriting them is the one thing the user could not undo (#112 D7).
 func planLogin(document contexts.Document, name, issuer, clientID string) (contexts.Selection, error) {
-	identity := contexts.Identity{
+	identity := contexts.Account{
 		Name: name,
 		// Derived from the issuer, not asserted: an issuer on a WSO2-operated
 		// cloud host records "cloud" and anything else records "onprem", so the
 		// document says what kind of deployment was actually logged in to.
 		// contexts.IdentityTypeForIssuer explains why the member is descriptive.
 		Type: contexts.IdentityTypeForIssuer(issuer),
-		Auth: contexts.IdentityAuth{
+		Auth: contexts.AccountAuth{
 			Kind:          contexts.KindOAuthBrowser,
 			Issuer:        issuer,
 			ClientID:      clientID,
@@ -240,7 +240,7 @@ func planLogin(document contexts.Document, name, issuer, clientID string) (conte
 			Tenant: contexts.TenantForIssuer(issuer),
 		},
 	}
-	for _, declared := range document.Identities {
+	for _, declared := range document.Accounts {
 		if declared.Name != name {
 			continue
 		}
@@ -348,7 +348,7 @@ func missingClientID(because string) problem.Problem {
 // file, and an identity that reaches no product is a first run that stops here
 // unless the command that fixes it is named where the user is standing (#118
 // acceptance criterion 9).
-func (s Shell) reportLoginWrite(written loginWrite, identity contexts.Identity) error {
+func (s Shell) reportLoginWrite(written loginWrite, identity contexts.Account) error {
 	switch {
 	case written.CreatedIdentity && written.CreatedContext:
 		if _, err := fmt.Fprintf(s.Streams.Out, "\nCreated identity %q and context %q.\n",

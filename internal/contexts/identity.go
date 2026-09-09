@@ -195,16 +195,16 @@ func TenantForIssuer(issuer string) string {
 // this pattern is the enforcement of.
 var refPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 
-// Identity is one authentication arrangement the shell can log in as. It names
+// Account is one authentication arrangement the shell can log in as. It names
 // where credentials come from and never holds one.
-type Identity struct {
+type Account struct {
 	// Name identifies the identity; contexts reference it.
 	Name string `json:"name"`
 	// Type says whether the identity targets a cloud or on-premises
 	// deployment. It is "cloud" or "onprem".
 	Type string `json:"type"`
 	// Auth says how the shell authenticates as this identity.
-	Auth IdentityAuth `json:"auth"`
+	Auth AccountAuth `json:"auth"`
 	// Products are the product services reachable under this identity, keyed
 	// by product namespace.
 	Products map[string]Product `json:"products,omitempty"`
@@ -219,9 +219,9 @@ type Identity struct {
 	synthetic bool
 }
 
-// IdentityAuth is an identity's authentication arrangement. Every member is a
+// AccountAuth is an identity's authentication arrangement. Every member is a
 // name or a location; none holds a credential.
-type IdentityAuth struct {
+type AccountAuth struct {
 	// Kind identifies how the shell obtains access.
 	Kind string `json:"kind"`
 	// Issuer is the token issuer the shell authenticates against.
@@ -259,7 +259,7 @@ type IdentityAuth struct {
 // requires, and an explicit derivation states what this deployment actually
 // does. Saying both is legal, because a deployment that has not registered a
 // resource server is a real state and the document has to be able to say so.
-func (a IdentityAuth) Derivation() string {
+func (a AccountAuth) Derivation() string {
 	if a.Narrowing != "" {
 		return a.Narrowing
 	}
@@ -393,9 +393,9 @@ func (p Product) Direct() bool { return p.Grant == nil }
 
 // Synthetic reports whether this identity was manufactured by the v1
 // compatibility read. A synthetic identity is readable but never written back.
-func (i Identity) Synthetic() bool { return i.synthetic }
+func (i Account) Synthetic() bool { return i.synthetic }
 
-func (i Identity) validate() error {
+func (i Account) validate() error {
 	if !namePattern.MatchString(i.Name) {
 		return malformed(fmt.Sprintf("declares an invalid identity name %q", i.Name))
 	}
@@ -444,7 +444,7 @@ func (i Identity) validate() error {
 // products — each becomes its own resource-bound session, the login's or a
 // sibling's, since the deployments this derivation serves accept only one
 // resource indicator per authorization, not one product per identity.
-func (i Identity) validateDerivation() error {
+func (i Account) validateDerivation() error {
 	if i.Auth.Derivation() != DerivationTokenResource {
 		return nil
 	}
@@ -509,7 +509,7 @@ func absoluteURI(value string) bool {
 	return err == nil && parsed.Scheme != "" && parsed.Fragment == ""
 }
 
-func (a IdentityAuth) validate(identity string) error {
+func (a AccountAuth) validate(identity string) error {
 	if a.Provider != "" {
 		if _, known := providerDerivation[a.Provider]; !known {
 			return malformed(fmt.Sprintf(

@@ -34,8 +34,8 @@ import (
 // federated product at a second issuer.
 func thunderDoc(loginIssuer, productIssuer string) contexts.Document {
 	document := browserDoc(loginIssuer)
-	document.Identities[0].Auth.Provider = contexts.ProviderThunder
-	document.Identities[0].Products = map[string]contexts.Product{
+	document.Accounts[0].Auth.Provider = contexts.ProviderThunder
+	document.Accounts[0].Products = map[string]contexts.Product{
 		"iam": {Endpoint: loginIssuer, Audience: "https://localhost:8090/mcp", Scopes: []string{"system"}},
 		"gateway": {Endpoint: "https://gw.example", Audience: "http://localhost:18080/mockapi",
 			Scopes: []string{"orders:read"}},
@@ -145,7 +145,7 @@ func TestLoginWithNoProductsReportsTheBareSession(t *testing.T) {
 	keyring.MockInit()
 	login := fakeissuer.New(t, fakeissuer.Options{RefreshScopeMode: "honor"})
 	document := browserDoc(login.URL)
-	document.Identities[0].Products = nil
+	document.Accounts[0].Products = nil
 	shell, out, errOut := newLoginShell(t)
 	installLogin(t, shell, document)
 	followBrowser(&shell)
@@ -225,8 +225,8 @@ func TestLoginRefusesWhenEveryProductIsReachedByAGrant(t *testing.T) {
 	keyring.MockInit()
 	login := fakeissuer.New(t, fakeissuer.Options{RequireResource: true})
 	document := browserDoc(login.URL)
-	document.Identities[0].Auth.Provider = contexts.ProviderThunder
-	document.Identities[0].Products = map[string]contexts.Product{
+	document.Accounts[0].Auth.Provider = contexts.ProviderThunder
+	document.Accounts[0].Products = map[string]contexts.Product{
 		"apim": {Endpoint: login.URL, Audience: "apim-cli", Scopes: []string{"apim:api_view"},
 			Grant: &contexts.Grant{Kind: contexts.GrantFederated, Issuer: login.URL, ClientID: "apim-cli"}},
 	}
