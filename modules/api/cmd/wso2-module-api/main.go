@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Command {{.Executable}} is the WSO2 CLI {{.Namespace}} product module.
+// Command wso2-module-api is the WSO2 CLI api product module.
 //
 // It is built against the public SDK alone and imports no shell package, which
 // is what lets it be released, installed, and updated on its own schedule.
@@ -39,12 +39,12 @@ import (
 
 // Namespace is the product namespace this module owns. It is the first word of
 // every command the module answers.
-const Namespace = "{{.Namespace}}"
+const Namespace = "api"
 
 // StatusSchema identifies the semantic shape of this module's status result.
 // The shell renders it without interpreting it, so a consumer of JSON output
 // can rely on the name to know what the fields mean.
-const StatusSchema = "{{.Namespace}}.status/v1"
+const StatusSchema = "api.status/v1"
 
 // NextField is the field name the shell renders as a trailing next-step line.
 // Every result this module returns ends with it, so a user is never left
@@ -67,7 +67,7 @@ func main() {
 	// shell as well, which is what lets the shell answer --help, name a
 	// mistyped command, and parse this module's flags before it is launched.
 	if err := commands().Serve(context.Background(), moduleOptions()); err != nil {
-		fmt.Fprintf(os.Stderr, "{{.Executable}}: %v\n", err)
+		fmt.Fprintf(os.Stderr, "wso2-module-api: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -95,7 +95,7 @@ func moduleOptions() module.Options {
 func commands() *cobratree.Tree {
 	root := &cobra.Command{
 		Use:   Namespace,
-		Short: "{{.Title}} commands for the WSO2 CLI.",
+		Short: "Api commands for the WSO2 CLI.",
 	}
 	statusCommand := &cobra.Command{
 		Use:   "status",
@@ -107,7 +107,7 @@ func commands() *cobratree.Tree {
 		Handle(statusCommand, status)
 }
 
-// status answers "wso2 {{.Namespace}} status".
+// status answers "wso2 api status".
 //
 // It reports what it can know without asking anything of the shell, so a freshly
 // generated module answers before it has been given an identity to act as. Call
@@ -115,10 +115,10 @@ func commands() *cobratree.Tree {
 // request.Access.Acquire is how a handler obtains short-lived access to it.
 func status(ctx context.Context, request module.Request) (result.Result, error) {
 	next := "Record where this product runs on the identity you log in with: " +
-		"wso2 account add-product <account> {{.Namespace}} --endpoint <url>, or " +
-		"wso2 {{.Namespace}} connect <url> once module.json declares a product descriptor."
+		"wso2 account add-product <account> api --endpoint <url>, or " +
+		"wso2 api connect <url> once module.json declares a product descriptor."
 	if request.Context.Endpoint != "" {
-		next = "Run wso2 {{.Namespace}} --help to see what this module can do at " + request.Context.Endpoint + "."
+		next = "Run wso2 api --help to see what this module can do at " + request.Context.Endpoint + "."
 	}
 	return result.New(StatusSchema).
 		With("namespace", "Namespace", Namespace).
