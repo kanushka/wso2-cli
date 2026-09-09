@@ -738,8 +738,9 @@ browser that will never open:
 $ wso2 login --no-input                                         # decided
 Error: browser login cannot run in non-interactive mode, which --no-input asked for
 
-  Use a client-credentials identity for automation; it acquires access inline
-  without a login step.
+  Automation uses a client-credentials identity, which acquires access inline
+  without a login step. No command creates one yet: declare it in the context
+  document at $WSO2_HOME/cli/contexts.json.
 ```
 
 **The configuration this runs against.** Authored once, no login ever:

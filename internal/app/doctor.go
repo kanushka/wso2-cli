@@ -55,10 +55,18 @@ const (
 )
 
 // The outcomes a check reports.
+//
+// none is the session check's word for a configured context nobody is logged
+// in to. That state needed a fourth word because the other three each say
+// something untrue of it: pass claims a session exists, fail claims the
+// machine is broken when being logged out is the state a confirmed
+// wso2 logout deliberately leaves behind, and not-applicable claims the check
+// could not be asked, when in fact it ran and established the absence.
 const (
 	statusPass          = "pass"
 	statusFail          = "fail"
 	statusNotApplicable = "not-applicable"
+	statusNone          = "none"
 )
 
 // severityRank orders the checks whose failure can decide the exit status,
@@ -239,37 +247,47 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 		default:
 			var missing []string
 			for _, access := range selected.Identity.Accesses() {
-				if _, sessionErr := store.Load(access.SessionRef); sessionErr != nil {
-					if !isNoSession(sessionErr) {
-						// An unusable secure store is the one failure worth
-						// stopping on: the loop cannot tell a genuinely
-						// missing session from one it simply could not ask
-						// about, so it fails the check on the store's own
-						// terms instead of reporting products as missing
-						// that might well have a session.
-						typed := doctorProblem(sessionErr)
-						failures[checkSession] = typed
-						findings = append(findings, failFinding(checkSession, typed))
-						missing = nil
-						break
-					}
-					name := access.Namespace
-					if name == "" {
-						name = "the login session"
-					}
+				name := access.Namespace
+				if name == "" {
+					name = "the login session"
+				}
+				stored, storedErr := store.Stored(access.SessionRef)
+				if storedErr != nil {
+					// An unusable secure store is the one failure worth
+					// stopping on: the loop cannot tell a genuinely missing
+					// session from one it simply could not ask about, so it
+					// fails the check on the store's own terms instead of
+					// reporting products as missing that might well have one.
+					typed := doctorProblem(storedErr)
+					failures[checkSession] = typed
+					findings = append(findings, failFinding(checkSession, typed))
+					missing = nil
+					break
+				}
+				if !stored {
+					// A product nobody is logged in to is a normal state, not
+					// a health fault: a confirmed wso2 logout leaves exactly
+					// this machine behind. Only absence is normal; an entry
+					// that exists but cannot be read still fails.
 					missing = append(missing, name)
+					continue
+				}
+				if _, sessionErr := store.Load(access.SessionRef); sessionErr != nil {
+					typed := doctorProblem(sessionErr)
+					failures[checkSession] = typed
+					findings = append(findings, failFinding(checkSession, typed))
+					missing = nil
+					break
 				}
 			}
+			if _, failed := failures[checkSession]; failed {
+				break
+			}
 			if len(missing) > 0 {
-				typed := problem.New(problem.CategoryAuthPolicy, "auth.login_required",
-					fmt.Sprintf("no stored session exists for %s. Run wso2 login to authorize "+
-						"every product, or wso2 login --only <product> for one.",
-						strings.Join(missing, ", "))).
-					WithRecovery("Run wso2 login to authorize every product, or " +
-						"wso2 login --only <product> for one.")
-				failures[checkSession] = typed
-				findings = append(findings, failFinding(checkSession, typed))
-			} else if _, failed := failures[checkSession]; !failed {
+				findings = append(findings, noneFinding(checkSession,
+					fmt.Sprintf("no stored session exists for %s", strings.Join(missing, ", ")),
+					"Run wso2 login to authorize every product, or wso2 login --only <product> for one."))
+			} else {
 				findings = append(findings, passFinding(checkSession,
 					"a stored session exists for every product of the selected context"))
 			}
@@ -282,7 +300,7 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 		if issuerErr != nil {
 			failures[checkIssuer] = *issuerErr
 		}
-		finding, catalogErr := catalogCheck(root)
+		finding, catalogErr := catalogCheck(root, s.log)
 		findings = append(findings, finding)
 		if catalogErr != nil {
 			failures[checkCatalog] = *catalogErr
@@ -345,11 +363,14 @@ func issuerCheck(selected *contexts.Selection) (doctorFinding, *problem.Problem)
 // return value is non-nil exactly when the finding is a failure, so the
 // caller can add it to doctor's failures map without re-deriving the outcome
 // from the finding's Status string.
-func catalogCheck(stateRoot string) (doctorFinding, *problem.Problem) {
+func catalogCheck(stateRoot string, log catalog.DebugLog) (doctorFinding, *problem.Problem) {
 	ctx, cancel := context.WithTimeout(context.Background(), onlineProbeTimeout)
 	defer cancel()
 	origin := catalog.Origin(stateRoot)
-	client := catalog.Client{Origin: origin}
+	// The log is the same one --verbose turns on for module commands, so a
+	// probe that fails for transport reasons surfaces the raw detail there
+	// exactly as wso2 module list would (review on #161).
+	client := catalog.Client{Origin: origin, OriginConfigured: catalog.OriginConfigured(stateRoot), Log: log}
 	if _, err := client.Index(ctx); err != nil {
 		typed := doctorProblem(err)
 		return failFinding(checkCatalog, typed), &typed
@@ -396,6 +417,10 @@ func passFinding(check, detail string) doctorFinding {
 
 func notApplicableFinding(check, detail string) doctorFinding {
 	return doctorFinding{Check: check, Status: statusNotApplicable, Detail: detail}
+}
+
+func noneFinding(check, detail, recovery string) doctorFinding {
+	return doctorFinding{Check: check, Status: statusNone, Detail: detail, Recovery: recovery}
 }
 
 func failFinding(check string, typed problem.Problem) doctorFinding {

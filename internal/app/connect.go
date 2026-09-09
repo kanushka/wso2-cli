@@ -461,7 +461,7 @@ func newConnectIdentity(name string, descriptor modules.ProductDescriptor, issue
 		auth.ClientSecretVariable = flags.clientSecretVariable
 		auth.CredentialRef = ""
 	}
-	return contexts.Identity{Name: name, Type: identityType, Auth: auth}
+	return contexts.Identity{Name: name, Type: contexts.IdentityTypeForIssuer(issuer), Auth: auth}
 }
 
 // connectKind names the identity kind the flags ask for, for a refusal.

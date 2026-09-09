@@ -97,7 +97,7 @@ func statusInvocation() Invocation {
 		Namespace:  testNamespace,
 		Command:    []string{"status"},
 		OutputMode: protocol.OutputModeJSON,
-		Context:    InvocationContext{Name: "default"},
+		Context:    InvocationContext{Name: "reference-local"},
 	}
 }
 
@@ -227,8 +227,30 @@ func TestTheInvocationCarriesTheCommandOutputModePolicyAndContext(t *testing.T) 
 		t.Errorf("the invocation carries deadline %dms, want the shell default %dms",
 			invoke.GetPolicy().GetDeadlineMillis(), DefaultTimeout.Milliseconds())
 	}
-	if invoke.GetContext().GetName() != "default" {
-		t.Errorf("the invocation carries context %q, want %q", invoke.GetContext().GetName(), "default")
+	if invoke.GetContext().GetName() != "reference-local" {
+		t.Errorf("the invocation carries context %q, want %q", invoke.GetContext().GetName(), "reference-local")
+	}
+}
+
+func TestAnEmptySelectionReachesTheModuleWithNoContextName(t *testing.T) {
+	// A shell with no contexts configured runs against the empty selection,
+	// and the module is told exactly that. Substituting a name here — any
+	// name — would hand the module a context the shell cannot list and the
+	// user cannot select.
+	var toModule bytes.Buffer
+	invocation := statusInvocation()
+	invocation.Context = InvocationContext{}
+
+	if _, err := testSession().Run(&toModule, moduleStream(t, conformingHello(), statusResult()), invocation); err != nil {
+		t.Fatalf("a conforming exchange failed: %v", err)
+	}
+
+	invoke := shellMessages(t, &toModule)[1].GetInvoke()
+	if invoke == nil {
+		t.Fatal("the shell's second message was not an invocation")
+	}
+	if name := invoke.GetContext().GetName(); name != "" {
+		t.Errorf("the empty selection reached the module as context %q, want none", name)
 	}
 }
 

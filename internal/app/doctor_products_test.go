@@ -27,7 +27,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/exit"
 )
 
-func TestDoctorFailsTheSessionCheckNamingTheProductsWithoutOne(t *testing.T) {
+func TestDoctorReportsNoneNamingTheProductsWithoutASession(t *testing.T) {
 	keyring.MockInit()
 	shell, out, _ := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
@@ -36,13 +36,15 @@ func TestDoctorFailsTheSessionCheckNamingTheProductsWithoutOne(t *testing.T) {
 	if err := store.Save(credentialRef, session.Session{Issuer: "http://login.example", RefreshToken: "rt"}); err != nil {
 		t.Fatal(err)
 	}
+	// Being logged out of a product is the state wso2 logout leaves behind,
+	// so the check names the products without a session and still exits 0.
 	code := shell.Run([]string{"doctor", "--output", "json"})
-	if code == exit.OK {
-		t.Fatal("doctor passed with two products lacking sessions")
+	if code != exit.OK {
+		t.Fatalf("exit %d, want %d for products that are merely logged out", code, exit.OK)
 	}
 	finding := decodeDoctorReport(t, out.Bytes()).findingFor(t, "session")
-	if finding.Status != "fail" || !strings.Contains(finding.Detail, "apim") || !strings.Contains(finding.Detail, "iam") ||
-		!strings.Contains(finding.Detail, "wso2 login --only") {
+	if finding.Status != "none" || !strings.Contains(finding.Detail, "apim") || !strings.Contains(finding.Detail, "iam") ||
+		!strings.Contains(finding.Recovery, "wso2 login --only") {
 		t.Fatalf("finding %+v", finding)
 	}
 }

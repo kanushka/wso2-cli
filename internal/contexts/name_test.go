@@ -34,7 +34,21 @@ func TestIdentityNameForIssuer(t *testing.T) {
 		{"https://idp.customer.example/oauth2/token", "idp-customer-example"},
 		{"https://IDP.Customer.Example", "idp-customer-example"},
 		{"https://idp.customer.example:8443", "idp-customer-example"},
-		{"https://api.asgardeo.io/t/acme/oauth2/token", "api-asgardeo-io"},
+		// An Asgardeo issuer derives from the tenant in its path, not the
+		// shared host: every tenant lives on api.asgardeo.io, so a host-derived
+		// name would be the same for all of them and a second organization's
+		// login would collide with the first's.
+		{"https://api.asgardeo.io/t/acme/oauth2/token", "acme-asgardeo"},
+		{"https://api.asgardeo.io/t/globex/oauth2/token", "globex-asgardeo"},
+		// A tenant with characters a name may not carry is sanitised the way
+		// the host rule sanitises dots.
+		{"https://api.asgardeo.io/t/Acme_Corp/oauth2/token", "acme-corp-asgardeo"},
+		// An Asgardeo issuer without the tenant-qualified path keeps the host
+		// rule: there is no tenant to derive, and the derivation fails closed.
+		{"https://api.asgardeo.io/oauth2/token", "api-asgardeo-io"},
+		// A non-Asgardeo issuer keeps the host rule even when its path looks
+		// tenant-qualified; only Asgardeo's own zone makes that path a claim.
+		{"https://idp.customer.example/t/acme/oauth2/token", "idp-customer-example"},
 	} {
 		got, err := contexts.IdentityNameForIssuer(testCase.issuer)
 		if err != nil {

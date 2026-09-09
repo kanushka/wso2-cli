@@ -42,6 +42,11 @@ const (
 // it. The wording is a user-facing contract, so it is templated rather than
 // left to Cobra's default layout. What Cobra supplies is that the command list
 // is walked from the real tree, so it cannot omit a command that exists.
+//
+// The product-commands footer is read from an annotation rather than written
+// here, because what it says depends on what is installed: productFooter fills
+// it in when a help page is rendered, and only then, so a command that never
+// shows help still reads no module store.
 const helpTemplate = `Usage: {{.UseLine}}
 {{if .Long}}
 {{.Long}}
@@ -51,16 +56,26 @@ Shell commands
 {{end}}{{end}}{{end}}{{if .HasAvailableFlags}}
 Flags
 {{.Flags.FlagUsages}}{{end}}{{if not .HasParent}}
-Product commands are provided by installed modules.
+{{.Annotations.productFooter}}
 {{end}}`
+
+// productFooterAnnotation names the root annotation the help template reads
+// the product-commands footer from.
+const productFooterAnnotation = "productFooter"
+
+// genericProductFooter is what the footer says when the module store cannot
+// say more. Help has to render whatever state the machine is in, so an
+// unreadable store costs the reader the listing, never the page.
+const genericProductFooter = "Product commands are provided by installed modules."
 
 // rootCommand builds the shell's command tree.
 //
 // Only shell-owned commands are registered. A product namespace is resolved
 // from the managed module store instead, so built-in precedence stays a
 // property of dispatch order rather than an interaction between Cobra's command
-// lookup and a command set discovered at runtime, and so asking for help reads
-// no module store.
+// lookup and a command set discovered at runtime. The store is read for help
+// exactly once, when a page that names the installed modules is rendered, and
+// never to build the tree.
 func (s Shell) rootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:  "wso2 <command> [arguments]",
@@ -106,6 +121,19 @@ func (s Shell) rootCommand() *cobra.Command {
 	})
 	root.SetHelpTemplate(helpTemplate)
 	root.SetUsageTemplate(helpTemplate)
+	// The footer starts generic so that a usage render — which skips the help
+	// hook below — still has something truthful to say, and is filled in from
+	// the installed inventory only when a help page is actually shown. A user
+	// who has just installed a module looks at help first, and a footer that
+	// never mentioned the installation read as the installation having failed.
+	root.Annotations = map[string]string{productFooterAnnotation: genericProductFooter}
+	renderHelp := root.HelpFunc()
+	root.SetHelpFunc(func(command *cobra.Command, args []string) {
+		if !command.HasParent() {
+			command.Annotations[productFooterAnnotation] = s.productFooter()
+		}
+		renderHelp(command, args)
+	})
 	root.SetOut(s.Streams.Out)
 	root.SetErr(s.Streams.Err)
 
@@ -136,14 +164,47 @@ func (s Shell) rootCommand() *cobra.Command {
 		s.whoamiCommand())
 
 	// Cobra's generated help command describes itself generically. The shell
-	// published its own summary for it, and that wording is kept.
+	// published its own summary for it, and that wording is kept. Its body is
+	// replaced too: Cobra's own answers an unrecognized topic with the root
+	// page and success, which told a user asking about an installed module —
+	// or a typo — that they had asked about nothing in particular. helpTopic
+	// answers a product namespace from its declaration and refuses an unknown
+	// name the way dispatch does.
 	root.InitDefaultHelpCmd()
 	for _, command := range root.Commands() {
 		if command.Name() == "help" {
 			command.Short = "Show the shell command tree."
+			command.Run = nil
+			command.RunE = func(command *cobra.Command, args []string) error {
+				return s.helpTopic(command.Root(), args)
+			}
 		}
 	}
 	return root
+}
+
+// productFooter renders the help page's product-commands footer from the same
+// receipts wso2 version reports from. Nothing is launched to do it, and a
+// store that cannot be read degrades to the generic footer: a broken state
+// root must not take the help page with it.
+func (s Shell) productFooter() string {
+	store, err := s.store()
+	if err != nil {
+		return genericProductFooter
+	}
+	installed, _, err := store.Inventory()
+	if err != nil {
+		return genericProductFooter
+	}
+	if len(installed) == 0 {
+		return genericProductFooter + " None are installed; run wso2 module available to see what can be."
+	}
+	namespaces := make([]string, 0, len(installed))
+	for _, entry := range installed {
+		namespaces = append(namespaces, entry.Namespace)
+	}
+	return fmt.Sprintf("%s Installed: %s.\nRun wso2 <namespace> --help to see a module's commands.",
+		genericProductFooter, strings.Join(namespaces, ", "))
 }
 
 // applyShellFlags refuses an unusable value for a shell-owned flag before any

@@ -97,11 +97,13 @@ func TestDoctorCountsTheGatewaySessionBesideTheManagementOne(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if code := shell.Run([]string{"doctor", "--output", "json"}); code == exit.OK {
-		t.Fatal("doctor passed with the gateway session missing")
+	// A gateway nobody is logged in to is reported as none, the same way
+	// every other record without a session is, and the run still exits 0.
+	if code := shell.Run([]string{"doctor", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit %d, want %d with the gateway session merely absent", code, exit.OK)
 	}
 	finding := decodeDoctorReport(t, out.Bytes()).findingFor(t, "session")
-	if finding.Status != "fail" || !strings.Contains(finding.Detail, "apim/gateway") ||
+	if finding.Status != "none" || !strings.Contains(finding.Detail, "apim/gateway") ||
 		strings.Contains(finding.Detail, "iam") {
 		t.Fatalf("finding %+v", finding)
 	}

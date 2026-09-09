@@ -199,7 +199,7 @@ func plannedIdentity(name string, flags identityCreateFlags) (contexts.Identity,
 			WithRecovery("Pass --audience with the resource server's identifier as the deployment registers it. " +
 				identityCreateUsage)
 	}
-	identity := contexts.Identity{Name: name, Type: identityType, Auth: auth}
+	identity := contexts.Identity{Name: name, Type: contexts.IdentityTypeForIssuer(auth.Issuer), Auth: auth}
 	if flags.product != "" {
 		identity.Products = map[string]contexts.Product{
 			flags.product: {Endpoint: flags.endpoint, Audience: flags.audience, Scopes: flags.scopes},

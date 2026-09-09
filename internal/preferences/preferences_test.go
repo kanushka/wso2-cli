@@ -245,3 +245,54 @@ func writeRawDocument(t *testing.T, stateRoot, contents string) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 }
+
+// TestUnsetClearsAKeyAndLeavesTheOtherAlone proves the write half of
+// wso2 config unset at the document level: the named key reads back unset,
+// and the key that was not named is untouched.
+func TestUnsetClearsAKeyAndLeavesTheOtherAlone(t *testing.T) {
+	document := preferences.Document{SchemaVersion: preferences.SchemaVersion}
+	document, err := document.Set(preferences.KeyOutputMode, "json")
+	if err != nil {
+		t.Fatalf("Set(output): %v", err)
+	}
+	document, err = document.Set(preferences.KeyCatalogOrigin, "https://example.com")
+	if err != nil {
+		t.Fatalf("Set(catalog-origin): %v", err)
+	}
+
+	document, err = document.Unset(preferences.KeyCatalogOrigin)
+	if err != nil {
+		t.Fatalf("Unset(catalog-origin): %v", err)
+	}
+	if value, set := document.Get(preferences.KeyCatalogOrigin); set {
+		t.Errorf("Get(catalog-origin) = (%q, set), want unset", value)
+	}
+	if value, set := document.Get(preferences.KeyOutputMode); !set || value != "json" {
+		t.Errorf("Get(output) = (%q, %t), want the other key untouched", value, set)
+	}
+}
+
+// TestUnsetOfAnUnsetKeyIsNotARefusal pins the idempotence wso2 config unset
+// depends on: clearing a key that holds nothing asks for the state the
+// document is already in.
+func TestUnsetOfAnUnsetKeyIsNotARefusal(t *testing.T) {
+	document := preferences.Document{SchemaVersion: preferences.SchemaVersion}
+	document, err := document.Unset(preferences.KeyCatalogOrigin)
+	if err != nil {
+		t.Fatalf("Unset on an unset key returned %v, want nil", err)
+	}
+	if value, set := document.Get(preferences.KeyCatalogOrigin); set {
+		t.Errorf("Get(catalog-origin) = (%q, set), want unset", value)
+	}
+}
+
+// TestUnsetRefusesAnUnknownKey keeps the closed set closed on the third
+// mutating path exactly as Set does on the second.
+func TestUnsetRefusesAnUnknownKey(t *testing.T) {
+	document := preferences.Document{SchemaVersion: preferences.SchemaVersion}
+	_, err := document.Unset(preferences.Key("access-token"))
+	var typed problem.Problem
+	if !errors.As(err, &typed) || typed.Code != "config.unknown_key" {
+		t.Fatalf("err = %v, want a config.unknown_key problem", err)
+	}
+}

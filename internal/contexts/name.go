@@ -36,9 +36,21 @@ const nameLimit = 64
 // requires only that the name be derived from the issuer host and that login
 // report the name it assigned.
 //
-// Not every host makes a legal name. The document requires a name starting with
-// a lower-case letter, so an issuer at a bare IP address or at a host whose
-// first label starts with a digit yields a typed refusal rather than a mangled
+// An Asgardeo issuer is the exception the host rule cannot serve: every tenant
+// shares the api.asgardeo.io host, so a host-derived name identifies the
+// vendor, and a second organization's login would collide with the first's
+// (the identity_exists refusal is right to fire there; what was wrong was two
+// tenants deriving one name). On that host the tenant in the issuer's
+// /t/<tenant>/ path is what distinguishes the login, so the derived name is
+// <tenant>-asgardeo — the tenant leads, the way the documented examples name
+// their contexts (docs/examples/login-walkthroughs.md's acme-dev, acme-prod),
+// and the vendor trails saying where it lives. Every other issuer keeps the
+// host rule exactly.
+//
+// Not every host, and not every tenant, makes a legal name. The document
+// requires a name starting with a lower-case letter, so an issuer at a bare IP
+// address, at a host whose first label starts with a digit, or in a tenant
+// whose name starts with one yields a typed refusal rather than a mangled
 // name; --context is how a user supplies one directly. The check is ValidName,
 // the same function the document validates a hand-written name with, so the
 // command and the document cannot disagree about what is legal.
@@ -49,15 +61,36 @@ func IdentityNameForIssuer(issuer string) (string, error) {
 		// what the user typed is the only thing they can go and correct.
 		return "", underivableIdentityName(issuer)
 	}
-	host := parsed.Hostname()
-	name := strings.ToLower(strings.ReplaceAll(host, ".", "-"))
+	derivedFrom := parsed.Hostname()
+	name := strings.ToLower(strings.ReplaceAll(derivedFrom, ".", "-"))
+	if tenant := TenantForIssuer(issuer); tenant != "" {
+		derivedFrom = tenant
+		name = sanitizedNamePart(tenant) + "-asgardeo"
+	}
 	if len(name) > nameLimit {
 		name = name[:nameLimit]
 	}
 	if !ValidName(name) {
-		return "", underivableIdentityName(host)
+		return "", underivableIdentityName(derivedFrom)
 	}
 	return name, nil
+}
+
+// sanitizedNamePart lower-cases one derived word and replaces each character a
+// name may not carry with a hyphen — the same mechanical spirit as the host
+// rule's dot replacement, applied to a value the user did not spell as a host.
+// What it cannot repair, a leading character no name may start with, is left
+// for ValidName to refuse.
+func sanitizedNamePart(part string) string {
+	var sanitized strings.Builder
+	for _, r := range strings.ToLower(part) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			sanitized.WriteRune(r)
+		} else {
+			sanitized.WriteRune('-')
+		}
+	}
+	return sanitized.String()
 }
 
 // underivableIdentityName refuses an issuer whose host cannot become a name.
