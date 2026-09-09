@@ -62,6 +62,13 @@ const (
 	// state that invites "run wso2 login") would misdescribe a healthy
 	// identity that never logs in at all.
 	whoamiSessionInline = "inline"
+	// whoamiSessionExchanged is what an exchanged product reports. It holds
+	// no session of its own — its access is minted from the login session for
+	// one command — so reporting "none" would read as "not logged in" and
+	// send the reader to run a login that establishes nothing for it. Whether
+	// the product can be reached is the login session's own state, reported
+	// once, above.
+	whoamiSessionExchanged = "exchanged"
 )
 
 // unknownSubject is what wso2 whoami reports for a session predating R6
@@ -192,6 +199,8 @@ func (s Shell) whoami(command *cobra.Command) error {
 			entry := whoamiProduct{Namespace: access.Namespace, Strategy: access.Strategy, Session: whoamiSessionNone}
 			if access.Strategy == contexts.StrategyInline {
 				entry.Session = whoamiSessionInline
+			} else if access.Strategy == contexts.StrategyExchanged {
+				entry.Session = whoamiSessionExchanged
 			} else if stored, err := store.Load(access.SessionRef); err == nil {
 				if sessionServes(stored, access.Issuer) {
 					entry.Session, entry.SessionExpiry, _ = sessionExpiryState(stored, time.Now())

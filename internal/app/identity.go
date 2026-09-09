@@ -113,7 +113,9 @@ func (s Shell) identityAddProductCommand() *cobra.Command {
 	command.Flags().StringVar(&grant.kind, "grant", "",
 		"How access for this product is derived when its issuer is not the identity's: "+
 			contexts.GrantJWTBearer+" presents an identity token from the login session; "+
-			contexts.GrantFederated+" signs in at the product's own issuer as the named client.")
+			contexts.GrantFederated+" signs in at the product's own issuer as the named client; "+
+			contexts.GrantExchange+" exchanges the login session for the product's audience, with "+
+			"no authorization of its own.")
 	command.Flags().StringVar(&grant.issuer, "grant-issuer", "",
 		"The product's own OpenID issuer, whose token endpoint takes the assertion.")
 	command.Flags().StringVar(&grant.clientID, "grant-client-id", "",
@@ -146,11 +148,32 @@ func (g grantFlags) product() (*contexts.Grant, error) {
 			WithRecovery("Pass --grant " + contexts.GrantJWTBearer + " or --grant " + contexts.GrantFederated +
 				" to derive this product's access. " + identityAddProductUsage)
 	}
-	if g.kind != contexts.GrantJWTBearer && g.kind != contexts.GrantFederated {
+	if g.kind != contexts.GrantJWTBearer && g.kind != contexts.GrantFederated &&
+		g.kind != contexts.GrantExchange {
 		return nil, problem.New(problem.CategoryUsage, "shell.invalid_argument",
 			fmt.Sprintf("%q is not a grant this shell implements", g.kind)).
-			WithRecovery("Pass --grant " + contexts.GrantJWTBearer + " or --grant " + contexts.GrantFederated + ". " +
-				identityAddProductUsage)
+			WithRecovery("Pass --grant " + contexts.GrantJWTBearer + ", --grant " + contexts.GrantFederated +
+				" or --grant " + contexts.GrantExchange + ". " + identityAddProductUsage)
+	}
+	if g.kind == contexts.GrantExchange {
+		// An exchange runs at the identity's own issuer as its own client, and
+		// asks for the product's registered audience. There is nothing left
+		// for these flags to name, so naming one is a mistake worth catching
+		// here rather than a value to accept and ignore.
+		if g.issuer != "" || g.clientID != "" {
+			return nil, problem.New(problem.CategoryUsage, "shell.invalid_argument",
+				"--grant-issuer and --grant-client-id do not belong to an exchange grant, which runs "+
+					"at the identity's own issuer as its own client").
+				WithRecovery("Omit both flags. " + identityAddProductUsage)
+		}
+		if len(g.scopes) > 0 || g.resource != "" {
+			return nil, problem.New(problem.CategoryUsage, "shell.invalid_argument",
+				"--grant-scopes and --grant-resource do not belong to an exchange grant, which asks "+
+					"for the product's own audience and carries the login session's scopes").
+				WithRecovery("Omit both flags; --audience is what an exchange asks for. " +
+					identityAddProductUsage)
+		}
+		return &contexts.Grant{Kind: g.kind}, nil
 	}
 	if g.issuer == "" || g.clientID == "" {
 		return nil, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
@@ -165,6 +188,19 @@ func (g grantFlags) product() (*contexts.Grant, error) {
 				identityAddProductUsage)
 	}
 	return &contexts.Grant{Kind: g.kind, Issuer: g.issuer, ClientID: g.clientID, Scopes: g.scopes, Resource: g.resource}, nil
+}
+
+// grantSummary states where a recorded grant runs and as whom.
+//
+// An exchange names neither an issuer nor a client, because it uses the
+// identity's own, so the general form would render "exchange at  as " — two
+// blanks that read as values the shell failed to load rather than as values
+// that were never there to load.
+func grantSummary(grant contexts.Grant) string {
+	if grant.Kind == contexts.GrantExchange {
+		return grant.Kind + " at the identity's own issuer, as its own client"
+	}
+	return grant.Kind + " at " + grant.Issuer + " as " + grant.ClientID
 }
 
 func (s Shell) identityListCommand() *cobra.Command {
@@ -464,7 +500,7 @@ func (p productAdded) fields() [][2]string {
 	}
 	if p.Grant != nil {
 		fields = append(fields,
-			[2]string{"Grant", p.Grant.Kind + " at " + p.Grant.Issuer + " as " + p.Grant.ClientID})
+			[2]string{"Grant", grantSummary(*p.Grant)})
 	}
 	return append(fields, [2]string{"Replaced", yesNo(p.Replaced)})
 }

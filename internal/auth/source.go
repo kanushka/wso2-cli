@@ -99,6 +99,35 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 			// The login session itself is never established here.
 			source.establish = b.establishFor(access)
 		}
+		if access.Strategy == contexts.StrategyExchanged {
+			// An exchanged product has no session and no authorization of its
+			// own, so what is renewed and locked here is the login session.
+			// The source is rebuilt around that session deliberately rather
+			// than reusing the one above: the access carries the product's
+			// audience and no session reference at all, and a source pointed
+			// at the product would have nothing to load.
+			login := b.Selection.Identity.LoginAccess()
+			return exchangeSource{
+				login: sessionSource{
+					namespace: login.Namespace,
+					product:   login.Namespace,
+					ref:       login.SessionRef,
+					issuer:    login.Issuer,
+					clientID:  login.ClientID,
+					audience:  login.Audience,
+					scopes:    login.Scopes,
+					sessions:  session.Store{StateRoot: b.StateRoot},
+					client:    b.httpClient(),
+					strategy:  login.Strategy,
+
+					contextName:   b.Selection.Context.Name,
+					resourceBound: login.Resource != "",
+				},
+				namespace: access.Namespace,
+				product:   b.namespace(),
+				audience:  access.Audience,
+			}, nil
+		}
 		if access.Strategy == contexts.StrategyDerived {
 			// The product's own issuer answers, from an assertion the session
 			// yields. Everything the session source knows about renewing and

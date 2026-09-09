@@ -337,8 +337,14 @@ const GrantJWTBearer = "jwt-bearer"
 // sign-on. The session is the product issuer's own refresh token.
 const GrantFederated = "federated"
 
+// GrantExchange exchanges the login session's own access token at the
+// identity's issuer, under RFC 8693, for one bound to the product's
+// audience. It names neither an issuer nor a client because it uses the
+// identity's own: the product never authorizes anything itself.
+const GrantExchange = "exchange"
+
 // legalGrants are the grant kinds this shell implements.
-var legalGrants = map[string]bool{GrantJWTBearer: true, GrantFederated: true}
+var legalGrants = map[string]bool{GrantJWTBearer: true, GrantFederated: true, GrantExchange: true}
 
 // Grant is one way of deriving a product's access from the session. It names
 // where the assertion goes and what the assertion must carry; like everything
@@ -622,6 +628,16 @@ func (p Product) validate(identity string) error {
 				"declares a product with a grant on the identity %q without the audience the "+
 					"derived access is proved against", identity))
 		}
+		if p.Grant.Kind == GrantExchange && !absoluteURI(p.Audience) {
+			// An exchange sends the audience as an RFC 8707 resource
+			// indicator, which must be an absolute URI. A deployment answers a
+			// bare name with invalid_target, which reads as a resource server
+			// nobody registered and sends the reader to create one that is
+			// already there. The true cause is stated once, here.
+			return malformed(fmt.Sprintf(
+				"declares an exchange product on the identity %q whose audience is not an absolute "+
+					"URI, and an exchange asks for it as a resource indicator", identity))
+		}
 		return p.Grant.validate(identity)
 	}
 	return nil
@@ -654,6 +670,18 @@ func (g Grant) validate(identity string) error {
 	if !legalGrants[g.Kind] {
 		return malformed(fmt.Sprintf(
 			"declares a product grant on the identity %q of a kind this shell does not implement", identity))
+	}
+	if g.Kind == GrantExchange {
+		// An exchange is run at the identity's own issuer, as its own client,
+		// for the product's own audience. A document that named an issuer or
+		// a client here would be stating something the shell already holds and
+		// could contradict, so naming either is refused rather than ignored.
+		if g.Issuer != "" || g.ClientID != "" {
+			return malformed(fmt.Sprintf(
+				"declares an exchange grant on the identity %q that names its own issuer or client, "+
+					"which an exchange never uses", identity))
+		}
+		return nil
 	}
 	if g.ClientID == "" {
 		return malformed(fmt.Sprintf(

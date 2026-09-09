@@ -234,3 +234,51 @@ func TestAPinNamingAnUnreachableProductIsMalformed(t *testing.T) {
 		}
 	}
 }
+
+func TestAnExchangeGrantIsReachedAtTheLoginIssuerWithTheProductAudienceAsItsResource(t *testing.T) {
+	identity := thunderIdentity()
+	identity.Products["apip"] = contexts.Product{Endpoint: "http://localhost:9251",
+		Audience: "http://localhost:9251", Grant: &contexts.Grant{Kind: contexts.GrantExchange}}
+	access, ok := identity.Access("apip")
+	if !ok || access.Strategy != contexts.StrategyExchanged {
+		t.Fatalf("apip access = %+v, %v, want an exchanged strategy", access, ok)
+	}
+	// The exchange runs at the identity's own issuer, as the identity's own
+	// client: it is the login session that is exchanged, so nothing about
+	// the product's own deployment takes part in obtaining the token.
+	if access.Issuer != "http://localhost:8492" || access.ClientID != "wso2-cli" {
+		t.Fatalf("apip access = %+v, want the login issuer and client", access)
+	}
+	// The product's audience is what the exchange asks for as its resource,
+	// and it is what the returned token must be bound to.
+	if access.Resource != "http://localhost:9251" || access.Audience != "http://localhost:9251" {
+		t.Fatalf("apip access = %+v, want the product audience as the resource", access)
+	}
+	// An exchanged product stores no session of its own: its token is minted
+	// from the login session on demand and never outlives the command.
+	if access.SessionRef != "" {
+		t.Fatalf("apip access = %+v, want no session reference of its own", access)
+	}
+}
+
+func TestALoginRunsNoAuthorizationForAnExchangedProduct(t *testing.T) {
+	// An exchanged product is reached by exchanging the login session, so a
+	// login that authorized one would be opening a browser for a product that
+	// never needed it — which is the whole of what the strategy buys.
+	identity := contexts.Identity{Name: "thunder", Type: "onprem",
+		Auth: contexts.IdentityAuth{Kind: contexts.KindOAuthBrowser, Issuer: "http://localhost:8501",
+			ClientID: "wso2-cli", CredentialRef: "thunder", Provider: contexts.ProviderThunder},
+		Products: map[string]contexts.Product{
+			"thunder": {Endpoint: "http://localhost:8501", Audience: "https://localhost:8090/mcp",
+				Scopes: []string{"system"}},
+			"apip": {Endpoint: "http://localhost:9251", Audience: "http://localhost:9251",
+				Grant: &contexts.Grant{Kind: contexts.GrantExchange}},
+		}}
+	accesses := identity.Accesses()
+	if len(accesses) != 1 {
+		t.Fatalf("a login would run %d authorizations, want only the login one: %+v", len(accesses), accesses)
+	}
+	if accesses[0].Namespace != "thunder" || accesses[0].Strategy != contexts.StrategyDirect {
+		t.Fatalf("the one authorization is %+v, want the direct login product", accesses[0])
+	}
+}
