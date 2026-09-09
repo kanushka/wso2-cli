@@ -69,7 +69,7 @@ refusal is reported.
 | `wso2 bundle create` | Creates a platform-specific, self-installing offline bundle from catalog releases. |
 | `wso2 bundle inspect <file>` | Shows bundle contents without installing it. |
 | `wso2 bundle install <file>` | Imports a bundle when the WSO2 CLI is already installed. |
-| `wso2 doctor` | Built today: checks that the context document is valid, that the OS secure store is reachable, and that the selected context has a stored session. `--online` adds a fourth check, module catalog reachability; without it, `wso2 doctor` makes no network call. On an unconfigured machine, the secure-store and session checks report not-applicable rather than failure; on a context document that fails to decode or validate, the session check reports not-applicable too, because no credential reference can be resolved from it, while the secure-store check still runs since it never reads the document. Exits 0 when every check passes or is not-applicable, otherwise the exit class of the most severe failing check, in this rank: secure-store, then the document, then the session, then (only under `--online`) the catalog — a rank this command defines and not the numeric order of the exit classes those checks carry. Receipt, module integrity, compatibility, and protocol status are not built yet; see [architecture](../architecture.md#14-operational-behavior-and-recovery). |
+| `wso2 doctor` | Built today: checks that the context document is valid, that the OS secure store is reachable, and that the selected context has a stored session. `--online` adds a fourth check, module catalog reachability; without it, `wso2 doctor` makes no network call. On an unconfigured machine, the secure-store and session checks report not-applicable rather than failure; on a context document that fails to decode or validate, the session check reports not-applicable too, because no credential reference can be resolved from it, while the secure-store check still runs since it never reads the document. On a configured context with no stored session — the state a completed `wso2 logout` leaves behind — the session check reports none, with the `wso2 login` pointer in its recovery column, rather than failure: being logged out is a normal state, not a health fault. A session that is stored but cannot be read still fails. Exits 0 when every check passes, is not-applicable, or reports none, otherwise the exit class of the most severe failing check, in this rank: secure-store, then the document, then the session, then (only under `--online`) the catalog — a rank this command defines and not the numeric order of the exit classes those checks carry. Receipt, module integrity, compatibility, and protocol status are not built yet; see [architecture](../architecture.md#14-operational-behavior-and-recovery). |
 
 `project` commands are intentionally not included yet. Product-specific
 projects, deployment, and runtime operations remain within their product
@@ -99,6 +99,13 @@ parsing any output.
 
 An unrecognized problem category is reported as a module process failure, `70`,
 rather than as success.
+
+One command opts out of the `77` class on purpose: `wso2 reference status`
+reports a broker refusal as fields of its result and exits `0`, because
+whether access was granted is the question it exists to answer, and a report
+that cannot say "no" cannot answer it. A gate that must fail without access
+runs `wso2 reference call` or `wso2 reference whoami`, which keep the `77`
+class for the same refusal.
 
 ## Non-interactive use
 

@@ -74,6 +74,11 @@ func TestLoginCreatesAnIdentityAndAContextWhenNoneMatches(t *testing.T) {
 	if identity.Name != "customer" {
 		t.Errorf("identity name = %q, want customer", identity.Name)
 	}
+	// The fake issuer lives on localhost, which is nobody's cloud, so the
+	// derived deployment kind has to be the self-hosted one.
+	if identity.Type != contexts.TypeOnprem {
+		t.Errorf("identity type = %q, want %q", identity.Type, contexts.TypeOnprem)
+	}
 	if identity.Auth.Issuer != issuer.URL {
 		t.Errorf("identity issuer = %q, want %q", identity.Auth.Issuer, issuer.URL)
 	}

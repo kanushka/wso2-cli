@@ -169,6 +169,24 @@ func (d Document) Set(key Key, value string) (Document, error) {
 	return d, nil
 }
 
+// Unset returns a copy of the document with key cleared, refusing an unknown
+// key. Clearing a key that is not set is not a refusal: the caller asked for
+// the state the document is already in, and Get already treats "unset" as a
+// fact rather than a failure. What clearing restores is not this package's to
+// say — the next layer up (a flag, an environment variable, or the consumer's
+// built-in default) governs again, exactly as if the key had never been set.
+func (d Document) Unset(key Key) (Document, error) {
+	switch key {
+	case KeyOutputMode:
+		d.OutputMode = ""
+	case KeyCatalogOrigin:
+		d.CatalogOrigin = ""
+	default:
+		return Document{}, UnknownKey(string(key))
+	}
+	return d, nil
+}
+
 // validOrigin reports whether value is usable as a catalog origin: an
 // absolute http or https URL with a host. This is deliberately stricter than
 // "has a scheme and a host", the same way internal/catalog's own

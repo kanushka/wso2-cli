@@ -200,7 +200,7 @@ func (s Shell) identityAddProduct(
 			return candidate.Name == identity
 		})
 		if position < 0 {
-			return document, unknownIdentity(identity)
+			return document, unknownIdentity(identity, len(document.Identities) > 0)
 		}
 		declared := document.Identities[position]
 		_, carried := declared.Products[namespace]

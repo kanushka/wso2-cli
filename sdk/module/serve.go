@@ -240,7 +240,8 @@ func runCommand(
 		failure := problem.New(problem.CategoryUsage, descriptor.Namespace+".unknown_command",
 			fmt.Sprintf("the %q module does not implement %q", descriptor.Namespace,
 				strings.TrimSpace(descriptor.Namespace+" "+strings.Join(path, " ")))).
-			WithRecovery("Run wso2 help to see the available commands.")
+			WithRecovery(fmt.Sprintf("Run wso2 %s --help to see the available commands.",
+				descriptor.Namespace))
 		return result.Result{}, &failure
 	}
 

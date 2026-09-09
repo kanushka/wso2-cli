@@ -99,6 +99,33 @@ func TestTableAndJSONReportTheSameFields(t *testing.T) {
 	}
 }
 
+func TestStatusWithNoContextConfiguredNamesNoContext(t *testing.T) {
+	// A shell with no context document runs the report against the empty
+	// selection, and every account of that state has to agree: wso2 context
+	// list shows nothing, wso2 context use refuses any name, so the report
+	// must not present a context name of its own invention. It renders
+	// "(none)" — not a creatable name — beside the refusal, and still exits
+	// 0, because saying "no" is this command's job.
+	shell := buildShell(t)
+	stateRoot := isolatedStateRoot(t)
+	installReferenceModule(t, stateRoot, buildReferenceModule(t))
+
+	stdout, stderr := runShell(t, shell, stateRoot, "reference", "status")
+
+	if !strings.Contains(stdout, "(none)") {
+		t.Errorf("the report does not render the unselected context as (none):\n%s", stdout)
+	}
+	if strings.Contains(stdout, "default") {
+		t.Errorf("the report names a %q context that does not exist:\n%s", "default", stdout)
+	}
+	if !strings.Contains(stdout, "refused") {
+		t.Errorf("the report does not carry the refusal:\n%s", stdout)
+	}
+	if stderr != "" {
+		t.Errorf("the report wrote diagnostics:\n%s", stderr)
+	}
+}
+
 func TestJSONOutputStaysValidWhileTheModuleWritesDiagnostics(t *testing.T) {
 	// Diagnostics travel on standard error whatever the output mode, so a
 	// noisy module cannot corrupt the document a script parses.

@@ -128,8 +128,10 @@ func commandTree() *cobratree.Tree {
 		Short: "Reference product module for the WSO2 CLI.",
 	}
 	statusCommand := &cobra.Command{
-		Use:   "status",
-		Short: "Report this module and the access the shell brokered for it.",
+		Use: "status",
+		Short: "Report this module and the access the shell brokered for it. " +
+			"Refusal is part of the report, so it exits 0 either way; " +
+			"wso2 reference call fails instead.",
 	}
 	callCommand := &cobra.Command{
 		Use:   "call",
@@ -190,7 +192,7 @@ func status(ctx context.Context, request module.Request) (result.Result, error) 
 	// left out because wso2 version and wso2 whoami already answer for them.
 	report := result.New(ReportSchema).
 		With("module", "Module", Namespace+" v"+moduleVersion).
-		With("context", "Context", request.Context.Name)
+		With("context", "Context", contextName(request.Context.Name))
 
 	access, err := request.Access.Acquire(ctx, module.AccessRequest{
 		Audience: StatusAudience,
@@ -215,6 +217,21 @@ func status(ctx context.Context, request module.Request) (result.Result, error) 
 		With("audience", "Audience", StatusAudience).
 		With("scopes", "Scopes", StatusScope).
 		With("expiresAt", "Expires", access.ExpiresAt.UTC().Format(time.RFC3339)), nil
+}
+
+// contextName renders the context a report ran against.
+//
+// A shell with no contexts configured invokes the module with an empty context
+// name, and the report says so rather than leaving a blank cell a reader would
+// take for a rendering fault. The marker cannot collide with a real context:
+// the shell only creates names of lower-case letters, digits and hyphens, so
+// no context can be named "(none)". A test beside the shell's name pattern
+// holds that property.
+func contextName(name string) string {
+	if name == "" {
+		return "(none)"
+	}
+	return name
 }
 
 // call answers "wso2 reference call".

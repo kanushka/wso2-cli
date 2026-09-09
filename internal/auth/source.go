@@ -118,8 +118,9 @@ func (b *Broker) checkProduct(request Request) error {
 		return denial("auth.product_not_configured",
 			fmt.Sprintf("the identity the %q context authenticates as does not configure the %q product",
 				b.Selection.Context.Name, b.namespace()),
-			fmt.Sprintf("Add the %q product to this identity in the context document, or select a "+
-				"context whose identity reaches it.", b.namespace()))
+			fmt.Sprintf("Run wso2 identity add-product %s %s --endpoint <url> --audience "+
+				"<resource-id> --scopes <list> to register it, or select a context whose "+
+				"identity reaches it.", b.Selection.Identity.Name, b.namespace()))
 	}
 	if product.Audience == "" {
 		return denial("auth.product_not_configured",

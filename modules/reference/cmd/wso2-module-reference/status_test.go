@@ -331,6 +331,25 @@ func TestStatusReportsARefusalAsAResultRatherThanAFailure(t *testing.T) {
 	}
 }
 
+func TestStatusReportsAnUnselectedContextAsNone(t *testing.T) {
+	// A shell with no contexts configured invokes the module with an empty
+	// context name. The report renders "(none)" — a marker no creatable
+	// context can be named, since the shell only accepts names of lower-case
+	// letters, digits and hyphens — rather than a blank cell or an invented
+	// name the user could try to select and be refused.
+	outcome := testkit.Run(t.Context(), moduleOptions(), commandTree().Commands(),
+		testkit.Invocation{
+			Command:      []string{"status"},
+			InvocationID: invocationID,
+			Context:      module.Context{},
+		})
+
+	fields := fieldsOf(t, outcome)
+	if fields["context"] != "(none)" {
+		t.Errorf("context = %q, want %q", fields["context"], "(none)")
+	}
+}
+
 func TestTheStatusReportNeverCarriesTheAccessMaterial(t *testing.T) {
 	// The token is what the module holds and what a reader must never see. It
 	// is checked here as well as on the failure paths, because this command
