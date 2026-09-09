@@ -101,7 +101,7 @@ func (s Shell) productCommand() *cobra.Command {
 func (s Shell) moduleAvailableCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "available",
-		Short: "List the product modules the catalog publishes.",
+		Short: "List the products the catalog publishes.",
 		Args:  noArguments(moduleAvailableUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.moduleAvailable()
@@ -118,7 +118,7 @@ func (s Shell) moduleAvailableCommand() *cobra.Command {
 func (s Shell) moduleListCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "list",
-		Short: "Report the installed modules and which have an update available.",
+		Short: "Report the installed products and which have an update available.",
 		Args:  noArguments(moduleListUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.moduleList()
@@ -134,7 +134,7 @@ func (s Shell) moduleInstallCommand() *cobra.Command {
 	var channel string
 	command := &cobra.Command{
 		Use:   "install <product>[@<version>]",
-		Short: "Install one product module from the catalog.",
+		Short: "Install one product from the catalog.",
 		// The @<version> form is accepted, acted on, and until now appeared
 		// nowhere in this command's help: a user could create a pin without
 		// being told the syntax exists, let alone how to undo it (F7).
@@ -173,7 +173,7 @@ func (s Shell) moduleRemoveCommand() *cobra.Command {
 	var opts removeOptions
 	command := &cobra.Command{
 		Use:   "remove <product>",
-		Short: "Take one installed module off this machine.",
+		Short: "Take one installed product off this machine.",
 		Args:  exactlyOneArgument("the product to remove", moduleRemoveUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			opts.namespace = args[0]
@@ -194,7 +194,7 @@ func (s Shell) moduleUpdateCommand() *cobra.Command {
 	var all bool
 	command := &cobra.Command{
 		Use:   "update <product...> | update --all",
-		Short: "Bring installed modules to the newest version their channel publishes.",
+		Short: "Bring installed products to the newest version their channel publishes.",
 		// Not exactlyOneArgument or noArguments: this command takes zero or
 		// more module names, and which count is valid depends on --all, so the
 		// combination is checked in RunE once both are parsed, exactly as
@@ -209,7 +209,7 @@ func (s Shell) moduleUpdateCommand() *cobra.Command {
 				// flag instead of a hand-written scan, and an automation
 				// contract keyed on this code must not see it change.
 				return problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
-					"--all updates every installed module, so naming one as well is ambiguous").
+					"--all updates every installed product, so naming one as well is ambiguous").
 					WithRecovery("Run wso2 product update <product>, or wso2 product update --all.")
 			}
 			if !all && len(opts.namespaces) == 0 {
@@ -276,14 +276,14 @@ func (s Shell) moduleRemove(opts removeOptions) error {
 				fmt.Sprintf("removing the %s module", opts.namespace), reason)
 		}
 		confirmed, err := s.confirm(fmt.Sprintf(
-			"Remove the %s module? This deletes it from this machine and cannot be undone. [y/N]: ",
+			"Remove the %s product? This deletes it from this machine and cannot be undone. [y/N]: ",
 			opts.namespace))
 		if err != nil {
 			return err
 		}
 		if !confirmed {
 			_, err := fmt.Fprintf(s.Streams.Out,
-				"Removal cancelled; the %s module is unchanged.\n", opts.namespace)
+				"Removal cancelled; the %s product is unchanged.\n", opts.namespace)
 			return err
 		}
 	}
@@ -300,7 +300,7 @@ func (s Shell) moduleRemove(opts removeOptions) error {
 		return notInstalledProblem(opts.namespace)
 	}
 
-	_, err = fmt.Fprintf(s.Streams.Out, "Removed the %s module.\n", opts.namespace)
+	_, err = fmt.Fprintf(s.Streams.Out, "Removed the %s product.\n", opts.namespace)
 	return err
 }
 

@@ -60,7 +60,7 @@ func (s Shell) version(args []string) error {
 		return err
 	}
 	if len(installed) == 0 {
-		if _, err := fmt.Fprintln(s.Streams.Out, "No modules are installed."); err != nil {
+		if _, err := fmt.Fprintln(s.Streams.Out, "No products are installed."); err != nil {
 			return err
 		}
 	} else {

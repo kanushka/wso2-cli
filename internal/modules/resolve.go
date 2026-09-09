@@ -73,7 +73,7 @@ type Installed struct {
 func (s Store) Resolve(namespace string, shell ShellIdentity) (Resolved, error) {
 	if !namespacePattern.MatchString(namespace) {
 		return Resolved{}, problem.New(problem.CategoryUsage, "modules.invalid_namespace",
-			fmt.Sprintf("%q is not a valid module namespace", namespace)).
+			fmt.Sprintf("%q is not a valid product namespace", namespace)).
 			WithRecovery("Run wso2 version to see the installed products.")
 	}
 
@@ -264,7 +264,7 @@ func checkPlatform(receipt Receipt, shell ShellIdentity) error {
 		return problem.New(problem.CategoryModuleTrust, "modules.incompatible_platform",
 			fmt.Sprintf("the installed %q module targets %s, and this shell runs on %s",
 				receipt.Namespace, receipt.Platform, shell.Platform)).
-			WithRecovery("Reinstall the module for this operating system and architecture.")
+			WithRecovery("Reinstall the product for this operating system and architecture.")
 	}
 	return nil
 }

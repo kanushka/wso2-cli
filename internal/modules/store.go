@@ -119,7 +119,7 @@ func (s Store) Namespaces() ([]string, error) {
 func (s Store) ReadActive(namespace string) (Active, error) {
 	if !namespacePattern.MatchString(namespace) {
 		return Active{}, problem.New(problem.CategoryUsage, "modules.invalid_namespace",
-			fmt.Sprintf("%q is not a valid module namespace", namespace)).
+			fmt.Sprintf("%q is not a valid product namespace", namespace)).
 			WithRecovery("Run wso2 version to see the installed products.")
 	}
 
@@ -128,7 +128,7 @@ func (s Store) ReadActive(namespace string) (Active, error) {
 	case os.IsNotExist(err):
 		return Active{}, problem.New(problem.CategoryModuleTrust, "modules.no_active_version",
 			fmt.Sprintf("no version of the %q module is active", namespace)).
-			WithRecovery("Install the module so the shell can activate one version.")
+			WithRecovery("Install the product so the shell can activate one version.")
 	case err != nil:
 		return Active{}, problem.New(problem.CategoryModuleTrust, "modules.active_unreadable",
 			fmt.Sprintf("the active-version pointer for the %q module cannot be read", namespace)).
@@ -193,8 +193,8 @@ func activeMalformed(namespace, detail string) problem.Problem {
 func (s Store) Installed(namespace string) (bool, error) {
 	if !ValidNamespace(namespace) {
 		return false, problem.New(problem.CategoryUsage, "modules.invalid_namespace",
-			fmt.Sprintf("%q is not a valid module namespace", namespace)).
-			WithRecovery("Run wso2 product list to see the installed modules.")
+			fmt.Sprintf("%q is not a valid product namespace", namespace)).
+			WithRecovery("Run wso2 product list to see the installed products.")
 	}
 	switch _, err := os.Stat(s.NamespaceDir(namespace)); {
 	case os.IsNotExist(err):
@@ -229,8 +229,8 @@ func namespaceUnreadable(namespace string, err error) problem.Problem {
 func (s Store) Remove(namespace string) (bool, error) {
 	if !ValidNamespace(namespace) {
 		return false, problem.New(problem.CategoryUsage, "modules.invalid_namespace",
-			fmt.Sprintf("%q is not a valid module namespace", namespace)).
-			WithRecovery("Run wso2 product list to see the installed modules.")
+			fmt.Sprintf("%q is not a valid product namespace", namespace)).
+			WithRecovery("Run wso2 product list to see the installed products.")
 	}
 
 	directory := s.NamespaceDir(namespace)
