@@ -199,7 +199,7 @@ func TestModuleRemoveYesSkipsThePromptAndRemoves(t *testing.T) {
 	if code := shell.Run([]string{"module", "remove", "reference", "--yes"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	if !strings.Contains(out.String(), "Removed the reference module") {
+	if !strings.Contains(out.String(), "Removed the reference product") {
 		t.Errorf("stdout does not report the removal:\n%s", out)
 	}
 	if installedNamespace(t, shell, "reference") {
@@ -259,7 +259,7 @@ func TestModuleRemoveAnsweringNoLeavesTheModuleInstalled(t *testing.T) {
 	if !strings.Contains(out.String(), "cancelled") {
 		t.Errorf("stdout does not report the cancellation:\n%s", out)
 	}
-	if !strings.Contains(errOut.String(), "Remove the reference module?") {
+	if !strings.Contains(errOut.String(), "Remove the reference product?") {
 		t.Errorf("stderr does not carry the prompt itself:\n%s", errOut)
 	}
 	if !installedNamespace(t, shell, "reference") {

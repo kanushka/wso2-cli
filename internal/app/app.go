@@ -338,7 +338,7 @@ func unknownNamespace(root *cobra.Command, namespace string) error {
 		recovery = suggestion + " " + recovery
 	}
 	return problem.New(problem.CategoryUsage, "shell.unknown_command",
-		fmt.Sprintf("%q is not a shell command and no installed module owns that namespace", namespace)).
+		fmt.Sprintf("%q is not a shell command and no installed product owns that namespace", namespace)).
 		WithRecovery(recovery)
 }
 

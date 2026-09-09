@@ -44,7 +44,7 @@ func TestVersionReportsShellProtocolAndPlatformWithoutAnyInstalledModule(t *test
 		version.ProtocolDisplay(),
 		version.Platform(),
 		"Installed modules",
-		"No modules are installed.",
+		"No products are installed.",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout does not contain %q:\n%s", want, stdout)
