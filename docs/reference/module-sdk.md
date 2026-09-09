@@ -213,6 +213,15 @@ type Field struct {
 	Label string
 	Value string
 }
+
+type Column struct {
+	Name  string
+	Label string
+}
+
+type Row struct {
+	Values []string
+}
 ```
 
 `Schema` identifies the semantic shape, such as `api.status/v1`, so a consumer
@@ -233,8 +242,43 @@ is a deliberate limit of the architecture proof rather than a lasting design:
 giving values their own types is a protocol change and belongs to a slice that
 can carry one.
 
+### Returning a listing
+
+Fields answer for a result that reports one thing: the shell renders them as a
+header row and one value row, so a command that returned one field per item
+would produce one column per item and a line no terminal can show.
+
+A listing declares its columns once and adds a row per item, with `WithColumn`
+and `WithRow`:
+
+```go
+report := result.New("identity.resourceServers/v1").
+	With("count", "Resource servers", strconv.Itoa(len(found))).
+	WithColumn("name", "Name").
+	WithColumn("identifier", "Identifier")
+for _, server := range found {
+	report = report.WithRow(server.Name, server.Identifier)
+}
+return report.With("next", "Next", "Record one with wso2 account add-product."), nil
+```
+
+The columns are declared once rather than restated by every row, which is what
+makes "every row has the same columns" something the shell checks instead of
+something two rows could disagree about. A row carrying the wrong number of
+values is refused rather than padded or trimmed, because either would put a
+value under a header it does not belong to and the reader could not tell.
+
+A result may carry both. The fields describe the listing — how many there are,
+what was filtered — and the rows are the answer, so the shell renders the
+fields as label-and-value lines above the table rather than folding both into
+one table. In JSON the rows are an array of objects under `rows`, keyed by each
+column's `Name`: the label may be reworded without a schema change, and the
+name is what a script depends on.
+
 `Validate` rejects a result the shell could not render: no schema, no fields, a
-field with no name, or the same field name twice.
+field with no name, the same field name twice, rows with no columns declared, a
+column with no name, the same column name twice, or a row whose value count
+differs from the declared columns.
 
 ## Returning a failure
 
