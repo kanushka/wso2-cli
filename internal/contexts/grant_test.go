@@ -221,3 +221,23 @@ func TestAnExchangeProductMustRegisterAnAbsoluteURIAudience(t *testing.T) {
 		t.Fatalf("the refusal does not name the cause: %q", typed.Message)
 	}
 }
+
+func TestAnExchangeGrantWritesNoEmptyIssuerAndClient(t *testing.T) {
+	// An exchange uses the identity's own issuer and client, so writing the
+	// members as empty strings puts two fields in the document that are not
+	// merely unset but meaningless — and that a reader would try to fill in.
+	document, err := contexts.Decode([]byte(strings.Replace(
+		withGrantProduct(validV2(), `{"kind": "exchange"}`),
+		`"audience": "apim-client"`, `"audience": "https://apim.example.test"`, 1)))
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	encoded, err := document.Encode()
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if strings.Contains(string(encoded), `"issuer": ""`) ||
+		strings.Contains(string(encoded), `"clientId": ""`) {
+		t.Fatalf("the exchange grant wrote empty issuer and client members:\n%s", encoded)
+	}
+}
