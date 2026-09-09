@@ -97,7 +97,7 @@ const unconfiguredRecovery = "Run wso2 login to create an identity and a context
 func (s Shell) whoamiCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:                   "whoami",
-		Short:                 "Show who is signed in, and to what context, identity, and session.",
+		Short:                 "Show who is signed in, and to what context, account, and session.",
 		Args:                  noArguments(whoamiUsage),
 		DisableFlagsInUseLine: true,
 		RunE: func(command *cobra.Command, args []string) error {

@@ -51,8 +51,8 @@ func TestHelpListsEveryShellCommand(t *testing.T) {
 			t.Errorf("help does not list the %q command:\n%s", command, out)
 		}
 	}
-	if !strings.Contains(out.String(), "installed modules") {
-		t.Errorf("help does not say product commands come from installed modules:\n%s", out)
+	if !strings.Contains(out.String(), "installed products") {
+		t.Errorf("help does not say product commands come from installed products:\n%s", out)
 	}
 }
 
@@ -527,7 +527,7 @@ func TestHelpListsTheInstalledModuleNamespaces(t *testing.T) {
 		t.Errorf("help does not name the installed namespace:\n%s", out)
 	}
 	if !strings.Contains(out.String(), "wso2 <namespace> --help") {
-		t.Errorf("help does not say how to see a module's commands:\n%s", out)
+		t.Errorf("help does not say how to see a product's commands:\n%s", out)
 	}
 }
 
@@ -558,7 +558,7 @@ func TestHelpStillRendersWhenTheStateRootIsUnusable(t *testing.T) {
 	if code := shell.Run([]string{"help"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	if !strings.Contains(out.String(), "Product commands are provided by installed modules.") {
+	if !strings.Contains(out.String(), "Product commands are provided by installed products.") {
 		t.Errorf("help lost its product-commands footer:\n%s", out)
 	}
 }
