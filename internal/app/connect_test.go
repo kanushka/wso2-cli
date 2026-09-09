@@ -180,7 +180,7 @@ func TestConnectNamesTheContextOnTheNextLineOnlyWhenItIsNotTheSoleSelectedOne(t 
 	if !strings.Contains(out, "Next  Run wso2 login.") || strings.Contains(out, "--context") {
 		t.Errorf("the only context, already selected, is named:\n%s", out)
 	}
-	code, out, errOut = connect(t, shell, "iam", "connect", "http://other.example", "--identity", "other")
+	code, out, errOut = connect(t, shell, "iam", "connect", "http://other.example", "--account", "other")
 	if code != exit.OK {
 		t.Fatalf("second identity: exit %d: %s", code, errOut)
 	}
@@ -203,8 +203,8 @@ func TestConnectWithNoIdentityRefusesANonProviderProduct(t *testing.T) {
 
 func TestConnectPicksTheIdentityByLoginProvider(t *testing.T) {
 	shell, _, _ := newConnectShell(t)
-	connect(t, shell, "iam", "connect", "http://one.example", "--identity", "one")
-	connect(t, shell, "iam", "connect", "http://two.example", "--identity", "two")
+	connect(t, shell, "iam", "connect", "http://one.example", "--account", "one")
+	connect(t, shell, "iam", "connect", "http://two.example", "--account", "two")
 	code, _, errOut := connect(t, shell, "apim", "connect", apimURL, "--client-id", apimClient,
 		"--login-provider", "http://two.example")
 	if code != exit.OK {
@@ -247,10 +247,10 @@ func TestConnectAProviderProductOnAnotherIssuerCreatesASecondIdentity(t *testing
 	connect(t, shell, "iam", "connect", thunderURL)
 	code, _, errOut := connect(t, shell, "iam", "connect", "http://other.example")
 	if code != exit.Usage || !strings.Contains(errOut, "contexts.identity_exists") ||
-		!strings.Contains(errOut, "--identity") {
+		!strings.Contains(errOut, "--account") {
 		t.Fatalf("a taken name: exit %d, stderr:\n%s", code, errOut)
 	}
-	code, _, errOut = connect(t, shell, "iam", "connect", "http://other.example", "--identity", "other")
+	code, _, errOut = connect(t, shell, "iam", "connect", "http://other.example", "--account", "other")
 	if code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
@@ -428,7 +428,7 @@ func TestConnectRefusesAProviderProductWhenNoIdentityHasTheLoginProvider(t *test
 	shell, _, _ := newConnectShell(t)
 	connect(t, shell, "iam", "connect", thunderURL)
 	code, _, errOut := connect(t, shell, "iam", "connect", "http://other.example",
-		"--identity", "other", "--login-provider", "http://nosuch.example")
+		"--account", "other", "--login-provider", "http://nosuch.example")
 	if code != exit.Usage || !strings.Contains(errOut, "shell.login_provider_required") {
 		t.Fatalf("exit %d, stderr:\n%s", code, errOut)
 	}
@@ -471,5 +471,26 @@ func TestConnectReadsTheMachineListOfANonProviderProduct(t *testing.T) {
 		"--client-id", "legacy-client", "--client-secret-variable", "WSO2_LEGACY_CLIENT_SECRET")
 	if code != exit.AuthPolicy || !strings.Contains(errOut, "auth.product_not_configured") {
 		t.Fatalf("legacy connect: exit %d, stderr:\n%s", code, errOut)
+	}
+}
+
+func TestConnectAndContextCreateNameTheAccountFlagAccount(t *testing.T) {
+	// The documentation already promises --account, and the concept renamed;
+	// a flag still called --account would be the one place the old word
+	// survives, on the command a new user reaches first.
+	for _, command := range [][]string{
+		{"context", "create", "--help"},
+	} {
+		t.Run(strings.Join(command, " "), func(t *testing.T) {
+			shell, out, errOut := newShell(t)
+			_ = shell.Run(command)
+			rendered := out.String() + errOut.String()
+			if strings.Contains(rendered, "--identity") {
+				t.Errorf("%v still offers the old flag name:\n%s", command, rendered)
+			}
+			if !strings.Contains(rendered, "--account") {
+				t.Errorf("%v does not offer --account:\n%s", command, rendered)
+			}
+		})
 	}
 }

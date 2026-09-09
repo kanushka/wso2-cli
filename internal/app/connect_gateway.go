@@ -41,7 +41,7 @@ const (
 // gatewayUsage is the way back from connect --gateway's usage refusals.
 func gatewayUsage(namespace string) string {
 	return fmt.Sprintf("Run wso2 %s connect <gateway-url> --gateway [--audience <value>] [--scopes <list>] "+
-		"[--replace] [--identity <name>] [--login-provider <issuer-url>].", namespace)
+		"[--replace] [--account <name>] [--login-provider <issuer-url>].", namespace)
 }
 
 // checkGatewayFlags refuses a --gateway line the shell could not write from,
@@ -154,7 +154,7 @@ func productRequired(namespace string) problem.Problem {
 		fmt.Sprintf("the %s product is not recorded on the identity, and a gateway is a second record "+
 			"of a product, not a product of its own", namespace)).
 		WithRecovery(fmt.Sprintf("Run wso2 %s connect <management-url> first, then this command; or pass "+
-			"--identity <name> or --login-provider <issuer-url> naming an identity that records the "+
+			"--account <name> or --login-provider <issuer-url> naming an identity that records the "+
 			"product. wso2 account list shows them.", namespace))
 }
 

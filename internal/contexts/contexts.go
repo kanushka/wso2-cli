@@ -363,7 +363,7 @@ func noContextConfigured(name string) problem.Problem {
 	return contextProblem("contexts.unknown_context",
 		fmt.Sprintf("no context named %q is configured, and no contexts exist", name),
 		"Run wso2 login --url <issuer> --client-id <id> to create an identity and a context, "+
-			"or wso2 context create <name> --identity <identity> if you already have one.")
+			"or wso2 context create <name> --account <identity> if you already have one.")
 }
 
 // validate proves the document is internally consistent before any command
