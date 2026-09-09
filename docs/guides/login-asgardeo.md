@@ -206,7 +206,7 @@ session.
 
 ## 8. A machine-to-machine client for CI, if you need one
 
-A CI job has no browser and no secure store, so it uses a separate identity that
+A CI job has no browser and no secure store, so it uses a separate account that
 carries its own credential. Register a second application for it:
 
 1. **Applications → New Application → M2M Application**.
@@ -245,7 +245,7 @@ the context document and the job wiring.
 
 ## 10. Log in, and check what it wrote
 
-With the issuer and client ID from section 9, one command creates the identity
+With the issuer and client ID from section 9, one command creates the account
 and the context and signs you in:
 
 ```console
@@ -255,13 +255,13 @@ $ wso2 login --url https://api.asgardeo.io/t/acme/oauth2/token \
 
 It reports the names it assigned, and `wso2 context list` shows them.
 What it writes is deliberately spare: the issuer and client ID you passed,
-`"type": "onprem"`, a `credentialRef` equal to the identity name, and no
+`"type": "onprem"`, a `credentialRef` equal to the account name, and no
 products. Everything from here is [the main login guide](login.md), from
 section 2.
 
 The record below is the fuller shape, not what login leaves: add products with
-`wso2 identity add-product`, and set `tenant` and `"type": "cloud"` by hand if
-you want them — an Asgardeo identity is conceptually cloud, and no shell logic
+`wso2 account add-product`, and set `tenant` and `"type": "cloud"` by hand if
+you want them — an Asgardeo account is conceptually cloud, and no shell logic
 reads the field. Its `audience` is the client ID:
 
 ```json

@@ -156,7 +156,7 @@ Krew verifies the archive's SHA-256 against the digest stored in the index.
 That detects corruption or replacement relative to the manifest.
 ([verifier source](https://github.com/kubernetes-sigs/krew/blob/master/internal/download/verifier.go))
 
-Krew does **not** require an artifact signature, publisher identity, provenance,
+Krew does **not** require an artifact signature, publisher account, provenance,
 or transparency-log proof. Kubernetes explicitly warns that Krew-index plugins
 are not security-audited and execute arbitrary local code; Krew prints the same
 warning after default-index installation.
@@ -224,7 +224,7 @@ cryptographic publisher guarantee.
    semantic-version range. Reject incompatible install/upgrade before download
    or activation.
 5. **Require publisher verification, not checksums alone.** Verify a signed
-   artifact/provenance statement against an allowlisted WSO2 team identity,
+   artifact/provenance statement against an allowlisted WSO2 team account,
    then verify digest. Gate index PRs with schema validation, source/release
    ownership, malware/vulnerability scanning, SBOM/provenance checks, and a
    cross-platform contract smoke test. Clearly distinguish `verified`,

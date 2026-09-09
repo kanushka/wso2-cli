@@ -46,7 +46,7 @@ For example:
 
 ```shell
 wso2 api gateway list
-wso2 identity apps list
+wso2 account apps list
 wso2 integration component deploy --file integration.yaml
 wso2 agent projects list
 ```
@@ -158,7 +158,7 @@ Requirements are classified as:
 - **P1:** The shell can suggest installation when a known official namespace is
   not installed.
 
-Initial namespace candidates are `agent`, `api`, `identity`, and `integration`.
+Initial namespace candidates are `agent`, `api`, `account`, and `integration`.
 The final names will be agreed with the product owners before the public
 contract is frozen.
 
@@ -169,37 +169,37 @@ contract is frozen.
 > PKCE, the Device Authorization Grant, and inline client credentials. Personal
 > access tokens are accepted as legal configuration and refuse at use with the
 > stable code `auth.kind_not_implemented`. Device authorization is selected by
-> an identity's `oauth-device` kind; there is no `--device-code` flag yet, so
-> the requirement below that it be a login-time mode for a browser identity is
+> an account's `oauth-device` kind; there is no `--device-code` flag yet, so
+> the requirement below that it be a login-time mode for a browser account is
 > not yet met. See [the login first slice](plans/login-first-slice.md).
 
 - **P0:** The root shell owns authentication sessions and credential storage.
-- **P0:** An **identity** is one login session together with every product for
+- **P0:** An **account** is one login session together with every product for
   which the shell can derive valid access from that session without another
   login or an independently supplied credential.
 - **P0:** Where a product requires another login or an independently supplied
-  credential, it belongs to another identity and another context.
+  credential, it belongs to another account and another context.
 - **P0:** Sharing an identity provider or issuer URL does not by itself make
-  products share an identity. The shared session must be able to produce access
+  products share an account. The shared session must be able to produce access
   each product accepts.
-- **P0:** Product access derived from a shared identity is restricted by
+- **P0:** Product access derived from a shared account is restricted by
   audience/resource and by scope wherever the deployment supports it. Where a
   requested narrowing is unavailable, the shell refuses rather than silently
   issuing broader or incorrectly targeted access.
-- **P0:** An interactive OIDC identity uses browser Authorization Code with
+- **P0:** An interactive OIDC account uses browser Authorization Code with
   PKCE by default. `wso2 login --device-code` selects device authorization as a
-  login mode for the same identity, available only where the backend advertises
+  login mode for the same account, available only where the backend advertises
   the grant.
 - **P0:** Device authorization remains an interactive developer login mode; it
   is not a CI authentication method.
-- **P0:** An on-premises context explicitly identifies its identity's product
+- **P0:** An on-premises context explicitly identifies its account's product
   endpoints and authentication method. Login uses only mechanisms supported by
   that deployment.
 - **P0:** The CLI does not assume that an on-premises deployment has WSO2 Cloud
-  SSO, WSO2 Identity Server, or any other shared identity service.
+  SSO, WSO2 Identity Server, or any other shared account service.
 - **P0:** CI authentication is non-interactive and uses client credentials, a
   personal access token where the product issues one, or a future
-  workload-identity mechanism. CI must never start browser login or device
+  workload-account mechanism. CI must never start browser login or device
   authorization.
 - **P0:** A non-interactive method establishes no reusable session, so the shell
   acquires access inline during the invoking command and CI requires no separate
@@ -229,7 +229,7 @@ contract is frozen.
 ```mermaid
 flowchart TD
     L["wso2 login"] --> S["Selected context"]
-    S --> I["Its identity"]
+    S --> I["Its account"]
     I --> K{"Authentication kind"}
 
     K -->|Interactive OIDC| M{"Login mode"}
@@ -247,10 +247,10 @@ flowchart TD
 
     P --> A["Compatibility adapter:<br/>no derived short-lived access"]
 
-    R["Product the session cannot reach"] --> Y["Another identity,<br/>another context"]
+    R["Product the session cannot reach"] --> Y["Another account,<br/>another context"]
 ```
 
-Identities and contexts contain only the selected authentication kind and
+Accounts and contexts contain only the selected authentication kind and
 non-secret references, such as an opaque secure-store reference or CI variable
 name. Credentials and secret values are never stored in either.
 
@@ -264,18 +264,18 @@ derived from one session. It does not mean one token reused across products.
 > named below is deferred to the workspace design: no document field carries
 > one, so it takes no part in resolution yet.
 
-- **P0:** Every context references exactly one identity.
-- **P0:** One identity may back several contexts, such as several projects or
+- **P0:** Every context references exactly one account.
+- **P0:** One account may back several contexts, such as several projects or
   organizations reached through the same login.
-- **P0:** An identity may list several product endpoints only where one login
+- **P0:** An account may list several product endpoints only where one login
   can provide access to those products.
 - **P0:** Where a product needs separate authentication, it is reached through a
-  separate identity and context.
+  separate account and context.
 - **P0:** Organization and project targeting belongs to the context. The
   authentication kind, issuer, client identifier, and credential reference
-  belong to the identity, and endpoint plus audience/resource metadata belongs
+  belong to the account, and endpoint plus audience/resource metadata belongs
   to its product entries.
-- **P0:** Identities and contexts store only non-secret identifiers, an opaque
+- **P0:** Accounts and contexts store only non-secret identifiers, an opaque
   secure-store reference, or the name of a CI-provided variable. Neither ever
   contains a credential value.
 - **P0:** Users can select a default context or override it for one command.
@@ -285,11 +285,11 @@ derived from one session. It does not mean one token reused across products.
 - **P0:** Context selection is deterministic: explicit flag, environment
   variable, recorded namespace binding, configured default, then none.
 - **P0:** Context switching does not implicitly authenticate.
-- **P0:** Creating or importing a context or identity grants no access by
+- **P0:** Creating or importing a context or account grants no access by
   itself.
 - **P1:** Login may create the context it authenticates, naming it explicitly
   and reporting what it created.
-- **P1:** Identities and contexts can be imported and exported without
+- **P1:** Accounts and contexts can be imported and exported without
   credentials.
 
 ### 7.4 Output, errors, and help
@@ -316,7 +316,7 @@ derived from one session. It does not mean one token reused across products.
   problems rather than implementing output and error formatting repeatedly.
 - **P0:** The SDK integrates naturally with Cobra because the identified WSO2
   product CLIs already use Go and Cobra.
-- **P0:** A conformance test kit validates identity, protocol compatibility,
+- **P0:** A conformance test kit validates account, protocol compatibility,
   help, flags, output, errors, authentication use, and secret redaction.
 - **P1:** Existing CLIs can migrate incrementally through a compatibility
   adapter, but only fully conformant modules are presented as conformant.
@@ -365,10 +365,10 @@ derived from one session. It does not mean one token reused across products.
   bundle to add or update modules; this CLI-based import is not required for
   fresh-machine installation.
 - **P1:** Individual signed module files and complete offline bundles follow the
-  same identity, compatibility, verification, activation, rollback, and
+  same account, compatibility, verification, activation, rollback, and
   revocation-metadata policy as online installation.
 - **P1:** Organizations can use an approved mirror without changing module
-  identity or trust guarantees.
+  account or trust guarantees.
 
 The offline-bundle requirements above are deferred rather than cancelled. Their
 signing, provenance, and revocation claims predate the trust position in
@@ -486,13 +486,13 @@ both the preferred SDK path and the migration adapter.
 - Cloud developer login uses Authorization Code with PKCE by default, while
   headless interactive login succeeds through the explicit device-code mode
   where the backend advertises it.
-- One login serves every product its identity reaches, and each product
+- One login serves every product its account reaches, and each product
   invocation receives its own audience- and scope-bound token derived from that
   session rather than a single token reused across products.
-- A product the session cannot reach is served by a separate identity and
+- A product the session cannot reach is served by a separate account and
   context, and the CLI says so instead of failing obscurely.
 - On-premises login follows the authentication kind declared for the selected
-  context's identity without assuming a shared WSO2 identity service.
+  context's account without assuming a shared WSO2 account service.
 - CI authentication completes non-interactively, without a separate login step,
   without invoking browser or device authorization, and without persisting
   secret values.

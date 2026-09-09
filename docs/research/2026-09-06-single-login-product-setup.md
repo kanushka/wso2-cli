@@ -19,7 +19,7 @@ Exchange is an additional acquisition strategy, not the prerequisite for single 
 | --- | --- | --- |
 | Thunder v1.0.1 | Native/public PKCE; direct external-JWT validation on its own APIs; management permissions extracted from verified token | Configure trusted issuer, exact audience and scopes. OU-sensitive operations also need a matching `ouId`. Some operations require root `system`; do not grant it universally. |
 | IS | Public authorization code + PKCE and refresh; API-resource authorization and application roles; federated login; token exchange | Test selected management endpoints and the exact installed release. Public exchange policy is a separate gate from application type. |
-| Asgardeo / WSO2 Identity Platform | Public PKCE; management API authorization and roles; external connections; trusted-token-issuer exchange | Tenant/organization scope matters. Hosted exchange policy cannot be changed using a local deployment.toml. Public exchange and organization-switch flows remain deployment checks. |
+| Asgardeo / WSO2 Account Platform | Public PKCE; management API authorization and roles; external connections; trusted-token-issuer exchange | Tenant/organization scope matters. Hosted exchange policy cannot be changed using a local deployment.toml. Public exchange and organization-switch flows remain deployment checks. |
 | APIM 4.7.0 | Public authorization code/refresh; external OIDC federation with role mapping; management-scope processing for exchange and JWT bearer | Installed exchange grant is not public-client enabled. Public JWT bearer is enabled. Dedicated CLI client and upstream trust must still be provisioned. |
 | Platform Gateway 1.2.0 docs | External JWT/JWKS authentication and role mapping on Gateway Controller management API | Different API from APIM Publisher. Roles must be explicitly configured. Documented fragment does not establish audience enforcement; verify before production. |
 
@@ -33,7 +33,7 @@ Record for each target: product/version, API base URL, tenant or OU, trusted log
 
 Choose one primary login authority for the environment: Thunder, IS, or Asgardeo. Register a dedicated public OIDC CLI application using authorization code, S256 PKCE and refresh where supported. Use an explicitly registered loopback IP callback, for example `http://127.0.0.1:49173/callback`; the port is an illustrative fixed choice, not an existing CLI setting. The shell must implement state validation, a one-use callback and secure token storage. Do not reuse a portal application's client or distribute a shared secret.
 
-If other products issue their own tokens, create their dedicated public CLI applications too and configure their login flows to use the same upstream identity. A server-side federation client secret belongs on the product server; it is distinct from a secret embedded in the public CLI.
+If other products issue their own tokens, create their dedicated public CLI applications too and configure their login flows to use the same upstream account. A server-side federation client secret belongs on the product server; it is distinct from a secret embedded in the public CLI.
 
 ## Thunder as a management target
 
@@ -43,8 +43,8 @@ Thunder's released guide explicitly describes external tokens calling Thunder's 
 server:
   security:
     trusted_issuer:
-      issuer: "https://identity.example.com/EXACT-ISSUER"
-      jwks_url: "https://identity.example.com/ACTUAL-JWKS-ENDPOINT"
+      issuer: "https://account.example.com/EXACT-ISSUER"
+      jwks_url: "https://account.example.com/ACTUAL-JWKS-ENDPOINT"
       audience: "https://thunder.example.com"
       required_claims:
         - claim: "ouId"
@@ -55,7 +55,7 @@ Replace every placeholder. The upstream issuer must actually issue the configure
 
 At the upstream provider, authorize an API resource representing Thunder. Start with `system:user:view` for user listing and include the correct `ouId`. The released API permission map assigns `GET /users` that permission. With a configured system-permission prefix, use the corresponding prefixed value instead. Broad `system` grants access to all system operations and bypasses ordinary OU policy checks; reserve it for intentional full administrators.
 
-Thunder's non-root permission-grant checks may consult local entity permissions, so direct external JWT validation is not proof that every role/membership mutation works without local identity provisioning. Test those commands separately. Do not solve a failed granular permission check by automatically assigning `system`.
+Thunder's non-root permission-grant checks may consult local entity permissions, so direct external JWT validation is not proof that every role/membership mutation works without local account provisioning. Test those commands separately. Do not solve a failed granular permission check by automatically assigning `system`.
 
 When Thunder is the issuer, use its resource-server API to define a URI identifier for the target and authorize users through roles. Request the target via `resource`. Thunder supports one target resource per token. When IS or Asgardeo is the issuer, configure the actual access-token audience through a supported mechanism and verify the result; the OIDC settings' **ID Token Audience** field is not evidence of access-token audience configuration.
 
@@ -70,7 +70,7 @@ For each target tenant:
 1. Register the dedicated CLI OIDC application as public; enable Code, Refresh Token and mandatory S256 PKCE; register its loopback callback.
 2. Under **API Authorization**, authorize the exact management API resources/scopes used by the module. For example, application listing uses `internal_application_mgt_view`. API definitions determine scope names; root `internal_*` and child-organization `internal_org_*` APIs are not interchangeable.
 3. Create a CLI application role carrying those selected permissions. Assign the intended local user/group or mapped external IdP group. Both the application and the user's role must authorize the requested scope.
-4. If another provider is the primary login authority, add it as an OIDC/SAML Connection, configure claim/group mappings and JIT provisioning where required, and select that Connection in the CLI application's login flow. Link identities securely; do not match an administrator by an unverified email.
+4. If another provider is the primary login authority, add it as an OIDC/SAML Connection, configure claim/group mappings and JIT provisioning where required, and select that Connection in the CLI application's login flow. Link accounts securely; do not match an administrator by an unverified email.
 5. Have the shell perform authorization code + PKCE at this target's tenant endpoint. The upstream session supplies SSO; the target issues its own management token. Store the returned refresh grant in the shell.
 
 Console Administrator roles and REST API application roles are separate. Console admin SSO alone does not authorize the CLI. Likewise, an M2M management token represents application authority and is not evidence that the signed-in user's permissions were enforced.
@@ -79,7 +79,7 @@ Asgardeo endpoints are tenant-specific, e.g. `https://api.asgardeo.io/t/<organiz
 
 For exchange, register a **Trusted Token Issuer**, configure issuer/JWKS and intended assertion audience, enable Token Exchange on the requesting app, and require linked local-account authorization where management rights depend on local roles. Current examples use client authentication; mobile-app availability alone does not establish public exchange. A grant handler's `isConfidentialClient()` default also does not by itself disprove public support: the public-client authenticator can mark a request authenticated when its grant policy permits it. Inspect the deployed grant policy.
 
-Sources: [public PKCE flow](https://is.docs.wso2.com/en/latest/guides/authentication/oidc/implement-auth-code-with-pkce/), [API authorization and roles](https://wso2.com/identity-platform/docs/guides/authorization/api-authorization/api-authorization/), [role assignment](https://wso2.com/identity-platform/docs/guides/users/manage-roles/), [Console roles](https://wso2.com/identity-platform/docs/references/user-management/user-roles/), [OIDC client settings](https://wso2.com/identity-platform/docs/references/app-settings/oidc-settings-for-app/), [IS exchange](https://is.docs.wso2.com/en/7.2.0/guides/authentication/configure-token-exchange/), [Asgardeo exchange](https://wso2.com/identity-platform/docs/guides/authentication/configure-token-exchange/), [organization API setup](https://wso2.com/identity-platform/docs/apis/organization-apis/authentication/).
+Sources: [public PKCE flow](https://is.docs.wso2.com/en/latest/guides/authentication/oidc/implement-auth-code-with-pkce/), [API authorization and roles](https://wso2.com/account-platform/docs/guides/authorization/api-authorization/api-authorization/), [role assignment](https://wso2.com/account-platform/docs/guides/users/manage-roles/), [Console roles](https://wso2.com/account-platform/docs/references/user-management/user-roles/), [OIDC client settings](https://wso2.com/account-platform/docs/references/app-settings/oidc-settings-for-app/), [IS exchange](https://is.docs.wso2.com/en/7.2.0/guides/authentication/configure-token-exchange/), [Asgardeo exchange](https://wso2.com/account-platform/docs/guides/authentication/configure-token-exchange/), [organization API setup](https://wso2.com/account-platform/docs/apis/organization-apis/authentication/).
 
 ## APIM as a management target
 
@@ -92,7 +92,7 @@ Baseline setup:
 
 ### Browserless alternatives and the exact public-client gate
 
-Read-only inspection of installed `repository/conf/identity/identity.xml` found:
+Read-only inspection of installed `repository/conf/account/account.xml` found:
 
 | Grant | PublicClientAllowed |
 | --- | --- |
@@ -115,8 +115,8 @@ enable = false
 
 [[oauth.custom_grant_type]]
 name = "urn:ietf:params:oauth:grant-type:token-exchange"
-grant_handler = "org.wso2.carbon.identity.oauth2.grant.token.exchange.TokenExchangeGrantHandler"
-grant_validator = "org.wso2.carbon.identity.oauth2.grant.token.exchange.TokenExchangeGrantValidator"
+grant_handler = "org.wso2.carbon.account.oauth2.grant.token.exchange.TokenExchangeGrantHandler"
+grant_validator = "org.wso2.carbon.account.oauth2.grant.token.exchange.TokenExchangeGrantValidator"
 
 [oauth.custom_grant_type.properties]
 PublicClientAllowed = true
@@ -126,7 +126,7 @@ IATValidityPeriod = "1h"
 
 Check the rendered grant block and restart in an isolated test deployment. Do not rely solely on the legacy `oauth.public_client_support.grant_type_names` template: inspection of the pinned configuration parser did not establish that it populates the effective public grant list. Verify actual token-endpoint behavior.
 
-Sources: [APIM federation](https://apim.docs.wso2.com/en/latest/install-and-setup/setup/sso/configuring-identity-server-as-external-idp-using-oidc/), [PKCE/public configuration](https://apim.docs.wso2.com/en/latest/install-and-setup/setup/security/securing-api-m-web-portals/#bypass-client-credentials-by-making-pkce-mandatory), [JWT bearer](https://apim.docs.wso2.com/en/latest/api-security/key-management/authentication/grant-types/jwt-grant/), [public authenticator](https://github.com/wso2-extensions/identity-inbound-auth-oauth/blob/v6.14.14/components/org.wso2.carbon.identity.oauth/src/main/java/org/wso2/carbon/identity/oauth2/client/authentication/PublicClientAuthenticator.java), [grant policy parser](https://github.com/wso2-extensions/identity-inbound-auth-oauth/blob/v6.14.14/components/org.wso2.carbon.identity.oauth/src/main/java/org/wso2/carbon/identity/oauth/config/OAuthServerConfiguration.java), [management scope issuer](https://github.com/wso2/carbon-apimgt/blob/v9.33.122/components/apimgt/org.wso2.carbon.apimgt.impl/src/main/java/org/wso2/carbon/apimgt/impl/issuers/SystemScopesIssuer.java), [exchange extension](https://github.com/wso2-extensions/identity-oauth2-grant-token-exchange/blob/v1.3.0/README.md).
+Sources: [APIM federation](https://apim.docs.wso2.com/en/latest/install-and-setup/setup/sso/configuring-identity-server-as-external-idp-using-oidc/), [PKCE/public configuration](https://apim.docs.wso2.com/en/latest/install-and-setup/setup/security/securing-api-m-web-portals/#bypass-client-credentials-by-making-pkce-mandatory), [JWT bearer](https://apim.docs.wso2.com/en/latest/api-security/key-management/authentication/grant-types/jwt-grant/), [public authenticator](https://github.com/wso2-extensions/account-inbound-auth-oauth/blob/v6.14.14/components/org.wso2.carbon.account.oauth/src/main/java/org/wso2/carbon/account/oauth2/client/authentication/PublicClientAuthenticator.java), [grant policy parser](https://github.com/wso2-extensions/account-inbound-auth-oauth/blob/v6.14.14/components/org.wso2.carbon.account.oauth/src/main/java/org/wso2/carbon/account/oauth/config/OAuthServerConfiguration.java), [management scope issuer](https://github.com/wso2/carbon-apimgt/blob/v9.33.122/components/apimgt/org.wso2.carbon.apimgt.impl/src/main/java/org/wso2/carbon/apimgt/impl/issuers/SystemScopesIssuer.java), [exchange extension](https://github.com/wso2-extensions/account-oauth2-grant-token-exchange/blob/v1.3.0/README.md).
 
 ## Platform Gateway as a management target
 
@@ -139,8 +139,8 @@ controller:
       enabled: false
     idp:
       enabled: true
-      issuer: "https://identity.example.com/EXACT-ISSUER"
-      jwks_url: "https://identity.example.com/ACTUAL-JWKS-ENDPOINT"
+      issuer: "https://account.example.com/EXACT-ISSUER"
+      jwks_url: "https://account.example.com/ACTUAL-JWKS-ENDPOINT"
       roles_claim: "groups"
       role_mapping:
         admin: ["gateway-admins"]
@@ -167,6 +167,6 @@ For a hosted Asgardeo tenant, use its Console or authorized management APIs. Loc
 
 Use one authorized user and one user without management rights. Count credential prompts and browser redirects separately. Starting without cached tokens, run `wso2 login`, then one real management read on every configured target. Repeat after shell restart and access-token expiry. Verify refresh and logout behavior; offline JWT validation does not imply instant upstream revocation propagation.
 
-Reject wrong issuer, wrong audience, missing role/scope, wrong tenant/OU, expired token, and a modified signature. Check that a user cannot obtain administrator permissions by merely requesting a scope. Test role/membership mutations separately where authorization performs local identity lookups. Do not replace user-delegated tokens with M2M admin credentials to make the test pass.
+Reject wrong issuer, wrong audience, missing role/scope, wrong tenant/OU, expired token, and a modified signature. Check that a user cannot obtain administrator permissions by merely requesting a scope. Test role/membership mutations separately where authorization performs local account lookups. Do not replace user-delegated tokens with M2M admin credentials to make the test pass.
 
 The evidence currently confirms the product mechanisms and identifies the APIM configuration gap. It does not establish that the existing CLI or all deployed tenants already satisfy this acceptance test.

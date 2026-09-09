@@ -246,7 +246,7 @@ distribute the CLI:
   [RPM signing](https://rpm.org/docs/6.1.x/man/rpmsign.1)).
 
 Repository ownership does not replace platform signing. WSO2 still needs
-protected signing identities for Apple Developer ID/notarization, Windows
+protected signing accounts for Apple Developer ID/notarization, Windows
 Authenticode, APT metadata and packages, and RPM packages and repository
 metadata.
 
@@ -342,7 +342,7 @@ Individual modules use
 
 The CLI never auto-discovers or trusts arbitrary executables copied into a
 folder. Offline installation is always an explicit import, and it applies the
-same identity, signature, digest, compatibility, revocation-metadata, health,
+same account, signature, digest, compatibility, revocation-metadata, health,
 receipt, atomic-activation, and rollback checks as online installation.
 
 ## Phased delivery
@@ -382,7 +382,7 @@ receipt, atomic-activation, and rollback checks as online installation.
   must pin versions or immutable container digests.
 - Latest-version aliases may aid interactive installation but must resolve to an
   immutable version before download and verification.
-- Installation must verify artifact identity, signature, digest, provenance,
+- Installation must verify artifact account, signature, digest, provenance,
   platform, and version before activation.
 - Upgrades must be atomic and retain a previous verified version for rollback
   when the installation channel permits it.

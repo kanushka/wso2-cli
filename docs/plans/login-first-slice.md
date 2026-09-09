@@ -16,17 +16,17 @@ established.
 ## Goal
 
 Implement `wso2 login` (browser Authorization Code + PKCE) and inline
-client-credentials acquisition, on a version-2 identities/contexts schema, with
+client-credentials acquisition, on a version-2 accounts/contexts schema, with
 OS-keychain session storage and a token-source seam in the broker, so the
 reference module receives a real issuer-minted access token.
 
 ## Architecture
 
-The shell gains schema v2 (`identities` plus contexts referencing them) with a
+The shell gains schema v2 (`accounts` plus contexts referencing them) with a
 compatibility read for the v1 architecture-proof documents. A new
 `internal/auth/session` package owns keychain persistence; a new
 `internal/auth/oauthflow` package owns the browser PKCE flow; `internal/auth`
-gains an unexported `source` seam resolved per identity kind (dev fixture,
+gains an unexported `source` seam resolved per account kind (dev fixture,
 oauth-browser scoped-refresh, client-credentials). Every failure is a typed
 `auth_policy` problem with a stable code.
 
@@ -36,7 +36,7 @@ signing only).
 
 ## What shipped
 
-    internal/contexts/identity.go        CREATE  Identity/IdentityAuth/Product + validation
+    internal/contexts/account.go        CREATE  Account/AccountAuth/Product + validation
     internal/contexts/legacy.go          CREATE  v1 compatibility read
     internal/contexts/contexts.go        MODIFY  v2 document, load/decode/encode, selection
     internal/auth/session/                CREATE  keychain blob, issuer check, rotation lock
@@ -58,7 +58,7 @@ signing only).
 
   Deterministic: `TestLoginThenTheModuleReceivesIssuerMintedNarrowedAccess` launches the real module subprocess, has the issuer introspect what it presented, and proves refresh rotation across three runs. Live: `login_smoke_test.go` acquires twice, and the second acquisition asks for one permission out of the several the session holds. That second request is what makes the check capable of failing — asking for everything the session carries leaves the shell comparing the issued scopes against an identical request, which holds however the deployment behaved. Measured against Identity Server 7.3.0 on 2026-08-06: 1261 characters carrying both permissions, then 1230 carrying one. The module half needs nothing further, because a module never learns which issuer minted its token and running it live proves nothing the deterministic chain does not.
 - [x] If Asgardeo fails the narrowing experiment: login and session persistence still pass; broker acquisition refuses `auth.narrowing_unavailable`; the research doc records the verdict (Task 12). — moot in the favorable direction: both deployments honor narrowing (`make empirical-asgardeo`, 2026-08-06). The refusal path itself is pinned by `TestADeploymentThatCannotNarrowIsRefusedRatherThanGrantedMore`.
-- [x] CI path acquires a client-credentials token inline in an acceptance test (Task 11). — `TestAnInlineIdentityAuthenticatesACommandWithNoLoginStep`, plus the missing-secret, cannot-narrow, non-interactive and secret-disclosure cases beside it.
+- [x] CI path acquires a client-credentials token inline in an acceptance test (Task 11). — `TestAnInlineAccountAuthenticatesACommandWithNoLoginStep`, plus the missing-secret, cannot-narrow, non-interactive and secret-disclosure cases beside it.
 - [x] `docs/research/asgardeo-redirect-uri-and-scope-narrowing.md` empirical cells filled in (Task 12). — Asgardeo §3 filled 2026-08-06; Identity Server 7.3.0 recorded in §3.1.
 
 **One finding outran this plan.** Asgardeo binds an access token's `aud` to the

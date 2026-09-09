@@ -58,7 +58,7 @@ Extension metadata may declare inclusive minimum and maximum CLI core versions. 
 
 #### Auth, configuration, output, and UX
 
-Authentication is core-owned. Azure CLI supports interactive users, managed identities, and service principals, selects a default subscription, and exposes short-lived access tokens through `az account get-access-token`. MSAL owns token acquisition and caching. Microsoft documents that its MSAL cache is encrypted on Windows but plaintext on Linux and macOS. [authentication methods](https://learn.microsoft.com/en-us/cli/azure/authenticate-azure-cli), [MSAL cache](https://learn.microsoft.com/en-us/cli/azure/msal-based-azure-cli)
+Authentication is core-owned. Azure CLI supports interactive users, managed accounts, and service principals, selects a default subscription, and exposes short-lived access tokens through `az account get-access-token`. MSAL owns token acquisition and caching. Microsoft documents that its MSAL cache is encrypted on Windows but plaintext on Linux and macOS. [authentication methods](https://learn.microsoft.com/en-us/cli/azure/authenticate-azure-cli), [MSAL cache](https://learn.microsoft.com/en-us/cli/azure/msal-based-azure-cli)
 
 Configuration follows a documented precedence: command-line parameters, then environment variables, then the configuration file. The user can set defaults such as resource group, location, output, confirmation behavior, logging, and telemetry. [configuration](https://learn.microsoft.com/en-us/cli/azure/azure-cli-configuration)
 
@@ -112,7 +112,7 @@ Exact `<major.minor.patch>` container tags are documented as immutable, while `l
 
 #### Auth, profiles, output, and UX
 
-The root credential resolver owns named profiles shared with AWS SDKs. AWS documents a precedence chain across command options, environment variables, shared files, external processes, SSO, web identity, containers, and instance metadata. Long-term access keys are not accepted as global command-line parameters; a command selects a profile with `--profile`. AWS recommends short-lived IAM Identity Center/federated credentials, which the CLI caches and refreshes. [authentication precedence](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-authentication.html), [global options](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-options.html), [shared profile format](https://docs.aws.amazon.com/sdkref/latest/guide/file-format.html)
+The root credential resolver owns named profiles shared with AWS SDKs. AWS documents a precedence chain across command options, environment variables, shared files, external processes, SSO, web account, containers, and instance metadata. Long-term access keys are not accepted as global command-line parameters; a command selects a profile with `--profile`. AWS recommends short-lived IAM Account Center/federated credentials, which the CLI caches and refreshes. [authentication precedence](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-authentication.html), [global options](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-options.html), [shared profile format](https://docs.aws.amazon.com/sdkref/latest/guide/file-format.html)
 
 The shared `config` and `credentials` files are plaintext. `credential_process` offers an external credential-provider seam, while role, container, instance, and web-identity providers participate in the same resolver. [shared files](https://docs.aws.amazon.com/sdkref/latest/guide/file-format.html), [configuration providers](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html)
 
@@ -169,7 +169,7 @@ Google also publishes self-contained, versioned archives for pinning, CI, fleet 
 
 #### Auth, configurations, output, and UX
 
-`gcloud init` combines authentication and initial configuration. The core supports human and federated identities, credential files, tokens, metadata-server identities, service accounts, and service-account impersonation through a documented precedence system. Google recommends federation and short-lived credentials over long-lived service-account keys. Application Default Credentials are deliberately separate from the credentials used by `gcloud` itself. [authentication and precedence](https://cloud.google.com/sdk/docs/authenticate), [ADC login](https://cloud.google.com/sdk/gcloud/reference/auth/application-default/login)
+`gcloud init` combines authentication and initial configuration. The core supports human and federated accounts, credential files, tokens, metadata-server accounts, service accounts, and service-account impersonation through a documented precedence system. Google recommends federation and short-lived credentials over long-lived service-account keys. Application Default Credentials are deliberately separate from the credentials used by `gcloud` itself. [authentication and precedence](https://cloud.google.com/sdk/docs/authenticate), [ADC login](https://cloud.google.com/sdk/gcloud/reference/auth/application-default/login)
 
 Named configurations group account, project, region/zone, verbosity, and product settings. One is active, another can be chosen per invocation, and flags and standardized environment variables override stored properties. [named configurations](https://cloud.google.com/sdk/docs/configurations), [property precedence](https://cloud.google.com/sdk/docs/properties)
 
@@ -179,11 +179,11 @@ Static CLI trees allow help and completion without loading every implementation.
 
 #### Security, enterprise use, and telemetry
 
-APT installation uses Google’s repository public key, the Windows installer is signed by Google LLC, and versioned archive pages publish SHA-256 checksums. The reviewed component documentation does not describe per-component publisher identities, signed manifests, provenance/SBOMs, revocation metadata, or rollback-attack protection. [APT trust](https://cloud.google.com/sdk/docs/install-sdk#deb), [signed Windows installer](https://cloud.google.com/sdk/docs/downloads-interactive), [archive checksums](https://cloud.google.com/sdk/docs/downloads-versioned-archives)
+APT installation uses Google’s repository public key, the Windows installer is signed by Google LLC, and versioned archive pages publish SHA-256 checksums. The reviewed component documentation does not describe per-component publisher accounts, signed manifests, provenance/SBOMs, revocation metadata, or rollback-attack protection. [APT trust](https://cloud.google.com/sdk/docs/install-sdk#deb), [signed Windows installer](https://cloud.google.com/sdk/docs/downloads-interactive), [archive checksums](https://cloud.google.com/sdk/docs/downloads-versioned-archives)
 
 Versioned archives can be copied into CI and controlled fleets, while proxy settings, custom CAs, and certificate diagnostics support enterprise networks. [versioned archives](https://cloud.google.com/sdk/docs/downloads-versioned-archives), [proxy and CA configuration](https://cloud.google.com/sdk/docs/proxy-settings)
 
-Usage reporting is opt-in during installation. Google says it collects command identity, duration, and error occurrence, but not argument values or personal information. The component manager periodically checks for updates, and configuration can disable automatic checks. [usage statistics](https://cloud.google.com/sdk/docs/usage-statistics), [component update behavior](https://cloud.google.com/sdk/gcloud/reference/components)
+Usage reporting is opt-in during installation. Google says it collects command account, duration, and error occurrence, but not argument values or personal information. The component manager periodically checks for updates, and configuration can disable automatic checks. [usage statistics](https://cloud.google.com/sdk/docs/usage-statistics), [component update behavior](https://cloud.google.com/sdk/gcloud/reference/components)
 
 ### WSO2 implications
 
@@ -215,7 +215,7 @@ Reject:
 | Pattern | Decision | Reason |
 |---|---|---|
 | Core-owned auth, profiles/contexts, and precedence | **Adopt** | All three demonstrate that consistency requires one credential and configuration authority. |
-| Short-lived/federated credentials | **Adopt** | Reduces secret exposure and supports interactive and automated identities. |
+| Short-lived/federated credentials | **Adopt** | Reduces secret exposure and supports interactive and automated accounts. |
 | SDK-generated command/help schema | **Adopt** | Azure’s shared authoring and gcloud’s CLI trees show how to unify help/completion without duplicate manual metadata. |
 | Typed results rendered by the shared layer | **Adopt** | Enables stable JSON/YAML/table behavior and query semantics across products. |
 | Exact versions, pins, reinstall, and rollback | **Adopt** | Essential for enterprise reproducibility and independently released modules. |
@@ -240,8 +240,8 @@ The comparison strengthens these requirements for the SDK-first hybrid:
 3. **The shell owns authentication and context.** Modules request short-lived, audience/scope-bound credentials through an inherited private IPC channel and never receive refresh tokens.
 4. **Handlers return typed data or typed problems.** The SDK/shell owns JSON, YAML, table, quiet mode, redaction, stable error categories, and exit-code mapping.
 5. **The registry resolves exact compatible versions.** Receipts record shell version, module version, protocol version, channel, pin, digest, publisher, verification result, and installation time.
-6. **Verification is mandatory.** Use signed catalog metadata and release manifests, delegated product-team identity, immutable artifact digests, provenance/SBOM admission, expiry, rollback protection, and revocation.
-7. **Installation is atomic.** Download to quarantine, verify, safely extract, run identity/health checks, activate atomically, and retain the previous verified version.
+6. **Verification is mandatory.** Use signed catalog metadata and release manifests, delegated product-team account, immutable artifact digests, provenance/SBOM admission, expiry, rollback protection, and revocation.
+7. **Installation is atomic.** Download to quarantine, verify, safely extract, run account/health checks, activate atomically, and retain the previous verified version.
 8. **Online and offline use have identical trust semantics.** Offline bundles and mirror snapshots carry the same signed metadata and verification evidence.
 9. **The shell emits all telemetry.** Modules cannot independently phone home; arguments, output data, tokens, tenant/project names, endpoints, and raw error text are excluded.
 
@@ -250,7 +250,7 @@ The comparison strengthens these requirements for the SDK-first hybrid:
 Before freezing the architecture contract, investigate:
 
 1. **Supply-chain standard:** compare TUF, Sigstore bundles, in-toto/SLSA provenance, and OCI artifacts for the WSO2 registry and offline verification.
-2. **Auth broker protocol:** inventory WSO2 product audiences, scopes, login types, token exchange, on-prem authentication, impersonation, and non-interactive workload identities.
+2. **Auth broker protocol:** inventory WSO2 product audiences, scopes, login types, token exchange, on-prem authentication, impersonation, and non-interactive workload accounts.
 3. **OS credential stores:** confirm macOS Keychain, Windows Credential Manager, and Linux Secret Service behavior, including headless Linux fallback policy.
 4. **Go SDK feasibility:** prototype automatic Cobra schema extraction, flags after the module namespace, completion, structured streaming, cancellation, and progress.
 5. **Module sandbox boundary:** document which capabilities can truly be enforced for native executables and whether mediated HTTP or WebAssembly is justified later.

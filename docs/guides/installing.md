@@ -100,7 +100,7 @@ than pretending to work:
 ```sh
 $ wso2 reference status
 error: the "reference" module needs access, and no WSO2 CLI context is selected (auth.context_not_selected)
-  Run wso2 context use <name> to select a configured context, or wso2 login --url <issuer> --client-id <id> to create an identity and a context. wso2 context list shows what is configured.
+  Run wso2 context use <name> to select a configured context, or wso2 login --url <issuer> --client-id <id> to create an account and a context. wso2 context list shows what is configured.
 ```
 
 Removing a module is explicit too:
