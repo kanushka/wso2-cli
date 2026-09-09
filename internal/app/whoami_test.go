@@ -42,6 +42,12 @@ type whoamiReport struct {
 	Session       string `json:"session"`
 	SessionExpiry string `json:"sessionExpiry"`
 	Recovery      string `json:"recovery,omitempty"`
+	Products      []struct {
+		Namespace     string `json:"namespace"`
+		Strategy      string `json:"strategy"`
+		Session       string `json:"session"`
+		SessionExpiry string `json:"sessionExpiry"`
+	} `json:"products,omitempty"`
 }
 
 // decodeWhoamiReport parses wso2 whoami --output json.
@@ -257,7 +263,7 @@ func TestWhoamiRendersAPreR6SessionAsUnknownAndNotStated(t *testing.T) {
 	keyring.MockInit()
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, whoamiSeededDocument())
-	if err := keyring.Set(session.Service, "acme-cloud",
+	if err := keyring.Set(session.Service, session.Store{StateRoot: shell.StateRoot}.EntryName("acme-cloud"),
 		`{"issuer":"https://idp.example","refreshToken":"rt-1"}`); err != nil {
 		t.Fatalf("seed a pre-R6 session: %v", err)
 	}
@@ -278,7 +284,7 @@ func TestWhoamiRendersAPreR6SessionAsUnknownAndNotStated(t *testing.T) {
 
 	tableShell, tableOut, tableErrOut := newShell(t)
 	installLogin(t, tableShell, whoamiSeededDocument())
-	if err := keyring.Set(session.Service, "acme-cloud",
+	if err := keyring.Set(session.Service, session.Store{StateRoot: tableShell.StateRoot}.EntryName("acme-cloud"),
 		`{"issuer":"https://idp.example","refreshToken":"rt-1"}`); err != nil {
 		t.Fatalf("seed a pre-R6 session: %v", err)
 	}
@@ -525,3 +531,35 @@ func TestWhoamiOpensNoNetworkConnection(t *testing.T) {
 // failingTransport, errNoNetwork, and TestTheNetworkGuardWouldNoticeARequest
 // are declared in context_test.go, in this same package, and are reused here
 // rather than redeclared — the same note doctor_test.go makes.
+
+// TestWhoamiDoesNotReportASessionFromAnotherIssuer proves a stored session
+// established against an issuer other than the one the identity now names is
+// reported as no session, with a recovery naming wso2 login, rather than as a
+// present session belonging to somebody else's deployment.
+func TestWhoamiDoesNotReportASessionFromAnotherIssuer(t *testing.T) {
+	keyring.MockInit()
+	shell, out, errOut := newShell(t)
+	installLogin(t, shell, whoamiSeededDocument())
+	store := session.Store{StateRoot: shell.StateRoot}
+	if err := store.Save("acme-cloud", session.Session{
+		Issuer:       "https://elsewhere.example",
+		RefreshToken: "rt-1",
+		Subject:      "somebody-else",
+	}); err != nil {
+		t.Fatalf("seed a foreign session: %v", err)
+	}
+
+	if code := shell.Run([]string{"whoami", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	report := decodeWhoamiReport(t, out.Bytes())
+	if report.Session != "none" {
+		t.Errorf("session = %q, want \"none\" for a session from another issuer", report.Session)
+	}
+	if report.Subject != "" {
+		t.Errorf("subject = %q, want it withheld for a session from another issuer", report.Subject)
+	}
+	if !strings.Contains(report.Recovery, "wso2 login") {
+		t.Errorf("recovery = %q, want it to name wso2 login", report.Recovery)
+	}
+}

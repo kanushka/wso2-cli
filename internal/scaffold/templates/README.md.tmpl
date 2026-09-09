@@ -8,8 +8,8 @@ It lives in this repository and is released by its own tag, independently of the
 shell and of every other module:
 
 ```sh
-git tag {{.Namespace}}/v0.1.0
-git push origin {{.Namespace}}/v0.1.0
+git tag {{.Namespace}}/v0.1.0-rc.1
+git push origin {{.Namespace}}/v0.1.0-rc.1
 ```
 
 That tag builds the module for every supported platform, publishes the archives,
@@ -20,15 +20,15 @@ no shell that exists can launch it.
 
 ```sh
 # From the repository root.
-go build ./modules/{{.Namespace}}/...
-go test ./modules/{{.Namespace}}/...
+make build-module NAMESPACE={{.Namespace}}
+make test-module NAMESPACE={{.Namespace}}
+make install-module NAMESPACE={{.Namespace}}   # then ./bin/wso2 {{.Namespace}} status
 ```
 
 The workspace composes this module with the SDK from source, so a change to the
-SDK reaches it without a release. The `go.mod` here requires the SDK by version,
-at the same version the reference module requires it at: while that version is
-still the unpublished placeholder, the workspace is what resolves it, and the
-requirement becomes the ordinary kind once an SDK version is published.
+SDK reaches it without a release. The `go.mod` here requires the published SDK
+at the version every other module in this repository requires, and carries no
+`replace` directive.
 
 ## What to change first
 
@@ -39,8 +39,10 @@ module holds: declare an audience and a scope in `module.json` and in
 `moduleOptions`, then ask for them with `request.Access.Acquire`. A module never
 sees a credential and cannot obtain a second token.
 
-`modules/reference` is the complete worked example, including the part this
-module deliberately leaves out.
+`modules/reference` is the worked example: a client on the product's REST
+API, two read-only commands, and tests that drive the module through the
+contract against a fake deployment. The guide at
+`docs/guides/building-product-modules.md` walks through it.
 
 ## What this module must not do
 

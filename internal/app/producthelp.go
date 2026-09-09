@@ -84,6 +84,7 @@ func (s Shell) renderProductHelp(namespace string, declared parsetree.Tree,
 	fmt.Fprint(&page, "\nShell flags, accepted on every command:\n")
 	if err := writeTable(&page, [][2]string{
 		{"    --context <name>", "Use the named context instead of the selected one."},
+		{"    --no-input", "Refuse rather than prompt, open a browser, or wait for a person."},
 		{"-o, --output <mode>", "Render results as table or json."},
 	}); err != nil {
 		return err

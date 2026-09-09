@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -230,6 +231,33 @@ func TestLoginCompletesFromThePrintedURLWhenTheBrowserCannotOpen(t *testing.T) {
 	}
 	if got.result.Token == nil || got.result.Token.RefreshToken == "" {
 		t.Fatal("the login completed without a refresh token")
+	}
+}
+
+func TestThePrintedURLLineNamesTheProductItAuthorizes(t *testing.T) {
+	issuer := fakeissuer.New(t, fakeissuer.Options{Audience: "reference-status", AllowAnyLoopbackPort: true})
+	for _, tc := range []struct {
+		label string
+		want  string
+	}{
+		{label: "", want: "Open this URL to log in:\n"},
+		{label: "apim", want: fmt.Sprintf("Open this URL to authorize the %q product at %s:\n", "apim", issuer.URL)},
+	} {
+		printed := &recorder{}
+		login := browserLogin(issuer, printed, func(string) error { return errors.New("no browser") })
+		login.Label = tc.label
+		done := make(chan error, 1)
+		go func() {
+			_, err := login.Run(testContext(t, 30*time.Second))
+			done <- err
+		}()
+		visit(issuer, printed.authorizationURL(t))
+		if err := <-done; err != nil {
+			t.Fatalf("label %q: login from the printed URL: %v", tc.label, err)
+		}
+		if got := printed.String(); !strings.HasPrefix(got, tc.want) {
+			t.Fatalf("label %q: printed %q, want it to start with %q", tc.label, got, tc.want)
+		}
 	}
 }
 

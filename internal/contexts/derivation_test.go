@@ -98,12 +98,14 @@ func TestAnUnknownDerivationIsRefused(t *testing.T) {
 }
 
 // Thunder requires a resource indicator at authorization time and accepts only
-// one, so one session reaches exactly one product. An identity that declares
-// two is refused when the document is read, rather than at the end of a browser
-// sign-in the user cannot act on.
-func TestAThunderIdentityServingSeveralProductsIsRefused(t *testing.T) {
+// one per authorization, but that binds one session to one product, not one
+// identity to one product: a second direct product becomes a sibling session
+// under its own resource indicator, so an identity may record several.
+func TestAThunderIdentityMayServeSeveralProducts(t *testing.T) {
 	_, err := contexts.Decode([]byte(withSecondProduct(withProvider(contexts.ProviderThunder))))
-	assertProblemCode(t, err, "contexts.document_malformed")
+	if err != nil {
+		t.Fatalf("a Thunder identity with two direct products was refused: %v", err)
+	}
 }
 
 // The same document is legal on a deployment that binds no audience at
@@ -248,8 +250,13 @@ func withoutProducts(document string) string {
 	return document[:opening] + `"products": {}` + document[closing:]
 }
 
+// The audience is an absolute URI, as a Thunder deployment requires of every
+// direct product's own resource indicator: this helper feeds both a Thunder
+// fixture, where that shape matters, and a non-Thunder one, where any string
+// would do.
 func withSecondProduct(document string) string {
 	return strings.Replace(document,
 		`"reference": {`,
-		`"second": {"endpoint": "https://api.example.test", "audience": "second-api", "scopes": ["second:read"]}, "reference": {`, 1)
+		`"second": {"endpoint": "https://api.example.test", "audience": "https://api.example.test/second", `+
+			`"scopes": ["second:read"]}, "reference": {`, 1)
 }

@@ -584,8 +584,9 @@ func TestAnInlineIdentityAuthenticatesACommandWithNoLoginStep(t *testing.T) {
 
 	// Nothing was kept. The credential was already on the machine, so a stored
 	// session would be a second copy of an authority the job already has.
+	store := session.Store{StateRoot: deployment.stateRoot}
 	for _, ref := range []string{loginCredentialRef, loginIdentityName} {
-		if _, err := keyring.Get(session.Service, ref); !errors.Is(err, keyring.ErrNotFound) {
+		if _, err := keyring.Get(session.Service, store.EntryName(ref)); !errors.Is(err, keyring.ErrNotFound) {
 			t.Errorf("the secure store holds an entry under %q after an inline run", ref)
 		}
 	}

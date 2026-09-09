@@ -21,6 +21,8 @@ import (
 	"net/http"
 
 	oidc "github.com/coreos/go-oidc/v3/oidc"
+
+	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
 )
 
 // tokenEndpoint resolves an issuer's token endpoint through OpenID discovery.
@@ -31,11 +33,9 @@ import (
 // Discovery also validates that the document belongs to the issuer it was
 // fetched from, so a redirected host cannot substitute its own token endpoint.
 func tokenEndpoint(ctx context.Context, client *http.Client, issuer string) (string, error) {
-	provider, err := oidc.NewProvider(oidc.ClientContext(ctx, client), issuer)
+	provider, err := discover(ctx, client, issuer)
 	if err != nil {
-		// The provider's own error may quote the request that produced it, and
-		// the shell renders problems verbatim, so it is not carried through.
-		return "", discoveryUnreachable()
+		return "", err
 	}
 	endpoint := provider.Endpoint().TokenURL
 	if endpoint == "" {
@@ -44,10 +44,45 @@ func tokenEndpoint(ctx context.Context, client *http.Client, issuer string) (str
 	return endpoint, nil
 }
 
+// ProbeIssuer reads an issuer's OpenID configuration and reports nothing
+// else about it. It is the check wso2 doctor --online runs, and it refuses
+// exactly the way a product command's own discovery would, so the two never
+// disagree about a deployment.
+func ProbeIssuer(ctx context.Context, client *http.Client, issuer string) error {
+	_, err := discover(ctx, client, issuer)
+	return err
+}
+
+// discover fetches the issuer's configuration, telling a certificate this
+// machine does not trust apart from every other failure. The provider's own
+// error may quote the request that produced it, and the shell renders
+// problems verbatim, so it is classified and not carried through.
+func discover(ctx context.Context, client *http.Client, issuer string) (*oidc.Provider, error) {
+	provider, err := oidc.NewProvider(oidc.ClientContext(ctx, client), issuer)
+	if err != nil {
+		return nil, issuerUnreadable(err, issuer)
+	}
+	return provider, nil
+}
+
+// issuerUnreadable is the denial for a discovery fetch that failed with err.
+//
+// An untrusted certificate is the one cause worth naming: it is what every
+// fresh self-hosted deployment fails with, and the generic recovery sends the
+// user to check an issuer that is right and a network that works. Everything
+// else stays the closed discovery failure, because guessing among the rest
+// would put the shell in the position of explaining a deployment it cannot
+// see.
+func issuerUnreadable(err error, issuer string) error {
+	if issuertrust.Untrusted(err) {
+		return Denial{Problem: issuertrust.Problem(issuer)}
+	}
+	return discoveryUnreachable()
+}
+
 // discoveryUnreachable reports an issuer the shell could not read a usable
 // configuration from, whether it answered badly or not at all. The recovery is
-// the same in either case, and guessing which one it was would put the shell in
-// the position of explaining a deployment it cannot see.
+// the same in either case.
 func discoveryUnreachable() error {
 	return denial("auth.discovery_failed",
 		"the shell could not read the identity provider's OpenID configuration",

@@ -267,3 +267,111 @@ func TestNoInlineRefusalOrGrantRevealsTheClientSecret(t *testing.T) {
 		t.Errorf("a rejected-credential refusal revealed the client secret: %s", rendered)
 	}
 }
+
+// clientCredentialsBroker builds the broker a client-credentials identity that
+// logs in at issuer would use, with its own client secret in
+// WSO2_ACME_CLIENT_SECRET. Individual tests register whichever products they
+// need and override Credentials when a test names a different set of
+// variables.
+func clientCredentialsBroker(t *testing.T, issuer *fakeissuer.Issuer) *auth.Broker {
+	t.Helper()
+	broker := productionBroker(t, contexts.KindClientCredentials)
+	broker.Selection.Identity.Auth.Issuer = issuer.URL
+	broker.Selection.Identity.Auth.CredentialRef = ""
+	broker.Selection.Identity.Auth.ClientSecretVariable = "WSO2_ACME_CLIENT_SECRET"
+	broker.HTTPClient = issuer.HTTPClient()
+	broker.Credentials = func(name string) (string, bool) {
+		if name != "WSO2_ACME_CLIENT_SECRET" {
+			return "", false
+		}
+		return "machine-secret", true
+	}
+	return broker
+}
+
+func TestAProductCredentialIsPresentedAtTheProductIssuer(t *testing.T) {
+	login := fakeissuer.New(t, fakeissuer.Options{ClientSecret: "machine-secret", RequireResource: true})
+	product := fakeissuer.New(t, fakeissuer.Options{ClientSecret: "apim-secret", Audience: "apim-cli"})
+	broker := clientCredentialsBroker(t, login) // identity secret in WSO2_ACME_CLIENT_SECRET
+	broker.Selection.Identity.Auth.Provider = contexts.ProviderThunder
+	broker.Selection.Identity.Products["apim"] = contexts.Product{
+		Endpoint: product.URL, Audience: "apim-cli", Scopes: []string{"apim:api_view"},
+		Grant:            &contexts.Grant{Kind: contexts.GrantFederated, Issuer: product.URL, ClientID: "unused"},
+		ClientIDVariable: "WSO2_APIM_CLIENT_ID", ClientSecretVariable: "WSO2_APIM_CLIENT_SECRET",
+	}
+	broker.Namespace = "apim"
+	broker.Capabilities.AuthAudiences = []string{"apim-cli"}
+	broker.Capabilities.AuthScopes = []string{"apim:api_view"}
+	broker.Credentials = func(name string) (string, bool) {
+		return map[string]string{
+			"WSO2_ACME_CLIENT_SECRET": "machine-secret",
+			"WSO2_APIM_CLIENT_ID":     "apim-machine",
+			"WSO2_APIM_CLIENT_SECRET": "apim-secret",
+		}[name], true
+	}
+	broker.HTTPClient = product.HTTPClient()
+	grant, err := broker.Acquire(auth.Request{Audience: "apim-cli", Scopes: []string{"apim:api_view"}})
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	if active, _, _ := product.Introspect(t, grant.Token); !active {
+		t.Fatal("the product issuer did not mint the token")
+	}
+}
+
+func TestAMissingProductCredentialNamesItsVariable(t *testing.T) {
+	login := fakeissuer.New(t, fakeissuer.Options{ClientSecret: "machine-secret", RequireResource: true})
+	product := fakeissuer.New(t, fakeissuer.Options{ClientSecret: "apim-secret", Audience: "apim-cli"})
+	broker := clientCredentialsBroker(t, login)
+	broker.Selection.Identity.Auth.Provider = contexts.ProviderThunder
+	broker.Selection.Identity.Products["apim"] = contexts.Product{
+		Endpoint: product.URL, Audience: "apim-cli", Scopes: []string{"apim:api_view"},
+		Grant:            &contexts.Grant{Kind: contexts.GrantFederated, Issuer: product.URL, ClientID: "unused"},
+		ClientIDVariable: "WSO2_APIM_CLIENT_ID", ClientSecretVariable: "WSO2_APIM_CLIENT_SECRET",
+	}
+	broker.Namespace = "apim"
+	broker.Capabilities.AuthAudiences = []string{"apim-cli"}
+	broker.Capabilities.AuthScopes = []string{"apim:api_view"}
+	broker.Credentials = func(name string) (string, bool) {
+		return map[string]string{
+			"WSO2_ACME_CLIENT_SECRET": "machine-secret",
+			"WSO2_APIM_CLIENT_ID":     "apim-machine",
+			// WSO2_APIM_CLIENT_SECRET is deliberately absent.
+		}[name], true
+	}
+	broker.HTTPClient = product.HTTPClient()
+
+	refusal := denied(t, broker, auth.Request{Audience: "apim-cli", Scopes: []string{"apim:api_view"}})
+
+	if refusal.Problem.Code != "auth.credential_unavailable" {
+		t.Errorf("code = %q, want auth.credential_unavailable", refusal.Problem.Code)
+	}
+	if !strings.Contains(refusal.Reported().Recovery, "WSO2_APIM_CLIENT_SECRET") {
+		t.Errorf("the user is not told which variable to set: %q", refusal.Reported().Recovery)
+	}
+	moduleSafe := refusal.Problem.Message + " " + refusal.Problem.Recovery
+	if strings.Contains(moduleSafe, "WSO2_APIM_CLIENT_SECRET") {
+		t.Errorf("the module-safe refusal names the credential source: %q", moduleSafe)
+	}
+	if strings.Contains(moduleSafe, "apim-secret") {
+		t.Errorf("the module-safe refusal reveals a secret value: %q", moduleSafe)
+	}
+}
+
+func TestAMachineIdentityMintsEachProductWithItsOwnResource(t *testing.T) {
+	issuer := fakeissuer.New(t, fakeissuer.Options{ClientSecret: "machine-secret", RequireResource: true})
+	broker := clientCredentialsBroker(t, issuer)
+	broker.Selection.Identity.Auth.Provider = contexts.ProviderThunder
+	broker.Selection.Identity.Products["iam"] = contexts.Product{
+		Endpoint: issuer.URL, Audience: "https://localhost:8090/mcp", Scopes: []string{"system"}}
+	broker.Namespace = "iam"
+	broker.Capabilities.AuthAudiences = []string{"https://localhost:8090/mcp"}
+	broker.Capabilities.AuthScopes = []string{"system"}
+	grant, err := broker.Acquire(auth.Request{Audience: "https://localhost:8090/mcp", Scopes: []string{"system"}})
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	if _, scopes, audiences := issuer.Introspect(t, grant.Token); scopes[0] != "system" || audiences[0] != "https://localhost:8090/mcp" {
+		t.Fatalf("scopes %v audiences %v", scopes, audiences)
+	}
+}

@@ -63,7 +63,10 @@ func (g kindGate) check(selected contexts.Selection) error {
 			// and this is the first refusal a user on a clean machine meets.
 			WithRecovery(g.unselected)
 	case contexts.KindClientCredentials, contexts.MethodDevelopmentCredential:
-		return g.inline(selected.Context.Name)
+		if g.inline != nil {
+			return g.inline(selected.Context.Name)
+		}
+		return nil
 	case contexts.KindPAT:
 		return problem.New(problem.CategoryAuthPolicy, "auth.kind_not_implemented",
 			fmt.Sprintf("the %q context uses an authentication kind this release does not implement",
@@ -96,17 +99,15 @@ var loginKindGate = kindGate{
 }
 
 // logoutKindGate refuses an identity wso2 logout has no session to end for.
+//
+// inline is nil, unlike loginKindGate's: a client-credentials identity holds
+// no session for wso2 login to refuse establishing, but wso2 logout still has
+// something to report for one — an empty, no-op end of session — so it is not
+// refused at all. See logout's own doc comment.
 var logoutKindGate = kindGate{
 	command: "logout",
 	unselected: "Run wso2 context use <name> to select a configured context, or wso2 context " +
 		"list to see what is configured. Nothing holds a session until wso2 login has " +
 		"established one.",
 	purpose: "to log out of",
-	inline: func(contextName string) problem.Problem {
-		return problem.New(problem.CategoryAuthPolicy, "auth.logout_not_required",
-			fmt.Sprintf("the %q context acquires access inline and holds no session to end",
-				contextName)).
-			WithRecovery("Nothing is stored for this context. Remove the credential from the " +
-				"environment to stop the shell acquiring access with it.")
-	},
 }

@@ -33,6 +33,10 @@ type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	Scope        string `json:"scope"`
+	// IDToken is the identity token a renewal under openid carries. The shell
+	// never verifies or stores it: it is an assertion for a product's own
+	// issuer to verify, and it lives for one derivation.
+	IDToken string `json:"id_token"`
 	// ExpiresIn is the access token's lifetime in seconds. It decodes through
 	// optionalSeconds, not a plain int64, because a single member of the wrong
 	// shape fails the whole Unmarshal — and an issuer that states this standard
@@ -162,7 +166,30 @@ const indicatorRecovery = "This deployment binds access to one named resource an
 const unknownResourceRecovery = "Register that resource server on the deployment, or correct the " +
 	"audience on this identity's product entry to one it knows, then retry."
 
-// verify proves an issued token is exactly what the module asked for.
+// narrowing is what a verification refuses in terms of: the module asking, the
+// audience the identity registers for it, and the way back from a refusal.
+type narrowing struct {
+	namespace, audience string
+	// resourceBound is true on a deployment that binds a session to one
+	// resource server — the audience — and mints only the permissions the
+	// roles held on it carry, issuing a token that states none rather than
+	// refusing when there are none. Thunder is one. A refusal on such a
+	// deployment names the resource server, because that is where the missing
+	// role has to be granted.
+	resourceBound bool
+	// recovery is the way back from any refusal: narrowingRecovery for a
+	// deployment the shell knows nothing more about, and the resource-bound
+	// one, built with resourceBoundRecovery, where it does.
+	recovery string
+}
+
+// verify proves an issued token is exactly what the module asked for, and
+// refuses in the shell's general terms when it is not.
+func (r tokenResponse) verify(request Request, namespace, audience string) (bearerFacts, error) {
+	return r.verifyNarrowing(request, narrowing{namespace: namespace, audience: audience, recovery: narrowingRecovery})
+}
+
+// verifyNarrowing proves an issued token is exactly what the module asked for.
 //
 // It is the check the whole derivation exists to make. A deployment may answer
 // a narrowed request with the session's full authority, or with a token bound
@@ -171,7 +198,11 @@ const unknownResourceRecovery = "Register that resource server on the deployment
 // for has been handed authority nobody decided to give it, and a module that
 // receives a token its audience will reject fails later for a reason no one can
 // diagnose from where it fails.
-func (r tokenResponse) verify(request Request, namespace, audience string) (bearerFacts, error) {
+//
+// The opening phrase of each refusal is stable: test/smoke reads the outcome
+// of a live run off it.
+func (r tokenResponse) verifyNarrowing(request Request, n narrowing) (bearerFacts, error) {
+	namespace := n.namespace
 	facts, err := bearerClaims(r.AccessToken)
 	if err != nil {
 		// Without readable claims the shell cannot prove the audience binding,
@@ -179,7 +210,7 @@ func (r tokenResponse) verify(request Request, namespace, audience string) (bear
 		return bearerFacts{}, denial("auth.narrowing_unavailable",
 			fmt.Sprintf("the deployment issued access for the %q module in a form the shell cannot "+
 				"check against what the module asked for", namespace),
-			narrowingRecovery)
+			n.recovery)
 	}
 	// The response's own statement wins, because it is the deployment speaking
 	// about what it issued. The token's claim answers for issuers that state
@@ -189,29 +220,38 @@ func (r tokenResponse) verify(request Request, namespace, audience string) (bear
 		effective = facts.Scopes
 	}
 	if len(effective) == 0 {
-		return bearerFacts{}, denial("auth.narrowing_unavailable",
-			fmt.Sprintf("the deployment did not state which permissions it issued for the %q module, "+
-				"so the shell cannot prove they are the ones it asked for", namespace),
-			narrowingRecovery)
+		message := fmt.Sprintf("the deployment did not state which permissions it issued for the %q "+
+			"module, so the shell cannot prove they are the ones it asked for", namespace)
+		if n.resourceBound {
+			// On this deployment a token stating no permissions is the answer
+			// for a user or client who holds no role on the resource server,
+			// so the token is described rather than the protocol.
+			message = fmt.Sprintf("the deployment did not state which permissions it issued for the %q "+
+				"module: the token it minted for the %q resource server carries none of the permissions "+
+				"the module asked for (%s)", namespace, n.audience, scopeList(request.Scopes))
+		}
+		return bearerFacts{}, denial("auth.narrowing_unavailable", message, n.recovery)
 	}
 	if !sameScopeSet(effective, request.Scopes) {
 		// Scope names are not secrets, and naming both sides is the difference
 		// between a refusal and a registration a user can go and fix.
-		return bearerFacts{}, denial("auth.narrowing_unavailable",
-			fmt.Sprintf("the %q module asked for the permissions %s and the deployment issued %s",
-				namespace, scopeList(request.Scopes), scopeList(effective)),
-			narrowingRecovery)
+		message := fmt.Sprintf("the %q module asked for the permissions %s and the deployment issued %s",
+			namespace, scopeList(request.Scopes), scopeList(effective))
+		if n.resourceBound {
+			message += fmt.Sprintf(", minted for the %q resource server", n.audience)
+		}
+		return bearerFacts{}, denial("auth.narrowing_unavailable", message, n.recovery)
 	}
 	// The binding is proved against the audience the identity registers for
 	// this product, not against the logical name the module asked by. The
 	// module's name is a constant compiled into it and says nothing about any
 	// deployment; the registered value is what this deployment stamps into aud,
 	// and it is what a person authorized against a real tenant.
-	if !slices.Contains(facts.Audiences, audience) {
+	if !slices.Contains(facts.Audiences, n.audience) {
 		return bearerFacts{}, denial("auth.narrowing_unavailable",
 			fmt.Sprintf("the deployment issued access for the %q module that is not bound to the %q "+
-				"audience this identity registers for it", namespace, audience),
-			narrowingRecovery)
+				"audience this identity registers for it", namespace, n.audience),
+			n.recovery)
 	}
 	// Both sources of a lifetime silent at once leaves nothing to expire, and
 	// expiry() then returns the zero time — which reaches a module as an epoch
@@ -223,9 +263,38 @@ func (r tokenResponse) verify(request Request, namespace, audience string) (bear
 		return bearerFacts{}, denial("auth.narrowing_unavailable",
 			fmt.Sprintf("the deployment stated no lifetime for the access it issued for the %q "+
 				"module, and the token claims none either", namespace),
-			narrowingRecovery)
+			n.recovery)
 	}
 	return facts, nil
+}
+
+// resourceBoundRecovery is the way back from a refusal on a deployment that
+// mints a session's permissions from the roles held on one resource server.
+//
+// It names everything the person reading it can act on and nothing they
+// cannot: the role that has to exist, with the exact permissions and the
+// resource server, in the form the iam module creates it; the assignment,
+// when the role already exists; and that a session minted before the role was
+// granted keeps the permissions it was minted with — a refresh renews the
+// original grant — so it has to be established again afterwards. Which login
+// re-establishes it depends on whether this is the login product: the
+// context's own session is replaced by a logout and a login, a product's own
+// session by wso2 login --only.
+func resourceBoundRecovery(scopes []string, audience, contextName, namespace string, loginProduct bool) string {
+	permissions := make([]string, 0, len(scopes))
+	for _, scope := range slices.Sorted(slices.Values(scopes)) {
+		permissions = append(permissions, "--permission "+scope)
+	}
+	reestablish := fmt.Sprintf("run wso2 login --only %s", namespace)
+	if loginProduct {
+		reestablish = fmt.Sprintf("run wso2 logout --context %s and wso2 login --context %s", contextName, contextName)
+	}
+	return fmt.Sprintf("On this deployment a session carries only the permissions of roles the signed-in "+
+		"user or the client holds on the %q resource server, and this one was minted without them. "+
+		"Ask an administrator to grant one: wso2 iam roles create <role> --resource-server <name> %s "+
+		"--assign-user <username>, or wso2 iam roles assign <role> --user <username> when the role "+
+		"exists. A session established before the role was granted keeps what it was minted with, so "+
+		"afterwards %s.", audience, strings.Join(permissions, " "), reestablish)
 }
 
 // sameScopeSet reports whether two permission lists carry the same members,

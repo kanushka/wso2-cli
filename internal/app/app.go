@@ -115,6 +115,13 @@ func (s Shell) dispatch(args []string) error {
 	// nothing, which is what an invocation without the flag must produce.
 	s.log = output.NewLogger()
 
+	// Trust is widened before anything reaches the network, because the first
+	// request a login makes is the discovery fetch and a self-signed deployment
+	// fails there. See CAFileEnvVar.
+	if err := installTrust(); err != nil {
+		return err
+	}
+
 	// The preferences diagnostic is surfaced here, once, before any fork this
 	// function makes — rather than in applyShellFlags, Cobra's
 	// PersistentPreRunE, which a product namespace never reaches at all.
@@ -191,6 +198,12 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 	if err != nil {
 		return err
 	}
+	// --no-input is taken the same way and for the same reason; connect
+	// never prompts, so for it the flag is accepted and means nothing.
+	args, noInput, err := takeNoInput(args)
+	if err != nil {
+		return err
+	}
 	if verbose {
 		// The module's own --output governs, because these diagnostics
 		// interleave with the result the module renders under it.
@@ -229,7 +242,14 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 		"executable", resolved.ExecutablePath,
 		"module_version", resolved.Receipt.ModuleVersion,
 		"protocol_version", resolved.ProtocolVersion)
-	return s.invokeModule(namespace, resolved, args)
+	// connect is the shell's own subcommand of every namespace, read here
+	// after the receipt was verified and before anything is launched: it
+	// writes the product record from the descriptor the receipt carries,
+	// and the module never sees the word.
+	if len(args) > 0 && args[0] == connectSubcommand {
+		return s.connect(namespace, resolved.Receipt, args[1:])
+	}
+	return s.invokeModule(namespace, resolved, args, noInput)
 }
 
 // identity reports the shell-side facts an installed module must be compatible

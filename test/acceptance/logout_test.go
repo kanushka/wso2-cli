@@ -169,7 +169,8 @@ func TestLogoutWithNoSessionSucceeds(t *testing.T) {
 // stored.
 func TestLogoutEndsASessionItCannotRead(t *testing.T) {
 	deployment := deployLoginWithoutModule(t, fakeissuer.Options{AllowAnyLoopbackPort: true}, nil)
-	if err := keyring.Set(session.Service, loginCredentialRef, "not json"); err != nil {
+	stale := session.Store{StateRoot: deployment.stateRoot}.EntryName(loginCredentialRef)
+	if err := keyring.Set(session.Service, stale, "not json"); err != nil {
 		t.Fatalf("seeding a stale session: %v", err)
 	}
 
@@ -203,7 +204,7 @@ func TestLogoutRendersJSON(t *testing.T) {
 	deployment.login(t)
 	deployment.out.Reset()
 
-	deployment.logout(t, "--output", "json")
+	deployment.logout(t, "--output", "json", "--keep-browser-session")
 
 	var reported struct {
 		Context        string `json:"context"`
@@ -231,10 +232,10 @@ func TestLogoutRendersJSON(t *testing.T) {
 	if reported.SharedContexts != referenceContextName {
 		t.Errorf("sharedContexts = %q, want %q", reported.SharedContexts, referenceContextName)
 	}
-	// The caveat the table prints as a note has to reach a JSON caller too: it
-	// is the one thing users read into this command that is not true.
-	if reported.BrowserSession != "unaffected" {
-		t.Errorf("browserSession = %q, want unaffected", reported.BrowserSession)
+	// What became of the identity provider's browser session has to reach a
+	// JSON caller too; --keep-browser-session names it kept.
+	if reported.BrowserSession != "kept" {
+		t.Errorf("browserSession = %q, want kept", reported.BrowserSession)
 	}
 }
 
@@ -381,9 +382,9 @@ func TestLogoutRevealsNoTokenMaterial(t *testing.T) {
 	}
 }
 
-// An identity that acquires access inline holds no session, and is told so
-// rather than being reported as having ended one.
-func TestLogoutRefusesAnIdentityThatHoldsNoSession(t *testing.T) {
+// An identity that acquires access inline holds no session. Logout says so
+// and exits 0, so a pipeline that ends with it does not fail.
+func TestLogoutReportsAnIdentityThatHoldsNoSession(t *testing.T) {
 	deployment := deployLoginWithoutModule(t, fakeissuer.Options{AllowAnyLoopbackPort: true},
 		func(document *contexts.Document) {
 			document.Identities[0].Auth.Kind = contexts.KindClientCredentials
@@ -394,11 +395,12 @@ func TestLogoutRefusesAnIdentityThatHoldsNoSession(t *testing.T) {
 			document.Identities[0].Auth.CredentialRef = ""
 		})
 
-	if code := deployment.shell.Run([]string{"logout"}); code == exit.OK {
-		t.Fatalf("logout succeeded for an identity that holds no session\nstdout:\n%s",
-			deployment.out)
+	if code := deployment.shell.Run([]string{"logout"}); code != exit.OK {
+		t.Fatalf("logout exited %d for an identity that holds no session\nstderr:\n%s",
+			code, deployment.errOut)
 	}
-	if !strings.Contains(deployment.errOut.String(), "auth.logout_not_required") {
-		t.Errorf("refusal does not carry auth.logout_not_required:\n%s", deployment.errOut)
+	out := deployment.out.String()
+	if !strings.Contains(out, "No session was stored") || !strings.Contains(out, "not-attempted") {
+		t.Errorf("logout did not say plainly that nothing was stored:\n%s", out)
 	}
 }

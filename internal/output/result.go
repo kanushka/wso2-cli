@@ -66,24 +66,43 @@ func Result(w io.Writer, mode Mode, produced result.Result) error {
 }
 
 // resultTable renders the result as a header row and one value row.
+// NextField names the one field a table does not hold as a column. A module
+// says what a user most likely runs next in a field named next; a full command
+// there would stretch every column, so table mode prints it as a line after
+// the table, and JSON keeps it as an ordinary member a script can ignore.
+const NextField = "next"
+
 func resultTable(w io.Writer, produced result.Result) error {
 	headers := make([]string, 0, len(produced.Fields))
 	values := make([]string, 0, len(produced.Fields))
+	next := ""
 	for _, field := range produced.Fields {
+		if field.Name == NextField {
+			next = field.Value
+			continue
+		}
 		headers = append(headers, field.DisplayLabel())
 		values = append(values, field.Value)
 	}
-	table := NewTable(headers...)
-	table.Append(values...)
-	return table.Render(w)
+	if len(headers) > 0 {
+		table := NewTable(headers...)
+		table.Append(values...)
+		if err := table.Render(w); err != nil {
+			return err
+		}
+	}
+	return nextLine(w, next)
 }
 
-// resultJSON renders the result as a JSON object whose keys follow the module's
-// field order.
-//
-// The document is assembled field by field rather than through a map, because a
-// Go map would sort the keys and lose the order the module chose. Every key and
-// value is still encoded by encoding/json, so escaping is not hand-rolled.
+// nextLine writes the trailing next-step line, or nothing when there is none.
+func nextLine(w io.Writer, next string) error {
+	if next == "" {
+		return nil
+	}
+	_, err := fmt.Fprintf(w, "\nNext  %s\n", next)
+	return err
+}
+
 func resultJSON(w io.Writer, produced result.Result) error {
 	var document bytes.Buffer
 	document.WriteString("{\n")

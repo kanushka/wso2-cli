@@ -164,3 +164,41 @@ func TestParseModeAcceptsOnlyTheRenderingsTheShellSupports(t *testing.T) {
 		}
 	}
 }
+
+// TestANextFieldRendersAsATrailingLine pins the one field the table does not
+// hold as a column. A module says what a user most likely runs next in a field
+// named next; a full command there would stretch every column, so it is a line
+// after the table in table mode and an ordinary member in JSON.
+func TestANextFieldRendersAsATrailingLine(t *testing.T) {
+	produced := result.New("x.y/v1").
+		With("count", "Count", "1").
+		With("next", "Next", "Run wso2 apim apis deploy MockAPI/1.0.0.")
+	var out bytes.Buffer
+	if err := output.Result(&out, output.ModeTable, produced); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if strings.Contains(strings.SplitN(text, "\n", 2)[0], "NEXT") {
+		t.Errorf("next was rendered as a column:\n%s", text)
+	}
+	if !strings.HasSuffix(text, "\nNext  Run wso2 apim apis deploy MockAPI/1.0.0.\n") {
+		t.Errorf("next line missing:\n%s", text)
+	}
+	out.Reset()
+	if err := output.Result(&out, output.ModeJSON, produced); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"next": "Run wso2 apim apis deploy MockAPI/1.0.0."`) {
+		t.Errorf("json lost next:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := output.Report(&out, output.ModeTable, produced); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "Next  Run wso2 apim apis deploy MockAPI/1.0.0.") &&
+		strings.Count(out.String(), "Next") == 1 && strings.HasPrefix(out.String(), "Count") {
+		return
+	}
+	t.Errorf("report did not end with the next line:\n%s", out.String())
+}

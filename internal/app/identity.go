@@ -76,7 +76,7 @@ func (s Shell) identityCommand() *cobra.Command {
 	// alongside "wso2 identity list" would be a second answer to a question
 	// nothing asked.
 	declareOutputFlag(command.PersistentFlags())
-	command.AddCommand(s.identityAddProductCommand(), s.identityListCommand())
+	command.AddCommand(s.identityCreateCommand(), s.identityAddProductCommand(), s.identityListCommand())
 	return command
 }
 
@@ -84,15 +84,20 @@ func (s Shell) identityAddProductCommand() *cobra.Command {
 	var endpoint, audience string
 	var scopes []string
 	var replace bool
+	var grant grantFlags
 	command := &cobra.Command{
 		Use:   "add-product <identity> <namespace>",
 		Short: "Record a product endpoint a self-hosted deployment cannot advertise.",
 		Args: exactlyTwoArguments("an identity and a product namespace",
 			identityAddProductUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			return s.identityAddProduct(command, args[0], args[1],
-				contexts.Product{Endpoint: endpoint, Audience: audience, Scopes: scopes},
-				replace)
+			product := contexts.Product{Endpoint: endpoint, Audience: audience, Scopes: scopes}
+			derived, err := grant.product()
+			if err != nil {
+				return err
+			}
+			product.Grant = derived
+			return s.identityAddProduct(command, args[0], args[1], product, replace)
 		},
 	}
 	command.Flags().StringVar(&endpoint, "endpoint", "",
@@ -105,7 +110,61 @@ func (s Shell) identityAddProductCommand() *cobra.Command {
 		"The permissions the shell may request for this product, comma-separated.")
 	command.Flags().BoolVar(&replace, "replace", false,
 		"Replace the namespace's existing record instead of refusing.")
+	command.Flags().StringVar(&grant.kind, "grant", "",
+		"How access for this product is derived when its issuer is not the identity's: "+
+			contexts.GrantJWTBearer+" presents an identity token from the login session; "+
+			contexts.GrantFederated+" signs in at the product's own issuer as the named client.")
+	command.Flags().StringVar(&grant.issuer, "grant-issuer", "",
+		"The product's own OpenID issuer, whose token endpoint takes the assertion.")
+	command.Flags().StringVar(&grant.clientID, "grant-client-id", "",
+		"The public client the shell presents at the grant issuer.")
+	command.Flags().StringSliceVar(&grant.scopes, "grant-scopes", nil,
+		"The scopes the login session is refreshed with for the assertion, comma-separated; "+
+			"openid is always among them.")
+	command.Flags().StringVar(&grant.resource, "grant-resource", "",
+		"The resource indicator the grant's session is authorized under, when its issuer requires one.")
 	return command
+}
+
+// grantFlags are the flags that describe a derived product. They are
+// legal only together: a grant is one arrangement, and half of one names
+// nothing the broker could carry out.
+type grantFlags struct {
+	kind, issuer, clientID, resource string
+	scopes                           []string
+}
+
+// product turns the flags into the grant a product records, or nil when none
+// was given.
+func (g grantFlags) product() (*contexts.Grant, error) {
+	if g.kind == "" && g.issuer == "" && g.clientID == "" && len(g.scopes) == 0 && g.resource == "" {
+		return nil, nil
+	}
+	if g.kind == "" {
+		return nil, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
+			"wso2 identity add-product needs --grant with --grant-issuer and --grant-client-id").
+			WithRecovery("Pass --grant " + contexts.GrantJWTBearer + " or --grant " + contexts.GrantFederated +
+				" to derive this product's access. " + identityAddProductUsage)
+	}
+	if g.kind != contexts.GrantJWTBearer && g.kind != contexts.GrantFederated {
+		return nil, problem.New(problem.CategoryUsage, "shell.invalid_argument",
+			fmt.Sprintf("%q is not a grant this shell implements", g.kind)).
+			WithRecovery("Pass --grant " + contexts.GrantJWTBearer + " or --grant " + contexts.GrantFederated + ". " +
+				identityAddProductUsage)
+	}
+	if g.issuer == "" || g.clientID == "" {
+		return nil, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
+			"wso2 identity add-product needs --grant-issuer and --grant-client-id with --grant").
+			WithRecovery("Name the product's own issuer and the public client the shell presents " +
+				"there. " + identityAddProductUsage)
+	}
+	if g.kind == contexts.GrantFederated && len(g.scopes) > 0 {
+		return nil, problem.New(problem.CategoryUsage, "shell.invalid_argument",
+			"--grant-scopes belongs to a jwt-bearer grant, not to federated").
+			WithRecovery("Omit --grant-scopes or pass --grant " + contexts.GrantJWTBearer + ". " +
+				identityAddProductUsage)
+	}
+	return &contexts.Grant{Kind: g.kind, Issuer: g.issuer, ClientID: g.clientID, Scopes: g.scopes, Resource: g.resource}, nil
 }
 
 func (s Shell) identityListCommand() *cobra.Command {
@@ -181,20 +240,13 @@ func (s Shell) identityAddProduct(
 		Endpoint:  product.Endpoint,
 		Audience:  product.Audience,
 		Scopes:    product.Scopes,
+		Grant:     product.Grant,
 	}
 	// changed records that the update reached the point of returning a modified
 	// document. Everything Update refuses after that is a refusal of what this
 	// command just built, and nothing before it is; that is what lets the
 	// refusal be reworded honestly. See explainProductRefusal.
 	changed := false
-	// uncorrectable records that the identity is bound to one protected
-	// resource and the change would leave it holding more than one product.
-	// Such a command cannot be made to succeed by correcting a flag, whichever
-	// of the document's checks refuses it first, so the ordinary "correct it
-	// and run it again" would be false. It is read from the identity's own
-	// Derivation rather than reasoned about here: this decides wording, never
-	// whether to refuse, which stays entirely the document's.
-	uncorrectable := false
 	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
 		position := slices.IndexFunc(document.Identities, func(candidate contexts.Identity) bool {
 			return candidate.Name == identity
@@ -222,13 +274,11 @@ func (s Shell) identityAddProduct(
 		products[namespace] = product
 		declared.Products = products
 		document.Identities[position] = declared
-		uncorrectable = declared.Auth.Derivation() == contexts.DerivationTokenResource &&
-			len(products) > 1
 		changed = true
 		return document, nil
 	})
 	if err != nil {
-		return s.explainProductRefusal(root, changed, uncorrectable, err)
+		return s.explainProductRefusal(root, changed, err)
 	}
 
 	if mode == output.ModeJSON {
@@ -286,6 +336,8 @@ func (s Shell) identityList(command *cobra.Command) error {
 				Endpoint:  product.Endpoint,
 				Audience:  product.Audience,
 				Scopes:    product.Scopes,
+				Grant:     product.Grant,
+				Gateway:   product.Gateway,
 			})
 		}
 		if len(entry.Products) == 0 {
@@ -317,6 +369,12 @@ func (s Shell) identityList(command *cobra.Command) error {
 		for _, product := range entry.Products {
 			table.Append(entry.Name, entry.Type, entry.Issuer,
 				product.Namespace, product.Endpoint, strings.Join(product.Scopes, ","))
+			// The gateway record is a row of its own, under the product's
+			// gateway key, so a reader sees both of what connect wrote.
+			if product.Gateway != nil {
+				table.Append(entry.Name, entry.Type, entry.Issuer, contexts.GatewayKey(product.Namespace),
+					product.Gateway.Endpoint, strings.Join(product.Gateway.Scopes, ","))
+			}
 		}
 	}
 	if err := table.Render(s.Streams.Out); err != nil {
@@ -362,17 +420,23 @@ type (
 		Endpoint  string   `json:"endpoint"`
 		Audience  string   `json:"audience"`
 		Scopes    []string `json:"scopes"`
+		// Grant is how the product is derived, absent when the session itself
+		// answers for it.
+		Grant *contexts.Grant `json:"grant,omitempty"`
 		// Replaced reports that a record for this namespace was overwritten,
 		// which happens only under --replace.
 		Replaced bool `json:"replaced"`
 	}
 
-	// productEntry is one product an identity reaches.
+	// productEntry is one product an identity reaches, with its gateway
+	// record when it holds one.
 	productEntry struct {
-		Namespace string   `json:"namespace"`
-		Endpoint  string   `json:"endpoint"`
-		Audience  string   `json:"audience"`
-		Scopes    []string `json:"scopes"`
+		Namespace string            `json:"namespace"`
+		Endpoint  string            `json:"endpoint"`
+		Audience  string            `json:"audience"`
+		Scopes    []string          `json:"scopes"`
+		Grant     *contexts.Grant   `json:"grant,omitempty"`
+		Gateway   *contexts.Gateway `json:"gateway,omitempty"`
 	}
 
 	// identityEntry is one row group of the listing.
@@ -391,14 +455,18 @@ type (
 )
 
 func (p productAdded) fields() [][2]string {
-	return [][2]string{
+	fields := [][2]string{
 		{"Identity", p.Identity},
 		{"Product", p.Namespace},
 		{"Endpoint", p.Endpoint},
 		{"Audience", p.Audience},
 		{"Scopes", strings.Join(p.Scopes, ",")},
-		{"Replaced", yesNo(p.Replaced)},
 	}
+	if p.Grant != nil {
+		fields = append(fields,
+			[2]string{"Grant", p.Grant.Kind + " at " + p.Grant.Issuer + " as " + p.Grant.ClientID})
+	}
+	return append(fields, [2]string{"Replaced", yesNo(p.Replaced)})
 }
 
 // productExists refuses to overwrite a product record without being asked to.
@@ -443,39 +511,21 @@ func productExists(identity, namespace string) problem.Problem {
 // and only then encodes and decodes the result, so a refusal raised before the
 // change returned cannot be about the change, and one raised after it can be
 // about nothing else.
-func (s Shell) explainProductRefusal(stateRoot string, changed, uncorrectable bool, err error) error {
+func (s Shell) explainProductRefusal(stateRoot string, changed bool, err error) error {
 	err = s.explainWriteRefusal(stateRoot, err)
 	var typed problem.Problem
 	if !changed || !errors.As(err, &typed) || !contexts.CarriesDefaultDocumentRecovery(err) {
 		return err
 	}
 	return problem.New(problem.CategoryUsage, "shell.invalid_argument", typed.Message).
-		WithRecovery(productRefusalRecovery(uncorrectable))
+		WithRecovery(productRefusalRecovery())
 }
 
 // productRefusalRecovery is the way out of a refused product record.
 //
-// The resource-bound case gets its own, because the ordinary advice would be
-// false there: the constraint is on the identity rather than on any flag, so no
-// correction of the command that was typed succeeds. What does succeed is named
-// instead. Both routes have been driven: --replace on the product such an
-// identity already holds is accepted, and a second login under another name
-// produces a second identity for the other product.
-//
 // This lives here rather than beside the check in internal/contexts because it
-// is advice about commands. The same refusal reaches a plain reader — wso2
-// context list, loading a document already holding two products under such an
-// identity — and telling that reader to pass --replace to a command they did
-// not run would be nonsense.
-func productRefusalRecovery(uncorrectable bool) string {
-	if uncorrectable {
-		return "The context document was not changed, and correcting the flags will not " +
-			"help: this identity is bound to one protected resource, so it carries one " +
-			"product and no more. Pass --replace to record this product in place of the " +
-			"one it holds, or run wso2 login --url <issuer> --context <name> to create a " +
-			"second identity for the other product. Run wso2 identity list to see what " +
-			"each identity records."
-	}
+// is advice about commands.
+func productRefusalRecovery() string {
 	return "The context document was not changed. Run wso2 identity list to see what the " +
 		"identity records, then correct the command and run it again. " +
 		identityAddProductUsage

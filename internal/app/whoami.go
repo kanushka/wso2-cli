@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -55,6 +56,12 @@ const (
 	// refresh-token lifetime has passed. Unlike whoamiSessionPresent, this
 	// session cannot renew itself: whatever it could do expired along with it.
 	whoamiSessionExpired = "expired"
+	// whoamiSessionInline is what a client-credentials identity reports for
+	// itself and for every product it accesses: it acquires access with a
+	// grant per command and holds nothing in the secure store, so "none" (a
+	// state that invites "run wso2 login") would misdescribe a healthy
+	// identity that never logs in at all.
+	whoamiSessionInline = "inline"
 )
 
 // unknownSubject is what wso2 whoami reports for a session predating R6
@@ -148,18 +155,51 @@ func (s Shell) whoami(command *cobra.Command) error {
 		report.Organization = selected.Context.Organization
 
 		store := session.Store{StateRoot: root}
-		stored, sessionErr := store.Load(selected.Identity.Auth.CredentialRef)
-		switch {
-		case sessionErr != nil && isNoSession(sessionErr):
-			report.Recovery = sessionRecovery(sessionErr)
-		case sessionErr != nil:
-			// A secure store this command cannot even ask is not a state
-			// whoami can report on; it is refused like any other command that
-			// depends on the store being reachable.
-			return sessionErr
-		default:
-			report.Subject = subjectOrUnknown(stored.Subject)
-			report.Session, report.SessionExpiry, report.Recovery = sessionExpiryState(stored, time.Now())
+		if selected.Identity.Auth.Kind == contexts.KindClientCredentials {
+			// A client-credentials identity holds no bare session at all —
+			// there is no credential reference to load one under — so it
+			// reports the inline state rather than "none", which would
+			// invite a wso2 login step this identity never takes.
+			report.Session, report.Recovery = whoamiSessionInline, ""
+		} else {
+			stored, sessionErr := store.Load(selected.Identity.Auth.CredentialRef)
+			switch {
+			case sessionErr != nil && isNoSession(sessionErr):
+				report.Recovery = sessionRecovery(sessionErr)
+			case sessionErr != nil:
+				// A secure store this command cannot even ask is not a state
+				// whoami can report on; it is refused like any other command
+				// that depends on the store being reachable.
+				return sessionErr
+			case !sessionServes(stored, selected.Identity.Auth.Issuer):
+				report.Recovery = foreignSessionRecovery
+			default:
+				report.Subject = subjectOrUnknown(stored.Subject)
+				report.Session, report.SessionExpiry, report.Recovery = sessionExpiryState(stored, time.Now())
+			}
+		}
+
+		// Every record is reported, not only the ones Identity.Accesses
+		// lists: Accesses skips a direct product that shares the login
+		// session, and that product's state is exactly the login session's,
+		// which whoami must still show under its own namespace. A product's
+		// gateway record follows the product under its own key.
+		for _, key := range selected.Identity.RecordKeys() {
+			access, ok := selected.Identity.Access(key)
+			if !ok {
+				continue
+			}
+			entry := whoamiProduct{Namespace: access.Namespace, Strategy: access.Strategy, Session: whoamiSessionNone}
+			if access.Strategy == contexts.StrategyInline {
+				entry.Session = whoamiSessionInline
+			} else if stored, err := store.Load(access.SessionRef); err == nil {
+				if sessionServes(stored, access.Issuer) {
+					entry.Session, entry.SessionExpiry, _ = sessionExpiryState(stored, time.Now())
+				}
+			} else if !isNoSession(err) {
+				return err
+			}
+			report.Products = append(report.Products, entry)
 		}
 	}
 
@@ -176,6 +216,24 @@ func (s Shell) whoami(command *cobra.Command) error {
 			"or wso2 context create <name> --identity <identity> if you already have one.")
 	return err
 }
+
+// sessionServes reports whether a stored session was established against the
+// issuer the identity now names.
+//
+// One that was not is another deployment's session: the context's issuer
+// changed after the login, or the entry was written for a different
+// deployment under the same name. It is reported as no session at all, with
+// the recovery below, the way sessionSource.renew refuses to present it to a
+// module with auth.session_issuer_mismatch; whoami must not show a subject
+// that the selected context cannot act as.
+func sessionServes(stored session.Session, issuer string) bool {
+	return stored.Issuer == issuer
+}
+
+// foreignSessionRecovery is what whoami advises when the stored session was
+// established against a different issuer than the one the identity names.
+const foreignSessionRecovery = "The stored session was established against a different identity provider " +
+	"than the context now names. Run wso2 login to establish a session against it."
 
 // subjectOrUnknown reports a stored session's subject, or unknownSubject for
 // one written before R6 (#112) added the field.
@@ -247,6 +305,25 @@ type whoamiReport struct {
 	// expired case; TestWhoamiReportsAPresentSessionWithUndisclosedExpiry
 	// pins the one case where it must be empty.
 	Recovery string `json:"recovery,omitempty"`
+	// Products is every record the selected identity declares — each product
+	// and, under its gateway key, its gateway record — with what
+	// Identity.Access says about how it is reached and what the secure store
+	// says about its session. It is nil for an unconfigured machine or an
+	// identity that declares no products.
+	Products []whoamiProduct `json:"products,omitempty"`
+}
+
+// whoamiProduct is one product's access strategy and session state, as
+// wso2 whoami reports it.
+type whoamiProduct struct {
+	Namespace string `json:"namespace"`
+	Strategy  string `json:"strategy"`
+	// Session is one of whoamiSessionNone, whoamiSessionPresent,
+	// whoamiSessionExpired, or whoamiSessionInline.
+	Session string `json:"session"`
+	// SessionExpiry mirrors whoamiReport.SessionExpiry's own rules, for this
+	// product's own session.
+	SessionExpiry string `json:"sessionExpiry"`
 }
 
 func (w whoamiReport) fields() [][2]string {
@@ -257,9 +334,23 @@ func (w whoamiReport) fields() [][2]string {
 		{"Subject", w.Subject},
 		{"Session", w.Session},
 		{"Session expiry", w.SessionExpiry},
+		{"Products", w.productsField()},
 	}
 	if w.Recovery != "" {
 		pairs = append(pairs, [2]string{"Recovery", w.Recovery})
 	}
 	return pairs
+}
+
+// productsField renders every record on one line, namespace order:
+// "apim: federated, none; apim/gateway: sibling, present; iam: direct, present".
+func (w whoamiReport) productsField() string {
+	if len(w.Products) == 0 {
+		return "none configured"
+	}
+	parts := make([]string, 0, len(w.Products))
+	for _, product := range w.Products {
+		parts = append(parts, fmt.Sprintf("%s: %s, %s", product.Namespace, product.Strategy, product.Session))
+	}
+	return strings.Join(parts, "; ")
 }

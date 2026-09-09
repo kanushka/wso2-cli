@@ -24,6 +24,15 @@ A non-product module used only to prove and test the shell, SDK, and module
 contract before a real product is migrated.
 _Avoid_: Pilot module, Agent module
 
+**Product descriptor**:
+What a product module declares in its manifest about reaching its product:
+whether the product is an identity provider, how its issuer is named from a
+URL, how tokens are bound, the scopes its commands need, and the grant and
+machine strategies it accepts. `wso2 <namespace> connect` writes a product
+record from it; a module without one is recorded with `wso2 identity
+add-product` instead.
+_Avoid_: Product config, connect metadata
+
 **Module contract**:
 The mandatory versioned interaction between the shell and a product module.
 _Avoid_: Plugin API
@@ -92,10 +101,32 @@ device. It is a property of the machine and the moment, not of the identity's
 credentials, so the same identity may be established either way.
 _Avoid_: Login type, authentication kind
 
-**Session**:
-The authorization one interactive identity holds on this machine after a
-login, kept in the OS secure store under that identity's credential
-reference. One session serves every product namespace the identity declares
-and every context that names that identity, so it is a property of the
-identity rather than of the context a command happens to select.
-_Avoid_: Login, credential, token
+**Sign-on**:
+The identity provider's own browser session, held by the browser rather than
+by the shell. One sign-on answers every authorization the shell runs for that
+identity, so a person enters credentials once however many products follow.
+_Avoid_: SSO session, browser login, auto sign-in
+
+**Product session**:
+The authorization one interactive identity holds on this machine for one
+product namespace, kept in the OS secure store under that identity's
+credential reference. It is bound to one issuer, one client and one scope
+set, so no product session carries another product's authority.
+_Avoid_: Session, login, credential, token
+
+**Login session**:
+The product session of an identity's login product. Its authorization is the
+one that establishes the sign-on every other product session is obtained
+through.
+_Avoid_: Master session, primary session, parent session
+
+**Login product**:
+The product an identity logs in through, fixed when the identity first
+records one so that a product recorded later cannot displace it.
+_Avoid_: Default product, primary product
+
+**Acquisition strategy**:
+How one product's session is obtained for an identity: direct, sibling,
+derived, or federated. It follows from what the identity records about the
+product, not from a choice made at the command line.
+_Avoid_: Auth method, grant type, flow

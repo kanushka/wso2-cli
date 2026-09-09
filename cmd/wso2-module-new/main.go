@@ -77,7 +77,7 @@ func run() error {
 	for _, file := range generated.Files {
 		fmt.Printf("  %s\n", relative(root, file))
 	}
-	fmt.Printf("\nBuild and test it:\n  go test ./modules/%s/...\n", *namespace)
+	fmt.Printf("\nBuild and test it:\n  make test-module NAMESPACE=%s\nRun it under a real shell:\n  make install-module NAMESPACE=%s && ./bin/wso2 %s status\n", *namespace, *namespace, *namespace)
 	fmt.Printf("Then open %s\n",
 		relative(root, filepath.Join(generated.Directory, "cmd", "wso2-module-"+*namespace, "main.go")))
 	return nil

@@ -46,6 +46,11 @@ const Namespace = "{{.Namespace}}"
 // can rely on the name to know what the fields mean.
 const StatusSchema = "{{.Namespace}}.status/v1"
 
+// NextField is the field name the shell renders as a trailing next-step line.
+// Every result this module returns ends with it, so a user is never left
+// wondering what to run.
+const NextField = "next"
+
 // moduleVersion is this module's own release version. A release injects it:
 //
 //	go build -ldflags "-X main.moduleVersion=0.1.0"
@@ -57,7 +62,11 @@ func main() {
 	// Standard output carries protocol frames only. Anything this process wants
 	// to say goes to standard error, where the shell captures it as bounded
 	// diagnostics. See docs/adr/0002-module-transport.md.
-	if err := module.Serve(context.Background(), moduleOptions(), commands()...); err != nil {
+	//
+	// The tree is served, not its commands: Serve declares the tree to the
+	// shell as well, which is what lets the shell answer --help, name a
+	// mistyped command, and parse this module's flags before it is launched.
+	if err := commands().Serve(context.Background(), moduleOptions()); err != nil {
 		fmt.Fprintf(os.Stderr, "{{.Executable}}: %v\n", err)
 		os.Exit(1)
 	}
@@ -69,8 +78,7 @@ func main() {
 // nothing yet. Declare an audience and a scope here, and the same values in
 // module.json, before a handler requests access: the shell intersects a runtime
 // request with what the module declared at installation, so an undeclared
-// audience is refused rather than granted. modules/reference is the worked
-// example.
+// audience is refused rather than granted. modules/reference is the worked example.
 func moduleOptions() module.Options {
 	return module.Options{
 		Namespace: Namespace,
@@ -84,20 +92,19 @@ func moduleOptions() module.Options {
 // The tree is an ordinary Cobra tree: commands, flags, and help are declared
 // here exactly as they would be in a standalone CLI. What differs is the
 // ending, because a handler returns fields instead of printing them.
-func commands() []module.Command {
+func commands() *cobratree.Tree {
 	root := &cobra.Command{
 		Use:   Namespace,
 		Short: "{{.Title}} commands for the WSO2 CLI.",
 	}
 	statusCommand := &cobra.Command{
 		Use:   "status",
-		Short: "Report this module's own status.",
+		Short: "Report this module's own status and what to run first.",
 	}
 	root.AddCommand(statusCommand)
 
 	return cobratree.New(root).
-		Handle(statusCommand, status).
-		Commands()
+		Handle(statusCommand, status)
 }
 
 // status answers "wso2 {{.Namespace}} status".
@@ -107,8 +114,15 @@ func commands() []module.Command {
 // your product from here: the invocation carries the selected context, and
 // request.Access.Acquire is how a handler obtains short-lived access to it.
 func status(ctx context.Context, request module.Request) (result.Result, error) {
+	next := "Record where this product runs on the identity you log in with: " +
+		"wso2 identity add-product <identity> {{.Namespace}} --endpoint <url>, or " +
+		"wso2 {{.Namespace}} connect <url> once module.json declares a product descriptor."
+	if request.Context.Endpoint != "" {
+		next = "Run wso2 {{.Namespace}} --help to see what this module can do at " + request.Context.Endpoint + "."
+	}
 	return result.New(StatusSchema).
 		With("namespace", "Namespace", Namespace).
 		With("version", "Version", moduleVersion).
-		With("endpoint", "Endpoint", request.Context.Endpoint), nil
+		With("endpoint", "Endpoint", request.Context.Endpoint).
+		With(NextField, "Next", next), nil
 }

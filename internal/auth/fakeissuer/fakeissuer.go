@@ -103,9 +103,10 @@ type Options struct {
 	// established this way reaches exactly one protected resource.
 	RequireResource bool
 	// RegisteredResource is the only protected resource this deployment knows,
-	// when it is set. A request naming any other is refused with invalid_target,
-	// modeling a resource server that was never registered — the same OAuth
-	// error as a request that named none, arriving for the opposite reason.
+	// when it is set. A request naming any other, at authorization or on the
+	// client-credentials grant, is refused with invalid_target, modeling a
+	// resource server that was never registered — the same OAuth error as a
+	// request that named none, arriving for the opposite reason.
 	RegisteredResource string
 	// RotateRefreshTokens issues a new refresh token on every refresh,
 	// invalidating the one presented.
@@ -217,6 +218,22 @@ type Options struct {
 	// commonest real cause of a token that will not verify: a context document
 	// whose client identifier is not the one the deployment signed in.
 	DeviceIDTokenAudience string
+
+	// TrustedIssuer makes this issuer a target of the JWT bearer grant: it
+	// accepts as an assertion any identity token that issuer minted, when the
+	// token names BearerAlias as its audience. Nil leaves the grant
+	// unsupported, as a deployment nobody configured trust on.
+	TrustedIssuer *Issuer
+	// BearerAlias is the audience an assertion must carry. It models the
+	// token endpoint alias a deployment registers for a trusted issuer.
+	BearerAlias string
+	// BearerScopeMode decides what the JWT bearer grant issues: "" or "honor"
+	// issues what was asked; "default" issues the single scope "default", as
+	// a deployment does for a user it maps no role for; "partial" issues all
+	// but the last scope asked for, as one does for a user whose role carries
+	// some of them; "refuse" answers invalid_grant, as one that does not
+	// accept the assertion.
+	BearerScopeMode string
 }
 
 // Issuer is one running fake issuer. Its URL doubles as the issuer identifier.
@@ -235,8 +252,12 @@ type Issuer struct {
 	codes         map[string]codeGrant
 	refreshTokens map[string]refreshRecord // refresh token -> what it may renew
 	accessTokens  map[string]tokenRecord   // access token -> introspectable facts
+	idTokens      map[string]string        // identity token -> its audience
 	deviceGrants  map[string]*deviceGrant
 	devicePolls   []time.Time
+	// logouts records every end-session request, in order, so a test can see
+	// what a logout told the deployment without a browser in the loop.
+	logouts []url.Values
 	// lastDeviceCode is the most recently minted device code, recorded because
 	// map iteration order could not name "most recent" if a test ever started
 	// two authorizations.
@@ -307,6 +328,7 @@ func New(t *testing.T, opts Options) *Issuer {
 		codes:         map[string]codeGrant{},
 		refreshTokens: map[string]refreshRecord{},
 		accessTokens:  map[string]tokenRecord{},
+		idTokens:      map[string]string{},
 		deviceGrants:  map[string]*deviceGrant{},
 	}
 	if opts.NegativeSerialCertificate {
@@ -319,6 +341,7 @@ func New(t *testing.T, opts Options) *Issuer {
 	mux.HandleFunc("POST /token", issuer.handleToken)
 	mux.HandleFunc("POST /introspect", issuer.handleIntrospect)
 	mux.HandleFunc("POST /revoke", issuer.handleRevoke)
+	mux.HandleFunc("GET /logout", issuer.handleLogout)
 	mux.HandleFunc("POST /device_authorize", issuer.handleDeviceAuthorize)
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
@@ -403,6 +426,7 @@ func (i *Issuer) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
 			"authorization_code", "refresh_token", "client_credentials", deviceGrantType,
 		},
 		"device_authorization_endpoint": i.URL + "/device_authorize",
+		"end_session_endpoint":          i.URL + "/logout",
 	}
 	if i.opts.OmitS256 {
 		delete(document, "code_challenge_methods_supported")
@@ -520,6 +544,15 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 			"state":             {query.Get("state")},
 		}
 		http.Redirect(w, r, redirectURI+"?"+refusal.Encode(), http.StatusFound)
+	case i.opts.RegisteredResource != "" && query.Get("resource") != i.opts.RegisteredResource:
+		// A resource server the deployment never registered, refused the
+		// same way and for the opposite reason.
+		refusal := url.Values{
+			"error":             {"invalid_target"},
+			"error_description": {"The requested resource is not registered"},
+			"state":             {query.Get("state")},
+		}
+		http.Redirect(w, r, redirectURI+"?"+refusal.Encode(), http.StatusFound)
 	default:
 		code := randomToken("code")
 		i.mutex.Lock()
@@ -567,9 +600,50 @@ func (i *Issuer) handleToken(w http.ResponseWriter, r *http.Request) {
 		i.clientCredentialsGrant(w, r)
 	case deviceGrantType:
 		i.deviceGrant(w, r)
+	case bearerGrantType:
+		i.bearerGrant(w, r)
 	default:
 		oauthError(w, http.StatusBadRequest, "unsupported_grant_type")
 	}
+}
+
+const bearerGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer"
+
+// bearerGrant is RFC 7523 as a deployment configured to trust another issuer
+// runs it: the assertion must be an identity token the trusted issuer minted
+// for the registered alias, the client presents only its identifier, and what
+// is issued is decided by BearerScopeMode.
+func (i *Issuer) bearerGrant(w http.ResponseWriter, r *http.Request) {
+	if i.opts.TrustedIssuer == nil {
+		oauthError(w, http.StatusBadRequest, "unsupported_grant_type")
+		return
+	}
+	if presentedClientID(r) == "" {
+		oauthError(w, http.StatusUnauthorized, "invalid_client")
+		return
+	}
+	trusted := i.opts.TrustedIssuer
+	trusted.mutex.Lock()
+	audience, minted := trusted.idTokens[r.PostForm.Get("assertion")]
+	trusted.mutex.Unlock()
+	if !minted || audience != i.opts.BearerAlias || i.opts.BearerScopeMode == "refuse" {
+		oauthError(w, http.StatusBadRequest, "invalid_grant")
+		return
+	}
+	issued := splitScopes(r.PostForm.Get("scope"))
+	switch {
+	case i.opts.BearerScopeMode == "default":
+		issued = []string{"default"}
+	case i.opts.BearerScopeMode == "partial" && len(issued) > 1:
+		issued = issued[:len(issued)-1]
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"access_token":  i.mintAccessTokenFor("user-1", issued, ""),
+		"refresh_token": randomToken("rt"),
+		"token_type":    "Bearer",
+		"expires_in":    300,
+		"scope":         strings.Join(issued, " "),
+	})
 }
 
 func (i *Issuer) exchangeCode(w http.ResponseWriter, r *http.Request) {
@@ -701,6 +775,11 @@ func (i *Issuer) refreshGrant(w http.ResponseWriter, r *http.Request) {
 		if value, stated := i.refreshTokenExpiresInValue(); stated {
 			response["refresh_token_expires_in"] = value
 		}
+	}
+	// A renewal under openid carries a fresh identity token, as OpenID Connect
+	// Core section 12 permits, for the client that presented the refresh token.
+	if slices.Contains(issued, "openid") {
+		response["id_token"] = i.mintIDToken(presentedClientID(r), "")
 	}
 	if !i.opts.OmitRefreshScopeField {
 		response["scope"] = strings.Join(issued, " ")
@@ -1061,6 +1140,33 @@ func (i *Issuer) RefreshTokenLive(token string) bool {
 	return found
 }
 
+// MintAccessToken mints a live access token directly, as a code exchange
+// would, so a test can seed a session that already holds one. resource binds
+// the audience as a resource indicator would; empty takes the registration's.
+func (i *Issuer) MintAccessToken(scopes []string, resource string) string {
+	return i.mintAccessTokenFor("user-1", scopes, resource)
+}
+
+// LogoutRequests reports every end-session request this issuer received, as
+// the query each carried.
+func (i *Issuer) LogoutRequests() []url.Values {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	return append([]url.Values(nil), i.logouts...)
+}
+
+// handleLogout is the OpenID Connect end-session endpoint as this fixture
+// serves it: it records what it was told and answers with a page, since a
+// deployment's sign-out page is what a browser would land on.
+func (i *Issuer) handleLogout(w http.ResponseWriter, r *http.Request) {
+	i.mutex.Lock()
+	i.logouts = append(i.logouts, r.URL.Query())
+	i.mutex.Unlock()
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("signed out"))
+}
+
 func (i *Issuer) handleIntrospect(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		oauthError(w, http.StatusBadRequest, "invalid_request")
@@ -1133,7 +1239,11 @@ func (i *Issuer) mintIDToken(clientID, nonce string) string {
 	if i.opts.OmitNonce {
 		delete(claims, "nonce")
 	}
-	return i.sign(claims)
+	token := i.sign(claims)
+	i.mutex.Lock()
+	i.idTokens[token] = clientID
+	i.mutex.Unlock()
+	return token
 }
 
 func (i *Issuer) sign(claims map[string]any) string {

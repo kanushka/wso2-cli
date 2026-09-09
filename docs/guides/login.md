@@ -23,6 +23,12 @@ walkthrough.** Read one of these first, then come back here at section 2:
 They are alternatives. You need exactly one. Each is written to be read on its
 own, and each ends by handing you the four values section 2 asks for.
 
+**If the product you are reaching has a module with a product descriptor**,
+you do not assemble those values at all: `wso2 <namespace> connect <url>`
+records the product from its URL, and one login then serves every product
+recorded on the identity. This guide is the one for the context document
+itself and for a deployment recorded by hand.
+
 ---
 
 ## 1. What the shell needs from a deployment
@@ -76,9 +82,10 @@ walkthrough states its product's answer and shows the measurement behind it.
 ## 2. The context document
 
 You do not have to write this file by hand. `wso2 login --url <issuer>
---client-id <id>` creates the identity and the context it authenticates, and
-`wso2 context create` adds further contexts over the same identity; section 3
-takes that route, and no editor is involved in it. This section stays because
+--client-id <id>` creates the identity and the context it authenticates,
+`wso2 <namespace> connect <url>` records a product whose module carries a
+descriptor, and `wso2 context create` adds further contexts over the same
+identity; section 3 takes the first route, and no editor is involved in it. This section stays because
 the file is what those commands write, and reading it is how you check what
 they wrote — and because a context that names an organization, a project, or
 more than one product is still quicker to write than to assemble from flags.
@@ -169,7 +176,7 @@ for that product, including `type` and any product-specific member.
 | `auth.issuer` | The issuer, verbatim from its discovery document. |
 | `auth.clientId` | The registered public client. |
 | `auth.tenant` | The identity's home organization. |
-| `auth.provider` | Names the product when the shell must ask it for tokens in a product-specific shape. Required for Thunder; see [its walkthrough](login-thunder.md#9-log-in-and-check-what-it-wrote). |
+| `auth.provider` | Names the product when the shell must ask it for tokens in a product-specific shape. Required for Thunder; see [its walkthrough](login-thunder.md#9-declare-the-identity-then-log-in). |
 | `auth.credentialRef` | The name the session is stored under in the OS secure store. **Required** for `oauth-browser` and `oauth-device`; **not allowed** for `client-credentials`. Same character rules as an identity name. |
 | `products.<namespace>` | What this identity may reach for one module. The namespace is the module's own name, and follows the same character rules as an identity name. |
 | `products.<namespace>.endpoint` | The product's base URL. **Required** on every product entry, and must be an absolute `http` or `https` URL with a host. |
@@ -346,9 +353,18 @@ command afterwards behaves identically.
 ## 4. What login stored, and where
 
 - **The refresh token** goes to the operating system's secure store, under the
-  service `wso2-cli` and the name you put in `credentialRef`. That store is
-  Keychain on macOS, Secret Service on Linux, and Credential Manager on
-  Windows.
+  service `wso2-cli` and a name made of the `credentialRef` you chose, `@`, and
+  a short digest of the state root (`~/.wso2`, or `WSO2_HOME`) the login ran
+  under. That store is Keychain on macOS, Secret Service on Linux, and
+  Credential Manager on Windows. The digest is what keeps two state roots
+  apart: a second `WSO2_HOME` whose context document also names an identity
+  `thunder` starts with no session, rather than the first one's, and each
+  deployment keeps a refresh token of its own. `wso2 whoami` and every product
+  command also check that the stored session was established against the
+  `issuer` the identity names now, and treat one that was not as no session.
+  A session stored by a shell older than this rule was written under the bare
+  `credentialRef` and is not read: after upgrading, run `wso2 login` once per
+  identity, and `wso2 logout` retires the old entry when it finds one.
 - **Nothing under `~/.wso2` holds a credential.** The state root holds the
   context document you wrote, the managed module store, and the advisory lock
   files that keep refresh-token rotation single-writer. No session material is
@@ -659,10 +675,6 @@ usable. In order of likelihood:
   not share an issuer shape: Asgardeo's carries a `/oauth2/token` path under a
   tenant, Identity Server's carries `/oauth2/token` under a host and port, and
   Thunder's is the bare origin.
-- **TLS is not trusted.** Common against a local Identity Server or Thunder
-  deployment with a self-signed certificate. Add the deployment's certificate to
-  the operating system trust store. Each walkthrough has the commands. The
-  shell deliberately has no flag to skip verification.
 - **The machine cannot reach the issuer.** Proxy, VPN, firewall.
 - **The issuer does not advertise `S256`.** Set PKCE to mandatory on the
   application, as your walkthrough's public-client section describes.
@@ -689,6 +701,36 @@ lsof -nP -iTCP@127.0.0.1:10425-10428 -sTCP:LISTEN   # macOS, Linux
 The shell will not fall back to an unregistered port, because the deployment
 would reject the redirect and the error would name the wrong problem.
 
+A certificate this machine does not trust is not reported under this code; it
+gets its own, below.
+
+### `auth.certificate_untrusted`
+
+> the certificate the identity provider at localhost:9443 presents is not trusted by this machine
+
+The issuer answered, but its TLS certificate is not signed by an authority
+this machine knows, so the shell would not read anything from it. Every
+self-hosted product — API Manager, Identity Server, Thunder — serves a
+self-signed certificate on a fresh install, so this is the ordinary first
+failure against one. The host and port in the message are the ones the shell
+dialled, and the recovery carries the same two commands with them filled in:
+
+```sh
+openssl s_client -connect localhost:9443 -showcerts </dev/null 2>/dev/null \
+  | awk '/BEGIN CERT/,/END CERT/' > localhost-9443.pem
+export WSO2_CA_FILE=$PWD/localhost-9443.pem
+```
+
+`WSO2_CA_FILE` is read by the shell that runs `wso2`, so export it there, not
+in a shell that only produced the file. It widens trust beside the operating
+system's roots and never narrows it; a file that cannot be read is refused
+with `shell.ca_file_unreadable`. Adding the certificate to the operating
+system's trust store instead works too, and needs no variable. The shell
+deliberately has no flag to skip verification. `wso2 doctor --online` reports
+the same refusal from its issuer check, so a machine can be checked before
+any product command is run; see the
+[command reference](../reference/commands.md#trusting-a-deployments-certificate).
+
 ### `auth.login_required`
 
 No usable session. Either you have not logged in for this `credentialRef`, or
@@ -697,11 +739,11 @@ it expired, or a concurrent run rotated it away. Run `wso2 login` again.
 
 ### `auth.logout_not_required`
 
-You ran `wso2 logout` against a context whose identity acquires access inline
-and never holds a session, which in practice means a `client-credentials`
-identity.
-Nothing is stored for it, so there is nothing to end. Remove the credential from
-the environment to stop the shell acquiring access with it.
+No longer raised. `wso2 logout` against a context whose identity acquires
+access inline, which in practice means a `client-credentials` identity, now
+reports that no session was stored and exits 0, so a pipeline that ends with
+it does not fail. Nothing is stored for such an identity; remove the
+credential from the environment to stop the shell acquiring access with it.
 
 ### `auth.keyring_unavailable`
 
@@ -776,8 +818,8 @@ On a browser login: the flow ended without producing tokens. You closed the
 browser, someone denied the consent, or the deployment redirected back with an
 error.
 
-The browser reached "Login complete" and the code exchange succeeded, but the
-identity token that came back was not one the shell would accept. The message
+The browser reached "You are signed in" and the code exchange succeeded, but
+the identity token that came back was not one the shell would accept. The message
 says which kind of failure it was:
 
 | The message says | What it means | What to change |
@@ -845,6 +887,33 @@ implement it. Use `oauth-browser`, `oauth-device`, or `client-credentials`.
 
 The stored session was established against a different issuer than the context
 now names. You changed the `issuer` after logging in. Run `wso2 login` again.
+
+### `auth.session_required`
+
+> the "apim" product has no session under this identity yet
+
+Nothing is stored for that product, and the invocation forbade the browser that
+would authorize it: you passed `--no-input`, or `WSO2_NO_INPUT` is set. The
+refusal names whichever of the two said so. Run `wso2 login --only <namespace>`
+where a browser can open, or `wso2 login` to authorize every product.
+
+### `auth.reauthorization_required`
+
+> the "apim" product has a session under this identity, but the identity
+> provider would not renew it to the permissions the module asked for
+
+A session for the product **is** stored — `wso2 whoami` shows it present — and
+the deployment would not renew it to what this command needs. Authorizing the
+product again is the step that wanted a browser, and the invocation forbade
+one.
+
+It is a different refusal from `auth.session_required` because the remedy is
+different, and the shell cannot tell two causes apart from here. Another
+login, run where a browser can open, may fix it: the issuer is asked afresh and
+may grant what a refresh would not, which is what a federated product does
+every time its access token expires. If it does not, this user's groups map to
+no role carrying the permissions, and no number of logins will change that —
+an administrator has to grant one. The recovery names both, in that order.
 
 ---
 

@@ -337,7 +337,8 @@ func TestDoctorStillFailsAnUnreadableStoredSession(t *testing.T) {
 	seeded.DefaultContext = "acme"
 	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud"}}
 	installLogin(t, shell, seeded)
-	if err := keyring.Set(session.Service, "acme-cloud", "not json"); err != nil {
+	store := session.Store{StateRoot: shell.StateRoot}
+	if err := keyring.Set(session.Service, store.EntryName("acme-cloud"), "not json"); err != nil {
 		t.Fatalf("seed an undecodable entry: %v", err)
 	}
 

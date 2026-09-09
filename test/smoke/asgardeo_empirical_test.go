@@ -124,7 +124,7 @@ func experimentRefreshNarrowing(t *testing.T, config smoke.Config) {
 	}
 
 	stateRoot := filepath.Join(t.TempDir(), "state")
-	forgetSmokeSession(t)
+	forgetSmokeSession(t, stateRoot)
 
 	t.Logf("signing in for %v, then asking for %q alone", config.Scopes, target)
 	ctx, cancel := context.WithTimeout(context.Background(), config.Deadline)

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/wso2/wso2-cli/internal/modules"
@@ -46,6 +47,13 @@ type Launcher struct {
 	// DiagnosticLimit bounds captured standard error. Zero means
 	// DefaultDiagnosticLimit.
 	DiagnosticLimit int
+	// Environment is what the shell adds to the module's sanitized
+	// environment, as NAME=value entries: shell-owned facts the module is
+	// told, such as that nothing may prompt. Never a credential.
+	Environment []string
+	// WithheldEnvironment names variables that must not reach the module even
+	// under its own prefix: the ones the shell reads its credentials from.
+	WithheldEnvironment []string
 }
 
 // Invoke launches the module, runs one command, and returns its terminal
@@ -70,7 +78,8 @@ func (l Launcher) Invoke(ctx context.Context, invocation Invocation) (Outcome, e
 	// credential source the broker reads. Access reaches a module only as a
 	// short-lived token inside the protocol, so there is no ambient value for
 	// it to find, log, or pass on.
-	command.Env = modules.SanitizedEnvironment()
+	command.Env = append(modules.SanitizedEnvironment(l.Resolved.Receipt.Namespace, l.WithheldEnvironment...),
+		l.Environment...)
 
 	toModule, err := command.StdinPipe()
 	if err != nil {
@@ -87,13 +96,16 @@ func (l Launcher) Invoke(ctx context.Context, invocation Invocation) (Outcome, e
 		return Outcome{}, l.spawnProblem(err)
 	}
 
+	deadline := newAnswerDeadline(invocation.timeout())
+	defer deadline.stop()
 	session := Session{
 		Resolved:     l.Resolved,
 		Shell:        l.Shell,
 		InvocationID: invocationID,
 		Broker:       l.Broker,
+		holdDeadline: deadline.hold,
 	}
-	outcome, sessionErr := l.runSession(ctx, command, toModule, fromModule, session, invocation)
+	outcome, sessionErr := l.runSession(ctx, command, toModule, fromModule, session, invocation, deadline)
 
 	captured := diagnostics.Diagnostics()
 	outcome.Diagnostics = captured
@@ -113,6 +125,7 @@ func (l Launcher) runSession(
 	fromModule io.ReadCloser,
 	session Session,
 	invocation Invocation,
+	deadline *answerDeadline,
 ) (Outcome, error) {
 	// The session runs on its own goroutine so the deadline can act while it
 	// is blocked reading. Its result is published by closing ended, which every
@@ -125,13 +138,10 @@ func (l Launcher) runSession(
 		close(ended)
 	}()
 
-	deadline := time.NewTimer(invocation.timeout())
-	defer deadline.Stop()
-
 	var ending error
 	select {
 	case <-ended:
-	case <-deadline.C:
+	case <-deadline.expired():
 		ending = processProblem("rpc.timed_out",
 			fmt.Sprintf("the %q module did not answer within %s", l.namespace(), invocation.timeout()),
 			"Retry the command. Report the failure if the module keeps not answering.")
@@ -220,6 +230,71 @@ func waitOrKill(command *exec.Cmd, signal <-chan struct{}) bool {
 		_ = command.Process.Kill()
 		return false
 	}
+}
+
+// answerDeadline is the time a module has to answer, counted only while the
+// module is the one being waited for.
+//
+// The broker runs on the session's goroutine, between reading a module's
+// access request and answering it, and what it does there can take far longer
+// than any module deadline: it may open a browser and wait for the person at
+// it. That time is the shell's, and the broker bounds it with limits of its
+// own. So the session holds the deadline while the broker is consulted and
+// the timer resumes, with what was left, once the answer is written. A module
+// that has been answered everything it asked is then held to the same deadline
+// it always was.
+type answerDeadline struct {
+	mu        sync.Mutex
+	timer     *time.Timer
+	remaining time.Duration
+	resumedAt time.Time
+	held      bool
+}
+
+func newAnswerDeadline(timeout time.Duration) *answerDeadline {
+	return &answerDeadline{timer: time.NewTimer(timeout), remaining: timeout, resumedAt: time.Now()}
+}
+
+// expired fires once the module has used up its deadline.
+func (d *answerDeadline) expired() <-chan time.Time {
+	return d.timer.C
+}
+
+// hold pauses the deadline and returns what resumes it. Holding a deadline
+// that has already expired changes nothing: the module had its time.
+func (d *answerDeadline) hold() (release func()) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.held {
+		return func() {}
+	}
+	d.held = true
+	if d.timer.Stop() {
+		d.remaining -= time.Since(d.resumedAt)
+	} else {
+		// Stopped too late: the timer has fired, and since Go 1.23 the value
+		// is gone with it. The deadline is re-armed to fire at once on
+		// release rather than left silent.
+		d.remaining = 0
+	}
+	return d.release
+}
+
+func (d *answerDeadline) release() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.held {
+		return
+	}
+	d.held = false
+	d.resumedAt = time.Now()
+	d.timer.Reset(max(d.remaining, 0))
+}
+
+func (d *answerDeadline) stop() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.timer.Stop()
 }
 
 func (l Launcher) spawnProblem(err error) error {

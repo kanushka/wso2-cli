@@ -150,7 +150,10 @@ enum OutputMode {
 message InvocationPolicy {
   // deadline_millis is the time the shell will wait for a terminal message
   // before it closes the protocol stream and terminates the module. Zero means
-  // the shell applies its own default.
+  // the shell applies its own default. It counts the module's own time: while
+  // the shell is answering the module's access request, which may mean a
+  // person at a browser, the clock is held and resumes once the answer is
+  // written, so a module that measures its own deadline must do the same.
   uint32 deadline_millis = 1;
 
   // interactive reports whether a terminal is attached. The architecture proof
@@ -172,6 +175,10 @@ message InvocationContext {
   // endpoint is the product service the context targets. It is a location, not
   // a permission: a module still needs brokered access to call it.
   string endpoint = 3;
+  // gateway_endpoint is the product's gateway, when the identity records one
+  // beside the product. Like endpoint it is a location, not a permission: a
+  // module calls it with access brokered for the gateway record.
+  string gateway_endpoint = 4;
 }
 
 // AcquireAccess asks the shell's broker for access to one audience.
@@ -192,6 +199,11 @@ message AcquireAccess {
   // module receipt does not declare is denied rather than dropped, so a module
   // never proceeds believing it holds access it was refused.
   repeated string scopes = 2;
+
+  // record names which record of the module's product the access is for:
+  // empty for the product's own record, "gateway" for its gateway record. A
+  // record the module's descriptor does not declare is denied.
+  string record = 3;
 }
 
 // AccessGranted answers AcquireAccess with the access material itself.

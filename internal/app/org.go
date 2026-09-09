@@ -198,6 +198,9 @@ func (s Shell) orgUse(command *cobra.Command, organization string) error {
 		if err != nil {
 			return document, err
 		}
+		if err := refuseOrganizationSwitch(selected.Identity, organization); err != nil {
+			return document, err
+		}
 		edited = selected.Context.Name
 		for i := range document.Contexts {
 			if document.Contexts[i].Name == edited {
@@ -218,6 +221,16 @@ func (s Shell) orgUse(command *cobra.Command, organization string) error {
 	if mode == output.ModeJSON {
 		if err := encodeContextJSON(s.Streams.Out,
 			orgSelection{Context: edited, Organization: organization}); err != nil {
+			return err
+		}
+	} else if organization == "" {
+		// Worded apart from the sentence below for the reason orgCurrent
+		// keeps its own states apart: "" and an organization are not the same
+		// fact, and "organization to \"\"" reads as a value rather than as the
+		// unset field it is.
+		if _, err := fmt.Fprintf(s.Streams.Out,
+			"\nCleared the %q context's organization; commands run against the deployment "+
+				"the identity names.\n", edited); err != nil {
 			return err
 		}
 	} else if _, err := fmt.Fprintf(s.Streams.Out,
@@ -290,4 +303,34 @@ func (o orgCurrentReport) fields() [][2]string {
 		{"Context", o.Context},
 		{"Organization", o.Organization},
 	}
+}
+
+// refuseOrganizationSwitch refuses to record an organization on a context
+// whose identity provider has no organization switch, before the document is
+// written: the auth broker would refuse every later command with the same
+// code (internal/auth/source.go's checkHomeTenant), and a value accepted here
+// only to break every call is worse than one refused at the flag.
+//
+// Clearing the field is not a switch and is never refused. A document written
+// before this check, or by hand, can carry an organization on such a provider,
+// and then every product command is refused by the broker telling the user to
+// leave the organization unset — which this command is the only writer of. A
+// refusal here would leave that state with no way out of itself.
+//
+// Asgardeo, and any provider the document does not name, keep the field: a
+// tenant switch is what the broker's check exists for on them.
+func refuseOrganizationSwitch(identity contexts.Identity, organization string) error {
+	if organization == "" {
+		return nil
+	}
+	switch identity.Auth.Provider {
+	case contexts.ProviderThunder, contexts.ProviderIdentityServer:
+	default:
+		return nil
+	}
+	return problem.New(problem.CategoryAuthPolicy, "auth.organization_switch_unsupported",
+		fmt.Sprintf("the %q identity authenticates against %s, which has no organization to switch to",
+			identity.Name, identity.Auth.Provider)).
+		WithRecovery("Leave the context's organization unset; commands run against the deployment " +
+			"the identity names. Organization switch is for a multi-tenant provider such as Asgardeo.")
 }

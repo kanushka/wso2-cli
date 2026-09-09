@@ -26,8 +26,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/zalando/go-keyring"
-
 	"github.com/wso2/wso2-cli/internal/auth"
 	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/sdk/problem"
@@ -67,13 +65,15 @@ func requireDeployment(t *testing.T) smoke.Config {
 // run, so no run reads what an earlier one left and none leaves a credential
 // behind on the machine.
 //
-// It only ever names smoke.CredentialRef, which is not a reference a human
-// would choose for a real context, so this can never delete a real session.
-func forgetSmokeSession(t *testing.T) {
+// It only ever names smoke.CredentialRef under the run's own state root, which
+// is not a reference a human would choose for a real context, so this can
+// never delete a real session. It goes through the store rather than the
+// keyring directly because the store owns the entry's name, and because the
+// store also retires an entry an older shell left under the bare reference.
+func forgetSmokeSession(t *testing.T, stateRoot string) {
 	t.Helper()
 	forget := func() {
-		err := keyring.Delete(session.Service, smoke.CredentialRef)
-		if err != nil && !errors.Is(err, keyring.ErrNotFound) {
+		if _, err := (session.Store{StateRoot: stateRoot}).Delete(smoke.CredentialRef); err != nil {
 			t.Logf("could not remove the smoke session %q from the secure store: %v",
 				smoke.CredentialRef, err)
 		}

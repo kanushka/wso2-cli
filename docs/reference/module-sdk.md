@@ -4,7 +4,7 @@
 **Related:** [Building a product module](../guides/building-product-modules.md),
 [module manifest](module-manifest.md),
 [troubleshooting a module](../guides/troubleshooting-modules.md)
-**Last reviewed:** 2026-08-30
+**Last reviewed:** 2026-09-07
 
 What a command handler receives, and what it may return. A module imports the
 public `github.com/wso2/wso2-cli/sdk/...` packages and never a shell `internal/`
@@ -44,8 +44,10 @@ parse a product command line as precisely as the module would. A Cobra module
 does not set it by hand: `cobratree.Tree.Serve` fills it from the same tree it
 serves, which is what keeps a module's commands in one place. Leaving it empty
 is supported, and means the shell parses for this module the way it did before
-declarations existed — the leading plain words are the command, and everything
-from the first flag the shell does not recognise goes to the module unread.
+declarations existed: the leading plain words are the command, and everything
+from the first flag the shell does not recognize goes to the module unread,
+`--output` included, and the shell cannot answer `--help` or suggest a command
+for a typo. Serve the tree.
 
 `AuthAudiences` and `AuthScopes` must equal the `capabilities` in
 [`module.json`](module-manifest.md#capabilities). They are two declarations of
@@ -145,6 +147,20 @@ No refresh token, no client secret, no credential of any kind, and no access to
 the shell's configuration store. A module can spend access on its product API
 and cannot refresh or broaden it.
 
+### What the process environment carries
+
+The shell launches a module with an environment built from nothing and adds
+three things back: `WSO2_CA_FILE`, the PEM file of certificates the shell
+trusts beside the system roots, which a module's own HTTP client must honour
+since the shell's trust does not reach a separate process; `WSO2_NO_INPUT=1`
+when `--no-input` or the `WSO2_NO_INPUT` variable asked that nothing prompt or
+open a browser; and every variable named `WSO2_<NAMESPACE>_*` for the module's
+own namespace, upper-cased. That prefix is how a secret the broker cannot
+supply, an administrator password for a one-time bootstrap, reaches a module
+that cannot prompt: the command takes the variable's name as a flag and reads
+the value from the environment, never the value as a flag. An empty variable
+is not passed at all.
+
 ## Asking for access
 
 ```go
@@ -162,10 +178,21 @@ Acquire(ctx context.Context, request AccessRequest) (Access, error)
 ```
 
 The shell intersects the request with what the installed module's receipt
-declares, finds the selected context, and returns short-lived access for this
-one invocation. An undeclared audience or scope is refused rather than narrowed
-away, because a module silently granted less than it asked for would proceed
-believing it holds access it does not.
+declares, finds the selected context and identity, obtains or reuses the
+product's session, and returns short-lived access for this one invocation. An
+undeclared audience is refused with `auth.audience_not_declared`, and a scope
+neither the receipt nor the identity's product entry for this namespace names
+is refused with `auth.scope_not_declared`, rather than narrowed away: a module
+silently granted less than it asked for would proceed believing it holds access
+it does not.
+
+`Scopes` may be empty, and ordinarily is. An empty list asks for exactly the
+scopes recorded on the identity's product entry for this namespace, which the
+user or the product's `connect` wrote down when the product was recorded, and
+those recorded scopes are the ceiling for every request whichever side named
+them. So a module declares every scope its commands can need once, in
+`module.json` and `Options`, and a handler names scopes only when one command
+should hold fewer than the entry allows.
 
 The token is opaque. Do not parse it, log it, return it, persist it, or pass it
 in command-line arguments. `ExpiresAt` lets a module fail early; the audience
@@ -196,6 +223,10 @@ table shows and the order JSON follows.
 `Name` is the stable machine name and the JSON key. `Label` is what a person
 reads, falling back to the name when empty. Build a result with `result.New` and
 `With`, which do not mutate the receiver.
+
+By convention the last field is named `next` and says what a user most likely
+runs next; the shell renders it as a trailing line under the table. The
+generated module follows the convention and its generated test checks it.
 
 Every `Value` is a string, so a module formats its own times and numbers. This
 is a deliberate limit of the architecture proof rather than a lasting design:
@@ -261,8 +292,13 @@ func Run(ctx context.Context, options module.Options, commands []module.Command,
 ```
 
 `sdk/testkit` drives a module through the real protocol framing in process, so a
-test covers the handler and its contract rather than the handler alone. Access is
-scripted through `Invocation.Access`, which is a `*testkit.Access`:
+test covers the handler and its contract rather than the handler alone. An
+`Invocation` carries the `Command` path, the `Arguments` after it, the
+`OutputMode`, the `Context` the handler will see (name, organization, and the
+product endpoint, which a test points at a fake deployment), and optionally an
+`InvocationID`, a `ProtocolVersion` to negotiate, and the `Namespace` the shell
+side claims. Access is scripted through `Invocation.Access`, which is a
+`*testkit.Access`:
 
 ```go
 type Access struct {

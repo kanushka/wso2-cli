@@ -418,3 +418,87 @@ func TestTheShellsOwnShorthandInsideAModuleRunIsExplained(t *testing.T) {
 		t.Errorf("the same flag written separately rendered %s", line.mode)
 	}
 }
+
+// TestTheNoInputFlagIsTakenOffAProductLineWhereverItIsWritten pins the
+// spec's section 7: --no-input is the shell's on a product line, read before
+// the command is routed, like --verbose, so the module never sees it.
+//
+// "Wherever" is everywhere the module's own parser would not have claimed the
+// word: before the command, after it, and with a value attached. It is not
+// after a bare "--", where there are no flags to read at all — see
+// TestTheSeparatorEndsTheShellsClaimOnItsOwnBooleans.
+func TestTheNoInputFlagIsTakenOffAProductLineWhereverItIsWritten(t *testing.T) {
+	for name, args := range map[string][]string{
+		"after the command":  {"status", "--no-input"},
+		"before the command": {"--no-input", "status"},
+		"with a value":       {"status", "--no-input=true"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			remaining, asked, err := takeNoInput(args)
+			if err != nil || !asked || strings.Join(remaining, " ") != "status" {
+				t.Fatalf("remaining %v asked %v err %v", remaining, asked, err)
+			}
+		})
+	}
+	if remaining, asked, err := takeNoInput([]string{"status", "--no-input=false"}); err != nil || asked ||
+		len(remaining) != 1 {
+		t.Fatalf("--no-input=false: %v %v %v", remaining, asked, err)
+	}
+	if _, _, err := takeNoInput([]string{"status", "--no-input=maybe"}); err == nil {
+		t.Fatal("--no-input=maybe was accepted")
+	}
+}
+
+// TestTheSeparatorEndsTheShellsClaimOnItsOwnBooleans pins the one place
+// "wherever it is written" stops, for the two booleans the shell takes off a
+// product line before the module is even resolved.
+//
+// The separator already ends the shell's claim on --output and --context, which
+// parseProductArgs reads against the module's declaration:
+// TestTheSeparatorHandsEverythingAfterItToTheModule. --verbose and --no-input
+// are taken earlier, by a scan that has no declaration to read against, and a
+// scan that walked past the separator made the two halves of one contract
+// disagree — "wso2 apim gateway invoke /x -- --no-input" handed the module a
+// bare "--" with the argument gone, and switched the shell non-interactive on
+// the strength of a word that was never addressed to it.
+//
+// A malformed value after the separator is not the shell's to refuse either,
+// for the same reason: it is not a flag, it is an argument that looks like one.
+func TestTheSeparatorEndsTheShellsClaimOnItsOwnBooleans(t *testing.T) {
+	takes := map[string]func([]string) ([]string, bool, error){
+		"--verbose":  takeVerbose,
+		"--no-input": takeNoInput,
+	}
+
+	for spelling, take := range takes {
+		t.Run(spelling, func(t *testing.T) {
+			args := []string{"invoke", "/gateway", "--", spelling, "--", spelling + "=maybe"}
+			remaining, asked, err := take(args)
+			if err != nil {
+				t.Fatalf("the shell refused a word it was never given: %v", err)
+			}
+			if asked {
+				t.Errorf("the shell read %s from after the separator", spelling)
+			}
+			if joined := strings.Join(remaining, " "); joined != strings.Join(args, " ") {
+				t.Errorf("the module receives %q, want %q", joined, strings.Join(args, " "))
+			}
+		})
+
+		t.Run(spelling+" before the separator", func(t *testing.T) {
+			// The whole point of the flag being the shell's is that it is read
+			// anywhere the module's own parser would not have claimed it, so
+			// everything before the separator is still the shell's to take.
+			remaining, asked, err := take([]string{"invoke", spelling, "/gateway", "--", spelling})
+			if err != nil {
+				t.Fatalf("parsing failed: %v", err)
+			}
+			if !asked {
+				t.Errorf("%s written before the separator was not read", spelling)
+			}
+			if joined := strings.Join(remaining, " "); joined != "invoke /gateway -- "+spelling {
+				t.Errorf("the module receives %q", joined)
+			}
+		})
+	}
+}

@@ -24,6 +24,7 @@ import (
 
 	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
+	"github.com/wso2/wso2-cli/internal/modules"
 )
 
 // source mints access material after broker policy has admitted a request.
@@ -64,21 +65,47 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 		if err := b.checkHomeTenant(); err != nil {
 			return nil, err
 		}
+		product := b.Selection.Identity.Products[b.Namespace]
 		if kind == contexts.KindClientCredentials {
-			return b.inlineSource()
+			return b.inlineSource(request)
 		}
 		// Both interactive kinds land here, and deliberately on the same
 		// source. How a session was established is a fact about a login that
 		// already happened; what is left behind is a refresh token, and every
 		// step from here — the rotation lock, the scoped refresh, the proof
 		// that the narrowing held — reads that and nothing else.
-		return sessionSource{
-			namespace: b.namespace(),
-			identity:  b.Selection.Identity,
-			audience:  b.productAudience(),
+		access, _ := b.Selection.Identity.Access(b.recordKey(request))
+		source := sessionSource{
+			namespace: access.Namespace,
+			product:   b.namespace(),
+			ref:       access.SessionRef,
+			issuer:    access.Issuer,
+			clientID:  access.ClientID,
+			audience:  access.Audience,
+			scopes:    access.Scopes,
 			sessions:  session.Store{StateRoot: b.StateRoot},
 			client:    b.httpClient(),
-		}, nil
+			strategy:  access.Strategy,
+			// A direct or sibling session on a resource-bound derivation was
+			// minted for the product's resource server; a derived one is an
+			// assertion session, refused by the assertion source in its own
+			// terms.
+			contextName:   b.Selection.Context.Name,
+			resourceBound: access.Resource != "" && access.Strategy != contexts.StrategyDerived,
+		}
+		if access.Strategy != contexts.StrategyDirect {
+			// A product beside the login one, or one derived from it, may
+			// have no session yet: this is the first invocation reaching it.
+			// The login session itself is never established here.
+			source.establish = b.establishFor(access)
+		}
+		if access.Strategy == contexts.StrategyDerived {
+			// The product's own issuer answers, from an assertion the session
+			// yields. Everything the session source knows about renewing and
+			// rotating still applies; what changes is what the renewal is for.
+			return assertionSource{session: source, grant: *product.Grant}, nil
+		}
+		return source, nil
 	case contexts.KindPAT:
 		return nil, denial("auth.kind_not_implemented",
 			fmt.Sprintf("the %q context uses an authentication kind this release does not implement",
@@ -90,6 +117,17 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 			fmt.Sprintf("the %q context uses an authentication method this shell does not implement",
 				b.Selection.Context.Name),
 			"Select a context with a supported authentication kind.")
+	}
+}
+
+// establishFor is what a source calls when the product's own session is
+// absent: the shell's login hook, or a refusal naming the login to run.
+func (b *Broker) establishFor(access contexts.ProductAccess) func() error {
+	return func() error {
+		if b.EstablishSession == nil {
+			return SessionRequired(access.Namespace, b.namespace())
+		}
+		return b.EstablishSession(access)
 	}
 }
 
@@ -122,6 +160,9 @@ func (b *Broker) checkProduct(request Request) error {
 				"<resource-id> --scopes <list> to register it, or select a context whose "+
 				"identity reaches it.", b.Selection.Identity.Name, b.namespace()))
 	}
+	if request.Record == contexts.GatewayRecord {
+		return b.checkGateway(request, product)
+	}
 	if product.Audience == "" {
 		return denial("auth.product_not_configured",
 			fmt.Sprintf("the identity the %q context authenticates as registers no audience for its "+
@@ -130,6 +171,20 @@ func (b *Broker) checkProduct(request Request) error {
 			"Set the audience this deployment binds access to on this identity's product entry. It "+
 				"is the client ID on Asgardeo, the API resource identifier on Identity Server, and "+
 				"the resource server's URI on Thunder.")
+	}
+	if b.Selection.Identity.Auth.Derivation() == contexts.DerivationTokenResource &&
+		product.Grant != nil && product.Grant.Kind == contexts.GrantJWTBearer && product.Grant.Resource == "" {
+		// The identity's assertion session runs at the identity's own issuer,
+		// which this derivation binds by resource exactly as the login
+		// session is. A document written before this field was required
+		// still decodes — see contexts.Identity.validateDerivation — so the
+		// refusal belongs here, at the one place that actually needs the
+		// resource, rather than at document load.
+		return denial("auth.product_not_configured",
+			fmt.Sprintf("the %q product's jwt-bearer grant names no resource for its assertion "+
+				"session, which this deployment binds access by", b.namespace()),
+			fmt.Sprintf("Record the resource with wso2 identity add-product --replace "+
+				"--grant-resource <uri>, then run wso2 login --only %s.", b.namespace()))
 	}
 	if len(product.Scopes) > 0 {
 		for _, scope := range request.Scopes {
@@ -140,6 +195,47 @@ func (b *Broker) checkProduct(request Request) error {
 					"Add the permission to this identity's product entry once the deployment grants "+
 						"it, then retry the command.")
 			}
+		}
+	}
+	return nil
+}
+
+// checkGateway proves the identity records a gateway for the product asking,
+// for what the module asked for. The gateway record is the identity's
+// statement of which API the product's gateway serves for it, so a request
+// it does not cover is refused rather than sent to the gateway to refuse.
+func (b *Broker) checkGateway(request Request, product contexts.Product) error {
+	if product.Gateway == nil {
+		return denial("auth.product_not_configured",
+			fmt.Sprintf("the identity the %q context authenticates as records no gateway for its %q product",
+				b.Selection.Context.Name, b.namespace()),
+			fmt.Sprintf("Run wso2 %s connect <gateway-url> --gateway --audience <api resource identifier> "+
+				"--scopes <list> on this identity, then retry the command.", b.namespace()))
+	}
+	if product.Gateway.Audience == "" {
+		return denial("auth.product_not_configured",
+			fmt.Sprintf("the identity the %q context authenticates as registers no audience for its "+
+				"%q product's gateway, so the shell cannot prove what a token it issues is bound to",
+				b.Selection.Context.Name, b.namespace()),
+			fmt.Sprintf("Record the API's resource identifier with wso2 %s connect <gateway-url> --gateway "+
+				"--audience <api resource identifier> --replace.", b.namespace()))
+	}
+	if b.Selection.Identity.Auth.Kind == contexts.KindClientCredentials &&
+		!b.Capabilities.Product.Gateway.AllowsMachine(modules.MachineInline) {
+		return denial("auth.product_not_configured",
+			fmt.Sprintf("the %q product's gateway does not accept the machine client this identity holds",
+				b.namespace()),
+			"Select an identity that signs in through the browser, or install a version of the module "+
+				"whose descriptor says how a machine client reaches its gateway.")
+	}
+	for _, scope := range request.Scopes {
+		if !slices.Contains(product.Gateway.Scopes, scope) {
+			return denial("auth.product_not_configured",
+				fmt.Sprintf("the %q module asked for the %q permission, which this identity's %q "+
+					"gateway record does not carry", b.namespace(), scope, b.namespace()),
+				fmt.Sprintf("Record the permission with wso2 %s connect <gateway-url> --gateway "+
+					"--audience <api resource identifier> --scopes <list> --replace, then retry the command.",
+					b.namespace()))
 		}
 	}
 	return nil
@@ -195,36 +291,72 @@ func (b *Broker) developmentSource() (source, error) {
 }
 
 // inlineSource admits a non-interactive identity that carries its own
-// credential.
+// credential, or reaches a product that carries its own.
+//
+// A product recording clientIdVariable and clientSecretVariable is reached as
+// itself, at its own issuer, rather than as the identity's machine client: the
+// two are validated together, so recording one is recording both. A product
+// reached through a grant but naming no credential of its own has nothing to
+// present there and is refused rather than sent with a client the target
+// issuer never registered. Anything else uses the identity's own client and
+// secret, at the identity's own issuer.
 //
 // The secret is read here rather than at the moment of the grant, so a job that
 // forgot to export it is told so before the shell reaches out to an issuer that
 // was never going to be able to help.
-func (b *Broker) inlineSource() (source, error) {
-	variable := b.Selection.Identity.Auth.ClientSecretVariable
-	secret, err := b.namedSecret(variable, "the client secret")
+func (b *Broker) inlineSource(request Request) (source, error) {
+	access, _ := b.Selection.Identity.Access(b.recordKey(request))
+	product := b.Selection.Identity.Products[b.Namespace]
+	clientID := b.Selection.Identity.Auth.ClientID
+	secretVariable := b.Selection.Identity.Auth.ClientSecretVariable
+	// A gateway record is minted from the identity's own machine client at
+	// the login provider, whatever credential the product's own record
+	// carries for its own issuer, so the product's credential and grant are
+	// consulted only for the product's own record. There the secret belongs
+	// to the client the record names for it: the one in its own variable, or
+	// the grant's public client, which is then presented with a secret it
+	// was registered with.
+	ownRecord := request.Record != contexts.GatewayRecord
+	if ownRecord && product.ClientSecretVariable != "" {
+		clientID = ""
+		if product.Grant != nil {
+			clientID = product.Grant.ClientID
+		}
+		if product.ClientIDVariable != "" {
+			id, err := b.namedSecret(product.ClientIDVariable, "the product's client id")
+			if err != nil {
+				return nil, err
+			}
+			clientID = id
+		}
+		secretVariable = product.ClientSecretVariable
+	} else if ownRecord && product.Grant != nil {
+		// The derivation refreshes a session for an identity token. An
+		// automated identity has no session and no identity token, so it has
+		// nothing to present; the product's own issuer does not accept the
+		// identity's machine client, and its own credential is a different
+		// registration this release does not read without being told.
+		return nil, denial("auth.kind_not_implemented",
+			fmt.Sprintf("the %q product is reached through its own issuer, which does not accept "+
+				"this identity's machine client", b.namespace()),
+			"Record the product's own client credential on its entry with clientIdVariable and "+
+				"clientSecretVariable, or select an interactive identity.")
+	}
+	secret, err := b.namedSecret(secretVariable, "the client secret")
 	if err != nil {
 		return nil, err
 	}
 	return clientCredentialsSource{
 		namespace:      b.namespace(),
 		contextName:    b.Selection.Context.Name,
-		identity:       b.Selection.Identity,
-		audience:       b.productAudience(),
+		issuer:         access.Issuer,
+		clientID:       clientID,
+		resource:       access.Resource,
+		audience:       access.Audience,
 		secret:         secret,
-		secretVariable: variable,
+		secretVariable: secretVariable,
 		client:         b.httpClient(),
 	}, nil
-}
-
-// productAudience is the concrete audience this identity registers for the
-// namespace asking: the string this deployment stamps into an access token's
-// aud claim, and so the one a grant is proved against.
-//
-// checkProduct has already refused an empty one by the time any source is
-// built, so a caller holds a value the deployment actually stated.
-func (b *Broker) productAudience() string {
-	return b.Selection.Identity.Products[b.Namespace].Audience
 }
 
 // httpClient is what reaches an issuer. It defaults to the process-wide client

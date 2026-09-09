@@ -32,11 +32,15 @@ Three things follow:
 - **The audience is a URI.** A resource server's identifier must be an absolute
   URI, so `products.<namespace>.audience` is a URI here. The bare API resource
   identifier that works on Identity Server is refused.
-- **One login reaches one product.** Thunder accepts a single resource indicator
-  per authorization: *"Only a single resource parameter is supported"*. A
-  session is therefore bound to one resource server, and the context document
-  refuses an identity that names Thunder and declares more than one product.
-  Lifting that is [tracked separately](https://github.com/wso2/wso2-cli/issues/43).
+- **One authorization reaches one product.** Thunder accepts a single resource
+  indicator per authorization: *"Only a single resource parameter is
+  supported"*, so a session is bound to one resource server. Before the
+  per-product session model that meant one login reached one product, and the
+  context document refused an identity that named Thunder and declared more
+  than one. Under [ADR 0014](../adr/0014-one-login-one-session-per-product.md)
+  an identity holds one session per product and the shell runs one
+  authorization per product from the same sign-on, so a Thunder identity may
+  declare several; the binding is why each gets its own session.
 - **The audience check means what it says.** On Asgardeo an access token's `aud`
   is the client ID and cannot distinguish one product from another. On Thunder it
   is the resource server identifier and nothing else, which is the strongest
@@ -110,22 +114,28 @@ credentials the recipe set.
 ## 3. Trust the deployment's certificate
 
 Thunder serves TLS with a minimum version of 1.3 and, on a fresh deployment, a
-self-signed certificate. The shell uses the process's ordinary HTTP client and
-has no flag anywhere for a custom certificate authority, so until that
-certificate is trusted, login cannot reach discovery at all:
+self-signed certificate. Until that certificate is trusted, login cannot reach
+discovery at all:
 
 ```text
 tls: failed to verify certificate: x509: certificate signed by unknown authority
 ```
 
-On macOS, note that Go **ignores `SSL_CERT_FILE`**, since `crypto/x509` honors
-it on every Unix except Darwin, so the keychain is the only way in. Take the
-certificate from the port:
+Two routes exist. `WSO2_CA_FILE` names a PEM file the shell trusts beside the
+system roots, and needs no change to the machine; the operating system's trust
+store makes the certificate trusted for every program. On macOS, note that Go
+**ignores `SSL_CERT_FILE`**, since `crypto/x509` honors it on every Unix except
+Darwin, so those two are the only ways in. Either way, take the certificate
+from the port:
 
 ```sh
 openssl s_client -connect localhost:8090 -servername localhost </dev/null 2>/dev/null \
   | openssl x509 -outform pem > thunder-localhost.pem
 
+# Either name it for the shell alone:
+export WSO2_CA_FILE=$PWD/thunder-localhost.pem
+
+# Or trust it machine-wide:
 security add-trusted-cert -r trustRoot -p ssl \
   -k ~/Library/Keychains/login.keychain-db thunder-localhost.pem
 ```
@@ -292,12 +302,14 @@ form:
 }
 ```
 
-The same two rules that bind a Thunder browser identity bind this one, and the
-shell refuses the document rather than the grant if either is broken: **exactly
-one product**, and an **audience that is an absolute URI**. Carrying the login
-guide's `"audience": "reference-status"` over is refused at parse as not a URI,
-which is the cheap failure; omitting `provider` is the expensive one, because
-the document parses and the deployment refuses every grant.
+The rule that binds a Thunder browser identity binds this one, and the shell
+refuses the document rather than the grant if it is broken: an **audience that
+is an absolute URI**. Carrying the login guide's
+`"audience": "reference-status"` over is refused at parse as not a URI, which
+is the cheap failure; omitting `provider` is the expensive one, because the
+document parses and the deployment refuses every grant. A machine identity is
+minted once per product it declares, each with that product's resource
+indicator, so it may declare several.
 
 [Section 5.2 of the login guide](login.md#52-wire-the-job) has the job wiring,
 which is the same for all three products.
@@ -316,25 +328,31 @@ which is the same for all three products.
 
 ---
 
-## 9. Log in, and check what it wrote
+## 9. Declare the identity, then log in
 
-With the issuer and client ID from the section above, one command creates
-the identity and the context and signs you in:
+A Thunder authorization is bound to one protected resource from the moment
+it is established, so the shell has to know the resource before the browser
+opens. A module that carries a product descriptor is recorded from its URL
+alone: `wso2 <namespace> connect https://localhost:8090` writes the identity,
+the product and the context. The reference module declares no descriptor, so declare
+the identity yourself, naming the provider and the product it reaches, then
+log in:
 
 ```console
-$ wso2 login --url https://thunder.example.com \
-    --client-id <client-id> --context thunder-local
+$ wso2 identity create thunder-local --issuer https://thunder.example.com \
+    --client-id <client-id> --provider thunder \
+    --product reference --endpoint https://localhost:8090 \
+    --audience https://localhost:8090/reference-status --scope read --scope write
+
+$ wso2 login --context thunder-local
 ```
 
-It reports the names it assigned, and `wso2 context list` shows them.
-What it writes is deliberately spare: the issuer and client ID you passed,
-`"type": "onprem"`, a `credentialRef` equal to the identity name, and no
-products. Everything from here is [the main login guide](login.md), from
-section 2.
-
-The record below is the fuller shape, not what login leaves: add the product
-with `wso2 identity add-product`, and set the two Thunder-specific members by
-hand. Login writes neither, and a Thunder deployment needs both:
+`identity create` writes the identity, a same-named context, and selects it
+when nothing else is selected; its last line is the login to run. What it
+writes is spare: the issuer and client ID, `"type": "onprem"`, a
+`credentialRef` equal to the identity name, `"provider": "thunder"`, and the
+product. That is the document below. Everything from here is
+[the main login guide](login.md), from section 2.
 
 ```json
 {
@@ -345,7 +363,7 @@ hand. Login writes neither, and a Thunder deployment needs both:
     "provider": "thunder",
     "issuer": "https://localhost:8090",
     "clientId": "wso2-cli",
-    "credentialRef": "thunder-local-login"
+    "credentialRef": "thunder-local"
   },
   "products": {
     "reference": {
@@ -357,14 +375,17 @@ hand. Login writes neither, and a Thunder deployment needs both:
 }
 ```
 
-`provider` is what makes the shell send the resource indicator. Without it the
-login is refused with `invalid_target` and no session is established.
+`provider` is what makes the shell send the resource indicator. Without it,
+`wso2 login --url … --client-id …` on a deployment with no default resource
+server is refused by Thunder with `invalid_target` before any sign-in page
+appears, and no session is established. That is why the first-login form
+that creates the identity as it logs in does not fit Thunder.
 
-You may also write `narrowing` explicitly, as `scoped-refresh` or
-`token-resource`, for a deployment that does not behave the way its product
-ordinarily does. An explicit `narrowing` wins over what `provider` implies. A
-Thunder deployment with a default resource server configured is the case this
-exists for.
+You may also write `narrowing` explicitly in the document, as
+`scoped-refresh` or `token-resource`, for a deployment that does not behave
+the way its product ordinarily does. An explicit `narrowing` wins over what
+`provider` implies. A Thunder deployment with a default resource server
+configured is the case this exists for.
 
 ---
 
@@ -381,10 +402,11 @@ identity's `auth` block.
 
 ### `contexts.document_malformed`, about one login and one product
 
-The identity derives access by resource and declares more than one product.
-Thunder accepts one resource indicator per authorization, so one session cannot
-reach two products. Split them across two identities, each with its own
-`credentialRef`.
+A shell from before the per-product session model refuses an identity that
+derives access by resource and declares more than one product, because one
+session then reached one product. A current shell holds one session per
+product ([ADR 0014](../adr/0014-one-login-one-session-per-product.md)) and
+accepts the document; update the shell rather than splitting the identity.
 
 ### `contexts.document_malformed`, about a product without an audience
 

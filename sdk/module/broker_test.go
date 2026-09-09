@@ -185,3 +185,19 @@ func asProblem(err error, target *problem.Problem) bool {
 	}
 	return ok
 }
+
+func TestAHandlerNamesTheRecordItAsksFor(t *testing.T) {
+	request := module.AccessRequest{Audience: "probe-gateway", Record: "gateway"}
+	outcome := testkit.Run(t.Context(), probeOptions(),
+		[]module.Command{acquiringCommand(request, nil, nil)},
+		testkit.Invocation{
+			Command: []string{"status"},
+			Access:  &testkit.Access{Token: "fixture-token", ExpiresAt: grantedUntil},
+		})
+	if outcome.Err != nil {
+		t.Fatalf("the invocation failed: %v", outcome.Err)
+	}
+	if len(outcome.AccessRequests) != 1 || !reflect.DeepEqual(outcome.AccessRequests[0], request) {
+		t.Errorf("the broker was asked for %+v, want %+v", outcome.AccessRequests, request)
+	}
+}

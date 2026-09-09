@@ -100,10 +100,11 @@ func TestTheInvocationReachesTheHandlerIntact(t *testing.T) {
 	var seen module.Request
 	outcome := testkit.Run(t.Context(), probeOptions(), []module.Command{statusCommand(&seen)},
 		testkit.Invocation{
-			Command:      []string{"status"},
-			Arguments:    []string{"--since", "1h"},
-			OutputMode:   module.OutputModeJSON,
-			Context:      module.Context{Name: "default", OrganizationID: "acme"},
+			Command:    []string{"status"},
+			Arguments:  []string{"--since", "1h"},
+			OutputMode: module.OutputModeJSON,
+			Context: module.Context{Name: "default", OrganizationID: "acme",
+				Endpoint: "https://product.example", GatewayEndpoint: "https://gw.example"},
 			InvocationID: "inv-42",
 		})
 
@@ -116,7 +117,8 @@ func TestTheInvocationReachesTheHandlerIntact(t *testing.T) {
 	if seen.OutputMode != module.OutputModeJSON {
 		t.Errorf("the handler saw output mode %q, want %q", seen.OutputMode, module.OutputModeJSON)
 	}
-	if seen.Context.Name != "default" || seen.Context.OrganizationID != "acme" {
+	if seen.Context.Name != "default" || seen.Context.OrganizationID != "acme" ||
+		seen.Context.Endpoint != "https://product.example" || seen.Context.GatewayEndpoint != "https://gw.example" {
 		t.Errorf("the handler saw context %+v, want the invocation context", seen.Context)
 	}
 	if seen.InvocationID != "inv-42" {

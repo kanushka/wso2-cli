@@ -68,11 +68,13 @@ module against the published SDK for the previous protocol and launches it
 under the current shell, which is what makes declaring the older half of the
 window mean something.
 
-`capabilities` are the access requests the module is permitted to make. The
+`capabilities` are the access requests the module is permitted to make and, when
+it declares one, the product descriptor `wso2 <namespace> connect` reads. The
 authentication broker intersects a runtime request with what the installed
 receipt records, so a catalog entry that carried none would leave a module
 installed from the catalog denied every brokered request it makes. What the
-module declares is what the catalog publishes and what the receipt records.
+module declares is what the catalog publishes and what the receipt records; see
+the [module manifest](module-manifest.md#capabilities) for every member.
 
 A tag publishes the declaration as it stood at that tag, not as it stands on
 the default branch: a module that widened its protocol range last week did not

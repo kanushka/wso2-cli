@@ -129,6 +129,10 @@ func (p Platform) String() string {
 type Capabilities struct {
 	AuthAudiences []string `json:"authAudiences,omitempty"`
 	AuthScopes    []string `json:"authScopes,omitempty"`
+	// Product is what the module declares about reaching its product, for
+	// wso2 <namespace> connect. Absent for a module that declares none, which
+	// has connect refused and is otherwise unchanged.
+	Product *ProductDescriptor `json:"product,omitempty"`
 }
 
 // ShellRange parses the receipt's shell compatibility range.
@@ -192,6 +196,11 @@ func (r Receipt) Validate() error {
 	}
 	if err := validateDigest(r.ExecutableSHA256); err != nil {
 		return err
+	}
+	if r.Capabilities.Product != nil {
+		if err := r.Capabilities.Product.validate(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

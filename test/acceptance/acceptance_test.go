@@ -340,9 +340,10 @@ func runShellWith(shell string, environment []string, args ...string) (string, s
 // It carries the development credential the isolated context names. Supplying
 // it here is the point of the canary: it is present for every run, only the
 // shell may read it, and no run may disclose it. Additional variables are for
-// deployments whose identity names a different credential source; they are
-// appended rather than replacing the canary, so every run still proves the
-// credential it does not use stays undisclosed.
+// deployments whose identity names a different credential source. A module is
+// handed the WSO2_<NAMESPACE>_ variables the shell reads no credential from,
+// so a deployment whose identity does not name the canary drops it (see
+// withoutVariable) rather than plant a value the module is entitled to.
 func shellEnvironment(stateRoot string, additional ...string) []string {
 	environment := []string{
 		state.RootEnvVar + "=" + stateRoot,

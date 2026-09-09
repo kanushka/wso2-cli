@@ -208,6 +208,12 @@ type Identity struct {
 	// Products are the product services reachable under this identity, keyed
 	// by product namespace.
 	Products map[string]Product `json:"products,omitempty"`
+	// LoginProduct pins which direct product the login authorization is run
+	// for. Without it the login product is the first direct product by
+	// namespace, so recording a product that sorts earlier would move the
+	// login session from under the sessions already stored. Optional: a
+	// document written before the field existed keeps the namespace order.
+	LoginProduct string `json:"loginProduct,omitempty"`
 	// synthetic marks an identity manufactured by the v1 compatibility read.
 	// It is never encodable.
 	synthetic bool
@@ -271,7 +277,110 @@ type Product struct {
 	Audience string `json:"audience,omitempty"`
 	// Scopes are the permissions the shell may request for this product.
 	Scopes []string `json:"scopes,omitempty"`
+	// Grant says how access for this product is obtained from the identity's
+	// session when the product's issuer is not the identity's. Absent, the
+	// session itself is narrowed to the product, as it always was.
+	Grant *Grant `json:"grant,omitempty"`
+	// ClientIDVariable and ClientSecretVariable name the environment
+	// variables holding a credential of the product's own, for a
+	// client-credentials identity whose machine client the product cannot
+	// map to its roles. Names, never values. The client id variable may be
+	// omitted for a product reached through a grant, whose public client
+	// the secret then belongs to.
+	ClientIDVariable     string `json:"clientIdVariable,omitempty"`
+	ClientSecretVariable string `json:"clientSecretVariable,omitempty"`
+	// Gateway is the product's gateway record, when it has one: a second
+	// record beside this management one, reached at the identity's login
+	// provider for the API's own resource server. Absent for a product
+	// recorded without a gateway, which a document written before the field
+	// existed always is.
+	Gateway *Gateway `json:"gateway,omitempty"`
 }
+
+// GatewayRecord names a product's gateway record, as a broker request and
+// the session key spell it.
+const GatewayRecord = "gateway"
+
+// GatewayKey is the key a product's gateway record is reported and stored
+// under: the namespace, a slash, and GatewayRecord. The slash is admitted by
+// neither a namespace nor a credential reference, so the key can collide
+// with neither.
+func GatewayKey(namespace string) string { return namespace + "/" + GatewayRecord }
+
+// SplitGatewayKey reports the namespace a gateway key names, and whether the
+// key is one.
+func SplitGatewayKey(key string) (string, bool) {
+	namespace, found := strings.CutSuffix(key, "/"+GatewayRecord)
+	return namespace, found && namespace != ""
+}
+
+// Gateway is a product's gateway record. Like the product it belongs to it
+// names a location and what a token for it is bound to, and holds no
+// credential.
+type Gateway struct {
+	// Endpoint is the gateway's base URL.
+	Endpoint string `json:"endpoint"`
+	// Audience is the API's own resource identifier, the audience a gateway
+	// session is bound to.
+	Audience string `json:"audience,omitempty"`
+	// Scopes are the API's own permissions, the scope set a gateway session
+	// is authorized for.
+	Scopes []string `json:"scopes,omitempty"`
+}
+
+// GrantJWTBearer presents an identity token from the session to the product's
+// own token endpoint under RFC 7523's JWT bearer grant, as a public client.
+const GrantJWTBearer = "jwt-bearer"
+
+// GrantFederated obtains the product's session at the product's own issuer,
+// as the public client the grant names, through the login provider's
+// sign-on. The session is the product issuer's own refresh token.
+const GrantFederated = "federated"
+
+// legalGrants are the grant kinds this shell implements.
+var legalGrants = map[string]bool{GrantJWTBearer: true, GrantFederated: true}
+
+// Grant is one way of deriving a product's access from the session. It names
+// where the assertion goes and what the assertion must carry; like everything
+// else in a document it holds no credential, and the type has nowhere to put
+// one.
+type Grant struct {
+	// Kind names the grant. Only GrantJWTBearer is read.
+	Kind string `json:"kind"`
+	// Issuer is the product's own OpenID issuer, whose token endpoint takes
+	// the assertion.
+	Issuer string `json:"issuer"`
+	// ClientID is the public client the shell presents at that issuer.
+	ClientID string `json:"clientId"`
+	// Scopes are what the identity's issuer is asked for when the session is
+	// refreshed for the assertion: the scopes that make the identity token
+	// carry the claims the product maps. openid is always among them.
+	Scopes []string `json:"scopes,omitempty"`
+	// Resource is the RFC 8707 resource indicator the authorization for this
+	// grant's session carries, when the issuer it runs at requires one. For a
+	// jwt-bearer grant that issuer is the identity's; for a federated grant it
+	// is the product's own. Optional.
+	Resource string `json:"resource,omitempty"`
+}
+
+// AssertionScopes are the scopes the session is refreshed with to obtain the
+// assertion: the grant's own, with openid added when absent, sorted and
+// de-duplicated. An identity token is issued only under openid, so a grant
+// that omits it would ask for an assertion the issuer never mints.
+func (g Grant) AssertionScopes() []string {
+	scopes := []string{"openid"}
+	for _, scope := range g.Scopes {
+		if !slices.Contains(scopes, scope) {
+			scopes = append(scopes, scope)
+		}
+	}
+	slices.Sort(scopes)
+	return scopes
+}
+
+// Direct reports whether the identity's own session answers for this product.
+// A product with a grant is derived instead, at another issuer.
+func (p Product) Direct() bool { return p.Grant == nil }
 
 // Synthetic reports whether this identity was manufactured by the v1
 // compatibility read. A synthetic identity is readable but never written back.
@@ -299,6 +408,18 @@ func (i Identity) validate() error {
 		if err := i.Products[namespace].validate(i.Name); err != nil {
 			return err
 		}
+		if i.Products[namespace].ClientSecretVariable != "" && i.Auth.Kind != KindClientCredentials {
+			return malformed(fmt.Sprintf(
+				"declares a product credential on the interactive identity %q; a product credential "+
+					"belongs to a client-credentials identity", i.Name))
+		}
+	}
+	if i.LoginProduct != "" {
+		pinned, recorded := i.Products[i.LoginProduct]
+		if !recorded || !pinned.Direct() {
+			return malformed(fmt.Sprintf(
+				"pins the login of the identity %q to a product it does not reach directly", i.Name))
+		}
 	}
 	return nil
 }
@@ -307,26 +428,26 @@ func (i Identity) validate() error {
 // as written.
 //
 // A resource-bound derivation names the protected resource it binds to, and
-// takes that name from the product the module asks for. Two consequences
-// follow, and both are refused here rather than at the end of a browser
-// sign-in: a product that names no audience leaves nothing to bind to, and an
-// identity serving several products cannot be served by one session at all,
-// because the deployments that require a resource indicator accept only one per
-// authorization.
+// takes that name from the product the module asks for. What follows is
+// refused here rather than at the end of a browser sign-in: a product that
+// names no audience leaves nothing to bind to, and an identity naming none at
+// all has nothing to name either. An identity may still record several direct
+// products — each becomes its own resource-bound session, the login's or a
+// sibling's, since the deployments this derivation serves accept only one
+// resource indicator per authorization, not one product per identity.
 func (i Identity) validateDerivation() error {
 	if i.Auth.Derivation() != DerivationTokenResource {
 		return nil
 	}
-	// Exactly one, not at most one. A deployment that binds by resource takes
-	// the resource from the identity's product, so an identity with none has
-	// nothing to name: login would send no indicator and be refused, which is
-	// the failure this whole validation exists to move earlier.
-	if len(i.Products) != 1 {
+	if len(i.Products) == 0 {
 		return malformed(fmt.Sprintf(
-			"declares the identity %q against a deployment that binds one login to one product, "+
-				"and gives it %d", i.Name, len(i.Products)))
+			"declares the identity %q against a deployment that binds a login to a product, "+
+				"and gives it none", i.Name))
 	}
 	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
+		if !i.Products[namespace].Direct() {
+			continue
+		}
 		audience := i.Products[namespace].Audience
 		if audience == "" {
 			return malformed(fmt.Sprintf(
@@ -345,14 +466,38 @@ func (i Identity) validateDerivation() error {
 		// permits — a URN names a resource server perfectly well — and this
 		// shell never dereferences the value, so it has no reason to hold an
 		// opinion the specification does not.
-		parsed, err := url.Parse(audience)
-		if err != nil || parsed.Scheme == "" || parsed.Fragment != "" {
+		if !absoluteURI(audience) {
 			return malformed(fmt.Sprintf(
 				"declares the %q product on the identity %q with an audience that is not an "+
 					"absolute URI, which is what its deployment binds access by", namespace, i.Name))
 		}
 	}
+	// A gateway record is always reached at the login provider, so its
+	// audience is bound the way a direct product's is, grant or no grant.
+	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
+		gateway := i.Products[namespace].Gateway
+		if gateway == nil {
+			continue
+		}
+		if gateway.Audience == "" {
+			return malformed(fmt.Sprintf(
+				"declares the %q product's gateway on the identity %q without the audience its "+
+					"deployment binds access to", namespace, i.Name))
+		}
+		if !absoluteURI(gateway.Audience) {
+			return malformed(fmt.Sprintf(
+				"declares the %q product's gateway on the identity %q with an audience that is not an "+
+					"absolute URI, which is what its deployment binds access by", namespace, i.Name))
+		}
+	}
 	return nil
+}
+
+// absoluteURI reports whether value is an absolute URI carrying no fragment,
+// which is what RFC 8707 section 2 requires of a resource indicator.
+func absoluteURI(value string) bool {
+	parsed, err := url.Parse(value)
+	return err == nil && parsed.Scheme != "" && parsed.Fragment == ""
 }
 
 func (a IdentityAuth) validate(identity string) error {
@@ -440,6 +585,95 @@ func (p Product) validate(identity string) error {
 			fmt.Sprintf("a product endpoint on the identity %q embeds credentials in its URL", identity),
 			"Remove the user information from the endpoint. A context names a credential source; "+
 				"it never carries a credential.")
+	}
+	// A product credential is a secret variable and the client it belongs
+	// to: the client id from its own variable, or, for a product reached
+	// through a grant, the grant's public client. A client id variable
+	// without a secret names half of nothing.
+	if p.ClientIDVariable != "" && p.ClientSecretVariable == "" {
+		return malformed(fmt.Sprintf(
+			"declares a product credential on the identity %q with a client id variable and no secret", identity))
+	}
+	if p.ClientSecretVariable != "" && p.ClientIDVariable == "" && p.Grant == nil {
+		return malformed(fmt.Sprintf(
+			"declares a product credential on the identity %q with no client id for it: name one with "+
+				"clientIdVariable, or reach the product through a grant naming its client", identity))
+	}
+	if p.ClientSecretVariable != "" {
+		if !variablePattern.MatchString(p.ClientSecretVariable) ||
+			(p.ClientIDVariable != "" && !variablePattern.MatchString(p.ClientIDVariable)) {
+			return contextProblem("contexts.document_malformed",
+				fmt.Sprintf("a product on the identity %q does not name environment variables as its credential source", identity),
+				"Name the environment variables holding the product's client id and secret, not the values.")
+		}
+	}
+	if p.Gateway != nil {
+		if err := p.Gateway.validate(identity); err != nil {
+			return err
+		}
+	}
+	if p.Grant != nil {
+		// A derived token is proved bound to the product's audience, exactly as
+		// a narrowed one is. Without an audience there is nothing to prove it
+		// against, and the refusal belongs here rather than at the first
+		// command that needs the product.
+		if p.Audience == "" {
+			return malformed(fmt.Sprintf(
+				"declares a product with a grant on the identity %q without the audience the "+
+					"derived access is proved against", identity))
+		}
+		return p.Grant.validate(identity)
+	}
+	return nil
+}
+
+// validate refuses a gateway record this shell could not reach as written.
+// The endpoint follows the product endpoint's rules and, like it, is never
+// echoed.
+func (g Gateway) validate(identity string) error {
+	if g.Endpoint == "" {
+		return malformed(fmt.Sprintf("declares a product gateway without an endpoint on the identity %q", identity))
+	}
+	parsed, err := url.Parse(g.Endpoint)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return malformed(fmt.Sprintf("declares a product gateway endpoint on the identity %q that this shell cannot read", identity))
+	}
+	if parsed.User != nil {
+		return contextProblem("contexts.document_malformed",
+			fmt.Sprintf("a product gateway endpoint on the identity %q embeds credentials in its URL", identity),
+			"Remove the user information from the endpoint. A context names a credential source; "+
+				"it never carries a credential.")
+	}
+	return nil
+}
+
+// validate refuses a grant this shell could not carry out as written. The
+// issuer URL is never echoed: like an endpoint, it is where a credential is
+// likeliest to have been typed by mistake.
+func (g Grant) validate(identity string) error {
+	if !legalGrants[g.Kind] {
+		return malformed(fmt.Sprintf(
+			"declares a product grant on the identity %q of a kind this shell does not implement", identity))
+	}
+	if g.ClientID == "" {
+		return malformed(fmt.Sprintf(
+			"declares a product grant on the identity %q without the client it presents", identity))
+	}
+	parsed, err := url.Parse(g.Issuer)
+	if g.Issuer == "" || err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return malformed(fmt.Sprintf(
+			"declares a product grant on the identity %q whose issuer this shell cannot read", identity))
+	}
+	if parsed.User != nil {
+		return contextProblem("contexts.document_malformed",
+			fmt.Sprintf("a product grant on the identity %q embeds credentials in its issuer URL", identity),
+			"Remove the user information from the issuer. A context names a credential source; "+
+				"it never carries a credential.")
+	}
+	if g.Resource != "" && !absoluteURI(g.Resource) {
+		return malformed(fmt.Sprintf(
+			"declares a product grant on the identity %q with a resource that is not an absolute URI",
+			identity))
 	}
 	return nil
 }

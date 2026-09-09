@@ -57,6 +57,8 @@ import (
 	oidc "github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
+	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
+
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -113,8 +115,23 @@ type Login struct {
 	// session established without it cannot be bound to a resource afterwards,
 	// and one established with it reaches that resource and no other.
 	Resource string
+	// Label names the product this login establishes a session for — the
+	// product namespace, or empty for a login that is not for one. It reaches
+	// nothing but the accepted callback page, where it tells a person which of
+	// the tabs one wso2 login opens they are looking at.
+	Label string
 	// Ports overrides LoopbackPorts. Tests bind an ephemeral port with []int{0}.
 	Ports []int
+}
+
+// prompt is the line printed above the authorization URL. A login that is
+// for a product says which one and where, since one wso2 login prints one
+// URL per product and the URLs alone do not say which is which.
+func (l Login) prompt() string {
+	if l.Label == "" {
+		return "Open this URL to log in:"
+	}
+	return fmt.Sprintf("Open this URL to authorize the %q product at %s:", l.Label, l.Issuer)
 }
 
 // Result is a completed login. It holds credential material and is never
@@ -124,6 +141,10 @@ type Result struct {
 	Token *oauth2.Token
 	// Subject is the verified identity token's subject.
 	Subject string
+	// IDToken is the raw identity token the login verified. It is kept for
+	// one purpose: ending the provider\'s browser session later, where the
+	// end-session endpoint takes it as the hint of which session to end.
+	IDToken string
 	// Email is the verified identity token's email claim, when it carries one.
 	Email string
 }
@@ -138,6 +159,9 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	ctx = oidc.ClientContext(ctx, l.httpClient())
 	provider, err := oidc.NewProvider(ctx, l.Issuer)
 	if err != nil {
+		if issuertrust.Untrusted(err) {
+			return Result{}, issuertrust.Problem(l.Issuer)
+		}
 		return Result{}, discoveryFailed(
 			"the shell could not read the identity provider's OpenID configuration",
 			"Check the issuer of the selected context and that this machine can reach it, then retry.")
@@ -171,7 +195,7 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	callback := serveCallback(listener, state)
+	callback := serveCallback(listener, state, l.Label)
 	defer callback.close()
 
 	// A public client has no secret to present, so it identifies itself in the
@@ -198,7 +222,7 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 		authOptions = append(authOptions, oauth2.SetAuthURLParam("resource", l.Resource))
 	}
 	authURL := config.AuthCodeURL(state, authOptions...)
-	if _, err := fmt.Fprintf(l.out(), "Open this URL to log in:\n%s\n", authURL); err != nil {
+	if _, err := fmt.Fprintf(l.out(), "%s\n%s\n", l.prompt(), authURL); err != nil {
 		return Result{}, notCompleted("the shell could not print the authorization URL this login needs",
 			"Run wso2 login with standard output attached to your terminal.")
 	}
@@ -241,7 +265,7 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	// An issuer that discloses no email is a legal issuer; the login reports
 	// what it verified rather than refusing over a claim it did not need.
 	_ = idToken.Claims(&claims)
-	return Result{Token: token, Subject: idToken.Subject, Email: claims.Email}, nil
+	return Result{Token: token, Subject: idToken.Subject, IDToken: rawIDToken, Email: claims.Email}, nil
 }
 
 func (l Login) scopes() []string {
@@ -400,8 +424,9 @@ const callbackReadHeaderTimeout = 10 * time.Second
 // serveCallback starts serving the loopback callback for one login.
 //
 // The state is captured here rather than checked by the caller so that no path
-// through this package can accept a code without it.
-func serveCallback(listener net.Listener, state string) *callback {
+// through this package can accept a code without it. The label names the
+// product this login is for, and appears on the accepted page alone.
+func serveCallback(listener net.Listener, state, label string) *callback {
 	waiting := &callback{results: make(chan callbackResult, 1)}
 	mux := http.NewServeMux()
 	mux.HandleFunc(callbackPath, func(w http.ResponseWriter, r *http.Request) {
@@ -409,15 +434,17 @@ func serveCallback(listener net.Listener, state string) *callback {
 		// A callback carrying another login's state is not this login's. It is
 		// answered and discarded while the listener keeps waiting, which is what
 		// makes a stray or forged browser tab pointed at this port harmless.
+		//
+		// The page it is answered with names no product: a tab this login did
+		// not start is told only that it belongs to nothing here.
 		if subtle.ConstantTimeCompare([]byte(query.Get("state")), []byte(state)) != 1 {
-			respond(w, http.StatusBadRequest,
-				"This callback does not belong to a login started from this terminal.")
+			respond(w, pageStrayTab, "")
 			return
 		}
 		if query.Get("error") != "" {
 			// The provider's error code is not echoed to the terminal; what the
 			// user must do is the same whichever refusal it was.
-			respond(w, http.StatusOK, "Login failed. Return to the terminal.")
+			respond(w, pageRefused, "")
 			waiting.finish(callbackResult{err: notCompleted(
 				"the identity provider refused this login",
 				"Retry wso2 login and complete the sign-in the browser asks for.")})
@@ -425,10 +452,14 @@ func serveCallback(listener net.Listener, state string) *callback {
 		}
 		code := query.Get("code")
 		if code == "" {
-			respond(w, http.StatusBadRequest, "This callback carries no authorization code.")
+			respond(w, pageNoCode, "")
 			return
 		}
-		respond(w, http.StatusOK, "Login complete. You can close this tab and return to the terminal.")
+		// Only the accepted callback names the product, because it is the only
+		// one where something was authorized to name. One wso2 login opens this
+		// page once per product session, so without the label the second and
+		// third tabs would be indistinguishable from the first.
+		respond(w, pageSignedIn, label)
 		waiting.finish(callbackResult{code: code})
 	})
 	waiting.server = &http.Server{Handler: mux, ReadHeaderTimeout: callbackReadHeaderTimeout}
@@ -461,14 +492,13 @@ func (c *callback) wait(ctx context.Context) (string, error) {
 // so no login leaves a port bound behind it.
 func (c *callback) close() { _ = c.server.Close() }
 
-// respond writes the one page the user ever sees from the shell's own listener.
-// It is flushed before the code is delivered, so shutting the listener down
-// cannot truncate the page in the browser.
-func respond(w http.ResponseWriter, status int, message string) {
+// respond writes one of the pages the user ever sees from the shell's own
+// listener. It is flushed before the code is delivered, so shutting the
+// listener down cannot truncate the page in the browser.
+func respond(w http.ResponseWriter, page callbackPage, product string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	_, _ = io.WriteString(w, "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"+
-		"<title>WSO2 CLI</title></head><body><p>"+message+"</p></body></html>\n")
+	w.WriteHeader(page.status)
+	_, _ = io.WriteString(w, page.render(product))
 	if flusher, ok := w.(http.Flusher); ok {
 		flusher.Flush()
 	}

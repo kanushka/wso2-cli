@@ -25,6 +25,8 @@ import (
 
 	oidc "github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
+
+	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
 )
 
 // DeviceLogin runs one RFC 8628 Device Authorization Grant login.
@@ -75,6 +77,9 @@ func (d DeviceLogin) Run(ctx context.Context) (Result, error) {
 	ctx = oidc.ClientContext(ctx, d.httpClient())
 	provider, err := oidc.NewProvider(ctx, d.Issuer)
 	if err != nil {
+		if issuertrust.Untrusted(err) {
+			return Result{}, issuertrust.Problem(d.Issuer)
+		}
 		return Result{}, discoveryFailed(
 			"the shell could not read the identity provider's OpenID configuration",
 			"Check the issuer of the selected context and that this machine can reach it, then retry.")
@@ -224,6 +229,7 @@ func (d DeviceLogin) identify(
 	}
 	_ = verified.Claims(&claims)
 	result.Subject = verified.Subject
+	result.IDToken = raw
 	result.Email = claims.Email
 	return result, nil
 }

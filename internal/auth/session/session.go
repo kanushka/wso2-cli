@@ -16,15 +16,23 @@
 
 // Package session persists interactive login sessions in the OS secure store.
 //
-// One credential reference maps to one keychain entry. The entry is the only
-// place a refresh token lives: it is never written to a file, and the state
-// root hosts only the advisory lock files that keep refresh-token rotation
-// single-writer across concurrent shell invocations.
+// One credential reference under one state root maps to one keychain entry.
+// The entry is the only place a refresh token lives: it is never written to a
+// file, and the state root hosts only the advisory lock files that keep
+// refresh-token rotation single-writer across concurrent shell invocations.
+//
+// The entry is named by the reference and a digest of the state root, so two
+// state roots (two WSO2_HOMEs) whose context documents both name an identity
+// "thunder" never share a session: a session is served only to the root that
+// stored it. See EntryName.
 package session
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"time"
 
 	keyring "github.com/zalando/go-keyring"
@@ -56,6 +64,25 @@ type Session struct {
 	// issuers today do not; nothing in this package treats that as an error,
 	// and nothing here invents a substitute for it.
 	SessionExpiresAt time.Time `json:"sessionExpiresAt,omitempty"`
+	// Strategy is how this session was obtained (a contexts.Strategy* value),
+	// ClientID the client it was obtained as, and Scopes what it was
+	// authorized for. wso2 whoami reports the document's own strategy for a
+	// product, not this field; what these three guard is drift instead — a
+	// product whose namespace sorts ahead of the current login product can
+	// become the login product itself the moment it is recorded, and
+	// sessionSource.renew refuses to present a session recorded here for a
+	// different client or scope set as if it belonged to the product now
+	// asking. omitempty, so an entry written before they existed decodes with
+	// them empty rather than failing to decode: encoding/json leaves an
+	// absent JSON member as the Go zero value.
+	Strategy string `json:"strategy,omitempty"`
+	// IDToken is the identity token the authorization returned, kept so that
+	// wso2 logout can name this session to the provider's end-session
+	// endpoint. It is not a credential: it grants nothing and was verified
+	// before it was stored.
+	IDToken  string   `json:"idToken,omitempty"`
+	ClientID string   `json:"clientId,omitempty"`
+	Scopes   []string `json:"scopes,omitempty"`
 }
 
 // Store reads and writes sessions in the OS secure store.
@@ -64,13 +91,36 @@ type Store struct {
 	StateRoot string
 }
 
+// EntryName is the secure-store name a credential reference's session lives
+// under: the reference, '@', and a digest of the state root.
+//
+// The digest is what keeps one root from reading another's session. Its input
+// is the root's cleaned path, so the same WSO2_HOME spelled two ways is one
+// root, and '@' is admitted by neither a credential reference nor a product
+// namespace, so the name can never be mistaken for a reference of its own.
+// The digest is truncated because it identifies a root rather than protecting
+// anything: the store it names is what protects the session.
+func (s Store) EntryName(ref string) string {
+	sum := sha256.Sum256([]byte(filepath.Clean(s.StateRoot)))
+	return ref + "@" + hex.EncodeToString(sum[:rootDigestBytes])
+}
+
+// rootDigestBytes is how much of the state root's digest the entry name keeps.
+const rootDigestBytes = 8
+
 // Load returns the stored session for a credential reference.
 //
 // A missing entry is auth.login_required; an unavailable keyring backend is
 // auth.keyring_unavailable. An unreadable or undecodable entry is
 // auth.login_required as well: stale entries are re-logged-in, not repaired.
+//
+// An entry a shell before this one stored under the bare reference is not
+// read: nothing records which root wrote it, and a fresh root that read it
+// would be reporting, and refreshing, another deployment's session. Such an
+// entry is retired by the next Save or Delete under the same reference.
 func (s Store) Load(ref string) (Session, error) {
-	value, err := keyring.Get(Service, ref)
+	name := s.EntryName(ref)
+	value, err := keyring.Get(Service, name)
 	switch {
 	case errors.Is(err, keyring.ErrNotFound):
 		return Session{}, loginRequired("no stored login session exists for the selected context",
@@ -84,7 +134,34 @@ func (s Store) Load(ref string) (Session, error) {
 		return Session{}, loginRequired("the stored login session for the selected context cannot be read",
 			"Run wso2 login to establish a fresh session for this context.")
 	}
+	// The large tokens come from their side entries when the session entry
+	// carries none inline; an entry written before the side entries existed
+	// carries its access token inline and is read as it was written.
+	if stored.AccessToken == "" {
+		stored.AccessToken = s.sideEntry(name + accessTokenSuffix)
+	}
+	if stored.IDToken == "" {
+		stored.IDToken = s.sideEntry(name + idTokenSuffix)
+	}
 	return stored, nil
+}
+
+// The suffixes of a session's side entries. '#' is admitted by neither a
+// credential reference nor a product namespace, so a side entry can never be
+// mistaken for, or collide with, a session entry.
+const (
+	accessTokenSuffix = "#access"
+	idTokenSuffix     = "#id"
+)
+
+// sideEntry reads one side entry, empty when there is none. A backend that
+// cannot be asked shows up on the session entry itself, which was read first.
+func (s Store) sideEntry(key string) string {
+	value, err := keyring.Get(Service, key)
+	if err != nil {
+		return ""
+	}
+	return value
 }
 
 // Stored reports whether any entry exists for a credential reference, without
@@ -97,7 +174,7 @@ func (s Store) Load(ref string) (Session, error) {
 // exists but cannot be used is a fault — so existence is its own question,
 // asked before Load judges usability.
 func (s Store) Stored(ref string) (bool, error) {
-	_, err := keyring.Get(Service, ref)
+	_, err := keyring.Get(Service, s.EntryName(ref))
 	switch {
 	case err == nil:
 		return true, nil
@@ -110,10 +187,12 @@ func (s Store) Stored(ref string) (bool, error) {
 
 // ProbeCredentialRef is the reserved reference Probe reads under.
 //
-// It contains a period, a character the credentialRef pattern
-// (^[a-z][a-z0-9-]{0,63}$) never allows, so no identity a document declares can
-// ever be assigned this reference. That is what lets Probe read the secure
-// store without risking a collision with, or a read of, a real session.
+// The key is reserved by convention, not by a pattern this package enforces:
+// a credential reference of "probe" paired with a product namespace of
+// "reachability" would form this same string through ProductSessionRef. That
+// collision is harmless, because Probe never reads what a real session would
+// have written there — it only asks the backend whether the key is known,
+// and treats "not found" and "found" identically. See Probe.
 const ProbeCredentialRef = "probe.reachability"
 
 // Probe reports whether the OS secure store answers a read at all, without
@@ -133,17 +212,51 @@ func (s Store) Probe() error {
 }
 
 // Save writes the session, replacing any previous entry.
+//
+// The access token and the identity token go to side entries of their own,
+// and the session entry holds the rest. macOS's secure-store tool refuses a
+// command over 4096 bytes, and a session carrying three JSON web tokens is
+// larger than that once encoded; split three ways every piece stays well
+// under. A side entry a session no longer has a value for is removed, so a
+// later read cannot resurrect a token from an earlier session.
 func (s Store) Save(ref string, value Session) error {
-	data, err := json.Marshal(value)
+	entry := value
+	entry.AccessToken = ""
+	entry.IDToken = ""
+	data, err := json.Marshal(entry)
 	if err != nil {
 		// A Session of strings and a time cannot fail to marshal; treat the
 		// impossible the same as an unusable backend rather than panicking.
 		return keyringUnavailable()
 	}
-	if err := keyring.Set(Service, ref, string(data)); err != nil {
+	name := s.EntryName(ref)
+	if err := keyring.Set(Service, name, string(data)); err != nil {
 		return keyringUnavailable()
 	}
+	for suffix, token := range map[string]string{accessTokenSuffix: value.AccessToken, idTokenSuffix: value.IDToken} {
+		if token == "" {
+			if err := keyring.Delete(Service, name+suffix); err != nil && !errors.Is(err, keyring.ErrNotFound) {
+				return keyringUnavailable()
+			}
+			continue
+		}
+		if err := keyring.Set(Service, name+suffix, token); err != nil {
+			return keyringUnavailable()
+		}
+	}
+	retireLegacyEntry(ref)
 	return nil
+}
+
+// retireLegacyEntry removes what a shell before this one stored under the bare
+// reference. No shell reads such an entry any more (see Load), so leaving it
+// would keep a refresh token on the machine that nothing can reach, and
+// nothing can end. Best effort: the entry this store owns has already been
+// written or removed, and that is the answer the caller gets.
+func retireLegacyEntry(ref string) {
+	for _, name := range []string{ref + accessTokenSuffix, ref + idTokenSuffix, ref} {
+		_ = keyring.Delete(Service, name)
+	}
 }
 
 // Delete removes the session for a credential reference, reporting whether
@@ -164,7 +277,17 @@ func (s Store) Save(ref string, value Session) error {
 // nothing this store can see reveals it. See
 // docs/adr/0010-best-effort-revocation-on-session-end.md.
 func (s Store) Delete(ref string) (bool, error) {
-	err := keyring.Delete(Service, ref)
+	// The side entries go first and unconditionally: whether a session was
+	// ended is the session entry's answer, and a side entry left behind
+	// would be a token on the machine that nothing can reach any more.
+	name := s.EntryName(ref)
+	for _, suffix := range []string{accessTokenSuffix, idTokenSuffix} {
+		if err := keyring.Delete(Service, name+suffix); err != nil && !errors.Is(err, keyring.ErrNotFound) {
+			return false, keyringUnavailable()
+		}
+	}
+	retireLegacyEntry(ref)
+	err := keyring.Delete(Service, name)
 	switch {
 	case err == nil:
 		return true, nil

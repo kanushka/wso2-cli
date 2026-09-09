@@ -80,7 +80,7 @@ func declaredTree(ctx context.Context, namespace, versionDir, executableName str
 	// invocation. This runs a binary that was downloaded moments ago, so the
 	// ambient environment — every WSO2_ variable, every credential a CI runner
 	// exports — is precisely what it must not inherit.
-	command.Env = append(modules.SanitizedEnvironment(), module.CommandTreeEnv+"="+answer)
+	command.Env = append(modules.SanitizedEnvironment(namespace), module.CommandTreeEnv+"="+answer)
 	command.WaitDelay = time.Second
 	if err := command.Run(); err != nil {
 		return commandtree.Tree{}, nil

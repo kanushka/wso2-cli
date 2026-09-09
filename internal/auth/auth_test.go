@@ -141,6 +141,29 @@ func TestAnExcessiveScopeIsDenied(t *testing.T) {
 	}
 }
 
+func TestAScopeTheIdentityRecordsForTheProductCountsAsDeclared(t *testing.T) {
+	// The product entry is the user's own declaration for this namespace: a
+	// module calling the user's API through the product cannot know that
+	// API's permissions in advance, and the user recorded them here for it.
+	consenting := broker(t)
+	consenting.Selection.Identity.Products = map[string]contexts.Product{
+		"reference": {Endpoint: "https://gateway.example", Scopes: []string{"orders:read"}},
+	}
+	if _, err := consenting.Acquire(auth.Request{Audience: audience, Scopes: []string{readScope, "orders:read"}}); err != nil {
+		t.Fatalf("a scope the product entry records was refused: %v", err)
+	}
+
+	// Another namespace's entry is not consent for this module.
+	other := broker(t)
+	other.Selection.Identity.Products = map[string]contexts.Product{
+		"apim": {Endpoint: "https://gateway.example", Scopes: []string{"orders:read"}},
+	}
+	refusal := denied(t, other, auth.Request{Audience: audience, Scopes: []string{"orders:read"}})
+	if refusal.Problem.Code != "auth.scope_not_declared" {
+		t.Errorf("code = %q, want auth.scope_not_declared", refusal.Problem.Code)
+	}
+}
+
 func TestARequestWithoutAnAudienceIsDenied(t *testing.T) {
 	refusal := denied(t, broker(t), auth.Request{Scopes: []string{readScope}})
 

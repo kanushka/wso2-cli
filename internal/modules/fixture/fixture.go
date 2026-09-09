@@ -64,6 +64,9 @@ type Module struct {
 	// capabilities.
 	AuthAudiences []string
 	AuthScopes    []string
+	// Product is the product descriptor the receipt carries, for tests of
+	// wso2 <namespace> connect. nil installs a module that declares none.
+	Product *modules.ProductDescriptor
 	// ExecutablePathOverride replaces the receipt's executable path without
 	// changing where the executable is written. Tests use it to prove that a
 	// receipt cannot redirect execution outside its version directory.
@@ -121,6 +124,7 @@ func Install(storeRoot string, module Module) (modules.Receipt, error) {
 		Capabilities: modules.Capabilities{
 			AuthAudiences: module.AuthAudiences,
 			AuthScopes:    module.AuthScopes,
+			Product:       module.Product,
 		},
 		ExecutableSHA256: modules.BytesDigest(contents),
 		CommandTree:      module.CommandTree,

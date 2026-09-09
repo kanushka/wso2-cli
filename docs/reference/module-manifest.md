@@ -5,7 +5,7 @@
 [module catalog](module-catalog.md),
 [release artifacts](release-artifacts.md),
 [troubleshooting a module](../guides/troubleshooting-modules.md)
-**Last reviewed:** 2026-08-30
+**Last reviewed:** 2026-09-07
 
 `module.json` is what a product module declares about itself. It sits at
 `modules/<namespace>/module.json`, `make new-module` writes it, and a module
@@ -26,7 +26,15 @@ one means and what refuses when it is wrong.
   },
   "capabilities": {
     "authAudiences": ["api.example.com"],
-    "authScopes": ["api:read"]
+    "authScopes": ["api:read"],
+    "product": {
+      "provider": "thunder",
+      "clientId": "wso2-cli",
+      "audience": "resource",
+      "defaultAudience": "https://localhost:8090/mcp",
+      "scopes": ["system"],
+      "machine": ["inline"]
+    }
   }
 }
 ```
@@ -111,14 +119,16 @@ shells can launch the module.
 
 ## `capabilities`
 
-The maximum access the module may ever request. Both members are optional and
-absent when empty.
+What the module needs of the shell's authentication, stated before the module
+runs. All three members are optional and absent when empty.
 
 - `authAudiences` are the audiences a handler may name.
 - `authScopes` are the scopes it may ask for.
+- `product` is the product descriptor `wso2 <namespace> connect` writes a
+  product record from; see below.
 
-These are a ceiling, not a request. A newly scaffolded module carries empty
-lists because it asks the shell for nothing yet.
+`authAudiences` and `authScopes` are a ceiling, not a request. A newly
+scaffolded module carries empty lists because it asks the shell for nothing yet.
 
 Installation records them in the receipt, and the broker intersects every
 runtime request with what the receipt authorized. So an audience a handler
@@ -140,6 +150,67 @@ document, and the shell proves the issued token is bound to it.
 This is not a style preference. The deployments the shell supports each bind a
 token's audience differently, so a module that compiled one deployment's value in
 would be installable only against the single tenant it was built for.
+
+A scope a handler asks for must be declared here or recorded on the identity's
+product entry for the namespace, and the entry's scopes are the ceiling either
+way. A request naming no scopes asks for exactly the entry's recorded scopes,
+so a module ordinarily declares here every scope its commands can ever need and
+its handlers then name none.
+
+## `capabilities.product`
+
+The **product descriptor**: what the module declares about reaching its
+product, so that `wso2 <namespace> connect <url>` can write the identity's
+product record from the URL alone. It travels with the other capabilities
+through the catalog into the receipt, and the shell reads it from the receipt
+before the module is launched; the module never sees `connect`. Everything in
+it is public configuration, and it names no credential.
+
+```json
+"product": {
+  "provider": "thunder",
+  "issuerPath": "",
+  "clientId": "wso2-cli",
+  "audience": "resource",
+  "defaultAudience": "https://localhost:8090/mcp",
+  "scopes": ["system"],
+  "grant": "",
+  "machine": ["inline"]
+}
+```
+
+| Field | Meaning | Refused when |
+| --- | --- | --- |
+| `provider` | The identity provider this product *is*, when a login can run against it: `asgardeo`, `identity-server`, or `thunder`. Empty for a product that is not a login provider. | It names a provider this shell does not read. |
+| `issuerPath` | Appended to the connect URL to name the issuer; `/oauth2/token` for API Manager. Empty when the URL is the issuer. | It does not start with `/`. |
+| `clientId` | The public client the shell presents at the issuer, when the product's bootstrap registers a fixed one. Empty when the deployment assigns one and `connect` must be told it with `--client-id`. | Never; it is optional. |
+| `audience` | How the deployment binds a token's audience: `resource`, a resource-server URI sent as an RFC 8707 resource indicator (ThunderID), or `client`, the client id the shell presents (API Manager, Asgardeo). | It is neither. |
+| `defaultAudience` | The resource-server URI a `resource` audience defaults to, when the deployment seeds one. `connect --audience` overrides it, and is required when it is empty. | Never; it is optional. |
+| `scopes` | The scopes the product's commands need. `connect` records them on the product entry, and they become the ceiling for every request. | It is empty. |
+| `grant` | How the product is reached when it is not the login provider: `federated` (a public client at the product's own issuer, through the same browser sign-on) or `jwt-bearer`. Empty for a product only its own provider serves. | It names a grant this shell does not implement. |
+| `machine` | The strategies a client-credentials identity may use: `inline` (the identity's own machine client, minted per product) and/or `credential` (a credential of the product's own, given to `connect` as variable names). | It names a strategy this shell does not implement. |
+
+The refusals above are made when the receipt is read, as `modules.receipt_malformed`,
+naming the field. A manifest carrying them builds and tests clean, so read the
+table before tagging.
+
+Two shapes occur. A product that is itself the login provider declares
+`provider`, so `wso2 <namespace> connect <url>` creates the identity, the
+context, and pins the login product. A product reached through a login
+provider declares `issuerPath`, `audience`, `grant: federated` and its
+`machine` strategies, so `wso2 <namespace> connect <url> --client-id <id>`
+attaches it to the identity already logged in, and a pipeline hands it a
+credential of the product's own.
+
+### When not to declare one
+
+Declare a descriptor only when the product's issuer can be named from the
+product's URL. A product whose issuer has to be discovered from the product,
+Agent Manager's bundled ThunderID at a host of its own, found through RFC 9728
+protected-resource metadata, cannot be described here today, and a module for
+it declares none. The shell then refuses `wso2 <namespace> connect` with
+`shell.connect_unsupported`, naming `wso2 identity add-product`, and the module's
+`status` should name that command too.
 
 ## What is deliberately absent
 

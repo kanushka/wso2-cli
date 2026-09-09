@@ -33,6 +33,44 @@ import (
 	"github.com/wso2/wso2-cli/sdk/protocol"
 )
 
+// productGrantKind names the grant a product is derived by, empty when the
+// identity's own session answers for it. It is a scheme name, never a secret.
+func productGrantKind(identity contexts.Identity, namespace string) string {
+	if grant := identity.Products[namespace].Grant; grant != nil {
+		return grant.Kind
+	}
+	return ""
+}
+
+// productGrantIssuer names the issuer a product's assertion is presented to,
+// empty for a directly served product. The issuer URL is public.
+func productGrantIssuer(identity contexts.Identity, namespace string) string {
+	if grant := identity.Products[namespace].Grant; grant != nil {
+		return grant.Issuer
+	}
+	return ""
+}
+
+// productStrategy names how the named product is reached under the selected
+// identity, empty when the identity records no such product yet. It is a
+// scheme name, never a secret.
+func productStrategy(identity contexts.Identity, namespace string) string {
+	if access, recorded := identity.Access(namespace); recorded {
+		return access.Strategy
+	}
+	return ""
+}
+
+// gatewayEndpoint is where the product's gateway is, when the identity
+// records one, and empty otherwise. A location, never a permission: the
+// module asks the broker for the gateway record before calling it.
+func gatewayEndpoint(identity contexts.Identity, namespace string) string {
+	if gateway := identity.Products[namespace].Gateway; gateway != nil {
+		return gateway.Endpoint
+	}
+	return ""
+}
+
 // invokeModule runs one product command in the resolved module and renders its
 // outcome.
 //
@@ -41,7 +79,7 @@ import (
 // broker binds access to, launches the module, renders the result, attributes
 // the module's diagnostics, and returns a typed problem for the exit class. The
 // module contributes semantics only.
-func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []string) error {
+func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []string, noInput bool) error {
 	// The tree comes from the receipt the resolver already verified, and from
 	// nowhere else. See internal/parsetree.
 	declared := parsetree.FromReceipt(resolved.Receipt)
@@ -108,7 +146,25 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 		"grant_kind", selection.Identity.Auth.Kind,
 		"declared_audiences", strings.Join(resolved.Receipt.Capabilities.AuthAudiences, " "),
 		"declared_scopes", strings.Join(resolved.Receipt.Capabilities.AuthScopes, " "),
-		"narrowing", selection.Identity.Auth.Derivation())
+		"narrowing", selection.Identity.Auth.Derivation(),
+		"grant_kind", productGrantKind(selection.Identity, namespace),
+		"grant_issuer", productGrantIssuer(selection.Identity, namespace),
+		"strategy", productStrategy(selection.Identity, namespace))
+
+	// The broker is created per invocation and never leaves the shell.
+	// The module receipt is its ceiling and the context is its source of
+	// organization and credential; the module influences neither. Its
+	// EstablishSession is bound here rather than left nil, so a command whose
+	// product has no session of its own yet acquires one instead of being
+	// refused outright.
+	broker := &auth.Broker{
+		Namespace:    namespace,
+		Capabilities: resolved.Receipt.Capabilities,
+		Selection:    selection,
+		InvocationID: invocationID,
+		StateRoot:    root,
+	}
+	broker.EstablishSession = s.sessionEstablisher(selection, namespace, noInput)
 
 	launcher := rpc.Launcher{
 		Resolved: resolved,
@@ -117,16 +173,16 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 			Platform: version.Platform(),
 		},
 		InvocationID: invocationID,
-		// The broker is created per invocation and never leaves the shell.
-		// The module receipt is its ceiling and the context is its source of
-		// organization and credential; the module influences neither.
-		Broker: &auth.Broker{
-			Namespace:    namespace,
-			Capabilities: resolved.Receipt.Capabilities,
-			Selection:    selection,
-			InvocationID: invocationID,
-			StateRoot:    root,
-		},
+		Broker:       broker,
+		// The variables the shell reads its own credentials from, whatever
+		// their names, never reach the module.
+		WithheldEnvironment: credentialVariables(selection.Identity),
+	}
+	// The module is told that nothing may prompt through the one variable
+	// it already reads, whichever of the flag and the variable asked, so a
+	// module needs no second spelling of the shell's flag.
+	if s.nonInteractiveControl(noInput) != "" {
+		launcher.Environment = []string{NoInputEnvVar + "=1"}
 	}
 	outcome, invokeErr := launcher.Invoke(context.Background(), rpc.Invocation{
 		Namespace:  namespace,
@@ -134,9 +190,10 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 		Arguments:  arguments,
 		OutputMode: contractOutputMode(mode),
 		Context: rpc.InvocationContext{
-			Name:           selection.Context.Name,
-			OrganizationID: selection.Context.Organization,
-			Endpoint:       selection.Identity.Products[namespace].Endpoint,
+			Name:            selection.Context.Name,
+			OrganizationID:  selection.Context.Organization,
+			Endpoint:        selection.Identity.Products[namespace].Endpoint,
+			GatewayEndpoint: gatewayEndpoint(selection.Identity, namespace),
 		},
 		Interactive: false,
 	})
@@ -152,6 +209,36 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 		return *outcome.Problem
 	}
 	return output.Result(s.Streams.Out, mode, outcome.Result)
+}
+
+// sessionEstablisher is what the broker calls when the product this
+// invocation serves has no session of its own yet, or when the issuer will
+// not renew the one it has: the login flow for that one product, announced
+// first, and refused outright when nothing may open a browser.
+//
+// The refusal it returns names the control and nothing else. The broker calls
+// this hook for two states that read very differently to a user — no session
+// at all, and a session that cannot serve the request — and this side of the
+// boundary cannot tell them apart: it is handed the product to authorize, not
+// what was wrong with what is already stored. Writing the message here made
+// every refusal the first one, which is how a product with a live session came
+// to be told it had none. The broker knows which state it asked about, so it
+// states it; auth.BrowserUnavailable carries the one fact only the shell has.
+func (s Shell) sessionEstablisher(selection contexts.Selection, namespace string, noInput bool) func(contexts.ProductAccess) error {
+	return func(access contexts.ProductAccess) error {
+		if control := s.nonInteractiveControl(noInput); control != "" {
+			return auth.BrowserUnavailable{Control: control}
+		}
+		// Named by the access's own key, so a gateway record is announced
+		// as apim/gateway rather than as the product whose session exists.
+		if _, err := fmt.Fprintf(s.Streams.Err,
+			"The %q product needs to be authorized. Opening the browser to authorize it at %s.\n",
+			access.Namespace, access.Issuer); err != nil {
+			return err
+		}
+		_, err := s.establishProduct(selection, access)
+		return err
+	}
 }
 
 // selection resolves the context this invocation runs against: the --context
@@ -285,4 +372,24 @@ func unknownOutputMode(namespace, value string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "shell.unknown_output_mode",
 		fmt.Sprintf("%q is not an output mode this shell renders", value)).
 		WithRecovery(fmt.Sprintf("Run wso2 %s --output %s.", namespace, strings.Join(supported, " or --output ")))
+}
+
+// credentialVariables names every environment variable the identity reads a
+// credential from: its own client secret, and each product's client id and
+// secret. Names only, never values.
+func credentialVariables(identity contexts.Identity) []string {
+	var names []string
+	for _, name := range []string{identity.Auth.ClientSecretVariable, identity.Auth.CredentialVariable} {
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	for _, product := range identity.Products {
+		for _, name := range []string{product.ClientIDVariable, product.ClientSecretVariable} {
+			if name != "" {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
 }

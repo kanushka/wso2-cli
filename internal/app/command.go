@@ -307,23 +307,50 @@ func (s Shell) enableDiagnostics(command *cobra.Command, mode output.Mode) {
 
 // takeVerbose removes every spelling of --verbose from an argument list and
 // reports whether the list asked for diagnostics.
+func takeVerbose(args []string) (remaining []string, asked bool, err error) {
+	return takeBoolFlag(args, verboseFlag)
+}
+
+// takeNoInput removes every spelling of --no-input from a product command
+// line and reports whether it asked that nothing prompt. It is taken here,
+// like --verbose, because a boolean the module never declared cannot be
+// stepped over by the command router, which assumes an unknown flag takes a
+// value; the shell owns it wherever it is written, and the module is told
+// through WSO2_NO_INPUT instead.
+func takeNoInput(args []string) (remaining []string, asked bool, err error) {
+	return takeBoolFlag(args, noInputFlag)
+}
+
+// takeBoolFlag removes every spelling of a shell-owned boolean flag from an
+// argument list and reports whether the list asked for it.
 //
 // The last occurrence wins, because that is what pflag does with the same
 // argument list before a command name. A spelling that means one thing written
 // before the command and another written after it would be a worse answer than
 // refusing the flag was: the user would be reading a log they had switched off.
-func takeVerbose(args []string) (remaining []string, asked bool, err error) {
+//
+// "Wherever it is written" ends at the first bare "--", which is the same place
+// the shell's claim on --output and --context ends (parseProductArgs). After the
+// separator there are no flags at all, only words the module was handed, and a
+// scan that read one anyway did two things at once: it deleted an argument the
+// module was given — "invoke /path -- --no-input" reached the module as a bare
+// "--" — and switched the shell non-interactive on a word that was addressed to
+// the module. The separator is left in place and forwarded, as it is by every
+// other reader of a product line, because it is the module's own argument too.
+func takeBoolFlag(args []string, flag string) (remaining []string, asked bool, err error) {
 	remaining = make([]string, 0, len(args))
-	for _, argument := range args {
+	for index, argument := range args {
 		switch {
-		case argument == "--"+verboseFlag:
+		case argument == "--":
+			return append(remaining, args[index:]...), asked, nil
+		case argument == "--"+flag:
 			asked = true
-		case strings.HasPrefix(argument, "--"+verboseFlag+"="):
-			value := strings.TrimPrefix(argument, "--"+verboseFlag+"=")
+		case strings.HasPrefix(argument, "--"+flag+"="):
+			value := strings.TrimPrefix(argument, "--"+flag+"=")
 			enabled, parseErr := strconv.ParseBool(value)
 			if parseErr != nil {
 				return nil, false, usageProblem(fmt.Errorf("invalid argument %q for %q flag: %w",
-					value, "--"+verboseFlag, parseErr))
+					value, "--"+flag, parseErr))
 			}
 			asked = enabled
 		default:
@@ -332,6 +359,9 @@ func takeVerbose(args []string) (remaining []string, asked bool, err error) {
 	}
 	return remaining, asked, nil
 }
+
+// noInputFlag is the spelling of the shell's non-interactive flag.
+const noInputFlag = "no-input"
 
 // diagnosticMode reports the rendering the diagnostics must follow.
 //
@@ -609,11 +639,16 @@ func (s Shell) loginCommand() *cobra.Command {
 		"Present this registered OAuth application. Required with --url.")
 	command.Flags().BoolVar(&flags.noInput, "no-input", false,
 		"Refuse rather than prompt, open a browser, or wait for a human.")
+	command.Flags().StringVar(&flags.only, "only", "",
+		"Authorize only the named product.")
+	command.Flags().BoolVar(&flags.noProducts, "no-products", false,
+		"Authorize only the login session, not the products.")
 	declareContextFlag(command.Flags())
 	return command
 }
 
 func (s Shell) logoutCommand() *cobra.Command {
+	var keepBrowser bool
 	command := &cobra.Command{
 		Use:                   "logout",
 		Short:                 "End the selected context's session.",
@@ -632,9 +667,11 @@ func (s Shell) logoutCommand() *cobra.Command {
 			if flag := shellFlag(command, contextFlag); flag != nil {
 				contextName = flag.Value.String()
 			}
-			return s.logout(logoutFlags{contextName: contextName, mode: mode})
+			return s.logout(logoutFlags{contextName: contextName, mode: mode, keepBrowser: keepBrowser})
 		},
 	}
+	command.Flags().BoolVar(&keepBrowser, "keep-browser-session", false,
+		"Leave the identity providers' browser sessions in place; end only the shell's own sessions.")
 	declareContextFlag(command.Flags())
 	declareOutputFlag(command.Flags())
 	return command

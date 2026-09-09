@@ -343,7 +343,7 @@ func TestSessionSourceRefusesWhatNoSessionCanAnswer(t *testing.T) {
 		"no session was ever stored": {
 			prepare: func(t *testing.T, d browserDeployment) {
 				t.Helper()
-				if err := keyring.Delete(session.Service, sessionRef); err != nil {
+				if err := keyring.Delete(session.Service, session.Store{StateRoot: d.stateRoot}.EntryName(sessionRef)); err != nil {
 					t.Fatalf("clearing the stored session: %v", err)
 				}
 			},
@@ -389,7 +389,7 @@ func TestSessionSourceRefusesWhatNoSessionCanAnswer(t *testing.T) {
 
 func TestALoginRequiredRefusalNamesTheCommandThatFixesIt(t *testing.T) {
 	deployment := seedBrowserSession(t, fakeissuer.Options{RefreshScopeMode: "honor"})
-	if err := keyring.Delete(session.Service, sessionRef); err != nil {
+	if err := keyring.Delete(session.Service, session.Store{StateRoot: deployment.stateRoot}.EntryName(sessionRef)); err != nil {
 		t.Fatalf("clearing the stored session: %v", err)
 	}
 

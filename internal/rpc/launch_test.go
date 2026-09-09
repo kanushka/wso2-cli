@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wso2/wso2-cli/internal/auth"
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/sdk/problem"
 	"github.com/wso2/wso2-cli/sdk/protocol/contractv1"
@@ -380,5 +381,65 @@ func TestASlowButConformingModuleStillSucceeds(t *testing.T) {
 	}
 	if outcome.Result.Schema != "reference.status/v1" {
 		t.Errorf("result schema is %q, want %q", outcome.Result.Schema, "reference.status/v1")
+	}
+}
+
+// slowBroker answers every request with a grant after a fixed delay, standing
+// in for a broker that opens a browser and waits for the person at it.
+type slowBroker struct {
+	delay time.Duration
+}
+
+func (b slowBroker) Acquire(auth.Request) (auth.Grant, error) {
+	time.Sleep(b.delay)
+	return auth.Grant{Token: "fixture-token", ExpiresAt: grantedUntil}, nil
+}
+
+func TestTheDeadlineDoesNotRunWhileTheBrokerIsConsulted(t *testing.T) {
+	// A module that asks for access and then answers promptly must not be
+	// terminated because the person the broker sent to a browser took longer
+	// than the module's own deadline: that time is the shell's, not the
+	// module's.
+	// The budgets are generous because starting the module is the module's
+	// time too, and a freshly written executable can take a few hundred
+	// milliseconds to start; what matters is that the broker's delay alone
+	// exceeds the deadline.
+	launcher := install(t, script{stdout: moduleStream(t, conformingHello(), accessRequest(), statusResult()).Bytes()})
+	launcher.Broker = slowBroker{delay: 1500 * time.Millisecond}
+
+	outcome, err := launcher.Invoke(t.Context(), Invocation{
+		Namespace: testNamespace, Command: []string{"status"}, Timeout: time.Second,
+	})
+
+	if err != nil {
+		t.Fatalf("a module whose broker was slow to answer was refused: %v", err)
+	}
+	if outcome.Result.Schema != "reference.status/v1" {
+		t.Errorf("result schema is %q, want %q", outcome.Result.Schema, "reference.status/v1")
+	}
+}
+
+func TestAModuleThatStallsAfterTheBrokerAnsweredStillTimesOut(t *testing.T) {
+	// Holding the deadline for the broker must not hand a module unbounded
+	// time of its own: once the broker has answered, what remains of the
+	// deadline is what the module gets.
+	launcher := install(t, script{
+		stdout: moduleStream(t, conformingHello(), accessRequest()).Bytes(),
+		linger: "forever",
+	})
+	launcher.Broker = slowBroker{delay: 1500 * time.Millisecond}
+
+	started := time.Now()
+	_, err := launcher.Invoke(t.Context(), Invocation{
+		Namespace: testNamespace, Command: []string{"status"}, Timeout: time.Second,
+	})
+	elapsed := time.Since(started)
+
+	if code := problemCode(t, err); code != "rpc.timed_out" {
+		t.Errorf("problem code is %q, want %q", code, "rpc.timed_out")
+	}
+	if elapsed < 2500*time.Millisecond {
+		t.Errorf("the module was ended after %s, before the broker's %s and its own %s had both run",
+			elapsed, 1500*time.Millisecond, time.Second)
 	}
 }
