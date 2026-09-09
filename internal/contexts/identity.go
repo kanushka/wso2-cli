@@ -354,10 +354,13 @@ type Grant struct {
 	// Kind names the grant. Only GrantJWTBearer is read.
 	Kind string `json:"kind"`
 	// Issuer is the product's own OpenID issuer, whose token endpoint takes
-	// the assertion.
-	Issuer string `json:"issuer"`
+	// the assertion. Omitted for an exchange grant, which runs at the
+	// identity's own issuer and would otherwise write a member that is not
+	// unset but meaningless.
+	Issuer string `json:"issuer,omitempty"`
 	// ClientID is the public client the shell presents at that issuer.
-	ClientID string `json:"clientId"`
+	// Omitted for an exchange grant, for the same reason as Issuer.
+	ClientID string `json:"clientId,omitempty"`
 	// Scopes are what the identity's issuer is asked for when the session is
 	// refreshed for the assertion: the scopes that make the identity token
 	// carry the claims the product maps. openid is always among them.
