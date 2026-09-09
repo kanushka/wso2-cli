@@ -339,8 +339,8 @@ func TestModuleUpdateAllSkipsThePromptWhenNothingIsInstalled(t *testing.T) {
 	if code := shell.Run([]string{"module", "update", "--all"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	if !strings.Contains(out.String(), "No modules are installed.") {
-		t.Errorf("stdout = %q, want the no-modules report", out.String())
+	if !strings.Contains(out.String(), "No products are installed.") {
+		t.Errorf("stdout = %q, want the no-products report", out.String())
 	}
 }
 
@@ -377,8 +377,8 @@ func TestModuleUpdateAllYesSkipsThePrompt(t *testing.T) {
 	if code := shell.Run([]string{"module", "update", "--all", "--yes"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	if !strings.Contains(out.String(), "No modules are installed.") {
-		t.Errorf("stdout = %q, want the no-modules report", out.String())
+	if !strings.Contains(out.String(), "No products are installed.") {
+		t.Errorf("stdout = %q, want the no-products report", out.String())
 	}
 }
 
@@ -751,5 +751,21 @@ func TestTheModuleAliasIsMarkedDeprecated(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "wso2 product") {
 		t.Fatalf("the deprecated alias does not name the command that replaced it:\n%s", errOut)
+	}
+}
+
+func TestProductListReportsProductsNotModules(t *testing.T) {
+	// "Users install a product; contributors build a module; each word keeps
+	// one job." A table headed MODULE says the contributor's word to the user.
+	shell, out, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+	if code := shell.Run([]string{"product", "list"}); code != exit.OK {
+		t.Fatalf("wso2 product list exited %d: %s", code, errOut)
+	}
+	if strings.Contains(out.String(), "MODULE") {
+		t.Fatalf("wso2 product list still reports a module column:\n%s", out)
+	}
+	if !strings.Contains(out.String(), "PRODUCT") {
+		t.Fatalf("wso2 product list does not report a product column:\n%s", out)
 	}
 }
