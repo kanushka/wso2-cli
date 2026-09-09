@@ -65,7 +65,7 @@ const moduleRecovery = "Run wso2 module available to see what can be installed, 
 func (s Shell) productCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:                   "product <subcommand>",
-		Short:                 "Install, list, and update products from the product catalog.",
+		Short:                 "Install, list, and update products from the catalog.",
 		Long:                  moduleRecovery,
 		DisableFlagsInUseLine: true,
 		// A RunE is declared for the reason org's and identity's are: Cobra
