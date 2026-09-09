@@ -57,7 +57,7 @@ func healthyShellAgainst(t *testing.T, issuer string) (app.Shell, *bytes.Buffer,
 	shell, out, errOut := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
 	seeded := identityOnlyDocument()
-	seeded.Identities[0].Auth.Issuer = issuer
+	seeded.Accounts[0].Auth.Issuer = issuer
 	seeded.DefaultContext = "acme"
 	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud"}}
 	installLogin(t, shell, seeded)

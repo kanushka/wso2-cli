@@ -327,10 +327,10 @@ func (c Config) Document() contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: ContextName,
-		Identities: []contexts.Identity{{
+		Accounts: []contexts.Account{{
 			Name: IdentityName,
 			Type: c.IdentityType,
-			Auth: contexts.IdentityAuth{
+			Auth: contexts.AccountAuth{
 				Kind:          kind,
 				Issuer:        c.Issuer,
 				ClientID:      c.ClientID,
@@ -374,10 +374,10 @@ func (c Config) CIDocument() contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: CIContextName,
-		Identities: []contexts.Identity{{
+		Accounts: []contexts.Account{{
 			Name: CIIdentityName,
 			Type: c.IdentityType,
-			Auth: contexts.IdentityAuth{
+			Auth: contexts.AccountAuth{
 				Kind:     contexts.KindClientCredentials,
 				Issuer:   c.Issuer,
 				ClientID: c.CIClientID,

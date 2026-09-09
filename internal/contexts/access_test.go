@@ -23,10 +23,10 @@ import (
 	"github.com/wso2/wso2-cli/internal/contexts"
 )
 
-func thunderIdentity() contexts.Identity {
-	return contexts.Identity{
+func thunderIdentity() contexts.Account {
+	return contexts.Account{
 		Name: "thunder", Type: "onprem",
-		Auth: contexts.IdentityAuth{
+		Auth: contexts.AccountAuth{
 			Kind: contexts.KindOAuthBrowser, Issuer: "http://localhost:8492",
 			ClientID: "wso2-cli", CredentialRef: "thunder", Provider: contexts.ProviderThunder,
 		},
@@ -91,8 +91,8 @@ func TestAJWTBearerGrantIsDerivedFromItsOwnAssertionSession(t *testing.T) {
 }
 
 func TestAProductSharingTheLoginScopeSetIsDirect(t *testing.T) {
-	identity := contexts.Identity{Name: "is", Type: "onprem",
-		Auth: contexts.IdentityAuth{Kind: contexts.KindOAuthBrowser, Issuer: "https://is.example",
+	identity := contexts.Account{Name: "is", Type: "onprem",
+		Auth: contexts.AccountAuth{Kind: contexts.KindOAuthBrowser, Issuer: "https://is.example",
 			ClientID: "wso2-cli", CredentialRef: "is"},
 		Products: map[string]contexts.Product{
 			"a": {Endpoint: "https://a.example", Audience: "a", Scopes: []string{"x", "y"}},
@@ -157,7 +157,7 @@ func TestAProductCredentialIsBothVariablesOrNeither(t *testing.T) {
 	identity.Auth.ClientSecretVariable = "WSO2_CI_SECRET"
 	identity.Products["apim"] = contexts.Product{Endpoint: "https://localhost:9443", Audience: "https://localhost:9443/apim",
 		ClientIDVariable: "WSO2_APIM_CLIENT_ID"}
-	document := contexts.Document{SchemaVersion: contexts.SchemaVersion, Identities: []contexts.Identity{identity},
+	document := contexts.Document{SchemaVersion: contexts.SchemaVersion, Accounts: []contexts.Account{identity},
 		Contexts: []contexts.Context{{Name: "ci", Identity: "thunder"}}, DefaultContext: "ci"}
 	if _, err := document.Encode(); err == nil {
 		t.Fatal("a product naming only a client id variable was accepted")
@@ -173,7 +173,7 @@ func TestAProductCredentialIsBothVariablesOrNeither(t *testing.T) {
 	// Auth is a plain struct, not a map: the document copied it by value when
 	// built above, so the mutation above has to be re-applied to the document
 	// itself, not just to the local identity variable, to be seen.
-	document.Identities = []contexts.Identity{identity}
+	document.Accounts = []contexts.Account{identity}
 	if _, err := document.Encode(); err == nil {
 		t.Fatal("a product credential on a browser identity was accepted")
 	}
@@ -226,8 +226,8 @@ func TestAPinNamingAnUnreachableProductIsMalformed(t *testing.T) {
 		identity := thunderIdentity()
 		identity.LoginProduct = pin
 		document := contexts.Document{SchemaVersion: contexts.SchemaVersion, DefaultContext: "thunder",
-			Identities: []contexts.Identity{identity},
-			Contexts:   []contexts.Context{{Name: "thunder", Identity: "thunder"}}}
+			Accounts: []contexts.Account{identity},
+			Contexts: []contexts.Context{{Name: "thunder", Identity: "thunder"}}}
 		root := t.TempDir()
 		if err := contexts.Save(root, document); err == nil {
 			t.Errorf("a pin naming %q was written", pin)
@@ -265,8 +265,8 @@ func TestALoginRunsNoAuthorizationForAnExchangedProduct(t *testing.T) {
 	// An exchanged product is reached by exchanging the login session, so a
 	// login that authorized one would be opening a browser for a product that
 	// never needed it — which is the whole of what the strategy buys.
-	identity := contexts.Identity{Name: "thunder", Type: "onprem",
-		Auth: contexts.IdentityAuth{Kind: contexts.KindOAuthBrowser, Issuer: "http://localhost:8501",
+	identity := contexts.Account{Name: "thunder", Type: "onprem",
+		Auth: contexts.AccountAuth{Kind: contexts.KindOAuthBrowser, Issuer: "http://localhost:8501",
 			ClientID: "wso2-cli", CredentialRef: "thunder", Provider: contexts.ProviderThunder},
 		Products: map[string]contexts.Product{
 			"thunder": {Endpoint: "http://localhost:8501", Audience: "https://localhost:8090/mcp",

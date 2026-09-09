@@ -329,9 +329,9 @@ func TestOrgUseIsRefusedOnAProviderWithoutOrganizationSwitch(t *testing.T) {
 		t.Run(provider, func(t *testing.T) {
 			shell, _, errOut := newShell(t)
 			seeded := identityOnlyDocument()
-			seeded.Identities[0].Auth.Provider = provider
+			seeded.Accounts[0].Auth.Provider = provider
 			if provider == contexts.ProviderThunder {
-				seeded.Identities[0].Products = map[string]contexts.Product{"iam": {
+				seeded.Accounts[0].Products = map[string]contexts.Product{"iam": {
 					Endpoint: "http://localhost:8492", Audience: "https://localhost:8090/mcp", Scopes: []string{"system"}}}
 			}
 			seeded.DefaultContext = "acme"
@@ -365,9 +365,9 @@ func TestOrgUseClearsTheOrganizationOnAProviderWithoutOrganizationSwitch(t *test
 		t.Run(provider, func(t *testing.T) {
 			shell, out, errOut := newShell(t)
 			seeded := identityOnlyDocument()
-			seeded.Identities[0].Auth.Provider = provider
+			seeded.Accounts[0].Auth.Provider = provider
 			if provider == contexts.ProviderThunder {
-				seeded.Identities[0].Products = map[string]contexts.Product{"iam": {
+				seeded.Accounts[0].Products = map[string]contexts.Product{"iam": {
 					Endpoint: "http://localhost:8492", Audience: "https://localhost:8090/mcp", Scopes: []string{"system"}}}
 			}
 			seeded.DefaultContext = "acme"

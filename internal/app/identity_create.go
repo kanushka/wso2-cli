@@ -107,7 +107,7 @@ func (s Shell) identityCreate(command *cobra.Command, name string, flags identit
 			return document, contextExists(name)
 		}
 		document.SchemaVersion = contexts.SchemaVersion
-		document.Identities = append(document.Identities, identity)
+		document.Accounts = append(document.Accounts, identity)
 		document.Contexts = append(document.Contexts, contexts.Context{Name: name, Identity: name})
 		if document.DefaultContext == "" {
 			document.DefaultContext = name
@@ -137,50 +137,50 @@ func (s Shell) identityCreate(command *cobra.Command, name string, flags identit
 
 // plannedIdentity turns the flags into the identity the document will hold,
 // refusing anything the document would refuse, before the document is opened.
-func plannedIdentity(name string, flags identityCreateFlags) (contexts.Identity, error) {
+func plannedIdentity(name string, flags identityCreateFlags) (contexts.Account, error) {
 	if !contexts.ValidName(name) {
-		return contexts.Identity{}, problem.New(problem.CategoryUsage, "shell.invalid_argument",
+		return contexts.Account{}, problem.New(problem.CategoryUsage, "shell.invalid_argument",
 			fmt.Sprintf("%q cannot be used as an identity name", name)).
 			WithRecovery(fmt.Sprintf("An identity name is %s. %s", contexts.NameRule, identityCreateUsage))
 	}
 	if flags.issuer == "" {
-		return contexts.Identity{}, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
+		return contexts.Account{}, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
 			"wso2 identity create needs the issuer the identity authenticates against").
 			WithRecovery(identityCreateUsage)
 	}
 	if err := refuseNonIssuerURL(flags.issuer); err != nil {
-		return contexts.Identity{}, err
+		return contexts.Account{}, err
 	}
 	if flags.clientID == "" {
-		return contexts.Identity{}, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
+		return contexts.Account{}, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
 			"wso2 identity create needs the client id of the OAuth application the shell presents").
 			WithRecovery(identityCreateUsage)
 	}
 	if flags.provider != "" && !slices.Contains(contexts.Providers(), flags.provider) {
-		return contexts.Identity{}, problem.New(problem.CategoryUsage, "shell.invalid_argument",
+		return contexts.Account{}, problem.New(problem.CategoryUsage, "shell.invalid_argument",
 			fmt.Sprintf("%q is not an identity provider this shell knows", flags.provider)).
 			WithRecovery("Pass one of " + strings.Join(contexts.Providers(), ", ") +
 				", or omit --provider for any other OpenID provider.")
 	}
 	productFlagsGiven := flags.endpoint != "" || flags.audience != "" || len(flags.scopes) > 0
 	if flags.product == "" && productFlagsGiven {
-		return contexts.Identity{}, problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
+		return contexts.Account{}, problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
 			"--endpoint, --audience and --scope describe a product and need --product").
 			WithRecovery(identityCreateUsage)
 	}
 	if flags.product != "" && !contexts.ValidName(flags.product) {
-		return contexts.Identity{}, problem.New(problem.CategoryUsage, "shell.invalid_argument",
+		return contexts.Account{}, problem.New(problem.CategoryUsage, "shell.invalid_argument",
 			fmt.Sprintf("%q cannot be used as a product namespace", flags.product)).
 			WithRecovery(fmt.Sprintf("A product namespace is %s. %s", contexts.NameRule, identityCreateUsage))
 	}
 	if flags.product != "" && flags.endpoint == "" {
-		return contexts.Identity{}, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
+		return contexts.Account{}, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
 			"wso2 identity create needs the endpoint the product is served at").
 			WithRecovery(identityCreateUsage + " A self-hosted deployment publishes no " +
 				"catalogue of what it serves, so the endpoint can only come from you.")
 	}
 
-	auth := contexts.IdentityAuth{
+	auth := contexts.AccountAuth{
 		Kind:     contexts.KindOAuthBrowser,
 		Issuer:   flags.issuer,
 		ClientID: flags.clientID,
@@ -193,13 +193,13 @@ func plannedIdentity(name string, flags identityCreateFlags) (contexts.Identity,
 		auth.CredentialRef = name
 	}
 	if flags.product != "" && flags.audience == "" && auth.Derivation() == contexts.DerivationTokenResource {
-		return contexts.Identity{}, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
+		return contexts.Account{}, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
 			fmt.Sprintf("a %q identity binds its login to one protected resource, so the product needs --audience",
 				flags.provider)).
 			WithRecovery("Pass --audience with the resource server's identifier as the deployment registers it. " +
 				identityCreateUsage)
 	}
-	identity := contexts.Identity{Name: name, Type: contexts.IdentityTypeForIssuer(auth.Issuer), Auth: auth}
+	identity := contexts.Account{Name: name, Type: contexts.IdentityTypeForIssuer(auth.Issuer), Auth: auth}
 	if flags.product != "" {
 		identity.Products = map[string]contexts.Product{
 			flags.product: {Endpoint: flags.endpoint, Audience: flags.audience, Scopes: flags.scopes},
@@ -209,7 +209,7 @@ func plannedIdentity(name string, flags identityCreateFlags) (contexts.Identity,
 }
 
 // identityCreateNext is the one thing a user most likely runs after this.
-func identityCreateNext(name string, identity contexts.Identity) string {
+func identityCreateNext(name string, identity contexts.Account) string {
 	if identity.Auth.Kind == contexts.KindOAuthBrowser {
 		return fmt.Sprintf("Run wso2 login --context %s.", name)
 	}

@@ -90,7 +90,7 @@ func audienceRequired(namespace, usage string) problem.Problem {
 // gatewayPlan is what one connect --gateway will write: the identity it acts
 // on and the gateway record it adds to that identity's product.
 type gatewayPlan struct {
-	identity  contexts.Identity
+	identity  contexts.Account
 	namespace string
 	gateway   contexts.Gateway
 	// replaced reports that the product recorded a gateway before.
@@ -169,7 +169,7 @@ func gatewayExists(identity, namespace string) problem.Problem {
 // identityWithGateway is the identity as the plan leaves it: the gateway
 // record set on the product, every other record in place. It copies rather
 // than mutates, so the plan can be reported and applied from the same value.
-func (p gatewayPlan) identityWithGateway() contexts.Identity {
+func (p gatewayPlan) identityWithGateway() contexts.Account {
 	identity := p.identity
 	products := maps.Clone(identity.Products)
 	product := products[p.namespace]
@@ -183,10 +183,10 @@ func (p gatewayPlan) identityWithGateway() contexts.Identity {
 // apply writes the plan into the document.
 func (p gatewayPlan) apply(document contexts.Document) contexts.Document {
 	identity := p.identityWithGateway()
-	position := slices.IndexFunc(document.Identities, func(candidate contexts.Identity) bool {
+	position := slices.IndexFunc(document.Accounts, func(candidate contexts.Account) bool {
 		return candidate.Name == identity.Name
 	})
-	document.Identities[position] = identity
+	document.Accounts[position] = identity
 	return document
 }
 

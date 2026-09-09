@@ -36,10 +36,10 @@ func selfHostedDocument() contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: "idp-customer-example",
-		Identities: []contexts.Identity{{
+		Accounts: []contexts.Account{{
 			Name: "idp-customer-example",
 			Type: "onprem",
-			Auth: contexts.IdentityAuth{
+			Auth: contexts.AccountAuth{
 				Kind:          contexts.KindOAuthBrowser,
 				Issuer:        "https://idp.customer.example",
 				ClientID:      "wso2-cli",
@@ -53,15 +53,15 @@ func selfHostedDocument() contexts.Document {
 }
 
 // identityNamed reports the named identity, or fails the test.
-func identityNamed(t *testing.T, document contexts.Document, name string) contexts.Identity {
+func identityNamed(t *testing.T, document contexts.Document, name string) contexts.Account {
 	t.Helper()
-	for _, candidate := range document.Identities {
+	for _, candidate := range document.Accounts {
 		if candidate.Name == name {
 			return candidate
 		}
 	}
-	t.Fatalf("the document declares no identity named %q: %+v", name, document.Identities)
-	return contexts.Identity{}
+	t.Fatalf("the document declares no identity named %q: %+v", name, document.Accounts)
+	return contexts.Account{}
 }
 
 func TestAddProductRecordsAnEndpointAudienceAndScopes(t *testing.T) {
@@ -103,8 +103,8 @@ func TestAddProductCreatesNoIdentityAndNoContext(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d; stdout: %s stderr: %s", code, exit.OK, out, errOut)
 	}
 	document := loadDocument(t, shell)
-	if len(document.Identities) != 1 {
-		t.Errorf("the document holds %d identities, want the one login wrote", len(document.Identities))
+	if len(document.Accounts) != 1 {
+		t.Errorf("the document holds %d identities, want the one login wrote", len(document.Accounts))
 	}
 	if len(document.Contexts) != 1 {
 		t.Errorf("the document holds %d contexts, want the one login wrote", len(document.Contexts))
@@ -135,7 +135,7 @@ func TestAddProductIsRefusedForAnUnknownIdentity(t *testing.T) {
 func TestAddingANamespaceTheIdentityAlreadyCarriesIsRefused(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := selfHostedDocument()
-	seeded.Identities[0].Products = map[string]contexts.Product{
+	seeded.Accounts[0].Products = map[string]contexts.Product{
 		"api": {Endpoint: "https://api.customer.example", Scopes: []string{"api:read"}},
 	}
 	installLogin(t, shell, seeded)
@@ -163,7 +163,7 @@ func TestAddingANamespaceTheIdentityAlreadyCarriesIsRefused(t *testing.T) {
 func TestReplacingAnExistingNamespaceRequiresTheReplaceFlag(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := selfHostedDocument()
-	seeded.Identities[0].Products = map[string]contexts.Product{
+	seeded.Accounts[0].Products = map[string]contexts.Product{
 		"api": {Endpoint: "https://api.customer.example", Scopes: []string{"api:read"}},
 	}
 	installLogin(t, shell, seeded)
@@ -278,7 +278,7 @@ func TestAddProductRefusesAWrongArgumentCountInTheUsageClass(t *testing.T) {
 func TestIdentityListShowsWhatEachIdentityReaches(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := selfHostedDocument()
-	seeded.Identities[0].Products = map[string]contexts.Product{
+	seeded.Accounts[0].Products = map[string]contexts.Product{
 		"api": {
 			Endpoint: "https://api.customer.example",
 			Audience: "https://api.customer.example",
@@ -352,7 +352,7 @@ func TestIdentitySubcommandsRenderJSON(t *testing.T) {
 	t.Run("list", func(t *testing.T) {
 		shell, out, errOut := newShell(t)
 		seeded := selfHostedDocument()
-		seeded.Identities[0].Products = map[string]contexts.Product{
+		seeded.Accounts[0].Products = map[string]contexts.Product{
 			"api": {Endpoint: "https://api.customer.example", Scopes: []string{"api:read"}},
 		}
 		installLogin(t, shell, seeded)
@@ -427,7 +427,7 @@ func TestNoIdentitySubcommandOpensANetworkConnection(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			shell, _, _ := newShell(t)
 			seeded := selfHostedDocument()
-			seeded.Identities[0].Products = map[string]contexts.Product{
+			seeded.Accounts[0].Products = map[string]contexts.Product{
 				"api": {Endpoint: "https://api.customer.example"},
 			}
 			installLogin(t, shell, seeded)
@@ -443,8 +443,8 @@ func TestNoIdentitySubcommandOpensANetworkConnection(t *testing.T) {
 func TestASecondProductOnAResourceBoundIdentityIsRecorded(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := selfHostedDocument()
-	seeded.Identities[0].Auth.Narrowing = contexts.DerivationTokenResource
-	seeded.Identities[0].Products = map[string]contexts.Product{
+	seeded.Accounts[0].Auth.Narrowing = contexts.DerivationTokenResource
+	seeded.Accounts[0].Products = map[string]contexts.Product{
 		"api": {
 			Endpoint: "https://api.customer.example",
 			Audience: "https://api.customer.example",
@@ -492,7 +492,7 @@ func TestTheSelfHostedFirstRunPathRunsWithoutAnEditor(t *testing.T) {
 	}
 	// The name login assigned, read back rather than assumed: B.1's whole
 	// point is that login reports it and the next command takes it.
-	identity := loadDocument(t, shell).Identities[0].Name
+	identity := loadDocument(t, shell).Accounts[0].Name
 	if !strings.Contains(out.String(), "wso2 identity add-product") {
 		t.Errorf("login does not name the command that carries on from here:\n%s", out)
 	}

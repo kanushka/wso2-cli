@@ -66,11 +66,11 @@ func TestLoginCreatesAnIdentityAndAContextWhenNoneMatches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load after login: %v", err)
 	}
-	if len(document.Identities) != 1 || len(document.Contexts) != 1 {
+	if len(document.Accounts) != 1 || len(document.Contexts) != 1 {
 		t.Fatalf("login wrote %d identities and %d contexts, want one of each",
-			len(document.Identities), len(document.Contexts))
+			len(document.Accounts), len(document.Contexts))
 	}
-	identity := document.Identities[0]
+	identity := document.Accounts[0]
 	if identity.Name != "customer" {
 		t.Errorf("identity name = %q, want customer", identity.Name)
 	}
@@ -129,8 +129,8 @@ func TestWithoutTheContextFlagTheIdentityNameIsDerivedAndReported(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Load after login: %v", err)
 	}
-	if len(document.Identities) != 1 || document.Identities[0].Name != derived {
-		t.Fatalf("login wrote %+v, want one identity named %q", document.Identities, derived)
+	if len(document.Accounts) != 1 || document.Accounts[0].Name != derived {
+		t.Fatalf("login wrote %+v, want one identity named %q", document.Accounts, derived)
 	}
 	if len(document.Contexts) != 1 || document.Contexts[0].Name != derived {
 		t.Fatalf("login wrote %+v, want one context named %q", document.Contexts, derived)
@@ -192,9 +192,9 @@ func TestLoginReusesAnIdentityWhoseIssuerAndClientMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load after login: %v", err)
 	}
-	if len(document.Identities) != 1 || len(document.Contexts) != 1 {
+	if len(document.Accounts) != 1 || len(document.Contexts) != 1 {
 		t.Fatalf("two logins wrote %d identities and %d contexts, want one of each",
-			len(document.Identities), len(document.Contexts))
+			len(document.Accounts), len(document.Contexts))
 	}
 }
 
@@ -218,9 +218,9 @@ func TestLoginIsRefusedWhenAnIdentityOfThatNameDiffers(t *testing.T) {
 			installLogin(t, shell, contexts.Document{
 				SchemaVersion:  contexts.SchemaVersion,
 				DefaultContext: "customer",
-				Identities: []contexts.Identity{{
+				Accounts: []contexts.Account{{
 					Name: "customer", Type: "onprem",
-					Auth: contexts.IdentityAuth{
+					Auth: contexts.AccountAuth{
 						Kind:          contexts.KindOAuthBrowser,
 						Issuer:        "https://idp.customer.example",
 						ClientID:      "wso2-cli",
@@ -386,7 +386,7 @@ func TestLoginWithoutTheURLFlagStillLogsInToTheSelectedContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load after login: %v", err)
 	}
-	if len(document.Identities) != 1 || len(document.Contexts) != 1 {
+	if len(document.Accounts) != 1 || len(document.Contexts) != 1 {
 		t.Errorf("a login without --url changed the document: %+v", document)
 	}
 }

@@ -79,7 +79,7 @@ func TestWhoamiReportsAnExchangedProductAsServedByTheLoginSession(t *testing.T) 
 	shell, out, errOut := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
 	document := thunderDoc("http://login.example", "http://apim.example")
-	document.Identities[0].Products["apip"] = contexts.Product{
+	document.Accounts[0].Products["apip"] = contexts.Product{
 		Endpoint: "http://apip.example", Audience: "http://apip.example",
 		Grant: &contexts.Grant{Kind: contexts.GrantExchange}}
 	installLogin(t, shell, document)

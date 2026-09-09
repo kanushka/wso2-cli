@@ -319,7 +319,7 @@ func (o orgCurrentReport) fields() [][2]string {
 //
 // Asgardeo, and any provider the document does not name, keep the field: a
 // tenant switch is what the broker's check exists for on them.
-func refuseOrganizationSwitch(identity contexts.Identity, organization string) error {
+func refuseOrganizationSwitch(identity contexts.Account, organization string) error {
 	if organization == "" {
 		return nil
 	}

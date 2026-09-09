@@ -323,10 +323,10 @@ func TestWhoamiRefusesAnUnknownContextAsUsage(t *testing.T) {
 func TestWhoamiHonorsContextPrecedence(t *testing.T) {
 	keyring.MockInit()
 	seeded := whoamiSeededDocument()
-	seeded.Identities = append(seeded.Identities, contexts.Identity{
+	seeded.Accounts = append(seeded.Accounts, contexts.Account{
 		Name: "beta-cloud",
 		Type: "cloud",
-		Auth: contexts.IdentityAuth{
+		Auth: contexts.AccountAuth{
 			Kind:          contexts.KindOAuthBrowser,
 			Issuer:        "https://idp.example",
 			ClientID:      "wso2-cli",

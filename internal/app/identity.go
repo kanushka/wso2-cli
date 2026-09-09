@@ -284,13 +284,13 @@ func (s Shell) identityAddProduct(
 	// refusal be reworded honestly. See explainProductRefusal.
 	changed := false
 	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
-		position := slices.IndexFunc(document.Identities, func(candidate contexts.Identity) bool {
+		position := slices.IndexFunc(document.Accounts, func(candidate contexts.Account) bool {
 			return candidate.Name == identity
 		})
 		if position < 0 {
-			return document, unknownIdentity(identity, len(document.Identities) > 0)
+			return document, unknownIdentity(identity, len(document.Accounts) > 0)
 		}
-		declared := document.Identities[position]
+		declared := document.Accounts[position]
 		_, carried := declared.Products[namespace]
 		if carried && !replace {
 			return document, productExists(identity, namespace)
@@ -309,7 +309,7 @@ func (s Shell) identityAddProduct(
 		// being replaced would be a permission nobody asked for.
 		products[namespace] = product
 		declared.Products = products
-		document.Identities[position] = declared
+		document.Accounts[position] = declared
 		changed = true
 		return document, nil
 	})
@@ -348,9 +348,9 @@ func (s Shell) identityList(command *cobra.Command) error {
 		return err
 	}
 
-	listing := identityListing{Identities: make([]identityEntry, 0, len(document.Identities))}
+	listing := identityListing{Identities: make([]identityEntry, 0, len(document.Accounts))}
 	withoutProducts := 0
-	for _, declared := range document.Identities {
+	for _, declared := range document.Accounts {
 		entry := identityEntry{
 			Name:   declared.Name,
 			Type:   declared.Type,

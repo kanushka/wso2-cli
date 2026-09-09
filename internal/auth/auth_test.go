@@ -55,10 +55,10 @@ func broker(t *testing.T) *auth.Broker {
 				Identity:     "reference-local",
 				Organization: organization,
 			},
-			Identity: contexts.Identity{
+			Identity: contexts.Account{
 				Name: "reference-local",
 				Type: "onprem",
-				Auth: contexts.IdentityAuth{
+				Auth: contexts.AccountAuth{
 					Kind:               contexts.MethodDevelopmentCredential,
 					CredentialVariable: credentialVar,
 				},
@@ -295,10 +295,10 @@ func productionBroker(t *testing.T, kind string) *auth.Broker {
 				Identity:     "reference-cloud",
 				Organization: homeTenant,
 			},
-			Identity: contexts.Identity{
+			Identity: contexts.Account{
 				Name: "reference-cloud",
 				Type: "cloud",
-				Auth: contexts.IdentityAuth{
+				Auth: contexts.AccountAuth{
 					Kind:          kind,
 					Issuer:        "https://issuer.example.test",
 					ClientID:      "wso2cli",

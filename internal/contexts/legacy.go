@@ -73,10 +73,10 @@ func decodeLegacy(data []byte) (Document, error) {
 		DefaultContext: legacy.DefaultContext,
 	}
 	for _, candidate := range legacy.Contexts {
-		identity := Identity{
+		identity := Account{
 			Name: candidate.Name,
 			Type: "onprem",
-			Auth: IdentityAuth{
+			Auth: AccountAuth{
 				Kind:               candidate.Auth.Method,
 				CredentialVariable: candidate.Auth.CredentialVariable,
 			},
@@ -87,7 +87,7 @@ func decodeLegacy(data []byte) (Document, error) {
 				"reference": {Endpoint: candidate.Endpoint},
 			}
 		}
-		document.Identities = append(document.Identities, identity)
+		document.Accounts = append(document.Accounts, identity)
 		document.Contexts = append(document.Contexts, Context{
 			Name:         candidate.Name,
 			Identity:     candidate.Name,

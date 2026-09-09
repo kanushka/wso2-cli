@@ -41,10 +41,10 @@ func browserDoc(issuerURL string) contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: "acme-dev",
-		Identities: []contexts.Identity{{
+		Accounts: []contexts.Account{{
 			Name: "acme-cloud",
 			Type: "cloud",
-			Auth: contexts.IdentityAuth{
+			Auth: contexts.AccountAuth{
 				Kind:          contexts.KindOAuthBrowser,
 				Issuer:        issuerURL,
 				ClientID:      "client-123",
@@ -67,10 +67,10 @@ func browserDoc(issuerURL string) contexts.Document {
 func identityDoc(kind string) func(string) contexts.Document {
 	return func(issuerURL string) contexts.Document {
 		document := browserDoc(issuerURL)
-		document.Identities[0].Auth.Kind = kind
+		document.Accounts[0].Auth.Kind = kind
 		if kind == contexts.KindClientCredentials {
-			document.Identities[0].Auth.CredentialRef = ""
-			document.Identities[0].Auth.ClientSecretVariable = "WSO2_ACME_CLIENT_SECRET"
+			document.Accounts[0].Auth.CredentialRef = ""
+			document.Accounts[0].Auth.ClientSecretVariable = "WSO2_ACME_CLIENT_SECRET"
 		}
 		return document
 	}
@@ -511,10 +511,10 @@ func TestLoginCompletesFromThePrintedURL(t *testing.T) {
 func TestLoginSelectsTheContextNamedByTheFlag(t *testing.T) {
 	shell, _, errOut := newLoginShell(t)
 	document := browserDoc("https://issuer.example.test")
-	document.Identities = append(document.Identities, contexts.Identity{
+	document.Accounts = append(document.Accounts, contexts.Account{
 		Name: "acme-ci",
 		Type: "cloud",
-		Auth: contexts.IdentityAuth{
+		Auth: contexts.AccountAuth{
 			Kind:                 contexts.KindClientCredentials,
 			Issuer:               "https://issuer.example.test",
 			ClientID:             "client-ci",

@@ -306,7 +306,7 @@ func checkIdentityFlags(flags connectFlags, usage string) error {
 // connectPlan is what one connect will write: the identity it acts on, the
 // product record, and whether the identity and its context are new.
 type connectPlan struct {
-	identity contexts.Identity
+	identity contexts.Account
 	context  contexts.Context
 	// created reports that the identity and context are new.
 	created bool
@@ -423,36 +423,36 @@ func soleIdentityContext(document contexts.Document, identity string) bool {
 // connectTarget is the identity a connect records on, when one can be
 // named: by --login-provider, by --identity, or by the selected context.
 func connectTarget(document contexts.Document, flags connectFlags, contextName string) (
-	contexts.Identity, bool, error) {
+	contexts.Account, bool, error) {
 	switch {
 	case flags.loginProvider != "":
-		for _, identity := range document.Identities {
+		for _, identity := range document.Accounts {
 			if identity.Auth.Issuer == strings.TrimRight(flags.loginProvider, "/") {
 				return identity, true, nil
 			}
 		}
-		return contexts.Identity{}, false, nil
+		return contexts.Account{}, false, nil
 	case flags.identity != "":
-		for _, identity := range document.Identities {
+		for _, identity := range document.Accounts {
 			if identity.Name == flags.identity {
 				return identity, true, nil
 			}
 		}
-		return contexts.Identity{}, false, nil
+		return contexts.Account{}, false, nil
 	case len(document.Contexts) == 0:
-		return contexts.Identity{}, false, nil
+		return contexts.Account{}, false, nil
 	}
 	selected, err := document.Select(contextName)
 	if err != nil {
-		return contexts.Identity{}, false, err
+		return contexts.Account{}, false, err
 	}
 	return selected.Identity, true, nil
 }
 
 // newConnectIdentity is the identity a login provider's connect creates.
 func newConnectIdentity(name string, descriptor modules.ProductDescriptor, issuer string,
-	flags connectFlags) contexts.Identity {
-	auth := contexts.IdentityAuth{
+	flags connectFlags) contexts.Account {
+	auth := contexts.AccountAuth{
 		Kind: contexts.KindOAuthBrowser, Issuer: issuer, ClientID: flags.clientID,
 		Provider: descriptor.Provider, CredentialRef: name,
 	}
@@ -461,7 +461,7 @@ func newConnectIdentity(name string, descriptor modules.ProductDescriptor, issue
 		auth.ClientSecretVariable = flags.clientSecretVariable
 		auth.CredentialRef = ""
 	}
-	return contexts.Identity{Name: name, Type: contexts.IdentityTypeForIssuer(issuer), Auth: auth}
+	return contexts.Account{Name: name, Type: contexts.IdentityTypeForIssuer(issuer), Auth: auth}
 }
 
 // connectKind names the identity kind the flags ask for, for a refusal.
@@ -474,7 +474,7 @@ func connectKind(flags connectFlags) string {
 
 // connectProduct is the product record connect writes.
 func connectProduct(namespace string, descriptor modules.ProductDescriptor, productURL, issuer string,
-	flags connectFlags, identity contexts.Identity) (contexts.Product, error) {
+	flags connectFlags, identity contexts.Account) (contexts.Product, error) {
 	product := contexts.Product{Endpoint: productURL, Scopes: descriptor.Scopes}
 	if len(flags.scopes) > 0 {
 		product.Scopes = flags.scopes
@@ -599,17 +599,17 @@ func (p connectPlan) apply(document contexts.Document) contexts.Document {
 	}
 	if p.created {
 		document.SchemaVersion = contexts.SchemaVersion
-		document.Identities = append(document.Identities, identity)
+		document.Accounts = append(document.Accounts, identity)
 		document.Contexts = append(document.Contexts, p.context)
 		if p.selected {
 			document.DefaultContext = p.context.Name
 		}
 		return document
 	}
-	position := slices.IndexFunc(document.Identities, func(candidate contexts.Identity) bool {
+	position := slices.IndexFunc(document.Accounts, func(candidate contexts.Account) bool {
 		return candidate.Name == identity.Name
 	})
-	document.Identities[position] = identity
+	document.Accounts[position] = identity
 	return document
 }
 
