@@ -31,6 +31,27 @@ different resource or scope set. The shell records the strategy on the
 session and shows it. A product with none is refused, naming the command
 that records one.
 
+A fifth strategy, `exchanged`, is chosen when the product record names an
+exchange grant. The login session's own access token is exchanged at the login
+issuer under RFC 8693 for one bound to the product's audience, per command,
+and the product holds no session at all: an exchange answers with an access
+token alone, so there is nothing to store, rotate or revoke for it. It ranks
+ahead of `sibling` for a product whose deployment validates the login
+provider's tokens through its JWKS — measured 2026-09-09 against the WSO2 API
+Platform, whose control plane, gateway controller and gateway all do — because
+`sibling` costs a second authorization and this costs none. `wso2 login` runs
+no authorization for such a product, and a command reaching one needs no
+browser even on a machine that has never authorized it.
+
+Two constraints follow from the grant rather than from this decision. The
+login authorization must carry the login product's own scopes, because an
+exchange preserves OIDC scopes and drops resource server permissions, so a
+scope not asked for at login cannot be recovered later. And the exchange sends
+the product's audience as an RFC 8707 resource indicator, so that audience
+must be an absolute URI — the shell refuses one that is not when the product
+is recorded, rather than letting the issuer answer `invalid_target`, which
+reads as a resource server nobody registered.
+
 A product may hold a second record at the login provider for its gateway.
 The gateway validates tokens the login provider issues, so its session is
 always obtained there, under the API's own resource server and the API's own
@@ -50,7 +71,11 @@ that cannot map a machine client to its management roles carries its own
 client credential on its record, still under one identity. The shell never
 runs a scripted user login.
 
-Consequences: the session store is keyed by credential reference and
+Consequences: an exchanged product has no session to store, report an expiry
+for, or revoke, so `wso2 whoami` reports it as `exchanged` rather than as
+having none — reporting none would read as "not logged in" and send a reader
+to run a login that establishes nothing for it. The session store is keyed by
+credential reference and
 product namespace; `wso2 login` acquires every recorded product's session
 and a command acquires a missing one on first use, refusing under
 `--no-input`; `wso2 whoami`, `wso2 doctor` and `wso2 logout` report and

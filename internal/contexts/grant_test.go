@@ -161,3 +161,63 @@ func TestAThunderJWTBearerGrantDecodesWithOrWithoutAnAssertionResource(t *testin
 		t.Fatalf("read %d products, want 2", len(document.Identities[0].Products))
 	}
 }
+
+func TestAnExchangeGrantNamesNeitherAnIssuerNorAClient(t *testing.T) {
+	// The exchange runs at the identity's own issuer as its own client, so a
+	// document that repeated either would be stating something the shell
+	// already knows and could contradict.
+	document, err := contexts.Decode([]byte(strings.Replace(
+		withGrantProduct(validV2(), `{"kind": "exchange"}`),
+		`"audience": "apim-client"`, `"audience": "https://apim.example.test"`, 1)))
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	product := document.Identities[0].Products["apim"]
+	if product.Grant == nil || product.Grant.Kind != contexts.GrantExchange {
+		t.Fatalf("the exchange grant was read as %+v", product.Grant)
+	}
+	if product.Direct() {
+		t.Fatal("an exchange product was read as direct")
+	}
+	encoded, err := document.Encode()
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"exchange"`) {
+		t.Fatalf("the exchange grant did not survive encoding:\n%s", encoded)
+	}
+}
+
+func TestAnExchangeGrantIsRefusedWhenItNamesAnIssuerOrAClient(t *testing.T) {
+	for name, grant := range map[string]string{
+		"names an issuer": `{"kind": "exchange", "issuer": "https://apim.example.test/oauth2/token"}`,
+		"names a client":  `{"kind": "exchange", "clientId": "apim-client"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := contexts.Decode([]byte(withGrantProduct(validV2(), grant)))
+			var typed problem.Problem
+			if !errors.As(err, &typed) || typed.Code != "contexts.document_malformed" {
+				t.Fatalf("an exchange grant naming its own issuer or client was not refused: %v", err)
+			}
+		})
+	}
+}
+
+func TestAnExchangeProductMustRegisterAnAbsoluteURIAudience(t *testing.T) {
+	// An exchange sends the audience as an RFC 8707 resource indicator, which
+	// must be an absolute URI. Measured against ThunderID: a bare name comes
+	// back as invalid_target — an error that reads as an unregistered
+	// resource server, sending the reader to create one that already exists.
+	// Refusing when the product is recorded says the true cause once.
+	// "apim-client" is the shape a client-id audience takes on Asgardeo, and
+	// it is legal for every other strategy — which is why this is refused for
+	// the exchange grant alone rather than for audiences in general.
+	_, err := contexts.Decode([]byte(withGrantProduct(validV2(), `{"kind": "exchange"}`)))
+	var typed problem.Problem
+	if !errors.As(err, &typed) || typed.Code != "contexts.document_malformed" {
+		t.Fatalf("a non-URI audience on an exchange product was not refused: %v", err)
+	}
+	if !strings.Contains(typed.Message, "absolute URI") {
+		t.Fatalf("the refusal does not name the cause: %q", typed.Message)
+	}
+}

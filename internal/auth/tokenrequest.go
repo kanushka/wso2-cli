@@ -95,6 +95,19 @@ func (r issuerRefusal) rejectedTarget() bool {
 	return r.status == http.StatusBadRequest && r.code == "invalid_target"
 }
 
+// unauthorizedGrant reports RFC 6749's answer for a client that is
+// authenticated but not registered for the grant the request used.
+//
+// It is deliberately not folded into rejectedClient. The two look alike and
+// recover in opposite directions: a rejected client is a credential to
+// correct, while this is a registration to extend, and telling someone to
+// check a credential that was accepted sends them to look at the one thing
+// that worked. Measured against ThunderID on 2026-09-09: a public client
+// without the token exchange grant answers exactly this.
+func (r issuerRefusal) unauthorizedGrant() bool {
+	return r.code == "unauthorized_client"
+}
+
 // rejectedClient reports the deployment declining the credentials the request
 // identified its client with.
 func (r issuerRefusal) rejectedClient() bool {

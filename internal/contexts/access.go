@@ -35,6 +35,10 @@ const (
 	// StrategyFederated: a session at the product's own issuer, obtained as
 	// the product's public client through the login provider's sign-on.
 	StrategyFederated = "federated"
+	// StrategyExchanged: no session of the product's own; the login session's
+	// access token is exchanged at the login issuer, under RFC 8693, for one
+	// bound to the product's audience, per command.
+	StrategyExchanged = "exchanged"
 	// StrategyInline: no session; a client-credentials grant per command.
 	StrategyInline = "inline"
 )
@@ -119,6 +123,17 @@ func (i Identity) Access(namespace string) (ProductAccess, bool) {
 		} else {
 			access.Strategy = StrategySibling
 		}
+	case product.Grant.Kind == GrantExchange:
+		// The exchange runs at the identity's own issuer, as its own client,
+		// and asks for the product's audience: the access already carries
+		// both, so only the strategy and the resource are set here. The
+		// session reference is cleared because an exchanged product keeps no
+		// session — the token is minted from the login session for one
+		// command and never stored.
+		access.Strategy = StrategyExchanged
+		access.Resource = product.Audience
+		access.Scopes = sortedScopes(product.Scopes)
+		access.SessionRef = ""
 	case product.Grant.Kind == GrantJWTBearer:
 		access.Strategy = StrategyDerived
 		access.Scopes = product.Grant.AssertionScopes()
@@ -214,6 +229,12 @@ func (i Identity) Accesses() []ProductAccess {
 	all := []ProductAccess{i.LoginAccess()}
 	for _, key := range i.RecordKeys() {
 		access, _ := i.Access(key)
+		// An exchanged product holds no session, so there is no authorization
+		// to run for it and nothing a login could leave behind. Its access is
+		// minted from the login session at the moment a command needs it.
+		if access.Strategy == StrategyExchanged {
+			continue
+		}
 		if access.SessionRef != all[0].SessionRef {
 			all = append(all, access)
 		}

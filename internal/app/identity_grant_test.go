@@ -155,3 +155,68 @@ func TestGrantResourceWithoutGrantIsRefused(t *testing.T) {
 		t.Fatal("a refused command with only --grant-resource reached the document")
 	}
 }
+
+func TestAddProductRecordsAnExchangeGrantFromTheKindAlone(t *testing.T) {
+	// An exchange runs at the identity's own issuer as its own client, so
+	// --grant-issuer and --grant-client-id have nothing to name. Requiring
+	// them, as every other grant does, would make a user invent values the
+	// shell then has to ignore.
+	shell, out, errOut := newShell(t)
+	installLogin(t, shell, selfHostedDocument())
+
+	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "apip",
+		"--endpoint", "https://apip.customer.example",
+		"--audience", "https://apip.customer.example",
+		"--grant", "exchange"})
+	if code != exit.OK {
+		t.Fatalf("exit = %d, want %d; stdout %s stderr %s", code, exit.OK, out, errOut)
+	}
+	product := identityNamed(t, loadDocument(t, shell), "idp-customer-example").Products["apip"]
+	if product.Grant == nil || product.Grant.Kind != contexts.GrantExchange {
+		t.Fatalf("the grant was recorded as %+v", product.Grant)
+	}
+	if product.Grant.Issuer != "" || product.Grant.ClientID != "" {
+		t.Fatalf("an exchange grant recorded an issuer or a client: %+v", *product.Grant)
+	}
+}
+
+func TestAnExchangeGrantIsRefusedWithAnIssuerOrAClient(t *testing.T) {
+	for _, extra := range [][]string{
+		{"--grant-issuer", "https://apip.customer.example/oauth2/token"},
+		{"--grant-client-id", "apip-cli-client"},
+	} {
+		t.Run(strings.TrimPrefix(extra[0], "--"), func(t *testing.T) {
+			shell, out, errOut := newShell(t)
+			installLogin(t, shell, selfHostedDocument())
+			code := shell.Run(append([]string{"identity", "add-product", "idp-customer-example", "apip",
+				"--endpoint", "https://apip.customer.example",
+				"--audience", "https://apip.customer.example",
+				"--grant", "exchange"}, extra...))
+			if code != exit.Usage {
+				t.Fatalf("exit = %d, want the usage class %d; stdout %s stderr %s", code, exit.Usage, out, errOut)
+			}
+		})
+	}
+}
+
+func TestAnExchangeGrantIsSummarizedWithoutAnEmptyIssuerAndClient(t *testing.T) {
+	// The summary is built for grants that name an issuer and a client. An
+	// exchange names neither, and rendering the template anyway prints
+	// "exchange at  as ", which reads as two values the shell failed to load.
+	shell, out, errOut := newShell(t)
+	installLogin(t, shell, selfHostedDocument())
+
+	code := shell.Run([]string{"identity", "add-product", "idp-customer-example", "apip",
+		"--endpoint", "https://apip.customer.example",
+		"--audience", "https://apip.customer.example",
+		"--grant", "exchange"})
+	if code != exit.OK {
+		t.Fatalf("exit = %d, want %d; stderr %s", code, exit.OK, errOut)
+	}
+	if strings.Contains(out.String(), "at  as") {
+		t.Fatalf("the exchange grant was summarized with an empty issuer and client:\n%s", out)
+	}
+	if !strings.Contains(out.String(), "exchange at the identity's own issuer") {
+		t.Fatalf("the exchange grant summary does not say where it runs:\n%s", out)
+	}
+}

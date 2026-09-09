@@ -74,6 +74,20 @@ type Options struct {
 	// secret, so only a test whose subject is a wrong credential has to state
 	// one.
 	ClientSecret string
+	// ExchangeGrant registers RFC 8693 token exchange on this issuer. The
+	// grant it runs is modelled on ThunderID as measured on 2026-09-09: the
+	// subject token must be one this issuer minted, the resource indicator
+	// decides the audience, no refresh token comes back, and the resource
+	// server permissions the subject token carried are dropped rather than
+	// carried across. A test that asked for scopes here would be asserting
+	// behaviour no measured deployment has.
+	ExchangeGrant bool
+	// ExchangeAudience overrides the audience the exchange stamps in,
+	// ignoring the resource the request asked for. It models the deployment
+	// that answers 200 with a token bound somewhere else — which is what
+	// ThunderID does for a request that says audience where it should say
+	// resource, and is the only thing the shell's binding check catches.
+	ExchangeAudience string
 	// Host replaces the host of the issuer identifier, keeping the port the
 	// test server listens on. It exists because 127.0.0.1 is not a name: a
 	// caller that derives a name from the issuer host has nothing to derive
@@ -262,6 +276,9 @@ type Issuer struct {
 	// map iteration order could not name "most recent" if a test ever started
 	// two authorizations.
 	lastDeviceCode string
+	// refuseExchange makes the exchange grant answer unauthorized_client, as
+	// an issuer does for a client the grant is not registered on.
+	refuseExchange bool
 }
 
 type codeGrant struct {
@@ -602,9 +619,66 @@ func (i *Issuer) handleToken(w http.ResponseWriter, r *http.Request) {
 		i.deviceGrant(w, r)
 	case bearerGrantType:
 		i.bearerGrant(w, r)
+	case exchangeGrantType:
+		i.exchangeGrant(w, r)
 	default:
 		oauthError(w, http.StatusBadRequest, "unsupported_grant_type")
 	}
+}
+
+const exchangeGrantType = "urn:ietf:params:oauth:grant-type:token-exchange"
+
+// RefuseExchange makes every later exchange answer unauthorized_client, the
+// way an issuer answers a client the grant is not registered on.
+func (i *Issuer) RefuseExchange() {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	i.refuseExchange = true
+}
+
+// exchangeGrant is RFC 8693 as ThunderID runs it, measured 2026-09-09.
+//
+// Three details are the fixture's whole reason to exist, because each is a
+// way a real deployment answers 200 with something the shell must not hand a
+// module. The resource indicator decides the audience, so a request that
+// named none, or that named it under the wrong parameter, gets a token bound
+// somewhere else. No refresh token comes back, so nothing here could be
+// stored as a session even if the shell wanted to. And the subject token's
+// resource server permissions do not cross: what comes back carries the
+// OIDC scopes and nothing more, which is why an exchanged product is
+// authorized by the claims it carries rather than by a scope set.
+func (i *Issuer) exchangeGrant(w http.ResponseWriter, r *http.Request) {
+	i.mutex.Lock()
+	refusing, registered := i.refuseExchange, i.opts.ExchangeGrant
+	subject, minted := i.accessTokens[r.PostForm.Get("subject_token")]
+	i.mutex.Unlock()
+	if !registered || refusing {
+		oauthError(w, http.StatusBadRequest, "unauthorized_client")
+		return
+	}
+	if presentedClientID(r) == "" {
+		oauthError(w, http.StatusUnauthorized, "invalid_client")
+		return
+	}
+	if !minted {
+		oauthError(w, http.StatusBadRequest, "invalid_grant")
+		return
+	}
+	_ = subject
+	audience := r.PostForm.Get("resource")
+	if i.opts.ExchangeAudience != "" {
+		audience = i.opts.ExchangeAudience
+	}
+	// Only the OIDC scopes survive; the permissions the subject token held on
+	// a resource server do not, exactly as measured.
+	issued := []string{"openid"}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"access_token":      i.mintAccessTokenFor("user-1", issued, audience),
+		"issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+		"token_type":        "Bearer",
+		"expires_in":        300,
+		"scope":             strings.Join(issued, " "),
+	})
 }
 
 const bearerGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer"
