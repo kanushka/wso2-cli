@@ -18,18 +18,18 @@ The planned `wso2` CLI login surface is: browser Authorization Code + PKCE
 (`wso2 login`), Device Authorization Grant (`wso2 login --device-code`),
 personal access token, and client credentials, with CI restricted to the
 non-interactive methods. This document establishes, from public evidence only,
-which of these each WSO2 account backend and each existing product CLI
+which of these each WSO2 identity backend and each existing product CLI
 supports today, and where the planned design would not work without a
 fallback.
 
 A note on documentation sources: `wso2.com/asgardeo/docs` is now branded
-"WSO2 Account Platform" and much of its content is generated from the shared
+"WSO2 Identity Platform" and much of its content is generated from the shared
 [`wso2/docs-is`](https://github.com/wso2/docs-is) repository, which templates
-pages per product (`WSO2 Account Platform` vs `WSO2 Identity Server` with
+pages per product (`WSO2 Identity Platform` vs `WSO2 Identity Server` with
 version conditions). Where a claim comes from a shared page, this document
 says so.
 
-## 1. Asgardeo (WSO2 SaaS account)
+## 1. Asgardeo (WSO2 SaaS identity)
 
 ### Grant types
 
@@ -118,7 +118,7 @@ scopes a user's token may carry.
 Discovery is standard OIDC, tenant-qualified:
 `https://api.asgardeo.io/t/{org}/oauth2/token/.well-known/openid-configuration`,
 with issuer `https://api.asgardeo.io/t/{org}/oauth2/token` and a DCR endpoint
-at `/t/{org}/api/account/oauth2/dcr/v1.0/register`.
+at `/t/{org}/api/identity/oauth2/dcr/v1.0/register`.
 [Discover OIDC configs](https://wso2.com/asgardeo/docs/guides/authentication/oidc/discover-oidc-configs/)
 
 Token behavior (shared platform docs, applicable to both Asgardeo and IS):
@@ -221,7 +221,7 @@ support: **not found in public sources**. Automation is client credentials
 The authoritative repository is
 [`thunder-id/thunderid`](https://github.com/thunder-id/thunderid)
 (GitHub redirects the earlier `asgardeo/thunder` name to it). It describes
-itself as "a lightweight, open-source Account and Access Management (IAM)
+itself as "a lightweight, open-source Identity and Access Management (IAM)
 engine built to secure access for humans, AI agents, and machines", written in
 Go, cloud-native, with declarative YAML/GitOps configuration and an immutable
 runtime.
@@ -258,7 +258,7 @@ via an allow list (`OAuth.AllowedGrantTypes`).
 
 Thunder also exposes a native flow-execution ("journey") API — login defined
 as orchestrated journeys executable by the application rather than
-browser-redirect-only — plus agent accounts as first-class OAuth clients.
+browser-redirect-only — plus agent identities as first-class OAuth clients.
 [README features](https://github.com/thunder-id/thunderid/blob/main/README.md)
 
 ### Roadmap and differences from IS
@@ -447,7 +447,7 @@ Legend: **S** supported · **P** partially supported · **U** unsupported ·
    PKCE where a browser exists; client credentials for automation. Thunder's
    CIBA support is the closest headless-interactive analogue but is a
    different protocol and not in the planned method list.
-2. **PAT as a first-class login method has no account-provider backing
+2. **PAT as a first-class login method has no identity-provider backing
    anywhere.** None of Asgardeo, IS, or Thunder expose a PAT feature in
    public sources. The only "PAT" in the WSO2 estate today is APIM's
    convention of hand-generating a scoped access token for `apictl --token`.
@@ -510,7 +510,7 @@ requirements documents.
 
 - **The planned method set is directionally right but unevenly available.**
   Browser PKCE and client credentials are the only two methods supported by
-  all three account backends today. Device code is Asgardeo/IS-only; PAT is
+  all three identity backends today. Device code is Asgardeo/IS-only; PAT is
   backed by no IdP and only by APIM convention. The context `Auth` field's
   legal values are justified by evidence as: `oauth-browser` (auth code +
   PKCE), `oauth-device` (valid only where the backend advertises

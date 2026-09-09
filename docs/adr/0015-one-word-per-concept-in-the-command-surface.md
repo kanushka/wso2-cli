@@ -90,6 +90,14 @@ help nor `wso2 version` can give offline. One table names every known product,
 the installed version or none, and the available update or, when the catalog
 cannot be reached, that it is unknown.
 
+Dated documents keep the words they were written with. The decision records in
+`docs/adr` and the findings in `docs/research` say what was decided and what was
+measured on a given day, and a measurement rewritten to use vocabulary that did
+not exist when it was taken is no longer a record of anything. This ADR is where
+the vocabulary changed, so it is the one place a reader needs in order to read
+the earlier ones. Everything a reader is meant to act on today — the guides, the
+reference, the examples, and `CONTEXT.md` — moves.
+
 Consequences: `wso2 product list` is the only thing that reports an available
 update, so a machine that never runs it never learns of one. Reusing the
 catalog answer that `list`, `install` and `update` already fetch, and stating

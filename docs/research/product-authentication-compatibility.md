@@ -44,7 +44,7 @@ against every backend that validates IdP-issued JWTs (API Platform's
   OAuth client.
   [amctl login reference](https://github.com/wso2/agent-manager/blob/main/documentation/docs/reference/cli/login.mdx)
 
-**BACKEND GAP (owner: Asgardeo — `wso2/account-apps`/service team; IS —
+**BACKEND GAP (owner: Asgardeo — `wso2/identity-apps`/service team; IS —
 `wso2/product-is`):** no WSO2-published, well-known public client for a CLI
 exists in Asgardeo or IS; every tenant/deployment must register its own app.
 Evidence of absence: no such client appears in the application guides or the
@@ -52,7 +52,7 @@ IS app-configuration references (landscape §§1–2). Until one ships, the
 wso2-cli needs per-context client configuration or registration.
 
 **Standing ask, recorded 2026-08-05 — owner: the Asgardeo service team
-(`wso2/account-apps`), and `wso2/product-is` for Identity Server.** The
+(`wso2/identity-apps`), and `wso2/product-is` for Identity Server.** The
 wso2-cli login slice ships *against* this gap rather than waiting for it to
 close: every tenant and every deployment registers its own public client by
 hand, and the per-product login walkthroughs —
@@ -130,7 +130,7 @@ Supported by Asgardeo (M2M apps), IS, and Thunder (landscape §§1–3), and
 proven in practice against IS by WSO2's own tooling: `iamctl` authenticates
 with `grant_type=client_credentials` at `{server}/t/{tenant}/oauth2/token`,
 followed where needed by an `organization_switch` exchange
-([iamctl setup.go](https://github.com/wso2-extensions/account-tools-cli/blob/master/iamctl/pkg/utils/setup.go)).
+([iamctl setup.go](https://github.com/wso2-extensions/identity-tools-cli/blob/master/iamctl/pkg/utils/setup.go)).
 No backend gap. The plan's env/stdin secret sourcing covers CI.
 
 ### 1.5 Cross-cutting OUR GAPs (exhaustive)
@@ -176,7 +176,7 @@ No backend gap. The plan's env/stdin secret sourcing covers CI.
    discovery — carried over from landscape §5, still required.
 3. **`organization_switch` exchange support** — carried over; reinforced by
    `iamctl`, which implements exactly this switch for org-level IS APIs
-   ([setup.go](https://github.com/wso2-extensions/account-tools-cli/blob/master/iamctl/pkg/utils/setup.go)).
+   ([setup.go](https://github.com/wso2-extensions/identity-tools-cli/blob/master/iamctl/pkg/utils/setup.go)).
 4. **Rotation-safe refresh persistence** — carried over from landscape.
 5. **Per-product session multiplicity** — see §3; one context needs several
    concurrent product sessions, which §4.6's "relevant product session"
@@ -193,7 +193,7 @@ base64-JSON store as apictl, storing username, password, *and* token —
 [jsonstore.go](https://github.com/wso2/product-mi-tooling/blob/master/cmd/credentials/jsonstore.go)),
 and iamctl (client ID/secret in JSON server-config files, with env-var
 substitution as the only alternative —
-[setup.go](https://github.com/wso2-extensions/account-tools-cli/blob/master/iamctl/pkg/utils/setup.go)).
+[setup.go](https://github.com/wso2-extensions/identity-tools-cli/blob/master/iamctl/pkg/utils/setup.go)).
 This is the concrete case for product teams adopting the shell's broker
 rather than the shell accommodating five incompatible plaintext stores.
 
@@ -281,8 +281,8 @@ handle), **INCOMPATIBLE-TODAY** (needs a named backend change).
   client ID/secret from JSON config or environment variables, optionally
   followed by `organization_switch`; a legacy interactive mode uses the
   password grant.
-  [setup.go](https://github.com/wso2-extensions/account-tools-cli/blob/master/iamctl/pkg/utils/setup.go),
-  [server.go](https://github.com/wso2-extensions/account-tools-cli/blob/master/iamctl/cmd/interactive/server.go)
+  [setup.go](https://github.com/wso2-extensions/identity-tools-cli/blob/master/iamctl/pkg/utils/setup.go),
+  [server.go](https://github.com/wso2-extensions/identity-tools-cli/blob/master/iamctl/cmd/interactive/server.go)
 - **Token verifier:** IS itself (it is the IdP).
 - **Verdict: COMPATIBLE** — client credentials works today; browser PKCE and
   device code are backend-supported (landscape §2) even though iamctl never
@@ -330,7 +330,7 @@ configurable external IdP** or **bundles its own resident issuer**.
 
 | Deployment shape | What one session can cover | What it cannot |
 |---|---|---|
-| **Cloud (WSO2 Cloud / Asgardeo account)** | One Asgardeo login (browser PKCE or device code) covers every product whose backend validates Asgardeo JWTs — today that is API Platform (platform-api IdP mode with Asgardeo, plus its Asgardeo-org portals) | Agent Manager (validates only its Thunder issuer); Choreo/WDP control planes (proprietary sessions/PATs). These need their own product sessions in the same context |
+| **Cloud (WSO2 Cloud / Asgardeo identity)** | One Asgardeo login (browser PKCE or device code) covers every product whose backend validates Asgardeo JWTs — today that is API Platform (platform-api IdP mode with Asgardeo, plus its Asgardeo-org portals) | Agent Manager (validates only its Thunder issuer); Choreo/WDP control planes (proprietary sessions/PATs). These need their own product sessions in the same context |
 | **On-prem with a shared external IS** | One IS login covers API Platform (point `idp` mode at the IS issuer) and IS-management operations themselves | Legacy APIM (resident KM only), MI (internal token store only), Agent Manager (bundled Thunder; external-IS option unknown from public sources) |
 | **On-prem, products stand-alone** | Nothing is shared: every product is its own issuer (APIM resident KM, MI token store, Thunder per Agent Manager install) | One session per product; the context must hold several product sessions |
 
@@ -339,7 +339,7 @@ Platform (`idp` mode); **resident** — legacy APIM (resident key manager), MI
 (management token store), Agent Manager (bundled Thunder), Choreo/WDP
 (control-plane sessions). Thunder and IS are themselves issuers.
 
-Conclusion: the shell-owns-auth goal is achievable *per account domain*,
+Conclusion: the shell-owns-auth goal is achievable *per identity domain*,
 not universally. A context therefore needs (a) one interactive IdP session
 that multiple delegating modules share — the design's core value, already
 real for API Platform + IS on-prem and for Asgardeo-backed products in

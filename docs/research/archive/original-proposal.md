@@ -44,7 +44,7 @@ wso2 context list
 wso2 doctor --output json
 
 wso2 api gateway list
-wso2 account apps list
+wso2 identity apps list
 wso2 integration component deploy --file integration.yaml
 wso2 agent projects list
 ```
@@ -78,7 +78,7 @@ deployment:
 ```shell
 wso2 context create customer-dev --type onprem \
   --api-url https://api.dev.example.com \
-  --account-url https://id.dev.example.com \
+  --identity-url https://id.dev.example.com \
   --agent-url https://agent.dev.example.com
 
 wso2 context use customer-dev
@@ -127,7 +127,7 @@ contexts:
     products:
       api:
         endpoint: https://api.dev.example.com
-      account:
+      identity:
         endpoint: https://id.dev.example.com
 ```
 
@@ -153,7 +153,7 @@ online and offline installation flows.
 
 The proposal illustrated a retail application in which:
 
-- an account product configures web application single sign-on;
+- an identity product configures web application single sign-on;
 - an integration product deploys web and backend components; and
 - an API product configures and publishes a protected API.
 

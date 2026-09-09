@@ -83,9 +83,9 @@ Omission does not imply that a product lacks command-line tooling.
 ## Related public CLI
 
 The Identity Server configuration CLI, `iamctl`, is maintained in the public
-[`wso2-extensions/account-tools-cli`](https://github.com/wso2-extensions/account-tools-cli)
+[`wso2-extensions/identity-tools-cli`](https://github.com/wso2-extensions/identity-tools-cli)
 repository. Its
-[README](https://github.com/wso2-extensions/account-tools-cli/blob/master/README.md)
+[README](https://github.com/wso2-extensions/identity-tools-cli/blob/master/README.md)
 documents the command and supported Identity Server versions. Its location
 demonstrates that public CLI discovery should not be limited to a single GitHub
 organization.

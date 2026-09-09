@@ -1,11 +1,11 @@
-# Context/account model feasibility: prior art and WSO2 topology
+# Context/identity model feasibility: prior art and WSO2 topology
 
 **Status:** Research
 **Research date:** 2026-08-04
 **Scope:** Two independent questions raised against
-[architecture §4.6-4.7](../architecture.md) and the "one account, one
+[architecture §4.6-4.7](../architecture.md) and the "one identity, one
 reusable login session; a context carries targeting only and names exactly
-one account; one account may back several contexts; a context never mixes
+one identity; one identity may back several contexts; a context never mixes
 authentication methods across products" model it codifies:
 
 - **Question A** — does prior art from other multi-product/multi-service CLIs
@@ -14,7 +14,7 @@ authentication methods across products" model it codifies:
 - **Question B** — does WSO2's real product topology support the mixed
   on-prem/cloud scenario the team is worried about ("IdP in on-prem, API
   Manager in on-prem, integration deployed in WSO2 Cloud using WSO2 Cloud's
-  IdP"), or does that scenario architecturally force multiple accounts no
+  IdP"), or does that scenario architecturally force multiple identities no
   matter how the deployment is configured?
 
 This document does not re-derive per-product/per-backend grant support,
@@ -61,21 +61,21 @@ sso_start_url = https://my-sso-portal.awsapps.com/start
 
 and states plainly: "This also allows `sso-session` configurations to be
 reused across multiple profiles."
-[Configuring IAM Account Center authentication with the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso.html)
+[Configuring IAM Identity Center authentication with the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso.html)
 
 One `aws sso login --profile dev` (or `--sso-session my-sso`) opens exactly
 one browser/PKCE (or device-code, via `--use-device-code`) authentication;
-the resulting IAM Account Center session token is cached to disk under
+the resulting IAM Identity Center session token is cached to disk under
 `~/.aws/sso/cache/` keyed by the start URL/session name, and every profile
 that names that `sso_session` draws temporary AWS credentials from it without
-a further login: "As long as you are signed in to IAM Account Center and
+a further login: "As long as you are signed in to IAM Identity Center and
 those cached credentials are not expired, the AWS CLI automatically renews
-expired AWS credentials when needed." Only when the *IAM Account Center*
+expired AWS credentials when needed." Only when the *IAM Identity Center*
 session itself expires does the user need to `aws sso login` again — a
 per-profile AWS credential expiring does not require re-login, it is silently
 re-derived. `aws sso logout` "Successfully signed out of all SSO profiles"
 in one action, confirming the session, not the profile, is the unit of login.
-[Configuring IAM Account Center authentication with the AWS CLI §"Sign in"](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso.html)
+[Configuring IAM Identity Center authentication with the AWS CLI §"Sign in"](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso.html)
 
 Mechanically, on the botocore side, `botocore/tokens.py` implements
 `SSOTokenProvider`/`SSOTokenLoader`: the cache key is derived from the
@@ -88,7 +88,7 @@ lookup performed against the same cached/refreshed session token.
 [botocore/tokens.py](https://github.com/boto/botocore/blob/develop/botocore/tokens.py)
 
 **Verdict: one login, many named targets**, and it is the closest existing
-precedent to wso2-cli's account/context split: `sso-session` ≈ account,
+precedent to wso2-cli's identity/context split: `sso-session` ≈ identity,
 `profile` ≈ context, `sso_account_id`/`sso_role_name` ≈ the context's
 targeting fields. The legacy (pre-`sso-session`) profile-only SSO
 configuration is explicitly deprecated for exactly the reason wso2-cli's
@@ -96,7 +96,7 @@ model cares about: "Automated token refresh isn't supported using the legacy
 non-refreshable configuration. We recommend using the SSO token
 configuration" — i.e. AWS's own history moved *toward* separating the
 session from the target, not away from it.
-[Configuring IAM Account Center authentication with the AWS CLI §"Legacy IAM Account Center configuration file"](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso.html)
+[Configuring IAM Identity Center authentication with the AWS CLI §"Legacy IAM Identity Center configuration file"](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso.html)
 
 ### A.2 kubectl contexts — SUPPORTS the model
 
@@ -111,7 +111,7 @@ Context.namespace: string           — "Namespace is the default namespace..."
 ```
 [kubeconfig (v1) reference](https://kubernetes.io/docs/reference/config-api/kubeconfig.v1/)
 
-The official multi-cluster-access tutorial demonstrates the account/context
+The official multi-cluster-access tutorial demonstrates the identity/context
 split directly, not merely permits it structurally: it creates one
 `developer` user (one credential) and two contexts that both reference it —
 
@@ -142,15 +142,15 @@ precedent than AWS's for wso2-cli specifically because kubectl's "user" is a
 static credential (cert, token, exec plugin), not an interactive login
 session with its own refresh lifecycle — kubectl has no login command or
 session concept at all, only credential *storage* reused across contexts.
-It validates the shape of the split (account separate from targeting,
-n:1 from contexts to account) but not the session/refresh mechanics that
+It validates the shape of the split (identity separate from targeting,
+n:1 from contexts to identity) but not the session/refresh mechanics that
 wso2-cli also needs to validate against AWS.
 
 ### A.3 gcloud CLI configurations — SUPPORTS the model, with a caveat
 
 A gcloud named configuration is "a named set of Google Cloud CLI properties,"
 holding, among others, the active account and project as two independent
-properties, not a fused account. The configurations guide's own example
+properties, not a fused identity. The configurations guide's own example
 table shows one account reused across three configurations pointed at three
 different projects:
 
@@ -186,7 +186,7 @@ configuration can name any already-authenticated account" than to AWS's
 "named session block, multiple profiles reference it by name."
 
 **Verdict: one login, many named targets**, confirmed by gcloud's own
-generated example output, with a structurally looser account/target
+generated example output, with a structurally looser identity/target
 separation than AWS's.
 
 ### A.4 Azure CLI — SUPPORTS the model
@@ -207,7 +207,7 @@ target and requires no further authentication:
 
 Switching subscriptions only changes tenant as a side effect when the target
 subscription lives in a different tenant than the currently active one — an
-explicit acknowledgment that tenant (≈ account/authentication boundary) and
+explicit acknowledgment that tenant (≈ identity/authentication boundary) and
 subscription (≈ context/target) are related but distinct axes: "If you
 change to a subscription that's in a different tenant, you also change the
 active tenant."
@@ -236,14 +236,14 @@ named target as its primary/recommended model (AWS explicitly deprecated the
 one-profile-one-credential legacy shape in favor of the shared-session
 shape). The strongest and most mechanically-analogous precedent is AWS's
 `sso-session`/`profile` split, which maps field-for-field onto wso2-cli's
-account/context split (named session with authentication facts; named
+identity/context split (named session with authentication facts; named
 profile/context with only targeting facts and a reference to the session).
 kubectl's precedent is real but weaker, because kubectl has no login/session
-concept at all — its "account" is a static, non-refreshing credential
+concept at all — its "identity" is a static, non-refreshing credential
 record, closer to wso2-cli's `pat`/`client-credentials` adapter tier than to
-its interactive-OIDC account concept.
+its interactive-OIDC identity concept.
 
-## Question B: does WSO2's real topology support cross-environment single-account coverage?
+## Question B: does WSO2's real topology support cross-environment single-identity coverage?
 
 ### B.1 On-prem API Manager validating a different (cloud) IdP's tokens
 
@@ -296,7 +296,7 @@ research already found to be inbound-federation-only on the Asgardeo/IS side).
 accept access derived from a different (including cloud/Asgardeo) IdP's
 login — either directly, via a named or custom Key Manager connector for any
 IdP that issues standard JWTs with a discoverable JWKS, or, specifically for
-Asgardeo today, via the documented Account-Provider-plus-token-exchange
+Asgardeo today, via the documented Identity-Provider-plus-token-exchange
 workaround. Neither path is automatic or assumption-safe: it requires an
 operator to have deliberately registered the cloud IdP in APIM's Key Manager
 (or Identity Provider) configuration, which is exactly the "property of the
@@ -345,10 +345,10 @@ affirmatively ruled out (internal-only, confirmed both in the prior research
 round and here); for MI-hosted integration artifacts, the public docs
 default to Basic Auth against MI's own user store and do not document (while
 not explicitly ruling out) external-JWT validation as a first-class handler.
-Integration is the weakest link in any cross-environment single-account
+Integration is the weakest link in any cross-environment single-identity
 story among the three products examined.
 
-### B.3 Account federation between on-prem IS and Asgardeo/WSO2 Cloud
+### B.3 Identity federation between on-prem IS and Asgardeo/WSO2 Cloud
 
 Federation in the sense of "one IdP trusts another as an upstream login
 option" is real and documented on both sides, but it answers a different
@@ -372,10 +372,10 @@ question than the one the team is worried about.
   federated IdP in on-prem IS" was not separately located in this round; the
   general federated-authenticator mechanism itself is IS's own long-standing,
   officially documented capability
-  ([Account Federation with WSO2 Identity Server](https://wso2.com/account-and-access-management/account-federation/)).
+  ([Identity Federation with WSO2 Identity Server](https://wso2.com/identity-and-access-management/identity-federation/)).
 
 **The critical distinction, and why federation does not by itself collapse
-the account count:** account federation changes *where the human types
+the identity count:** identity federation changes *where the human types
 their password*, not *which issuer's token a resource server accepts
 afterward*. If Asgardeo is configured to federate login through an on-prem
 IS, a user who authenticates that way still receives an **Asgardeo-issued**
@@ -398,11 +398,11 @@ different answers:
 
 1. **The cloud-deployed integration reaching WSO2 Cloud's own IdP** is not
    actually a cross-environment problem: a cloud-hosted product validating
-   the cloud platform's own issuer is the ordinary, single-account case
+   the cloud platform's own issuer is the ordinary, single-identity case
    (architecture §4.7's "everything in WSO2 Cloud" shape) — no federation or
    token exchange is needed for that leg by construction, because issuer and
    validator already agree.
-2. **Whether that same cloud account can *also* reach the on-prem API
+2. **Whether that same cloud identity can *also* reach the on-prem API
    Manager (and, separately, on-prem IS/integration)** is the genuine
    cross-environment question, and the evidence is deployment-dependent, not
    categorically impossible:
@@ -410,25 +410,25 @@ different answers:
      configuration — a named Key Manager connector (for IdPs with one),
      a custom Key Manager connector (for any OIDC-compliant issuer,
      including Asgardeo, at the cost of writing a connector), or, for
-     Asgardeo specifically, the documented Account-Provider-plus-
+     Asgardeo specifically, the documented Identity-Provider-plus-
      token-exchange workaround. Absent that configuration, APIM validates
-     only its own configured Key Managers and the cloud account cannot
+     only its own configured Key Managers and the cloud identity cannot
      reach it.
    - **Integration (Micro Integrator):** no built-in, documented path found
      either way; the Management API is affirmatively resident-only, and
      artifact-level security defaults to Basic Auth with no documented
      external-JWT option. Absent contrary evidence, on-prem MI should be
-     assumed to need its own account.
-   - **Account federation** (Asgardeo ⇄ on-prem IS) is real and documented
+     assumed to need its own identity.
+   - **Identity federation** (Asgardeo ⇄ on-prem IS) is real and documented
      in both directions but changes only where the login page redirects, not
      which issuer's tokens a downstream resource server accepts — it does
-     not, by itself, let one account reach products that still validate
+     not, by itself, let one identity reach products that still validate
      only the other environment's issuer.
 
 **This is not a case where the CLI is architecturally forced into multiple
-accounts no matter what, nor one where a single account trivially covers
+identities no matter what, nor one where a single identity trivially covers
 it by default.** It is a case where the *deployment's own configuration*
-decides the account count, exactly as architecture §4.6 already states
+decides the identity count, exactly as architecture §4.6 already states
 ("Whether a session can derive access for a product is a property of the
 running deployment, not of a configuration file"). The evidence in this
 round makes that statement concrete rather than aspirational: WSO2 API
@@ -437,7 +437,7 @@ issuer-routed infrastructure built for exactly this kind of cross-issuer
 acceptance — it is not hypothetical — while Micro Integrator currently
 offers no comparable, documented mechanism. A wso2-cli deployment
 description therefore cannot assume the mixed on-prem/cloud estate collapses
-to one account, cannot assume it stays at three, and must discover the
+to one identity, cannot assume it stays at three, and must discover the
 actual count per deployment the way the architecture already requires.
 
 ## Synthesis
@@ -447,21 +447,21 @@ CLI examined — AWS CLI v2, kubectl, gcloud, Azure CLI — separates a
 login/credential unit from a named-target unit and lets many named targets
 share one login, and none of them was found to do the opposite as its
 primary model. AWS CLI v2's `sso-session`/`profile` split is a
-field-for-field precedent for wso2-cli's account/context split (a named
+field-for-field precedent for wso2-cli's identity/context split (a named
 session holding only authentication facts; named targets holding only
 targeting facts plus a reference to the session), down to the
 "legacy-shape-deprecated-in-favor-of-shared-session-shape" history that
 mirrors wso2-cli's own reasoning for why the split matters. kubectl offers
 the same shape with a weaker mechanism (a static, non-refreshing credential
 rather than a session), which if anything argues that wso2-cli's richer,
-session-based account concept is the more sophisticated and more
+session-based identity concept is the more sophisticated and more
 appropriate version of a pattern every one of these tools converges on, not
 a departure from precedent.
 
 **Question B is answered as "deployment-dependent, with real infrastructure
 on one side and a documentation gap on the other," not as a flat yes or
 no.** The mixed on-prem/cloud scenario the team is worried about does not
-categorically force multiple accounts the way, say, a product with no
+categorically force multiple identities the way, say, a product with no
 external-IdP acceptance mechanism at all would. WSO2 API Manager's Key
 Manager framework is genuine, general infrastructure for exactly this
 cross-issuer problem, with a real (if code-requiring) generic path and a
@@ -474,7 +474,7 @@ documented cases on both sides of "can one login reach it," differing by
 product (APIM: yes-if-configured; MI: no evidence either way, default
 posture is no) and by how much operator effort the cross-environment
 configuration costs. **Nothing in this research argues for changing the
-"one account, many contexts" model itself** — if anything, both questions
+"one identity, many contexts" model itself** — if anything, both questions
 reinforce that the model's key move (making reachability a per-deployment,
 per-product fact that the broker discovers and the config merely asserts,
 rather than something the schema hard-codes) is exactly the right amount of

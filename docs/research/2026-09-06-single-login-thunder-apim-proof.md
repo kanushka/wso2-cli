@@ -54,7 +54,7 @@ Thunder (`cli-thunder3`, through its management API with a system token):
 API Manager (`cli-apim`):
 
 - A public OAuth application `wso2-cli-public` registered through the
-  account DCR endpoint (`/api/account/oauth2/dcr/v1.1/register`) with
+  identity DCR endpoint (`/api/identity/oauth2/dcr/v1.1/register`) with
   grants `authorization_code refresh_token jwt-bearer` and the shell's four
   loopback callbacks. This DCR version rejects every `ext_*` member, so
   the public-client, mandatory-PKCE and JWT-token settings were applied
@@ -62,7 +62,7 @@ API Manager (`cli-apim`):
   (`bypassClientCredentials=true`, `pkceMandatory=true`,
   `tokenType=JWT`).
 - An identity provider `Thunder3` registered through the
-  `AccountProviderMgtService` admin service: property `idpIssuerName`
+  `IdentityProviderMgtService` admin service: property `idpIssuerName`
   = `http://localhost:8492`, property `jwksUri` =
   `http://host.docker.internal:8492/oauth2/jwks`, alias `wso2-cli`, a
   claim configuration in its own dialect declaring `groups`, `email` and
@@ -73,7 +73,7 @@ API Manager (`cli-apim`):
   record that must be deleted.
 - A key manager `Thunder3` through the admin REST API, the same payload
   `wso2 apim key-managers add` sends. It is not what makes the JWT bearer
-  grant work: the grant handler reads only the account-provider record.
+  grant work: the grant handler reads only the identity-provider record.
   It is still needed for the gateway to accept Thunder tokens on
   subscribed APIs.
 
@@ -121,7 +121,7 @@ authorization). Client secrets: none.
 
 ## What this means for the shell
 
-The shell already stores a refresh token per account and narrows it per
+The shell already stores a refresh token per identity and narrows it per
 product. For a product served by a different issuer it needs one more
 strategy: refresh the session for an ID token, present that ID token to
 the product's token endpoint under the JWT bearer grant as a public
@@ -168,7 +168,7 @@ and `cli-apim`. Findings:
   new one's grant to the scopes that refresh requested. So the first
   per-command narrowing (`system` for iam, or `openid email groups` for
   apim) leaves a refresh token that cannot serve the other product.
-- **A resource-less Thunder session is impossible.** An account
+- **A resource-less Thunder session is impossible.** An identity
   configured for scoped refresh cannot even log in against Thunder,
   because the authorization is refused without a resource.
 
@@ -190,7 +190,7 @@ to test here. With **Thunder as the login provider**, single login across
 a direct product and a derived product is blocked by the product's
 refresh behavior. The resolutions are the ones already on record:
 
-1. One Thunder account, and so one login, per resource server — the
+1. One Thunder identity, and so one login, per resource server — the
    product's own rule, measured on 2026-09-05.
 2. Change the shell's Thunder derivation to refresh with the full granted
    scope union every time and bind only the audience per command, giving
@@ -247,7 +247,7 @@ API Manager (`cli-apim`):
   client id, and a role mapping from the remote group `admin` to the local
   `admin` role.
 
-Shell account: issuer `https://localhost:9444/oauth2/token`, provider
+Shell identity: issuer `https://localhost:9444/oauth2/token`, provider
 `identity-server` (scoped refresh, no resource indicator), one product
 `apim` reached by a `jwt-bearer` grant whose issuer is API Manager's token
 endpoint and whose client is the public API Manager CLI application.
@@ -323,7 +323,7 @@ they narrow refresh tokens, and the derived grant does not change that.
 The resolutions are provider-independent, and the choice is a real design
 decision the shell has not made:
 
-1. One account, and so one login, per distinct scope set. Simple, but not
+1. One identity, and so one login, per distinct scope set. Simple, but not
    the single-login experience for a multi-product environment.
 2. Refresh the session with the full granted union every time and bind only
    the audience per command, giving up per-command scope narrowing. One
@@ -332,8 +332,8 @@ decision the shell has not made:
    weakens the shell's verified-narrowing guarantee and needs its own
    security review.
 
-This also affects the shell's existing multi-product-per-account model,
-not only the derived grant: the documented example of one account reaching
+This also affects the shell's existing multi-product-per-identity model,
+not only the derived grant: the documented example of one identity reaching
 several products, each narrowing the shared session, meets the same wall on
 a real deployment. It was not exercised before because no live multi-product
 journey with differing scopes had been run.

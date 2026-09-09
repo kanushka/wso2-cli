@@ -16,17 +16,17 @@ is already a measurement across a shell restart.
 
 | Row | Result | Prompts | Redirects |
 | --- | --- | --- | --- |
-| 1. ThunderID login serving `iam` (direct) | **Pass.** `wso2 iam connect http://localhost:8492` records the product and creates the account, the context and the login-product pin. | 1 | 2 |
+| 1. ThunderID login serving `iam` (direct) | **Pass.** `wso2 iam connect http://localhost:8492` records the product and creates the identity, the context and the login-product pin. | 1 | 2 |
 | 2. The same login serving API Manager management (federated) | **Pass.** No second password. `apis list` and `apps list` both answer. | 0 | 5 |
 | 2a. First-use acquisition | **Pass.** After `wso2 login --no-products`, `wso2 apim apis list` prints the notice, authorizes through the sign-on and answers. | 0 | 5 |
 | 2b. The same under `--no-input` | **Pass.** Refused before anything opens, naming the flag that caused it. The refusal a product with no session gets is `auth.session_required`; one whose stored session cannot be renewed now gets `auth.reauthorization_required` (section 10). | 0 | 0 |
 | 3. Identity Server as the login provider | **Pass** for API Manager management, by the `derived` (jwt-bearer) strategy, for the administrator and refused for the group-less user. `iam` and the gateway are not reachable under it. | 1 | 4 |
 | 4. Asgardeo | **Not run.** No tenant available. |  |  |
 | 5. The gateway (sibling) | **Pass** for the leg the CLI owns. `wso2 login` establishes `iam` direct and `apim` sibling from one prompt, and the gateway answers 200. The mock backend behind it still rejects the token, for a reason outside the shell. | 1 | 4 |
-| 5a. The gateway recorded by `connect --gateway` (#163) | **Pass.** `wso2 apim connect https://localhost:8243 --gateway --audience http://localhost:18090/hello --scopes hello:read,orders:read` on the same account, then one `wso2 login`: `iam direct`, `apim federated`, `apim/gateway sibling`, all established. `gateway invoke /hello/1.0.0/hello` answers 200 through the mock backend with no `--context`. `--no-input` with the gateway session missing refuses `auth.session_required` naming `wso2 login --only apim`. Measured 2026-09-07 from `cli-exercise-4`. | 1 | 9 |
-| 5b. The identity provider and public client written by `apim bootstrap --login-provider` (#164) | **Pass.** `wso2 iam apps create apim-federation-4 --type federation --for https://localhost:9443` on ThunderID, then `wso2 apim bootstrap --url https://localhost:9443 --login-provider http://localhost:8492 --login-provider-internal-url http://host.docker.internal:8492 --federation-client-id apim-federation-4 --account-provider Thunder4 --public-client-name wso2-cli-sso-4` created the identity provider and the public client; a rerun reported both present and wrote nothing. `apim connect --client-id <that client>` and one `wso2 login`: `iam direct`, `apim federated`, no second prompt, and `apis list` answered, so the role mapping and just-in-time provisioning it wrote are what the scope issuer read. One correction found live: API Manager 4.7.0 answers the dynamic client registration lookup for an unknown name with 401, not 404. Measured 2026-09-07 from `cli-exercise-4`. | 1 | 7 |
+| 5a. The gateway recorded by `connect --gateway` (#163) | **Pass.** `wso2 apim connect https://localhost:8243 --gateway --audience http://localhost:18090/hello --scopes hello:read,orders:read` on the same identity, then one `wso2 login`: `iam direct`, `apim federated`, `apim/gateway sibling`, all established. `gateway invoke /hello/1.0.0/hello` answers 200 through the mock backend with no `--context`. `--no-input` with the gateway session missing refuses `auth.session_required` naming `wso2 login --only apim`. Measured 2026-09-07 from `cli-exercise-4`. | 1 | 9 |
+| 5b. The identity provider and public client written by `apim bootstrap --login-provider` (#164) | **Pass.** `wso2 iam apps create apim-federation-4 --type federation --for https://localhost:9443` on ThunderID, then `wso2 apim bootstrap --url https://localhost:9443 --login-provider http://localhost:8492 --login-provider-internal-url http://host.docker.internal:8492 --federation-client-id apim-federation-4 --identity-provider Thunder4 --public-client-name wso2-cli-sso-4` created the identity provider and the public client; a rerun reported both present and wrote nothing. `apim connect --client-id <that client>` and one `wso2 login`: `iam direct`, `apim federated`, no second prompt, and `apis list` answered, so the role mapping and just-in-time provisioning it wrote are what the scope issuer read. One correction found live: API Manager 4.7.0 answers the dynamic client registration lookup for an unknown name with 401, not 404. Measured 2026-09-07 from `cli-exercise-4`. | 1 | 7 |
 | 6. A user without management rights (`cliuser`) | **Pass.** Both products refuse, each naming what an administrator must grant. | 1 | 7 |
-| 7. CI: one machine client, no browser | **Pass** for `iam`. `apim` under a machine account is refused as designed, naming the two credential flags. | 0 | 0 |
+| 7. CI: one machine client, no browser | **Pass** for `iam`. `apim` under a machine identity is refused as designed, naming the two credential flags. | 0 | 0 |
 
 ## 1. How the runs were made
 
@@ -60,9 +60,9 @@ wso2 iam connect http://localhost:8492
 wso2 apim connect https://localhost:9443 --client-id DgP2V4Arw9KYeo2ltIm4r8r19vca
 ```
 
-The first creates the `thunder` account, its context, selects it, records
+The first creates the `thunder` identity, its context, selects it, records
 `iam` direct, and pins `loginProduct: iam`. The second attaches `apim` to
-the same account under a federated grant at
+the same identity under a federated grant at
 `https://localhost:9443/oauth2/token`. Neither touches the secure store.
 Only `--client-id` is typed, because API Manager's public CLI client is
 registered per deployment; the descriptor cannot name it.
@@ -111,7 +111,7 @@ The same command with `--no-input` on the product command line — the flag
 the shell now reads as its own — is refused before anything opens:
 
 ```text
-error: the "apim" product has no session under this account yet (auth.session_required)
+error: the "apim" product has no session under this identity yet (auth.session_required)
   Run wso2 login --only apim before this command; --no-input asked that no browser open.
 ```
 
@@ -139,7 +139,7 @@ permissions and the administrator action, and carries no token.
 
 ```sh
 export WSO2_CI_CLIENT_SECRET=...
-wso2 iam connect http://localhost:8492 --account thunder-ci \
+wso2 iam connect http://localhost:8492 --identity thunder-ci \
   --client-id wso2-cli-ci --client-secret-variable WSO2_CI_CLIENT_SECRET
 WSO2_NO_INPUT=1 wso2 iam users list --context thunder-ci
 ```
@@ -149,11 +149,11 @@ No login step, no browser, no session: the strategy is `inline` and
 `whoami`, `doctor` and `logout` all exit 0 — `doctor` reports the session
 check as `not-applicable`, `logout` as `Session none`.
 
-`apim` under the same machine account is refused at `connect` time, which
+`apim` under the same machine identity is refused at `connect` time, which
 is what section 8 of the design asks for:
 
 ```text
-error: the apim product does not accept the machine client the "thunder-ci" account holds, so it needs a credential of its own (auth.product_not_configured)
+error: the apim product does not accept the machine client the "thunder-ci" identity holds, so it needs a credential of its own (auth.product_not_configured)
   Register a client for this CLI on the product (wso2 apim bootstrap does) and pass --client-id <id> --client-secret-variable <VAR> naming its credential [...]
 ```
 
@@ -172,15 +172,15 @@ record it writes, so `connect` can only ever produce the federated
 management shape. The row was recorded the long way:
 
 ```sh
-wso2 iam connect http://localhost:8492 --account thunder-gw
-wso2 account add-product thunder-gw apim \
+wso2 iam connect http://localhost:8492 --identity thunder-gw
+wso2 identity add-product thunder-gw apim \
   --endpoint https://localhost:8243 \
   --audience http://localhost:18080/mockapi \
   --scopes reference:status:read,orders:read
 ```
 
 `iam connect` first is what makes the row correct rather than inverted:
-it pins `loginProduct: iam`. Recorded with `wso2 account create`, which
+it pins `loginProduct: iam`. Recorded with `wso2 identity create`, which
 writes no pin, `apim` would sort before `iam` and become the login
 product, making `iam` the sibling — the exact drift the pin exists to
 stop, visible here as a setup mistake rather than a theory.
@@ -233,7 +233,7 @@ which is what makes the denied sub-row meaningful here too.
 ## 8. Row 3: Identity Server as the login provider
 
 `cli-is` (Identity Server 7.1.0, https://localhost:9444) serves API Manager
-management by the `derived` strategy: the shell authorizes at Account
+management by the `derived` strategy: the shell authorizes at Identity
 Server for the grant's assertion scopes, then presents that session's
 identity token as a jwt-bearer assertion at API Manager's own token
 endpoint. Everything the 2026-09-06 proof configured is still live and was
@@ -241,20 +241,20 @@ re-verified before the run.
 
 **`connect` cannot record any of this.** No module's descriptor names
 `identity-server` as a provider, so there is no `connect` that creates an
-Identity Server account; and `apim`'s descriptor hard-codes the federated
+Identity Server identity; and `apim`'s descriptor hard-codes the federated
 grant, so even the product record has to be written the long way:
 
 ```sh
-wso2 account create is --issuer https://localhost:9444/oauth2/token \
+wso2 identity create is --issuer https://localhost:9444/oauth2/token \
   --client-id <the Identity Server CLI client> --provider identity-server
-wso2 account add-product is apim \
+wso2 identity add-product is apim \
   --endpoint https://localhost:9443 --audience <the API Manager CLI client> \
   --scopes apim:api_view,apim:api_create,apim:api_publish,apim:subscribe,apim:app_manage,apim:admin \
   --grant jwt-bearer --grant-issuer https://localhost:9443/oauth2/token \
   --grant-client-id <the API Manager CLI client> --grant-scopes openid,groups
 ```
 
-The account is recorded with no product of its own, which is legal here:
+The identity is recorded with no product of its own, which is legal here:
 Identity Server's derivation is scoped refresh, not resource-bound, so a
 bare login session is a valid shape and `apim` hangs off it under the
 grant.
@@ -333,7 +333,7 @@ proof rests on either way.
 - **Fixed** (`fix(auth): tell a stored session that cannot be renewed
   apart from one that is missing`). Under `--no-input`, a product that
   **had** a session carrying none of its permissions was refused with "has
-  no session under this account yet" — false, since `whoami` showed it
+  no session under this identity yet" — false, since `whoami` showed it
   present in the same state, and its recovery was another login, which is
   what the invocation had just forbidden. The cause was structural: the
   broker's establish hook is nullary, so the shell wrote a message for a
@@ -341,7 +341,7 @@ proof rests on either way.
   stored, and stored but unrenewable — were indistinguishable. The shell
   now hands down a marker saying only that no browser may open, and the
   broker writes whichever refusal fits. Verified live in both states.
-- `whoami` renders a machine account's product as `iam: inline, inline`:
+- `whoami` renders a machine identity's product as `iam: inline, inline`:
   the strategy and the session state are the same word.
 - `connect` ends with `Next  Run wso2 login --context thunder.` even when
   that context is the only one and already selected.
@@ -353,15 +353,15 @@ proof rests on either way.
   in one shape only. API Manager is reachable two ways — federated at its
   own issuer for management, sibling at the login provider for the
   gateway — and `connect` can write the first but not the second. Row 5
-  fell back to `wso2 account add-product`, which is the command the
+  fell back to `wso2 identity add-product`, which is the command the
   descriptor was meant to retire. **Addressed by #163** (2026-09-07): the
   descriptor declares a `gateway` block and `wso2 apim connect
   <gateway-url> --gateway` records the gateway beside the management
-  record on the same account.
+  record on the same identity.
 
 ## 11. Environment as left
 
-`matrix-home` holds four accounts: `thunder` (browser, `iam` direct +
+`matrix-home` holds four identities: `thunder` (browser, `iam` direct +
 `apim` federated, pinned to `iam`), `thunder-ci` (client credentials,
 `iam` only) and `thunder-gw` (browser, `iam` direct + `apim` sibling on
 the gateway, pinned to `iam`), and `is` (browser, Identity Server, no
