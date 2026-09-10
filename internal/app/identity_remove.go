@@ -157,7 +157,14 @@ func (s Shell) identityRemoveProduct(command *cobra.Command, account, key string
 	// sessions were ended outside it, because the document lock admits no
 	// network call, so another invocation may have changed the account in
 	// between. Dropping the record is safe only if every session the removal
-	// now leaves unreached is one this command already ended.
+	// now leaves unreached is one this command ended AND is still gone.
+	//
+	// Both halves are needed. Ending a session releases that session's lock
+	// before this one is taken, so a wso2 login for the same product can store
+	// a new session under the very reference just ended. Asking only whether
+	// this run ended the reference would pass it and strand the new session,
+	// which nothing could find again once its record is gone. Asking the store
+	// is a local read, which the document lock allows.
 	err = contexts.Update(root, func(current contexts.Document) (contexts.Document, error) {
 		replanned, err := planRemoval(current, account, key)
 		if err != nil {
@@ -165,6 +172,13 @@ func (s Shell) identityRemoveProduct(command *cobra.Command, account, key string
 		}
 		for _, access := range replanned.unreached {
 			if !ended[access.SessionRef] {
+				return current, documentChangedDuringRemoval()
+			}
+			present, err := store.Stored(access.SessionRef)
+			if err != nil {
+				return current, err
+			}
+			if present {
 				return current, documentChangedDuringRemoval()
 			}
 		}
@@ -330,7 +344,8 @@ func recordNotHeld(account, key string, recorded []string) problem.Problem {
 
 // documentChangedDuringRemoval refuses to drop a record when the document
 // changed, between ending the sessions and writing, in a way that would leave
-// a session behind that this run did not end.
+// a session behind: either the document now names a session this run did not
+// end, or a session was stored again under one it did.
 func documentChangedDuringRemoval() problem.Problem {
 	return problem.New(problem.CategoryUsage, "contexts.document_busy",
 		"the context document changed while the product's sessions were being ended").
