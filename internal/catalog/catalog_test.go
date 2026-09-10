@@ -137,6 +137,21 @@ func TestGenerateRefusesWhatCannotBePublished(t *testing.T) {
 			Modules:   []catalog.Declaration{{SchemaVersion: 99, Namespace: "reference"}},
 			Published: map[string]catalog.Release{tag: sound},
 		},
+		// A title is printed into a user's terminal by every shell carrying the
+		// index, so one that could move the cursor or paint the screen is refused
+		// where it is published rather than trusted where it is read.
+		"a title carrying a control character": {
+			Tags: []string{tag},
+			Modules: []catalog.Declaration{{SchemaVersion: catalog.SchemaVersion, Namespace: "reference",
+				Title: "Reference\x1b[2J"}},
+			Published: map[string]catalog.Release{tag: sound},
+		},
+		"a title longer than a help line holds": {
+			Tags: []string{tag},
+			Modules: []catalog.Declaration{{SchemaVersion: catalog.SchemaVersion, Namespace: "reference",
+				Title: strings.Repeat("r", catalog.MaxTitleLength+1)}},
+			Published: map[string]catalog.Release{tag: sound},
+		},
 	}
 
 	for name, input := range cases {
@@ -155,6 +170,68 @@ func TestGenerateRefusesWhatCannotBePublished(t *testing.T) {
 		Published: map[string]catalog.Release{tag: sound},
 	}); err != nil {
 		t.Fatalf("generating over a sound input returned %v", err)
+	}
+}
+
+// The help page names a product by the title its module declares, and reads it
+// from the index, so the title has to reach the index a shell release carries a
+// copy of. A module that declares none keeps the key out of the index entirely.
+func TestGenerateCarriesTheDeclaredTitleIntoTheIndex(t *testing.T) {
+	sound := catalog.Release{
+		Compatibility: modules.Compatibility{Shell: ">=0.1.0 <2.0.0", ProtocolVersions: []int{1}},
+		Artifacts: []catalog.Artifact{{
+			Platform: modules.Platform{OS: "linux", Arch: "amd64"},
+			URL:      "https://downloads.example.invalid/product.tar.gz",
+			Size:     1024,
+			SHA256:   validDigest,
+		}},
+	}
+	generated, err := catalog.Generate(catalog.Input{
+		Tags: []string{"api/v1.0.0", "reference/v1.0.0"},
+		Modules: []catalog.Declaration{
+			{SchemaVersion: catalog.SchemaVersion, Namespace: "api", Title: "API Platform"},
+			{SchemaVersion: catalog.SchemaVersion, Namespace: "reference"},
+		},
+		Published: map[string]catalog.Release{"api/v1.0.0": sound, "reference/v1.0.0": sound},
+	})
+	if err != nil {
+		t.Fatalf("generating returned %v", err)
+	}
+	files, err := generated.Files()
+	if err != nil {
+		t.Fatalf("rendering the catalog returned %v", err)
+	}
+	index := string(files[0].Content)
+
+	const want = `{
+  "schemaVersion": 1,
+  "modules": [
+    {
+      "namespace": "api",
+      "title": "API Platform",
+      "path": "modules/api.json",
+      "channels": [
+        {
+          "channel": "stable",
+          "version": "1.0.0"
+        }
+      ]
+    },
+    {
+      "namespace": "reference",
+      "path": "modules/reference.json",
+      "channels": [
+        {
+          "channel": "stable",
+          "version": "1.0.0"
+        }
+      ]
+    }
+  ]
+}
+`
+	if index != want {
+		t.Errorf("the rendered index is\n%s\nwant\n%s", index, want)
 	}
 }
 

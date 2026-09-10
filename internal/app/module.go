@@ -38,16 +38,15 @@ const catalogTimeout = 10 * time.Minute
 
 // The way back from each subcommand's usage refusals.
 const (
-	moduleAvailableUsage = "Run wso2 product available."
-	moduleListUsage      = "Run wso2 product list."
-	moduleInstallUsage   = "Run wso2 product install <product> [--channel <channel>], " +
+	moduleListUsage    = "Run wso2 product list."
+	moduleInstallUsage = "Run wso2 product install <product> [--channel <channel>], " +
 		"or wso2 product install <product>@<version> to pin an exact version."
 	moduleRemoveUsage = "Run wso2 product remove <product> [--yes] [--dry-run] [--no-input]."
 	moduleUpdateUsage = "Run wso2 product update <product> [--yes] [--dry-run] [--no-input], " +
 		"or wso2 product update --all [--yes] [--dry-run] [--no-input]."
 )
 
-const moduleRecovery = "Run wso2 product available to see what can be installed, " +
+const moduleRecovery = "Run wso2 product list to see what is installed and what can be, " +
 	"wso2 product install <product> to install one, wso2 product update --all to update what is " +
 	"installed, or wso2 product remove <product> to take one off this machine."
 
@@ -98,32 +97,39 @@ func (s Shell) productCommand() *cobra.Command {
 	return command
 }
 
+// moduleAvailableCommand keeps wso2 product available working as the deprecated
+// spelling of wso2 product list, which ADR 0015 merged it into.
+//
+// It is hidden, so help teaches only the one word, and it says so on the
+// diagnostic stream for the reason moduleAliasCommand does: an alias that works
+// silently teaches nobody the new word. The notice repeats the path as typed,
+// so under wso2 module it does not correct a spelling the user never wrote. Its
+// refusals name wso2 product list, since that is the command a corrected
+// invocation should run.
 func (s Shell) moduleAvailableCommand() *cobra.Command {
-	command := &cobra.Command{
-		Use:   "available",
-		Short: "List the products the catalog publishes.",
-		Args:  noArguments(moduleAvailableUsage),
-		RunE: func(command *cobra.Command, args []string) error {
-			return s.moduleAvailable()
-		},
+	command := s.moduleListCommand()
+	command.Use = "available"
+	command.Short = "Deprecated spelling of wso2 product list."
+	command.Hidden = true
+	command.RunE = func(command *cobra.Command, args []string) error {
+		_, _ = fmt.Fprintf(s.Streams.Err,
+			"%s is now wso2 product list; run wso2 product list instead.\n", command.CommandPath())
+		return s.moduleList()
 	}
-	// Every module subcommand recovers with its own usage line, so a mistyped
-	// flag here names this command rather than the shell's general help.
-	command.SetFlagErrorFunc(func(command *cobra.Command, err error) error {
-		return flagProblemWithRecovery(command, err, moduleAvailableUsage)
-	})
 	return command
 }
 
 func (s Shell) moduleListCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "list",
-		Short: "Report the installed products and which have an update available.",
+		Short: "List every product: the installed version, and the update or install available.",
 		Args:  noArguments(moduleListUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.moduleList()
 		},
 	}
+	// Every module subcommand recovers with its own usage line, so a mistyped
+	// flag here names this command rather than the shell's general help.
 	command.SetFlagErrorFunc(func(command *cobra.Command, err error) error {
 		return flagProblemWithRecovery(command, err, moduleListUsage)
 	})
@@ -471,52 +477,15 @@ func (s Shell) installer() (install.Installer, error) {
 	}, nil
 }
 
-// moduleAvailable lists the product modules the catalog publishes, so what can
-// be installed is discoverable from the shell rather than from documentation.
-//
-// It costs one request: the index carries the latest version on each channel
-// for every namespace, and nothing here selects a specific version.
-func (s Shell) moduleAvailable() error {
-	installer, err := s.installer()
-	if err != nil {
-		return err
-	}
-	// Same reason the install log names it: the origin is read from an
-	// environment variable, so a listing that comes back short or empty is
-	// unreadable without the catalog it came from.
-	s.log.Debug("listing the catalog",
-		"catalog_origin", installer.Client.Origin)
-	ctx, cancel := context.WithTimeout(context.Background(), catalogTimeout)
-	defer cancel()
-	available, err := installer.Available(ctx)
-	if err != nil {
-		return err
-	}
-
-	if len(available) == 0 {
-		_, err := fmt.Fprintln(s.Streams.Out, "The module catalog publishes no modules.")
-		return err
-	}
-	table := output.NewTable("product", "channel", "version")
-	for _, module := range available {
-		for _, channel := range module.Channels {
-			table.Append(module.Namespace, channel.Channel, "v"+channel.Version)
-		}
-	}
-	if err := table.Render(s.Streams.Out); err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(s.Streams.Out,
-		"\nRun wso2 product install <product> to install one.")
-	return err
-}
-
-// moduleList reports the installed modules and which of them have an update
-// available on the channel each one follows.
+// moduleList names every product the catalog publishes or this machine has
+// installed: the installed version or none, the channel each follows, and the
+// update available on it. ADR 0015 merged wso2 product available into this
+// table, so a product that is not installed is a row saying what installing it
+// would take.
 //
 // The whole report costs one request whatever is installed, because the index
 // carries the latest version per channel and no version history is fetched: a
-// check selects nothing, and selecting is what a history is for.
+// listing selects nothing, and selecting is what a history is for.
 func (s Shell) moduleList() error {
 	installer, err := s.installer()
 	if err != nil {
@@ -525,11 +494,11 @@ func (s Shell) moduleList() error {
 	// The update column is an answer about a catalog, so it is unreadable
 	// without the one that answered — and this command reaches the network for
 	// the same origin an install would.
-	s.log.Debug("checking installed modules against the catalog",
+	s.log.Debug("listing products against the catalog",
 		"catalog_origin", installer.Client.Origin)
 	ctx, cancel := context.WithTimeout(context.Background(), catalogTimeout)
 	defer cancel()
-	statuses, err := installer.Check(ctx)
+	statuses, err := installer.List(ctx)
 	if err != nil {
 		var unreachable problem.Problem
 		if !errors.As(err, &unreachable) || unreachable.Code != "catalog.origin_unreachable" {
@@ -542,18 +511,17 @@ func (s Shell) moduleList() error {
 		// downgraded to a diagnostic (fix round 2, F4). The run exits 0: the
 		// stderr warning, not the exit code, is where the degraded half is
 		// reported, the same contract a corrupt preferences document already
-		// has. wso2 product available, whose whole question is the catalog,
-		// still fails outright.
+		// has.
 		return s.moduleListOffline(installer, unreachable)
 	}
 
 	if len(statuses) == 0 {
-		_, err := fmt.Fprintln(s.Streams.Out, "No products are installed.")
+		_, err := fmt.Fprintln(s.Streams.Out, "No products are installed, and the catalog publishes none.")
 		return err
 	}
 	table := output.NewTable("product", "installed", "channel", "update")
 	for _, status := range statuses {
-		table.Append(status.Namespace, "v"+status.Installed, channelColumn(status), updateColumn(status))
+		table.Append(status.Namespace, installedColumn(status), channelColumn(status), updateColumn(status))
 	}
 	if err := table.Render(s.Streams.Out); err != nil {
 		return err
@@ -576,32 +544,37 @@ func (s Shell) moduleList() error {
 // been asked about: nothing was asked, which is a different fact from "the
 // catalog publishes nothing", and reusing the unpublished wording would claim
 // the catalog answered. A pin is a local fact, so it is still reported. The
-// summary lines are omitted — every one of them is a claim about the catalog's
-// answer — and the warning beneath the table is what accounts for the missing
-// column, carrying the same recovery the hard failure would have (which names
-// wso2 config unset when the "catalog-origin" preference chose the origin).
+// products the catalog publishes and this machine does not have cannot be
+// listed at all, and the summary lines are omitted — every one of them is a
+// claim about the catalog's answer. The warning is what accounts for both,
+// carrying the same recovery the hard failure would have (which names wso2
+// config unset when the "catalog-origin" preference chose the origin). It is
+// given even when nothing is installed, because there it is all that stops an
+// empty report reading as "the catalog offers nothing".
 func (s Shell) moduleListOffline(installer install.Installer, unreachable problem.Problem) error {
 	statuses, err := installer.CheckLocal()
 	if err != nil {
 		return err
 	}
 	if len(statuses) == 0 {
-		_, err := fmt.Fprintln(s.Streams.Out, "No products are installed.")
-		return err
-	}
-	table := output.NewTable("product", "installed", "channel", "update")
-	for _, status := range statuses {
-		update := "unknown"
-		if status.Pinned {
-			update = "pinned to v" + status.PinnedVersion
+		if _, err := fmt.Fprintln(s.Streams.Out, "No products are installed."); err != nil {
+			return err
 		}
-		table.Append(status.Namespace, "v"+status.Installed, channelColumn(status), update)
-	}
-	if err := table.Render(s.Streams.Out); err != nil {
-		return err
+	} else {
+		table := output.NewTable("product", "installed", "channel", "update")
+		for _, status := range statuses {
+			update := "unknown"
+			if status.Pinned {
+				update = "pinned to v" + status.PinnedVersion
+			}
+			table.Append(status.Namespace, installedColumn(status), channelColumn(status), update)
+		}
+		if err := table.Render(s.Streams.Out); err != nil {
+			return err
+		}
 	}
 	output.Diagnostic(s.Streams.Err, problem.New(problem.CategoryModuleProcess, unreachable.Code,
-		"the module catalog could not be reached, so update availability is unknown").
+		"the module catalog could not be reached, so update availability and the products it offers are unknown").
 		WithRecovery(unreachable.Recovery))
 	return nil
 }
@@ -631,12 +604,19 @@ const (
 	stateUnpublished
 	// stateCurrent is at the newest version its channel publishes.
 	stateCurrent
+	// stateNotInstalled is published by the catalog and absent from this
+	// machine, so Available is what a plain install would take.
+	stateNotInstalled
 )
 
-// stateOf classifies one module. The order matters: a pin overrides the channel
-// (catalog.Policy documents that), so it is asked about first.
+// stateOf classifies one module. The order matters: a module that is not
+// installed has no pin or installed version for the rest to be about, and a
+// pin overrides the channel (catalog.Policy documents that), so those two are
+// asked about first.
 func stateOf(status install.Status) moduleState {
 	switch {
+	case status.Installed == "":
+		return stateNotInstalled
 	case status.Pinned:
 		return statePinned
 	case status.Update:
@@ -648,7 +628,7 @@ func stateOf(status install.Status) moduleState {
 	}
 }
 
-// listSummary accounts for every installed module beneath the table.
+// listSummary accounts for every module beneath the table.
 //
 // It returns one line per state that has any modules in it, so nothing is
 // folded into a claim that is not true of it, and it names a command wherever
@@ -656,14 +636,33 @@ func stateOf(status install.Status) moduleState {
 // where the user put it, and there is nothing to do about it.
 //
 // The short, reassuring line survives for the case it is right for — every
-// module genuinely at the newest version its channel publishes — because that
-// case is the common one.
+// installed module genuinely at the newest version its channel publishes —
+// because that case is the common one. Products that are not installed are
+// counted on a line of their own, so they neither spoil that line nor are
+// folded into it.
 func listSummary(statuses []install.Status) []string {
 	counts := map[moduleState]int{}
+	var notInstalled []install.Status
 	for _, status := range statuses {
-		counts[stateOf(status)]++
+		state := stateOf(status)
+		counts[state]++
+		if state == stateNotInstalled {
+			notInstalled = append(notInstalled, status)
+		}
 	}
-	if counts[stateCurrent] == len(statuses) {
+	lines := installedSummary(counts, len(statuses)-len(notInstalled))
+	if len(notInstalled) > 0 {
+		lines = append(lines, notInstalledLine(notInstalled))
+	}
+	return lines
+}
+
+// installedSummary is listSummary's account of the installed modules alone.
+func installedSummary(counts map[moduleState]int, installed int) []string {
+	if installed == 0 {
+		return nil
+	}
+	if counts[stateCurrent] == installed {
 		return []string{"Every installed product is current."}
 	}
 
@@ -684,13 +683,66 @@ func listSummary(statuses []install.Status) []string {
 	}
 	if n := counts[stateUnpublished]; n > 0 {
 		lines = append(lines, fmt.Sprintf(
-			"%d %s not published on the channel %s, so whether %s current is unknown. "+
-				"Run wso2 product available to see what the catalog publishes.",
+			"%d %s not published on the channel %s, so whether %s current is unknown. %s",
 			n, pluralize(n, "product is", "products are"),
 			pluralize(n, "it follows", "they follow"),
-			pluralize(n, "it is", "they are")))
+			pluralize(n, "it is", "they are"),
+			followPublishedChannel("<product>")))
 	}
 	return lines
+}
+
+// notInstalledLine counts the products the catalog publishes that are not
+// installed and names the command that installs one. A lone product is named
+// outright, with the channel flag it needs; several share a placeholder, and
+// the flag is spelled out with the products reachable only through it.
+func notInstalledLine(statuses []install.Status) string {
+	if len(statuses) == 1 {
+		return fmt.Sprintf("1 product is not installed. Run %s to install it.", installCommand(statuses[0]))
+	}
+	line := fmt.Sprintf("%d products are not installed. Run wso2 product install <product> to install one",
+		len(statuses))
+	var channels []string
+	products := map[string][]string{}
+	for _, status := range statuses {
+		if status.Channel == catalog.ChannelStable {
+			continue
+		}
+		if products[status.Channel] == nil {
+			channels = append(channels, status.Channel)
+		}
+		products[status.Channel] = append(products[status.Channel], status.Namespace)
+	}
+	if len(channels) == 0 {
+		return line + "."
+	}
+	flags := make([]string, 0, len(channels))
+	for _, channel := range channels {
+		flags = append(flags, fmt.Sprintf("--channel %s for %s", channel, strings.Join(products[channel], ", ")))
+	}
+	return fmt.Sprintf("%s, adding %s.", line, strings.Join(flags, " and "))
+}
+
+// followPublishedChannel is the way out for a module whose channel publishes
+// nothing, shared by the list summary and both update renderings so they cannot
+// name different ones. wso2 product list names a product once, on the channel
+// it follows, so it cannot answer where else one is published; an install
+// naming a channel either moves the module onto one that publishes it or is
+// refused with the channels that do.
+func followPublishedChannel(product string) string {
+	return "Run wso2 product install " + product +
+		" --channel <channel> to follow a channel that publishes it."
+}
+
+// installCommand is the install that takes what a not-installed row offers. A
+// plain install follows stable, so any other channel the row names has to be
+// asked for.
+func installCommand(status install.Status) string {
+	command := "wso2 product install " + status.Namespace
+	if status.Channel != catalog.ChannelStable {
+		command += " --channel " + status.Channel
+	}
+	return command
 }
 
 // pluralize chooses the clause that agrees with a count. Each summary line
@@ -718,11 +770,22 @@ func channelColumn(status install.Status) string {
 	return status.Channel
 }
 
+// installedColumn names the installed version, or says nothing for a product
+// the catalog publishes and this machine does not have.
+func installedColumn(status install.Status) string {
+	if status.Installed == "" {
+		return "—"
+	}
+	return "v" + status.Installed
+}
+
 // updateColumn says what is available for one module in the terms that decide
-// it: an update to take, a pin holding it where it is, or a channel the catalog
-// publishes nothing on.
+// it: an update to take, a pin holding it where it is, a channel the catalog
+// publishes nothing on, or the version an install would take.
 func updateColumn(status install.Status) string {
 	switch stateOf(status) {
+	case stateNotInstalled:
+		return "v" + status.Available + " to install"
 	case statePinned:
 		return "pinned to v" + status.PinnedVersion
 	case stateUpdatable:
@@ -877,8 +940,8 @@ func dryRunUpdateLine(status install.Status) string {
 			status.Namespace, status.PinnedVersion, status.Namespace)
 	case status.Available == "":
 		return fmt.Sprintf("The catalog publishes no version of %s on the %s channel, "+
-			"so whether v%s is up to date is unknown. Run wso2 product available to see what it publishes.",
-			status.Namespace, status.Channel, status.Installed)
+			"so whether v%s is up to date is unknown. %s",
+			status.Namespace, status.Channel, status.Installed, followPublishedChannel(status.Namespace))
 	case status.Update:
 		return fmt.Sprintf("%s would be updated from v%s to v%s.",
 			status.Namespace, status.Installed, status.Available)
@@ -904,8 +967,8 @@ func updateLine(outcome install.Outcome) (string, error) {
 			outcome.Namespace, outcome.From), outcome.Err
 	case install.ActionNotPublished:
 		return fmt.Sprintf("The catalog publishes no version of %s on the %s channel, "+
-			"so whether v%s is up to date is unknown. Run wso2 product available to see what it publishes.",
-			outcome.Namespace, outcome.Channel, outcome.From), nil
+			"so whether v%s is up to date is unknown. %s",
+			outcome.Namespace, outcome.Channel, outcome.From, followPublishedChannel(outcome.Namespace)), nil
 	default:
 		return fmt.Sprintf("%s is current at v%s.", outcome.Namespace, outcome.From), nil
 	}

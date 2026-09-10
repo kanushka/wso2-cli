@@ -35,7 +35,7 @@ const responseLimit = 8 << 20
 // requestTimeout bounds one management call.
 const requestTimeout = 30 * time.Second
 
-// Client calls one ThunderID deployment's management API.
+// Client calls one WSO2 API Platform deployment's management API.
 type Client struct {
 	// Endpoint is the deployment's base URL, as the context records it.
 	Endpoint string

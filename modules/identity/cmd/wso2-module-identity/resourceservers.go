@@ -137,8 +137,8 @@ func createResourceServer(
 			return report.
 				With("permissions", "Permissions", strings.Join(granted, " ")).
 				With(NextField, "Next", "The resource server was created and the permission "+
-					handle+" was refused. Add it with wso2 identity resource-servers create "+
-					"--permission, or in the deployment's console."), nil
+					handle+" was refused. Add it in the deployment's console, or delete the "+
+					"resource server and create it again with every --permission."), nil
 		}
 		granted = append(granted, handle)
 	}

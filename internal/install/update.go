@@ -19,6 +19,8 @@ package install
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/wso2/wso2-cli/internal/catalog"
 	"github.com/wso2/wso2-cli/internal/modules"
@@ -32,6 +34,8 @@ import (
 // newest version published on the followed channel.
 type Status struct {
 	Namespace string
+	// Installed is empty for a module List reports from the catalog alone,
+	// which is what a module that is not installed looks like.
 	Installed string
 	Channel   string
 	// PolicyChannel is the channel the policy actually records, empty when none
@@ -63,9 +67,10 @@ type Status struct {
 //
 // namespaces narrows the report to those modules, refusing exactly as Update
 // would if one of them is not installed (selectInstalled is shared with it).
-// Called with none, it reports every installed module — what wso2 product list
-// wants, and also what a --dry-run wso2 product update --all wants, since an
-// empty namespace list means "every module" for both.
+// Called with none, it reports every installed module — what a --dry-run
+// wso2 product update --all wants, since an empty namespace list means "every
+// module" there. wso2 product list wants the catalog's other modules as well,
+// and asks List.
 func (i Installer) Check(ctx context.Context, namespaces ...string) ([]Status, error) {
 	installed, _, err := i.Store.Inventory()
 	if err != nil {
@@ -376,12 +381,73 @@ func selectInstalled(installed []modules.Installed, namespaces []string) ([]modu
 	return selected, nil
 }
 
-// Available reports the modules the catalog publishes, in one index request, so
-// what can be installed is discoverable without reading documentation.
-func (i Installer) Available(ctx context.Context) ([]catalog.IndexModule, error) {
+// List reports every product this machine or the catalog knows, in one index
+// request: each installed module as Check reports it, and each module the
+// catalog publishes that is not installed, sorted by namespace.
+//
+// A module that is not installed has an empty Installed. Its Channel is the one
+// a plain install would follow — stable, unless the module publishes nothing
+// there — and Available is the newest version on it, so what can be installed
+// is discoverable without reading documentation. Unlike Check, List asks the
+// catalog even when nothing is installed, because half its answer is what the
+// catalog publishes.
+func (i Installer) List(ctx context.Context) ([]Status, error) {
+	installed, problems, err := i.Store.Inventory()
+	if err != nil {
+		return nil, err
+	}
 	index, err := i.Client.Index(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return index.Modules, nil
+	statuses, err := i.statuses(index, installed)
+	if err != nil {
+		return nil, err
+	}
+	present := map[string]bool{}
+	for _, entry := range installed {
+		present[entry.Namespace] = true
+	}
+	// A namespace that could not be read is still on this machine, so calling
+	// it not installed would be false. It is left out, as Check leaves it out,
+	// and wso2 version is what reports why it could not be read.
+	for _, broken := range problems {
+		present[broken.Namespace] = true
+	}
+	for _, module := range index.Modules {
+		if present[module.Namespace] {
+			continue
+		}
+		if status, ok := installable(module); ok {
+			statuses = append(statuses, status)
+		}
+	}
+	slices.SortFunc(statuses, func(a, b Status) int {
+		return strings.Compare(a.Namespace, b.Namespace)
+	})
+	return statuses, nil
+}
+
+// installable reports what a plain install of one published module would
+// follow and take. A plain install follows stable, so stable is named whenever
+// the module publishes there; a module published only on another channel names
+// that one, because only an install choosing it with --channel can reach it. A
+// module published on no channel at all has nothing to install and is not
+// reported.
+func installable(module catalog.IndexModule) (Status, bool) {
+	if len(module.Channels) == 0 {
+		return Status{}, false
+	}
+	published := module.Channels[0]
+	for _, channel := range module.Channels {
+		if channel.Channel == catalog.ChannelStable {
+			published = channel
+			break
+		}
+	}
+	return Status{
+		Namespace: module.Namespace,
+		Channel:   published.Channel,
+		Available: published.Version,
+	}, true
 }

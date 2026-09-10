@@ -288,6 +288,11 @@ func TestModuleRemoveOnAModuleThatIsNotInstalledDoesNotPromptFirst(t *testing.T)
 	}
 }
 
+// emptyCatalog is an index publishing nothing. wso2 product list asks the
+// catalog even when nothing is installed, so a test that runs it for some
+// other reason serves this rather than reaching the published catalog.
+const emptyCatalog = `{"schemaVersion":1,"modules":[]}`
+
 // catalogServing starts an origin that answers index.json with the given
 // body and points the shell environment at it for the duration of the test.
 func catalogServing(t *testing.T, body string) {
@@ -359,7 +364,7 @@ func TestModuleUpdateAllSkipsThePromptWhenEveryInstalledModuleIsPinned(t *testin
 	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
 	pinModule(t, shell, "reference", "0.1.0")
 	shell.Reader = failIfReadReader{t}
-	catalogServing(t, `{"schemaVersion":1,"modules":[]}`)
+	catalogServing(t, emptyCatalog)
 
 	if code := shell.Run([]string{"product", "update", "--all"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
@@ -467,7 +472,7 @@ func TestModuleUpdateAllReportsAModuleTheCatalogDoesNotPublish(t *testing.T) {
 	shell, out, errOut := newModuleShell(t)
 	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
 	shell.Reader = failIfReadReader{t}
-	catalogServing(t, `{"schemaVersion":1,"modules":[]}`)
+	catalogServing(t, emptyCatalog)
 
 	if code := shell.Run([]string{"product", "update", "--all", "--yes"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
@@ -685,7 +690,7 @@ func TestModuleListStillReportsInstalledModulesOffline(t *testing.T) {
 		!strings.Contains(errOut.String(), "catalog.origin_unreachable") {
 		t.Errorf("stderr does not diagnose the unreachable catalog:\n%s", errOut)
 	}
-	if !strings.Contains(errOut.String(), "update availability is unknown") {
+	if !strings.Contains(errOut.String(), "update availability and the products it offers are unknown") {
 		t.Errorf("the warning does not say what the failure cost:\n%s", errOut)
 	}
 }
@@ -716,18 +721,25 @@ func TestModuleListOfflineNamesTheConfigFixForAConfiguredOrigin(t *testing.T) {
 	}
 }
 
-// TestModuleAvailableStillFailsWhenTheCatalogIsUnreachable pins the boundary
-// of F4's degradation: wso2 product available's whole question is the catalog,
-// so with the origin unreachable there is no local half to answer and the
-// command keeps failing outright.
-func TestModuleAvailableStillFailsWhenTheCatalogIsUnreachable(t *testing.T) {
+// TestProductListOfflineWithNothingInstalledSaysWhatItCannotList pins F4's
+// contract where the local half is empty: nothing installed is still an
+// answer, so the run exits 0, and the warning says the products the catalog
+// would have listed are unknown rather than leaving an empty report to read as
+// "there are none".
+func TestProductListOfflineWithNothingInstalledSaysWhatItCannotList(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	t.Setenv(catalog.OriginEnvVar, unreachableCatalogOrigin(t))
 
-	if code := shell.Run([]string{"module", "available"}); code != exit.ModuleProcess {
-		t.Fatalf("exit code = %d, want %d; stdout: %s", code, exit.ModuleProcess, out)
+	if code := shell.Run([]string{"product", "list"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	requireRefusal(t, errOut.String(), "catalog.origin_unreachable")
+	if got := strings.TrimSpace(out.String()); got != "No products are installed." {
+		t.Errorf("stdout = %q", got)
+	}
+	if !strings.Contains(errOut.String(), "catalog.origin_unreachable") ||
+		!strings.Contains(errOut.String(), "the products it offers are unknown") {
+		t.Errorf("stderr does not say what the unreachable catalog left unknown:\n%s", errOut)
+	}
 }
 
 // TestModuleUpdateOfAPinnedModuleNamesTheClearingCommand pins the escape
@@ -780,6 +792,7 @@ func TestTheProductCommandReplacesModuleAndModuleStaysAsAnAlias(t *testing.T) {
 	// the word shadows nothing, and keeping it reserved stops a namespace
 	// claiming it later. ADR 0015.
 	shell, out, errOut := newShell(t)
+	catalogServing(t, emptyCatalog)
 	if code := shell.Run([]string{"product", "list"}); code != exit.OK {
 		t.Fatalf("wso2 product list exited %d: %s", code, errOut)
 	}
@@ -793,6 +806,7 @@ func TestTheModuleAliasIsMarkedDeprecated(t *testing.T) {
 	// An alias that says nothing teaches nobody the new word, and the old one
 	// then outlives the release that replaced it.
 	shell, _, errOut := newShell(t)
+	catalogServing(t, emptyCatalog)
 	if code := shell.Run([]string{"module", "list"}); code != exit.OK {
 		t.Fatalf("wso2 product list exited %d: %s", code, errOut)
 	}
@@ -820,10 +834,216 @@ func TestTheModuleAliasStillUpdatesAProduct(t *testing.T) {
 	}
 }
 
+// rowOf reports the table row naming one product, so an assertion about a
+// column is about that product's row and not about any line that happens to
+// contain the same words.
+func rowOf(t *testing.T, out, product string) []string {
+	t.Helper()
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[0] == product {
+			return fields
+		}
+	}
+	t.Fatalf("no row names %s:\n%s", product, out)
+	return nil
+}
+
+// TestProductListNamesAProductThatIsNotInstalled is ADR 0015's merge of
+// available into list: one table names every product the catalog publishes,
+// so a product that is not installed is a row of its own, with no installed
+// version, the channel a plain install would follow, and the version that
+// install would take.
+func TestProductListNamesAProductThatIsNotInstalled(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	catalogServing(t, `{"schemaVersion":1,"modules":[`+
+		`{"namespace":"reference","path":"reference","channels":`+
+		`[{"channel":"prerelease","version":"0.2.0-rc.1"},{"channel":"stable","version":"0.1.0"}]}]}`)
+
+	if code := shell.Run([]string{"product", "list"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	want := []string{"reference", "—", "stable", "v0.1.0", "to", "install"}
+	if row := rowOf(t, out.String(), "reference"); strings.Join(row, " ") != strings.Join(want, " ") {
+		t.Errorf("row = %q, want %q", row, want)
+	}
+	if !strings.Contains(out.String(),
+		"1 product is not installed. Run wso2 product install reference to install it.") {
+		t.Errorf("the summary does not name the install command:\n%s", out)
+	}
+}
+
+// TestProductListNamesTheChannelAPrereleaseOnlyProductNeeds pins that a
+// product published only on prerelease is listed, on that channel, with the
+// flag its install needs: a plain install follows stable and would be refused.
+func TestProductListNamesTheChannelAPrereleaseOnlyProductNeeds(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	catalogServing(t, `{"schemaVersion":1,"modules":[`+
+		`{"namespace":"beta","path":"beta","channels":[{"channel":"prerelease","version":"0.2.0-rc.1"}]}]}`)
+
+	if code := shell.Run([]string{"product", "list"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	want := []string{"beta", "—", "prerelease", "v0.2.0-rc.1", "to", "install"}
+	if row := rowOf(t, out.String(), "beta"); strings.Join(row, " ") != strings.Join(want, " ") {
+		t.Errorf("row = %q, want %q", row, want)
+	}
+	if !strings.Contains(out.String(),
+		"1 product is not installed. Run wso2 product install beta --channel prerelease to install it.") {
+		t.Errorf("the summary does not name the channel the install needs:\n%s", out)
+	}
+}
+
+// TestProductListReportsEveryStateInOneTable drives each state the merged
+// table distinguishes through the real command at once, so the rows sort
+// together and the summary accounts for every one of them.
+func TestProductListReportsEveryStateInOneTable(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	for _, namespace := range []string{"current", "orphan", "pinned", "updatable"} {
+		installFixture(t, shell, fixture.Module{Namespace: namespace, Version: "1.0.0"})
+	}
+	pinModule(t, shell, "pinned", "1.0.0")
+	catalogServing(t, `{"schemaVersion":1,"modules":[`+
+		`{"namespace":"updatable","path":"updatable","channels":[{"channel":"stable","version":"1.1.0"}]},`+
+		`{"namespace":"pinned","path":"pinned","channels":[{"channel":"stable","version":"1.1.0"}]},`+
+		`{"namespace":"current","path":"current","channels":[{"channel":"stable","version":"1.0.0"}]},`+
+		`{"namespace":"beta","path":"beta","channels":[{"channel":"prerelease","version":"0.2.0-rc.1"}]},`+
+		`{"namespace":"absent","path":"absent","channels":[{"channel":"stable","version":"2.0.0"}]}]}`)
+
+	if code := shell.Run([]string{"product", "list"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	rows := map[string]string{
+		"absent":    "absent — stable v2.0.0 to install",
+		"beta":      "beta — prerelease v0.2.0-rc.1 to install",
+		"current":   "current v1.0.0 stable current",
+		"orphan":    "orphan v1.0.0 stable not published",
+		"pinned":    "pinned v1.0.0 — pinned to v1.0.0",
+		"updatable": "updatable v1.0.0 stable v1.1.0 available",
+	}
+	for product, want := range rows {
+		if row := strings.Join(rowOf(t, out.String(), product), " "); row != want {
+			t.Errorf("row = %q, want %q", row, want)
+		}
+	}
+	var order []string
+	for _, line := range strings.Split(out.String(), "\n") {
+		if fields := strings.Fields(line); len(fields) > 0 && rows[fields[0]] != "" {
+			order = append(order, fields[0])
+		}
+	}
+	if got := strings.Join(order, " "); got != "absent beta current orphan pinned updatable" {
+		t.Errorf("rows are in the order %q, want them sorted by product", got)
+	}
+	for _, want := range []string{
+		"1 product has an update available. Run wso2 product update --all to take it.",
+		"1 product is current.",
+		"1 product is pinned and will not be updated.",
+		"1 product is not published on the channel it follows",
+		"2 products are not installed. Run wso2 product install <product> to install one, " +
+			"adding --channel prerelease for beta.",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the summary does not read %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestProductListOffersNothingItCannotInstallOrCallUninstalled pins the two
+// catalog entries that are not rows: a namespace on this machine whose
+// receipt cannot be read is still there, so calling it not installed would be
+// false (wso2 version reports why it cannot be read), and a namespace
+// published on no channel has nothing an install could take.
+func TestProductListOffersNothingItCannotInstallOrCallUninstalled(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "broken", Version: "1.0.0"})
+	store := modules.NewStore(storeRoot(shell))
+	if err := os.Remove(store.ReceiptPath("broken", "1.0.0")); err != nil {
+		t.Fatalf("removing the receipt returned %v", err)
+	}
+	catalogServing(t, `{"schemaVersion":1,"modules":[`+
+		`{"namespace":"broken","path":"broken","channels":[{"channel":"stable","version":"1.0.0"}]},`+
+		`{"namespace":"empty","path":"empty","channels":[]}]}`)
+
+	if code := shell.Run([]string{"product", "list"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	for _, product := range []string{"broken", "empty"} {
+		if strings.Contains(out.String(), product) {
+			t.Errorf("the list names %s:\n%s", product, out)
+		}
+	}
+}
+
+// TestProductListSaysWhenTheCatalogPublishesNothingAndNothingIsInstalled
+// pins the one table with no rows at all: both halves of the question have
+// an answer, and the answer to each is none.
+func TestProductListSaysWhenTheCatalogPublishesNothingAndNothingIsInstalled(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	catalogServing(t, emptyCatalog)
+
+	if code := shell.Run([]string{"product", "list"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if got := strings.TrimSpace(out.String()); got != "No products are installed, and the catalog publishes none." {
+		t.Errorf("stdout = %q", got)
+	}
+}
+
+// TestProductAvailableRunsTheMergedList pins the deprecated spelling ADR 0015
+// left behind: wso2 product available answers with the merged table, under
+// wso2 module as well, and names wso2 product list on the diagnostic stream
+// so a script parsing stdout is unaffected by the notice.
+func TestProductAvailableRunsTheMergedList(t *testing.T) {
+	for _, args := range [][]string{{"product", "available"}, {"module", "available"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			shell, out, errOut := newShell(t)
+			catalogServing(t, `{"schemaVersion":1,"modules":[`+
+				`{"namespace":"reference","path":"reference","channels":[{"channel":"stable","version":"0.1.0"}]}]}`)
+
+			if code := shell.Run(args); code != exit.OK {
+				t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+			}
+			if row := strings.Join(rowOf(t, out.String(), "reference"), " "); row != "reference — stable v0.1.0 to install" {
+				t.Errorf("row = %q, want the merged list's row", row)
+			}
+			// The notice repeats what was typed, so under wso2 module it does
+			// not correct a spelling the user never wrote.
+			typed := "wso2 " + strings.Join(args, " ")
+			if !strings.Contains(errOut.String(), typed+" is now wso2 product list") {
+				t.Errorf("stderr does not name %s and the command that replaced it:\n%s", typed, errOut)
+			}
+		})
+	}
+}
+
+// TestProductAvailableIsHiddenFromHelp pins that help teaches one word: the
+// deprecated spelling works, but a user reading the product family's help is
+// shown only list.
+func TestProductAvailableIsHiddenFromHelp(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	if code := shell.Run([]string{"product", "--help"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	commands := map[string]bool{}
+	for _, line := range strings.Split(out.String(), "\n") {
+		if fields := strings.Fields(line); len(fields) > 1 && strings.HasPrefix(line, " ") {
+			commands[fields[0]] = true
+		}
+	}
+	if commands["available"] {
+		t.Errorf("help still lists available as a command:\n%s", out)
+	}
+	if !commands["list"] {
+		t.Errorf("help does not list list as a command:\n%s", out)
+	}
+}
+
 func TestProductListReportsProductsNotModules(t *testing.T) {
 	// "Users install a product; contributors build a module; each word keeps
 	// one job." A table headed MODULE says the contributor's word to the user.
 	shell, out, errOut := newShell(t)
+	catalogServing(t, emptyCatalog)
 	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
 	if code := shell.Run([]string{"product", "list"}); code != exit.OK {
 		t.Fatalf("wso2 product list exited %d: %s", code, errOut)

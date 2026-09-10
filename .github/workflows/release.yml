@@ -67,6 +67,29 @@ jobs:
             go.mod
             sdk/go.mod
 
+      # The help page names every product this release knows about, offline, so
+      # the release carries a copy of the published catalog index (ADR 0015).
+      # It is the published document rather than one generated here, the way
+      # released-shell-protocols.sh reads the published shell: help must never
+      # advertise a product wso2 product install would then fail to find. The
+      # origin is catalog.DefaultOrigin, which a catalog test holds this URL to.
+      #
+      # The copy is proven to read back before anything is published: a shell
+      # built with it here must list every product it names. An unreachable,
+      # unreadable or empty index fails the release rather than shipping a help
+      # page that names nothing.
+      - name: Fetch and check the published catalog index
+        shell: bash
+        run: |
+          set -euo pipefail
+          index="$(curl -fsSL --retry 3 https://wso2.github.io/wso2-cli/index.json)"
+          encoded="$(printf '%s' "${index}" | base64 -w0)"
+          go build -trimpath \
+            -ldflags "-X github.com/wso2/wso2-cli/internal/catalog.releasedIndex=${encoded}" \
+            -o "${RUNNER_TEMP}/wso2-catalog-check" ./cmd/wso2
+          ./scripts/help-lists-released-catalog.sh "${RUNNER_TEMP}/wso2-catalog-check" "${encoded}"
+          echo "WSO2_RELEASED_CATALOG=${encoded}" >>"${GITHUB_ENV}"
+
       - name: Build and publish the release
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -167,3 +190,8 @@ jobs:
             exit 1
           fi
           echo "Protocol ${released_protocol} matches the declared window"
+
+          # The same read-back the copy passed before the build, asked of the
+          # published binary: it proves GoReleaser injected the copy, not only
+          # that the copy was sound.
+          "${GITHUB_WORKSPACE}/scripts/help-lists-released-catalog.sh" "${workdir}/wso2" "${WSO2_RELEASED_CATALOG}"

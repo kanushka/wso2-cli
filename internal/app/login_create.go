@@ -54,8 +54,7 @@ func (s Shell) loginCreating(flags loginFlags) error {
 	if err := refuseNonIssuerURL(flags.issuer); err != nil {
 		return err
 	}
-	name, err := loginIdentityName(flags)
-	if err != nil {
+	if err := checkLoginContextName(flags); err != nil {
 		return err
 	}
 	clientID, err := s.resolveClientID(flags)
@@ -63,6 +62,10 @@ func (s Shell) loginCreating(flags loginFlags) error {
 		return err
 	}
 	document, err := contexts.Load(root)
+	if err != nil {
+		return err
+	}
+	name, assigned, err := s.loginIdentityName(document, flags, clientID)
 	if err != nil {
 		return err
 	}
@@ -97,7 +100,7 @@ func (s Shell) loginCreating(flags loginFlags) error {
 		"issuer", flags.issuer, "client_id", clientID,
 		"document", contexts.Path(root))
 
-	written := loginWrite{Identity: name, Context: name}
+	written := loginWrite{Identity: name, Context: name, Assigned: assigned}
 	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
 		planned, err := planLogin(document, name, flags.issuer, clientID)
 		if err != nil {
@@ -179,38 +182,59 @@ type loginWrite struct {
 	// Selected reports that this context became the one commands run against,
 	// which happens for the first context on a machine and no other.
 	Selected bool
+	// Assigned reports that the shell chose the name, because neither
+	// --context nor an answer at the prompt did.
+	Assigned bool
 }
 
-// loginIdentityName is the name a creating login assigns.
+// loginIdentityName is the name a creating login writes, and whether the
+// shell assigned it rather than the user naming it.
 //
-// --context names it when given, and the issuer host derives it otherwise
-// (#112 D6). Either way one name serves the identity and the context: they are
-// created together by one command, and two names for one thing would be two
-// things for the user to remember about a target they named once.
-func loginIdentityName(flags loginFlags) (string, error) {
-	if flags.contextName == "" {
-		return contexts.IdentityNameForIssuer(flags.issuer)
+// --context names it when given. Without it, an account that already
+// authenticates against this issuer with this client is the one the login is
+// about, so re-running a login out of shell history refreshes that account
+// rather than growing another beside it. Only when none does is a new name
+// needed: the next free account-N, or what the user answers when something
+// may ask (#175). Either way one name serves the identity and the context:
+// they are created together by one command, and two names for one thing would
+// be two things for the user to remember about a target they named once.
+func (s Shell) loginIdentityName(document contexts.Document, flags loginFlags, clientID string) (
+	string, bool, error) {
+	if flags.contextName != "" {
+		return flags.contextName, false, nil
 	}
-	// Checked here rather than left to the document, for the reason
-	// contextCreate states: a name that never reached the file must not be
-	// reported as a malformed file.
-	if !contexts.ValidName(flags.contextName) {
-		return "", problem.New(problem.CategoryUsage, "shell.invalid_argument",
-			fmt.Sprintf("%q cannot be used as a context name", flags.contextName)).
-			WithRecovery(fmt.Sprintf("A context name is %s. %s", contexts.NameRule, loginUsageRecovery))
+	for _, declared := range document.Accounts {
+		if declared.Auth.Issuer == flags.issuer && declared.Auth.ClientID == clientID &&
+			declared.Auth.Kind == contexts.KindOAuthBrowser {
+			return declared.Name, false, nil
+		}
 	}
-	return flags.contextName, nil
+	name, chosen, err := s.askAccountName(document, flags.noInput)
+	return name, !chosen, err
+}
+
+// checkLoginContextName refuses a --context that cannot name a context.
+//
+// Checked before anything else is asked rather than left to the document, for
+// the reason contextCreate states: a name that never reached the file must not
+// be reported as a malformed file.
+func checkLoginContextName(flags loginFlags) error {
+	if flags.contextName == "" || contexts.ValidName(flags.contextName) {
+		return nil
+	}
+	return problem.New(problem.CategoryUsage, "shell.invalid_argument",
+		fmt.Sprintf("%q cannot be used as a context name", flags.contextName)).
+		WithRecovery(fmt.Sprintf("A context name is %s. %s", contexts.NameRule, loginUsageRecovery))
 }
 
 // refuseNonIssuerURL refuses a --url that is not one.
 //
 // A missing scheme is one of the two commonest first-run mistakes, and nothing
 // downstream reports it as one: url.Parse accepts "idp.customer.example" with
-// an empty host, so the derivation refuses a name it cannot make and never
-// mentions --url, and a --context that supplies the name sends the malformed
-// issuer to the OIDC client, which reports a discovery failure against the
-// issuer "of the selected context" when no context is selected. Two wrong
-// messages in a row for one typo, so it is caught where the value arrives.
+// an empty host, and the malformed issuer reaches the OIDC client, which
+// reports a discovery failure against the issuer "of the selected context"
+// when no context is selected. That is the wrong message for a typo, so it is
+// caught where the value arrives.
 //
 // Userinfo is refused here for a harder reason. The only other check on it is
 // the document's, which runs inside contexts.Update — after the login — so a
@@ -385,6 +409,11 @@ func (s Shell) reportLoginWrite(written loginWrite, identity contexts.Account) e
 		if _, err := fmt.Fprintf(s.Streams.Out, "\nCreated account %q and context %q.\n",
 			written.Identity, written.Context); err != nil {
 			return err
+		}
+		if written.Assigned {
+			if _, err := fmt.Fprintln(s.Streams.Out, assignedNameNote("--context", written.Identity)); err != nil {
+				return err
+			}
 		}
 	// Reached only if an identity of this name exists and a context of it does
 	// not. The document cannot be in that state today — validation refuses a

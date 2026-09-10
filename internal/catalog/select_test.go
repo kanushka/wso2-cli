@@ -40,8 +40,8 @@ func TestEmptyChannelRefusalNamesThePublishedChannels(t *testing.T) {
 	if typed.Code != "catalog.empty_channel" {
 		t.Errorf("code = %q, want catalog.empty_channel", typed.Code)
 	}
-	// The channels the module does publish on, so the user does not have to run
-	// wso2 product available to find out.
+	// The channels the module does publish on, which no command lists: wso2
+	// product list names each product on one channel only.
 	if !strings.Contains(typed.Recovery, ChannelPrerelease) {
 		t.Errorf("recovery does not name the published channel: %q", typed.Recovery)
 	}
