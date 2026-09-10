@@ -130,3 +130,24 @@ shipping them in one release costs users one migration rather than two.
 - Rendering the help list from a cached catalog index, refreshed whenever a
   command reaches the network, is self-updating and empty on a fresh machine,
   which is the same failure as the option above arriving later.
+
+## Amendment: the shell commands are split around the products
+
+The help page carries three sections rather than two. The shell commands a user
+starts with — `account`, `context`, `login`, `logout`, `org`, `product` and
+`whoami` — come first, the product section follows, and every other shell
+command comes last under its own heading. A product is what a user came for,
+and listing it after `config`, `doctor` and `version` buried it below commands
+most users never run. A shell command not named as core is listed under the last
+heading, so adding one cannot drop it from the page.
+
+The release's copy of the catalog is injected into the binary at build time
+rather than committed, because a committed copy would either be edited by the
+release job, which leaves the tree dirty for the release build, or go stale
+between releases. A development build carries none. The product section also
+names every installed product the copy does not know, such as one installed
+from a development origin, by the summary its declared command tree gives, so
+the page never omits a namespace the shell would dispatch. A product the copy
+knows only as a prerelease is left out, because install selects the stable
+channel. When the installed products cannot be read, the copy is listed
+unmarked and the page says it could not tell.

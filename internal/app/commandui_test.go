@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/wso2/wso2-cli/internal/app"
+	"github.com/wso2/wso2-cli/internal/catalog"
 	"github.com/wso2/wso2-cli/internal/exit"
 	"github.com/wso2/wso2-cli/internal/modules/fixture"
 	"github.com/wso2/wso2-cli/internal/output"
@@ -58,8 +59,8 @@ func TestHelpListsEveryShellCommand(t *testing.T) {
 	if strings.Contains(out.String(), "   module ") {
 		t.Errorf("help advertises the deprecated module spelling:\n%s", out)
 	}
-	if !strings.Contains(out.String(), "installed products") {
-		t.Errorf("help does not say product commands come from installed products:\n%s", out)
+	if !strings.Contains(out.String(), "Product commands") {
+		t.Errorf("help has no product commands section:\n%s", out)
 	}
 }
 
@@ -519,38 +520,145 @@ func referenceTree() commandtree.Tree {
 	})
 }
 
-// TestHelpListsTheInstalledModuleNamespaces pins the fix for the highest-rated
-// usability finding: a user who has just installed a module looks at help
-// first, and a footer that never mentioned the installation read as the
-// installation having failed.
-func TestHelpListsTheInstalledModuleNamespaces(t *testing.T) {
+// releasedWith sets the catalog index a test shell reports it was released
+// with, standing in for the copy a release build carries.
+func releasedWith(shell *app.Shell, products ...catalog.IndexModule) {
+	shell.ReleasedIndex = &catalog.Index{SchemaVersion: catalog.SchemaVersion, Modules: products}
+}
+
+// stable is a product the release's copy knows a stable version of.
+func stable(namespace, title string) catalog.IndexModule {
+	return catalog.IndexModule{Namespace: namespace, Title: title,
+		Channels: []catalog.IndexChannel{{Channel: catalog.ChannelStable, Version: "1.0.0"}}}
+}
+
+// TestHelpGroupsCoreProductAndOtherCommands pins the root page ADR 0015 asks
+// for: what a machine can reach, before anything is installed. The products a
+// release knows about sit between the shell commands a user starts with and the
+// ones they reach for later, each named by its title and marked when this
+// machine has not installed it. A product installed without being in the
+// release's copy — one installed from a development origin — is still listed,
+// named by its declared command tree.
+func TestHelpGroupsCoreProductAndOtherCommands(t *testing.T) {
 	shell, out, errOut := newShell(t)
-	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+	releasedWith(&shell,
+		stable("api", "API Platform"), stable("identity", "Identity"))
+	installFixture(t, shell, fixture.Module{Namespace: "identity", Version: "0.1.0"})
+	installFixture(t, shell, fixture.Module{
+		Namespace: "reference", Version: "0.1.0", CommandTree: referenceTree(),
+	})
 
 	if code := shell.Run([]string{"help"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	if !strings.Contains(out.String(), "Installed: reference") {
-		t.Errorf("help does not name the installed namespace:\n%s", out)
-	}
-	if !strings.Contains(out.String(), "wso2 <namespace> --help") {
-		t.Errorf("help does not say how to see a product's commands:\n%s", out)
+	const want = `Usage: wso2 <command> [arguments]
+
+Core commands
+   account       Record and inspect what an account reaches.
+   context       Create, select, and list the targets commands run against.
+   login         Log in, creating the account and context when an issuer is named.
+   logout        End the selected context's session.
+   org           Show and change the organization the selected context runs within.
+   product       Install, list, and update products from the catalog.
+   whoami        Show who is signed in, and to what context, account, and session.
+
+Product commands
+   api           API Platform (not installed)
+   identity      Identity
+   reference     Explore the reference product.
+
+Other commands
+   config        Show and change shell preferences.
+   doctor        Check the shell's context, secure-store, and session health.
+   help          Show the shell command tree.
+   version       Show the shell, protocol, and installed product versions.
+
+Flags
+      --context string   Use the named context instead of the selected one.
+  -h, --help             Show help for a command.
+  -o, --output string    Render results as table or json. (default "table")
+      --verbose          Write diagnostics about what the shell attempted to stderr.
+
+Run wso2 <product> --help to see an installed product's commands.
+Run wso2 product install <product> to install one marked not installed.
+`
+	if out.String() != want {
+		t.Errorf("help rendered\n%s\nwant\n%s", out, want)
 	}
 }
 
-// TestHelpSaysWhenNoModuleIsInstalled proves the footer stays truthful in the
-// empty state and points at the way out of it.
+// TestHelpSaysWhenNoModuleIsInstalled proves the product section stays
+// truthful when a build knows of no released product and nothing is installed,
+// which is a development build on a fresh machine, and points at the way out.
 func TestHelpSaysWhenNoModuleIsInstalled(t *testing.T) {
 	shell, out, errOut := newShell(t)
+	releasedWith(&shell)
 
 	if code := shell.Run([]string{"help"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	if !strings.Contains(out.String(), "None are installed") {
-		t.Errorf("help does not say no modules are installed:\n%s", out)
+	const want = "\nProduct commands\n" +
+		"   No products are installed. Run wso2 product available to see what can be.\n\nOther commands\n"
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("help does not say no products are installed:\n%s", out)
 	}
-	if !strings.Contains(out.String(), "wso2 product available") {
-		t.Errorf("help does not point at wso2 product available:\n%s", out)
+}
+
+// TestHelpOmitsAProductWithNoStableRelease proves help never advertises a
+// product wso2 product install would then fail to find: install selects the
+// stable channel, so a product the copy knows only as a prerelease is left out
+// rather than marked.
+func TestHelpOmitsAProductWithNoStableRelease(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	releasedWith(&shell,
+		catalog.IndexModule{Namespace: "api", Title: "API Platform",
+			Channels: []catalog.IndexChannel{{Channel: catalog.ChannelStable, Version: "1.0.0"}}},
+		catalog.IndexModule{Namespace: "agent", Title: "Agent Platform",
+			Channels: []catalog.IndexChannel{{Channel: catalog.ChannelPrerelease, Version: "0.1.0-rc.1"}}})
+
+	if code := shell.Run([]string{"help"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "   api ") {
+		t.Errorf("help does not list the product released on the stable channel:\n%s", out)
+	}
+	if strings.Contains(out.String(), "   agent ") {
+		t.Errorf("help lists a product with no stable release:\n%s", out)
+	}
+}
+
+// TestHelpSaysWhenItCannotTellWhatIsInstalled proves an unreadable store
+// costs the page its marks and says so, rather than listing every released
+// product as though it could be run.
+func TestHelpSaysWhenItCannotTellWhatIsInstalled(t *testing.T) {
+	t.Setenv(state.RootEnvVar, "relative/not-absolute")
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	shell := app.Shell{Streams: output.Streams{Out: out, Err: errOut}}
+	releasedWith(&shell, stable("api", "API Platform"))
+
+	if code := shell.Run([]string{"help"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "   api           API Platform\n") {
+		t.Errorf("help does not list the released product unmarked:\n%s", out)
+	}
+	if !strings.Contains(out.String(), "The installed products could not be read, so none is marked.\n") {
+		t.Errorf("help does not say the installed products are unknown:\n%s", out)
+	}
+}
+
+// TestHelpPrintsAReleasedTitleSanitized proves a title is printed as a name and
+// nothing more. The generator refuses a title that could drive a terminal, but
+// the shell prints what it carries, so it strips one all the same.
+func TestHelpPrintsAReleasedTitleSanitized(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	releasedWith(&shell, stable("api", "API\x1b[2J Platform\u202e"))
+
+	if code := shell.Run([]string{"help"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "   api           API[2J Platform (not installed)\n") {
+		t.Errorf("help did not print the title stripped of its control characters:\n%q", out)
 	}
 }
 

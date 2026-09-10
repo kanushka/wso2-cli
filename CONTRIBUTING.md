@@ -74,6 +74,16 @@ cd modules/reference && go build -ldflags "\
   -X github.com/wso2/wso2-cli/sdk/module.SDKVersion=0.1.0" ./cmd/wso2-module-reference
 ```
 
+A release build also injects `internal/catalog.releasedIndex`: the published
+`index.json`, base64-encoded, which `wso2 help` lists products from. The release
+workflow fetches it; a build without it lists only installed products. To see
+the help page a release would print:
+
+```shell
+go build -ldflags "-X github.com/wso2/wso2-cli/internal/catalog.releasedIndex=$(
+  curl -fsSL https://wso2.github.io/wso2-cli/index.json | base64 | tr -d '\n')" ./cmd/wso2
+```
+
 Every Go file begins with the Apache-2.0 license header, followed by a blank
 line so the header does not become package documentation. A test in
 `internal/boundaries` enforces both.
