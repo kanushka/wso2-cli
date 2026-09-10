@@ -435,12 +435,12 @@ func TestTheAvailableModulesCanBeListedFromTheShell(t *testing.T) {
 
 	// A plain install follows stable, so that is the version each row offers,
 	// even for a product with a newer prerelease.
-	for _, want := range []string{
-		catalogNamespace + " — stable v4.5.0 to install",
-		catalogOtherNamespace + " — stable v1.0.0 to install",
+	for product, want := range map[string]string{
+		catalogNamespace:      catalogNamespace + " — stable v4.5.0 to install",
+		catalogOtherNamespace: catalogOtherNamespace + " — stable v1.0.0 to install",
 	} {
-		if !strings.Contains(strings.Join(strings.Fields(stdout), " "), want) {
-			t.Errorf("the catalog listing does not read %q:\n%s", want, stdout)
+		if row := tableRow(stdout, product); row != want {
+			t.Errorf("the catalog listing's %s row is %q, want %q:\n%s", product, row, want, stdout)
 		}
 	}
 	if got := origin.totalRequests(); got != 1 {
