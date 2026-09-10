@@ -50,7 +50,7 @@ func hostPlatformOptions() catalogOptions {
 // streams and the exit error.
 func installModuleFrom(shell, stateRoot, origin string, args ...string) (string, string, error) {
 	environment := shellEnvironment(stateRoot, catalog.OriginEnvVar+"="+origin)
-	return runShellWith(shell, environment, append([]string{"module", "install"}, args...)...)
+	return runShellWith(shell, environment, append([]string{"product", "install"}, args...)...)
 }
 
 // installedVersion reports the version of a namespace the store has active.
@@ -454,9 +454,9 @@ func TestAChannelSelectionTakesTheNewestOnThatChannel(t *testing.T) {
 // internal/output's own unit tests: running module install non-interactively
 // (this harness always pipes both streams, so IsTerminal is false for
 // either) with --verbose must add the download's periodic progress lines to
-// stderr and must never change what stdout renders. wso2 module install does
+// stderr and must never change what stdout renders. wso2 product install does
 // not support --output at all — it is refused outright, confirmed by hand
-// (`wso2 module install <module> --output json` exits 64 with
+// (`wso2 product install <product> --output json` exits 64 with
 // shell.unsupported_flag) because the module family in internal/app/module.go
 // "module" case returns nil — so this is the applicable analogue of a
 // "--output json is unaffected" test for this command family: stdout is a
@@ -521,7 +521,7 @@ func TestAnInstallReportsThePinItCreatesAndThePinItClears(t *testing.T) {
 	if !strings.Contains(stdout, "Pinned reference to v4.4.0.") {
 		t.Errorf("the pinning install does not say a pin was created:\n%s", stdout)
 	}
-	if !strings.Contains(stdout, "run wso2 module install reference to clear it") {
+	if !strings.Contains(stdout, "run wso2 product install reference to clear it") {
 		t.Errorf("the pinning install does not name the command that clears the pin:\n%s", stdout)
 	}
 
