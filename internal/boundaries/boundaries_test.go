@@ -793,6 +793,12 @@ var protectedIdentityTerms = []string{
 	"identity token", "Identity token", "identity tokens",
 	"Identity Server", "identity-server",
 	"wso2 identity %s is now wso2 account %s",
+	// "wso2 identity ..." is the product namespace's own command line, which
+	// ADR 0015 gave that word to. It is the one place the word is not the
+	// account concept, and a module naming its own commands has to use it.
+	"wso2 identity",
+	// The namespace argument of add-product, for the identity product itself.
+	"add-product <account> identity",
 }
 
 // TestNoUserVisibleStringCallsAnAccountAnIdentity holds the rename ADR 0015
