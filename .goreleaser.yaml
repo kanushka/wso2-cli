@@ -29,6 +29,10 @@ builds:
       # The shell version carries no leading "v": the version package prefixes
       # one for display, and its semantic-version parse reads the bare form.
       - -X github.com/wso2/wso2-cli/internal/version.shellVersion={{ .Version }}
+      # The published catalog index, base64-encoded, which the help page names
+      # products from (ADR 0015). The release workflow fetches it; a build
+      # without it, such as make release-snapshot, knows of no released product.
+      - -X github.com/wso2/wso2-cli/internal/catalog.releasedIndex={{ index .Env "WSO2_RELEASED_CATALOG" }}
     goos:
       - linux
       - darwin

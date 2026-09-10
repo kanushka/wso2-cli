@@ -12,7 +12,7 @@
 author edits it by hand afterwards.
 
 It is small, and every field in it is load-bearing. The release gate decides
-over one of them, the catalog publishes three, and installation copies two into
+over one of them, the catalog publishes four, and installation copies two into
 the local receipt the shell reads on every launch. This page states what each
 one means and what refuses when it is wrong.
 
@@ -20,6 +20,7 @@ one means and what refuses when it is wrong.
 {
   "schemaVersion": 1,
   "namespace": "api",
+  "title": "API Platform",
   "compatibility": {
     "shell": ">=0.1.0 <2.0.0",
     "protocolVersions": [2]
@@ -42,8 +43,9 @@ one means and what refuses when it is wrong.
 ## Who reads it
 
 Discovery reads every `modules/*/module.json` in the checkout. Catalog
-generation copies `compatibility` and `capabilities` into the published entry
-for each released version. Installation writes those same two into the module's
+generation copies `title` into the namespace's `index.json` entry, and
+`compatibility` and `capabilities` into the published entry for each released
+version. Installation writes those same two into the module's
 receipt, and from then on the shell answers from the receipt and never consults
 the manifest again.
 
@@ -73,6 +75,19 @@ format: a hyphenated namespace in a hand-written manifest is valid here.
 The namespace appears in five places and must agree in all of them: this field,
 `module.Options`, the executable name, the directory under `modules/`, and the
 release tag prefix.
+
+## `title`
+
+The product's short name, printed beside the namespace on the shell's root help
+page: `API Platform` for `api`. It is optional, and `make new-module` writes the
+namespace with an initial capital as a placeholder.
+
+Catalog generation copies it into `index.json`, and each shell release carries a
+copy of that file, so a title reaches users with the next shell release rather
+than with the module's. Generation refuses a title longer than 40 characters or
+one carrying a control or formatting character, because it is printed into a
+terminal and nothing attests to a catalog entry; the shell strips both again
+before printing it.
 
 ## `compatibility.shell`
 

@@ -31,6 +31,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/wso2/wso2-cli/internal/catalog"
 	"github.com/wso2/wso2-cli/internal/exit"
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/output"
@@ -65,6 +66,11 @@ type Shell struct {
 	// real terminal to hand it sets this to something else entirely — see
 	// mayPrompt in prompt.go for what that distinction is for.
 	Reader io.Reader
+
+	// ReleasedIndex is the catalog index the help page names products from. It is
+	// nil in production, which is the copy this binary was released with
+	// (catalog.ReleasedIndex); a test sets it to stand in for what a release knew.
+	ReleasedIndex *catalog.Index
 
 	// log is this invocation's diagnostic log. It is a pointer because the
 	// flag that turns it on is parsed after the command tree that the call

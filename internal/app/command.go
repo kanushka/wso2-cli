@@ -43,30 +43,27 @@ const (
 // left to Cobra's default layout. What Cobra supplies is that the command list
 // is walked from the real tree, so it cannot omit a command that exists.
 //
-// The product-commands footer is read from an annotation rather than written
-// here, because what it says depends on what is installed: productFooter fills
-// it in when a help page is rendered, and only then, so a command that never
-// shows help still reads no module store.
+// The root page's command sections and closing lines are read from annotations
+// rather than written here, because its product section depends on what is
+// installed: rootHelp fills them in when a help page is rendered, and only
+// then, so a command that never shows help still reads no module store.
 const helpTemplate = `Usage: {{.UseLine}}
 {{if .Long}}
 {{.Long}}
-{{end}}{{if .HasAvailableSubCommands}}
+{{end}}{{if not .HasParent}}{{.Annotations.commandSections}}{{else if .HasAvailableSubCommands}}
 Shell commands
 {{range .Commands}}{{if or .IsAvailableCommand (eq .Name "help")}}   {{rpad .Name .NamePadding}}   {{.Short}}
 {{end}}{{end}}{{end}}{{if .HasAvailableFlags}}
 Flags
-{{.Flags.FlagUsages}}{{end}}{{if not .HasParent}}
-{{.Annotations.productFooter}}
-{{end}}`
+{{.Flags.FlagUsages}}{{end}}{{if not .HasParent}}{{with .Annotations.productFooter}}
+{{.}}{{end}}{{end}}`
 
-// productFooterAnnotation names the root annotation the help template reads
-// the product-commands footer from.
-const productFooterAnnotation = "productFooter"
-
-// genericProductFooter is what the footer says when the module store cannot
-// say more. Help has to render whatever state the machine is in, so an
-// unreadable store costs the reader the listing, never the page.
-const genericProductFooter = "Product commands are provided by installed products."
+// The root annotations the help template reads its command sections and its
+// closing lines from.
+const (
+	commandSectionsAnnotation = "commandSections"
+	productFooterAnnotation   = "productFooter"
+)
 
 // rootCommand builds the shell's command tree.
 //
@@ -121,18 +118,27 @@ func (s Shell) rootCommand() *cobra.Command {
 	})
 	root.SetHelpTemplate(helpTemplate)
 	root.SetUsageTemplate(helpTemplate)
-	// The footer starts generic so that a usage render — which skips the help
-	// hook below — still has something truthful to say, and is filled in from
-	// the installed inventory only when a help page is actually shown. A user
-	// who has just installed a module looks at help first, and a footer that
-	// never mentioned the installation read as the installation having failed.
-	root.Annotations = map[string]string{productFooterAnnotation: genericProductFooter}
-	renderHelp := root.HelpFunc()
-	root.SetHelpFunc(func(command *cobra.Command, args []string) {
+	// The root page's sections are filled in from the installed inventory only
+	// when a help page is actually shown. A user who has just installed a
+	// module looks at help first, and a page that never mentioned the
+	// installation read as the installation having failed. A usage render
+	// shares the template, so it fills them in the same way rather than
+	// printing a root page with no command sections.
+	root.Annotations = map[string]string{}
+	fillRootPage := func(command *cobra.Command) {
 		if !command.HasParent() {
-			command.Annotations[productFooterAnnotation] = s.productFooter()
+			command.Annotations[commandSectionsAnnotation], command.Annotations[productFooterAnnotation] =
+				s.rootHelp(command)
 		}
+	}
+	renderHelp, renderUsage := root.HelpFunc(), root.UsageFunc()
+	root.SetHelpFunc(func(command *cobra.Command, args []string) {
+		fillRootPage(command)
 		renderHelp(command, args)
+	})
+	root.SetUsageFunc(func(command *cobra.Command) error {
+		fillRootPage(command)
+		return renderUsage(command)
 	})
 	root.SetOut(s.Streams.Out)
 	root.SetErr(s.Streams.Err)
@@ -181,30 +187,6 @@ func (s Shell) rootCommand() *cobra.Command {
 		}
 	}
 	return root
-}
-
-// productFooter renders the help page's product-commands footer from the same
-// receipts wso2 version reports from. Nothing is launched to do it, and a
-// store that cannot be read degrades to the generic footer: a broken state
-// root must not take the help page with it.
-func (s Shell) productFooter() string {
-	store, err := s.store()
-	if err != nil {
-		return genericProductFooter
-	}
-	installed, _, err := store.Inventory()
-	if err != nil {
-		return genericProductFooter
-	}
-	if len(installed) == 0 {
-		return genericProductFooter + " None are installed; run wso2 product available to see what can be."
-	}
-	namespaces := make([]string, 0, len(installed))
-	for _, entry := range installed {
-		namespaces = append(namespaces, entry.Namespace)
-	}
-	return fmt.Sprintf("%s Installed: %s.\nRun wso2 <namespace> --help to see a product's commands.",
-		genericProductFooter, strings.Join(namespaces, ", "))
 }
 
 // applyShellFlags refuses an unusable value for a shell-owned flag before any
