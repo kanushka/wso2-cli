@@ -13,7 +13,7 @@ The distinction between catalog refresh and module binary update remains an
 open decision. The lifecycle command names below are therefore provisional.
 
 These are built: `wso2 context create <name>`, `wso2 context use <context>`,
-`wso2 context list`, `wso2 context current`,
+`wso2 context list`, `wso2 context current`, `wso2 context show`,
 `wso2 account create <name>`, `wso2 account add-product <account>
 <namespace>`, `wso2 account remove-product <account> <namespace>`,
 `wso2 account list`, `wso2 <namespace> connect <url>`,
@@ -45,11 +45,12 @@ refusal is reported.
 | `wso2 org list` | Deferred (#112): no control-plane endpoint for enumerating organizations exists yet, and listing would need an access token before an organization is chosen, which the auth broker refuses. Typing it is refused as an unknown `wso2 org` subcommand, naming `current` and `use` as what the family supports. |
 | `wso2 org use <organization>` | Built today: sets the `Organization` field on the selected context through `contexts.Update`, and names which context it edited. The auth broker binds a minted token to a context's `Organization` and refuses when it is empty, so a session already signed in under the previous organization no longer matches — the command warns about that on standard error, in both renderings. It writes nothing, and does not migrate, invalidate, or re-mint a session. Refused with `shell.no_context_configured` when no context exists to edit, and with `auth.organization_switch_unsupported`, naming the provider, when the selected context's account authenticates against ThunderID or Identity Server, which have no organization to switch to: the auth broker would refuse every later command with the same code, so the value is refused at the flag instead. An empty value is allowed on those providers, because it clears the field rather than switching to an organization, and this command is the only writer of it: refusing that too would leave a context that already carries an organization unrepairable. |
 | `wso2 org current` | Built today: shows the organization the selected context runs within, read from `contexts.Context.Organization`. With no context configured it reports that state and exits 0, worded exactly as `wso2 context current`. A configured context with no organization set says so distinctly, rather than reporting the same blank field either state would otherwise share. |
-| `wso2 context` | With no subcommand, prints this family's help on standard output and exits 0: naming a family without a subcommand is an incomplete command, not a failed one, and every subcommand it names works. The help names `create`, `current`, `list` and `use`. A subcommand the family does not have is a different case and is still refused with `shell.unknown_command` and the usage exit class (#133), so a typo is never reported to a script as success. |
+| `wso2 context` | With no subcommand, prints this family's help on standard output and exits 0: naming a family without a subcommand is an incomplete command, not a failed one, and every subcommand it names works. The help names `create`, `current`, `list`, `show` and `use`. A subcommand the family does not have is a different case and is still refused with `shell.unknown_command` and the usage exit class (#133), so a typo is never reported to a script as success. |
 | `wso2 context create <name>` | Creates a context naming an account with `--account`, and optionally an organization and project with `--organization` and `--project`. It writes no credential and makes no network call, so an unreachable issuer or a misspelled organization is reported by the command that needs it rather than here. Creating a context whose name is taken is refused. The first context created becomes the selected one. |
 | `wso2 context list` | Lists saved cloud and on-premises contexts, marking the selected one. |
 | `wso2 context use <context>` | Selects the context used by default for later commands. |
 | `wso2 context current` | Shows the active context. |
+| `wso2 context show` | Built today: reports where the context document lives — inside the shell's state root, which `WSO2_HOME` overrides — and shows it whole: the schema version, the default context, every account it declares, and every context. The path is reported whether or not a document has been written there yet; `written: false` (JSON) or "No context document has been written yet" (table) says so rather than the command failing. Every account is rendered with its credential *source* — a secure-store reference or the environment variable a client-credentials account reads its secret from — never a credential value, which `contexts.Account` has nowhere to hold. It makes no network call and reads nothing from the secure store. |
 | `wso2 account` | With no subcommand, prints this family's help on standard output and exits 0: naming a family without a subcommand is an incomplete command, not a failed one, and every subcommand it names works. The help names `create`, `add-product`, `remove-product` and `list`. A subcommand the family does not have is a different case and is still refused with `shell.unknown_command` and the usage exit class (#133), so a typo is never reported to a script as success. |
 | `wso2 account create <name> --issuer <url> --client-id <id>` | Declares an account and a same-named context without logging in, and selects the context when none is selected. `--client-secret-variable <VAR>` makes it a client-credentials account that reads its secret from that variable at use; otherwise it is a browser account whose credential reference is its own name. `--provider` names `asgardeo`, `identity-server` or `thunder`, which decides how the shell narrows access. `--product <namespace> --endpoint <url> [--audience <uri>] [--scope <s>]...` records one product at the same time; the four belong together and are refused apart with `shell.conflicting_arguments`, and a Thunder account's product needs `--audience` because its login is bound to that resource. It is what a product module's bootstrap prints for you to run next. Nothing is written to the secure store and no network call is made. A name already declared is refused with `contexts.account_exists`. The output ends with the command to run next: `wso2 login` for a browser account, the product's `status` for a CI account. |
 | `wso2 account add-product <account> <namespace>` | Records a product the account reaches, with `--endpoint`, and optionally `--audience` and a comma-separated `--scopes`. It modifies an account `wso2 login` wrote and creates no account and no context: logging in is the only thing that creates an account. Nothing is written to the secure store and no network call is made, so the record is an assertion that the login's session reaches the product, checked by the first command that needs it. A namespace the account already records is refused with `contexts.product_exists`; `--replace` overwrites it, replacing the whole record rather than merging with it. An endpoint embedding user information is refused, and the rejected value is not echoed. `--grant jwt-bearer` or `--grant federated`, given with `--grant-issuer` and `--grant-client-id`, records a product reached at its own issuer instead of directly from the login session: a jwt-bearer grant presents an identity token from the login session to that issuer, narrowed by a comma-separated `--grant-scopes` (jwt-bearer only, refused with `shell.invalid_argument` under `federated`). Those assertion scopes decide which claims the identity token carries, so they decide what the product can map a role from: a product that reads groups from the assertion grants nothing at all when the scope carrying them was not among them, which looks from the command like the deployment refusing the user; a federated grant signs in at the product's own issuer as the named public client, through the same browser sign-on. `--grant-resource` names the resource indicator the grant's own session carries, when the issuer it runs at requires one. `--grant` without both `--grant-issuer` and `--grant-client-id` is refused with `shell.missing_required_flag`; a grant needs `--audience` too, the value the derived access is proved against. |
@@ -76,7 +77,7 @@ refusal is reported.
 | `wso2 bundle create` | Creates a platform-specific, self-installing offline bundle from catalog releases. |
 | `wso2 bundle inspect <file>` | Shows bundle contents without installing it. |
 | `wso2 bundle install <file>` | Imports a bundle when the WSO2 CLI is already installed. |
-| `wso2 doctor` | Built today: checks that the context document is valid, that the OS secure store is reachable, and that the selected context's account has a stored session. The session check covers the login record and every product record the account holds, a product's gateway record among them under its key (`apim/gateway`). It reports none, with the `wso2 login` pointer in its recovery column, when a record has no stored session at all and names the ones without one, because being logged out is the state a completed `wso2 logout` leaves behind, not a health fault; a session that is stored but cannot be read still fails. `--online` adds two more checks: that the OpenID configuration of every issuer the selected context's account names can be read — the check that finds a certificate this machine does not trust, refused as `auth.certificate_untrusted` with the same recovery a product command gives, or `auth.discovery_failed` for any other reason — and module catalog reachability; without it, `wso2 doctor` makes no network call. On an unconfigured machine, the secure-store and session checks report not-applicable rather than failure; on a context document that fails to decode or validate, the session check reports not-applicable too, because no credential reference can be resolved from it, while the secure-store check still runs since it never reads the document. The session check is also not-applicable for a client-credentials account, which acquires access inline and holds no session to check. Exits 0 when every check passes, is not-applicable, or reports none, otherwise the exit class of the most severe failing check, in this rank: secure-store, then the document, then the session, then (only under `--online`) the issuer, then the catalog — a rank this command defines and not the numeric order of the exit classes those checks carry. Receipt, module integrity, compatibility, and protocol status are not built yet; see [architecture](../architecture.md#14-operational-behavior-and-recovery). |
+| `wso2 doctor` | Built today: checks that the context document is valid, that the OS secure store is reachable, and that the selected context's account has a stored session. The context check's own detail names the document it checked — its path inside the shell's state root, which `WSO2_HOME` overrides — whichever way the check comes out; `wso2 context show` shows that same document whole. The session check covers the login record and every product record the account holds, a product's gateway record among them under its key (`apim/gateway`). It reports none, with the `wso2 login` pointer in its recovery column, when a record has no stored session at all and names the ones without one, because being logged out is the state a completed `wso2 logout` leaves behind, not a health fault; a session that is stored but cannot be read still fails. `--online` adds two more checks: that the OpenID configuration of every issuer the selected context's account names can be read — the check that finds a certificate this machine does not trust, refused as `auth.certificate_untrusted` with the same recovery a product command gives, or `auth.discovery_failed` for any other reason — and module catalog reachability; without it, `wso2 doctor` makes no network call. On an unconfigured machine, the secure-store and session checks report not-applicable rather than failure; on a context document that fails to decode or validate, the session check reports not-applicable too, because no credential reference can be resolved from it, while the secure-store check still runs since it never reads the document. The session check is also not-applicable for a client-credentials account, which acquires access inline and holds no session to check. Exits 0 when every check passes, is not-applicable, or reports none, otherwise the exit class of the most severe failing check, in this rank: secure-store, then the document, then the session, then (only under `--online`) the issuer, then the catalog — a rank this command defines and not the numeric order of the exit classes those checks carry. Receipt, module integrity, compatibility, and protocol status are not built yet; see [architecture](../architecture.md#14-operational-behavior-and-recovery). |
 
 `project` commands are intentionally not included yet. Product-specific
 projects, deployment, and runtime operations remain within their product
@@ -312,6 +313,39 @@ Project
 An account is created by `wso2 login`, not by a command of its own, so
 `--account` names one that already exists and a name that does not is refused
 with `contexts.unknown_account`.
+
+`wso2 context show` shows that same document whole, wherever it lives:
+
+```text
+$ wso2 context show
+Path      /home/alex/.wso2/cli/contexts.json
+Written   yes
+
+Schema version: 3
+Default context: cloud-us
+
+Accounts
+NAME         TYPE    KIND            ISSUER                CREDENTIAL SOURCE          PRODUCTS
+acme-cloud   cloud   oauth-browser   https://idp.example   secure store: acme-cloud   reference
+
+Contexts
+DEFAULT   NAME       ACCOUNT      ORGANIZATION   PROJECT
+*         cloud-us   acme-cloud   acme
+```
+
+On a machine nobody has logged in on yet, the path is still reported, naming
+what would need to change (`WSO2_HOME`) to point somewhere else:
+
+```text
+$ wso2 context show
+Path      /home/alex/.wso2/cli/contexts.json
+Written   no
+
+No context document has been written yet.
+
+Run wso2 context create <name> --account <account> [--organization <name>]
+[--project <name>].
+```
 
 ### Module inventory
 
