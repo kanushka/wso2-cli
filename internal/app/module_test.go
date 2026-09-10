@@ -534,9 +534,8 @@ func TestModuleUpdateAllDryRunReportsAnAvailableUpdateWithoutChanging(t *testing
 }
 
 // TestModuleUpdateNamedModuleDryRunReportsWithoutChanging covers --dry-run on
-// a named target, which parseUpdateArguments and reportUpdatePlan both accept
-// regardless of scope even though the confirmation gate itself only guards
-// --all.
+// a named target, which reportUpdatePlan accepts regardless of scope even
+// though the confirmation gate itself only guards --all.
 func TestModuleUpdateNamedModuleDryRunReportsWithoutChanging(t *testing.T) {
 	shell, out, errOut := newModuleShell(t)
 	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
@@ -593,10 +592,13 @@ func TestModuleUpdateUnknownFlagRecoveryNamesTheAcceptedFlags(t *testing.T) {
 func TestProductUpdateRejectsSeveralNamedProducts(t *testing.T) {
 	shell, out, errOut := newModuleShell(t)
 
-	if code := shell.Run([]string{"product", "update", "api", "identity"}); code != exit.Usage {
+	if code := shell.Run([]string{"product", "update", "api", "identity", "choreo"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
 	}
 	requireRefusal(t, errOut.String(), "shell.unexpected_argument")
+	if !strings.Contains(errOut.String(), "wso2 product update takes one argument, got 3") {
+		t.Errorf("the refusal does not report the command path and argument count:\n%s", errOut)
+	}
 	if !strings.Contains(errOut.String(), "wso2 product update <product>") ||
 		!strings.Contains(errOut.String(), "wso2 product update --all") {
 		t.Errorf("the refusal does not name the two accepted forms:\n%s", errOut)
@@ -796,6 +798,25 @@ func TestTheModuleAliasIsMarkedDeprecated(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "wso2 product") {
 		t.Fatalf("the deprecated alias does not name the command that replaced it:\n%s", errOut)
+	}
+}
+
+func TestTheModuleAliasStillUpdatesAProduct(t *testing.T) {
+	shell, out, errOut := newModuleShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+	shell.Reader = failIfReadReader{t}
+	catalogServing(t, `{"schemaVersion":1,"modules":[`+
+		`{"namespace":"reference","path":"reference","channels":`+
+		`[{"channel":"stable","version":"0.1.0"}]}]}`)
+
+	if code := shell.Run([]string{"module", "update", "reference"}); code != exit.OK {
+		t.Fatalf("wso2 module update exited %d: %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "reference is current at v0.1.0") {
+		t.Fatalf("the deprecated alias did not run product update:\n%s", out)
+	}
+	if !strings.Contains(errOut.String(), "wso2 module is the deprecated spelling of wso2 product") {
+		t.Fatalf("the deprecated alias did not emit its notice:\n%s", errOut)
 	}
 }
 

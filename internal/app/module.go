@@ -197,8 +197,7 @@ func (s Shell) moduleUpdateCommand() *cobra.Command {
 		Short: "Bring installed products to the newest version their channel publishes.",
 		// Not exactlyOneArgument or noArguments: this command takes zero or one
 		// product name, and which count is valid depends on --all, so the
-		// combination is checked in RunE once both are parsed, exactly as
-		// parseUpdateArguments used to check it by hand.
+		// combination is checked in RunE once both are parsed.
 		Args: cobra.ArbitraryArgs,
 		RunE: func(command *cobra.Command, args []string) error {
 			opts.namespaces = args
@@ -219,7 +218,7 @@ func (s Shell) moduleUpdateCommand() *cobra.Command {
 			}
 			if len(opts.namespaces) > 1 {
 				return problem.New(problem.CategoryUsage, "shell.unexpected_argument",
-					fmt.Sprintf("wso2 product update takes one product, got the extra product %q", opts.namespaces[1])).
+					fmt.Sprintf("%s takes one argument, got %d", command.CommandPath(), len(opts.namespaces))).
 					WithRecovery("Run wso2 product update <product>, or wso2 product update --all.")
 			}
 			return s.moduleUpdate(opts)
