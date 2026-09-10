@@ -37,6 +37,7 @@ func TestLogoutEndsEveryProductSession(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
 	installLogin(t, shell, thunderDoc(login.URL, product.URL))
+	followBrowser(&shell)
 	store := session.Store{StateRoot: shell.StateRoot}
 	for ref, issuer := range map[string]string{
 		credentialRef: login.URL,
