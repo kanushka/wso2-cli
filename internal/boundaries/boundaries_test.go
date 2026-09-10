@@ -799,6 +799,9 @@ var protectedIdentityTerms = []string{
 	"wso2 identity",
 	// The namespace argument of add-product, for the identity product itself.
 	"add-product <account> identity",
+	// The product the identity namespace reaches, named in its own prose. The
+	// rename turned it into "the account product", which names nothing.
+	"identity product",
 }
 
 // TestNoUserVisibleStringCallsAnAccountAnIdentity holds the rename ADR 0015
