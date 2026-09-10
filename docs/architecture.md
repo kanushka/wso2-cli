@@ -964,16 +964,16 @@ NAME   VERSION   PLATFORM
 api    v0.8.1    darwin/arm64
 
 $ wso2 product list
-MODULE   INSTALLED   CHANNEL   UPDATE
-api      v0.8.1      stable    v0.9.0 available
+PRODUCT   INSTALLED   CHANNEL   UPDATE
+api       v0.8.1      stable    v0.9.0 available
 
-1 module(s) have an update available. Run wso2 product update --all to take
-them.
+1 product has an update available. Run wso2 product update --all to take it.
 ```
 
 `wso2 version` reads receipts only: it never launches a module and never opens
-a network connection. `wso2 product list` reads the catalog index, and costs one
-request whatever is installed, because a check selects no version and a version
+a network connection. `wso2 product list` reads the catalog index, which also
+names the products that are not installed, and costs one request whatever is
+installed, because a check selects no version and a version
 history is what selecting is for. Neither report claims anything beyond the
 integrity facts above: the executable matches the digest in its receipt. There
 is no publisher or revocation state behind that to report, which is why

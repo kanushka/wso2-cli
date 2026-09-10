@@ -369,7 +369,7 @@ func TestEveryCommandFamilyAnswersABareNameWithHelp(t *testing.T) {
 	families := map[string]string{
 		"context": "create",
 		"account": "add-product",
-		"module":  "available",
+		"module":  "list",
 		"org":     "current",
 		"config":  "set",
 	}
@@ -598,7 +598,7 @@ func TestHelpSaysWhenNoModuleIsInstalled(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	const want = "\nProduct commands\n" +
-		"   No products are installed. Run wso2 product available to see what can be.\n\nOther commands\n"
+		"   No products are installed. Run wso2 product list to see what can be.\n\nOther commands\n"
 	if !strings.Contains(out.String(), want) {
 		t.Errorf("help does not say no products are installed:\n%s", out)
 	}

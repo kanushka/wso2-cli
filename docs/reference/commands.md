@@ -21,7 +21,7 @@ These are built: `wso2 context create <name>`, `wso2 context use <context>`,
 `wso2 login`,
 `wso2 login --url <issuer> --client-id <id>`, `wso2 login --only <namespace>`,
 `wso2 login --no-products`, `wso2 logout`, `wso2 whoami`, `wso2 doctor`,
-`wso2 product available`, `wso2 product list`,
+`wso2 product list`,
 `wso2 product install <product>`, `wso2 product install <product>@<version>`,
 `wso2 product install <product> --channel <channel>`,
 `wso2 product update <product>`, `wso2 product update --all`,
@@ -64,11 +64,11 @@ refusal is reported.
 | `wso2 config get <key>` | Built today: shows one shell preference. `key` must be one of `output`, `catalog-origin`; any other value is refused with `config.unknown_key`, naming the valid keys. |
 | `wso2 config set <key> <value>` | Built today: changes one shell preference. An unknown key is refused the same way `config get` refuses one; a value a key does not accept is refused with `config.invalid_value`, naming what is acceptable (`table` or `json` for `output`; an absolute http or https URL for `catalog-origin`). Each preference is the lowest-precedence source for what it governs: `--output` wins over a configured output mode, and `WSO2_CLI_CATALOG_ORIGIN` wins over a configured catalog origin — a saved preference can never override either. `output` governs exactly the commands that accept `--output`: `wso2 whoami`, `wso2 doctor`, `wso2 logout`, and the `context`, `account`, `config` and `org` families. It does not reach `wso2 version` or the `product` family, which render fixed prose and refuse `--output` with `shell.unsupported_flag`; a preference that silently did nothing for them would be a worse contract than a flag refused out loud. A colour preference is not in this set: `output.ColorEnabled` has no production caller yet, so a key that claimed to govern colour would change nothing observable; it is the obvious first key to add once something renders in colour. |
 | `wso2 update` | Applies the approved installation-channel policy for root shell updates. |
-| `wso2 module` | With no subcommand, prints this family's help on standard output and exits 0: naming a family without a subcommand is an incomplete command, not a failed one, and every subcommand it names works. The help names `available`, `install`, `list`, `remove` and `update`. A subcommand the family does not have is a different case and is still refused with `shell.unknown_command` and the usage exit class (#133), so a typo is never reported to a script as success. |
-| `wso2 product available` | Lists official modules the module catalog publishes. |
+| `wso2 module` | With no subcommand, prints this family's help on standard output and exits 0: naming a family without a subcommand is an incomplete command, not a failed one, and every subcommand it names works. The help names `install`, `list`, `remove` and `update`. A subcommand the family does not have is a different case and is still refused with `shell.unknown_command` and the usage exit class (#133), so a typo is never reported to a script as success. |
+| `wso2 product available` | Deprecated spelling of `wso2 product list`, which ADR 0015 merged it into. It is hidden from help, runs the merged list, and names `wso2 product list` on standard error. |
 | `wso2 product install <product>` | Installs the latest compatible stable release of a module. |
 | `wso2 product install <product>@<version>` | Installs an exact compatible module version. |
-| `wso2 product list` | Lists installed modules, versions, and update availability. |
+| `wso2 product list` | Lists every product the module catalog publishes or this machine has installed, in one table: the installed version or `—`, the channel, and the update available or the version an install would take. When the catalog cannot be reached, it lists the installed products with update `unknown`, warns on standard error that the updates and the installable products are unknown, and exits 0. |
 | `wso2 product info <module>` | Shows catalog, compatibility, and installation information. |
 | `wso2 product update <product>` | Updates one product module. Naming a module is already an explicit target, so this does not prompt; `--dry-run` still reports what it would do without changing anything. A module the catalog publishes no version of on its followed channel — withdrawn, renamed, or moved to a channel this install no longer follows — is reported by name rather than called current, since the catalog cannot say whether the installed version is current when it does not publish the module at all; this does not change the exit status. |
 | `wso2 product update --all` | Built today: updates every installed product module that has a newer version on its followed channel, skipping a pinned one. Being unbounded, it prompts for confirmation before moving anything; `--yes` skips the prompt, `--dry-run` reports what it would do without changing anything, and `--no-input` (or `WSO2_NO_INPUT`) refuses rather than prompt. Refuses `shell.non_interactive` when it may not prompt and `--yes` was not given — either because `--no-input` or `WSO2_NO_INPUT` asked that nothing prompt, or because standard input is not a terminal; the refusal names the control that fired and offers the one way out that applies to it, and `shell.conflicting_arguments` for `--yes` with `--dry-run`. A module the catalog publishes no version of on its followed channel — withdrawn, renamed, or moved to a channel this install no longer follows — is reported by name rather than called current, since the catalog cannot say whether the installed version is current when it does not publish the module at all; this does not change the exit status, so a scheduled `--all` run does not start failing the moment one module goes unpublished upstream. |
@@ -353,13 +353,24 @@ Run wso2 context create <name> --account <account> [--organization <name>]
 
 ```text
 $ wso2 product list
-MODULE        INSTALLED   CHANNEL   UPDATE
-api           v0.9.0      stable    current
+PRODUCT       INSTALLED   CHANNEL   UPDATE
 agent         v1.2.0      stable    v1.3.0 available
+api           v0.9.0      stable    current
 integration   v0.4.0      —         pinned to v0.4.0
+reference     —           stable    v0.1.0 to install
 
-1 module(s) have an update available. Run wso2 product update --all to take them.
+1 product has an update available. Run wso2 product update --all to take it.
+1 product is current.
+1 product is pinned and will not be updated.
+1 product is not installed. Run wso2 product install reference to install it.
 ```
+
+A product the catalog publishes that is not installed, such as `reference`
+above, is a row of its own: INSTALLED shows `—`, CHANNEL the channel a plain
+install would follow, and UPDATE the version that install would take. A product
+published only on prerelease names that channel, and the install command
+beneath the table adds `--channel prerelease`, since a plain install follows
+stable.
 
 CHANNEL names the channel a module follows for updates; it shows `—` for a
 module installed at an exact version with no channel chosen, such as

@@ -128,7 +128,7 @@ func productRows(products []helpProduct, inventoryRead bool) ([]helpRow, string)
 		return rows, "The installed products could not be read, so none is marked.\n"
 	}
 	if len(products) == 0 {
-		return []helpRow{{summary: "No products are installed. Run wso2 product available to see what can be."}}, ""
+		return []helpRow{{summary: "No products are installed. Run wso2 product list to see what can be."}}, ""
 	}
 
 	rows := make([]helpRow, 0, len(products))
