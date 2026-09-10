@@ -34,10 +34,10 @@ import (
 func clientFor(ctx context.Context, request module.Request) (thunder.Client, error) {
 	if request.Context.Endpoint == "" {
 		return thunder.Client{}, moduleProblem("identity.product_not_recorded",
-			"the selected context records no endpoint for the account product, so this command "+
+			"the selected context records no endpoint for the identity product, so this command "+
 				"has nowhere to call",
-			"Run wso2 account add-product <account> identity --endpoint <url> --audience <uri> "+
-				"--scopes "+ManagementScope+", then run wso2 login.")
+			"Run wso2 identity connect <url>, which creates the account and context it logs in with "+
+				"when none exists, then run wso2 login.")
 	}
 	access, err := request.Access.Acquire(ctx, module.AccessRequest{
 		Audience: ManagementAudience,

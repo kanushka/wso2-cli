@@ -40,8 +40,8 @@ func controlPlane(ctx context.Context, request module.Request) (platform.Client,
 		return platform.Client{}, moduleProblem("api.product_not_recorded",
 			"the selected context records no endpoint for the api product, so this command has "+
 				"nowhere to call",
-			"Run wso2 account add-product <account> api --endpoint <url> --audience <uri> "+
-				"--grant exchange, then run wso2 login.")
+			"Run wso2 api connect <url> to record it on the account you log in with, then run this "+
+				"command again.")
 	}
 	access, err := request.Access.Acquire(ctx, module.AccessRequest{Audience: ManagementAudience})
 	if err != nil {

@@ -8,6 +8,14 @@
   },
   "capabilities": {
     "authAudiences": ["identity-management"],
-    "authScopes": ["system"]
+    "authScopes": ["system"],
+    "product": {
+      "provider": "thunder",
+      "clientId": "wso2-cli",
+      "audience": "resource",
+      "defaultAudience": "https://localhost:8090/mcp",
+      "scopes": ["system"],
+      "machine": ["inline"]
+    }
   }
 }
