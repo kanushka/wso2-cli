@@ -19,10 +19,17 @@
 package app_test
 
 import (
+	"bytes"
+	"errors"
+	"io"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/wso2/wso2-cli/internal/app"
+	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/exit"
+	"github.com/wso2/wso2-cli/internal/output"
 )
 
 func TestConnectNamesANewAccountAccountOneWhenNothingMayAsk(t *testing.T) {
@@ -199,5 +206,66 @@ func TestConnectAsksNothingWhenItCreatesNoAccount(t *testing.T) {
 	}
 	if strings.Contains(out, "was assigned") {
 		t.Errorf("a connect onto an existing account reports a name as assigned:\n%s", out)
+	}
+}
+
+// takenWhileTyping answers the prompt with a name, and before handing it back
+// writes an account of that name, the way a second wso2 process would while
+// the person was typing.
+type takenWhileTyping struct {
+	t      *testing.T
+	shell  app.Shell
+	answer string
+	done   bool
+}
+
+func (r *takenWhileTyping) Read(buffer []byte) (int, error) {
+	if r.done {
+		return 0, io.EOF
+	}
+	r.done = true
+	if code := r.shell.Run([]string{"account", "create", r.answer,
+		"--issuer", "http://third.example", "--client-id", "wso2-cli"}); code != exit.OK {
+		r.t.Fatalf("the concurrent account create failed: exit %d", code)
+	}
+	return copy(buffer, r.answer+"\n"), nil
+}
+
+func TestConnectRefusesATypedNameTakenBeforeTheWrite(t *testing.T) {
+	shell, _, _ := newConnectShell(t)
+	t.Setenv("WSO2_NO_INPUT", "")
+	// The concurrent writer reports through its own buffers, so the ones the
+	// connect under test writes to stay its own.
+	concurrent := shell
+	concurrent.Streams = output.Streams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	shell.Reader = &takenWhileTyping{t: t, shell: concurrent, answer: "local-thunder"}
+
+	code, _, errOut := connect(t, shell, "iam", "connect", thunderURL)
+	if code != exit.Usage || !strings.Contains(errOut, "contexts.identity_exists") {
+		t.Fatalf("a typed name taken before the write: exit %d, stderr:\n%s", code, errOut)
+	}
+	document := loadDocument(t, shell)
+	if len(document.Accounts) != 1 || document.Accounts[0].Auth.Issuer != "http://third.example" {
+		t.Errorf("the connect wrote an account under another name: %+v", document.Accounts)
+	}
+}
+
+// failingReader fails every read, as a standard input that breaks mid-prompt
+// would.
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errors.New("the terminal went away") }
+
+func TestConnectFailsWhenThePromptCannotBeRead(t *testing.T) {
+	shell, _, _ := newConnectShell(t)
+	t.Setenv("WSO2_NO_INPUT", "")
+	shell.Reader = failingReader{}
+
+	code, _, errOut := connect(t, shell, "iam", "connect", thunderURL)
+	if code == exit.OK || !strings.Contains(errOut, "the terminal went away") {
+		t.Fatalf("a broken prompt: exit %d, stderr:\n%s", code, errOut)
+	}
+	if _, err := os.Stat(contexts.Path(shell.StateRoot)); !os.IsNotExist(err) {
+		t.Error("a connect whose prompt failed wrote the context document")
 	}
 }

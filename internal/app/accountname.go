@@ -76,8 +76,12 @@ func (s Shell) askAccountName(document contexts.Document, noInput bool) (string,
 		if _, err := fmt.Fprintf(s.Streams.Err, "Account name [%s]: ", fallback); err != nil {
 			return "", false, err
 		}
-		// End of input is the same as pressing return: the default.
+		// End of input is the same as pressing return: the default. A read
+		// that failed is not, or a broken terminal would name the account.
 		if !scanner.Scan() {
+			if err := scanner.Err(); err != nil {
+				return "", false, err
+			}
 			return fallback, false, nil
 		}
 		answer := strings.TrimSpace(scanner.Text())

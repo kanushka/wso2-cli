@@ -219,6 +219,11 @@ func (s Shell) connectRun(command *cobra.Command, namespace string, descriptor m
 	if err != nil {
 		return err
 	}
+	// A name the user typed is held to what --account is held to: taken by
+	// the time the write runs, it is refused rather than swapped for another.
+	if chosen {
+		flags.identity = assigned
+	}
 	var plan connectPlan
 	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
 		planned, err := planConnect(document, namespace, descriptor, productURL, flags, contextName,
@@ -232,10 +237,7 @@ func (s Shell) connectRun(command *cobra.Command, namespace string, descriptor m
 	if err != nil {
 		return s.explainWriteRefusal(root, err)
 	}
-	// A typed name taken between the prompt and the write was replaced by the
-	// next free one, which the report must then call assigned, not chosen.
-	typed := chosen && plan.identity.Name == assigned
-	plan.assigned = plan.created && flags.identity == "" && !typed
+	plan.assigned = plan.created && flags.identity == ""
 	return s.reportConnect(mode, root, namespace, plan)
 }
 
@@ -403,9 +405,10 @@ type connectPlan struct {
 //
 // providers are the installed namespaces whose product a login can run
 // against, named by the refusal when there is no account to record on.
-// assigned is the name for an account connect creates when --account named
-// none; when it is empty, or was taken since it was chosen, the next free
-// account-N is used instead, so a name nobody typed is never refused.
+// assigned is the name the shell offered for an account connect creates when
+// --account named none; when it is empty, or was taken since it was offered,
+// the next free account-N is used instead, so a name nobody typed is never
+// refused.
 func planConnect(document contexts.Document, namespace string, descriptor modules.ProductDescriptor,
 	productURL string, flags connectFlags, contextName string, providers []string,
 	assigned string) (connectPlan, error) {
