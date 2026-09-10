@@ -73,6 +73,17 @@ the shape of `--url`, the name, whether an identity of that name is something
 else, and whether this shell may write the document that is there — so that
 what remains is only a transient failure a retry can clear.
 
+`wso2 account remove-product` is the other writer that reaches the network,
+and only to end sessions, never to validate what it writes. It revokes and
+deletes every session the removal would leave no record naming, and only then
+drops the record: a product's session is found through its record, and the OS
+secure store cannot be listed, so a record dropped first would leave a refresh
+token on the machine that nothing could end again. Like login, it answers
+everything it can without the network before it ends anything — whether the
+account and the record exist, whether this shell may write the document, and
+whether the document would accept the result — so a refusal leaves both the
+sessions and the record as they were.
+
 **The documented `credentialRef` examples must match the schema.** They once
 showed a reference like `keychain://wso2/acme-cloud`, not the bare opaque word
 the validator accepts; [#115](https://github.com/wso2/wso2-cli/issues/115)

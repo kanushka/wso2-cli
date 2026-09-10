@@ -397,6 +397,11 @@ func TestIdentitySubcommandsRenderJSON(t *testing.T) {
 // http.DefaultTransport, so replacing that one value intercepts every request
 // this binary can make today. TestTheNetworkGuardWouldNoticeARequest, beside
 // the context family's guard, is what proves the seam is not vacuous.
+//
+// remove-product is absent on purpose. It records nothing, and it revokes the
+// sessions a removal would strand, which is a network call by design;
+// identity_remove_test.go holds its refusals, and its removals that end no
+// session, to the same guard.
 func TestNoIdentitySubcommandOpensANetworkConnection(t *testing.T) {
 	original := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = original })

@@ -48,6 +48,10 @@ const identityRecovery = "Run wso2 account list to see what login recorded, or "
 // There is no create subcommand. Logging in is the only thing that creates an
 // identity (#112 D3), and this family only modifies and reads what login
 // already wrote, which is why adding it does not reopen that decision.
+//
+// remove-product is the one member that reaches the network, and only to end
+// the sessions a removal would otherwise strand in the secure store; see
+// identityRemoveProduct.
 func (s Shell) accountCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:                   "account <subcommand>",
@@ -76,7 +80,8 @@ func (s Shell) accountCommand() *cobra.Command {
 	// alongside "wso2 account list" would be a second answer to a question
 	// nothing asked.
 	declareOutputFlag(command.PersistentFlags())
-	command.AddCommand(s.identityCreateCommand(), s.identityAddProductCommand(), s.identityListCommand())
+	command.AddCommand(s.identityCreateCommand(), s.identityAddProductCommand(),
+		s.identityRemoveProductCommand(), s.identityListCommand())
 	return command
 }
 
