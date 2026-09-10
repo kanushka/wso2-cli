@@ -199,12 +199,11 @@ func (s Shell) moduleUpdateCommand() *cobra.Command {
 	var opts updateOptions
 	var all bool
 	command := &cobra.Command{
-		Use:   "update <product...> | update --all",
+		Use:   "update <product> | update --all",
 		Short: "Bring installed products to the newest version their channel publishes.",
-		// Not exactlyOneArgument or noArguments: this command takes zero or
-		// more module names, and which count is valid depends on --all, so the
-		// combination is checked in RunE once both are parsed, exactly as
-		// parseUpdateArguments used to check it by hand.
+		// Not exactlyOneArgument or noArguments: this command takes zero or one
+		// product name, and which count is valid depends on --all, so the
+		// combination is checked in RunE once both are parsed.
 		Args: cobra.ArbitraryArgs,
 		RunE: func(command *cobra.Command, args []string) error {
 			opts.namespaces = args
@@ -223,10 +222,15 @@ func (s Shell) moduleUpdateCommand() *cobra.Command {
 					"wso2 product update needs a product, or --all").
 					WithRecovery("Run wso2 product update <product>, or wso2 product update --all.")
 			}
+			if len(opts.namespaces) > 1 {
+				return problem.New(problem.CategoryUsage, "shell.unexpected_argument",
+					fmt.Sprintf("%s takes one argument, got %d", command.CommandPath(), len(opts.namespaces))).
+					WithRecovery("Run wso2 product update <product>, or wso2 product update --all.")
+			}
 			return s.moduleUpdate(opts)
 		},
 	}
-	command.Flags().BoolVar(&all, "all", false, "Update every installed module that is not pinned.")
+	command.Flags().BoolVar(&all, "all", false, "Update every installed product that is not pinned.")
 	command.Flags().BoolVar(&opts.yes, "yes", false, "Update without asking for confirmation.")
 	command.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Show what would be updated without updating it.")
 	command.Flags().BoolVar(&opts.noInput, "no-input", false, "Refuse rather than prompt for confirmation.")
@@ -843,10 +847,10 @@ func (s Shell) moduleUpdate(opts updateOptions) error {
 		}
 		if !skip {
 			if may, reason := s.mayPrompt(opts.noInput); !may {
-				return nonInteractiveConfirmation("updating every installed module", reason)
+				return nonInteractiveConfirmation("updating every installed product", reason)
 			}
 			confirmed, err := s.confirm(
-				"This updates every installed module that has a newer version on its channel. Continue? [y/N]: ")
+				"This updates every installed product that has a newer version on its channel. Continue? [y/N]: ")
 			if err != nil {
 				return err
 			}
