@@ -43,10 +43,6 @@ const (
 	// loginSessionKept: the login session was left in place and still covers
 	// the product the account logs in as.
 	loginSessionKept = "kept"
-	// loginSessionKeptLoginChanged: the login session was left in place, but
-	// it was authorized for the removed product, and the account now logs in
-	// for another one, or for none.
-	loginSessionKeptLoginChanged = "kept, login changed"
 	// loginSessionNone: the account acquires access inline and holds no
 	// session at all.
 	loginSessionNone = "none"
@@ -193,7 +189,6 @@ type removalPlan struct {
 	// loginSession is one of the loginSession* outcomes.
 	loginSession string
 	// login is what the account logs in for once the record is gone.
-	login contexts.ProductAccess
 }
 
 // planRemoval works out a removal without performing any of it.
@@ -205,6 +200,18 @@ func planRemoval(document contexts.Document, account, key string) (removalPlan, 
 		return removalPlan{}, unknownIdentity(account, len(document.Accounts) > 0)
 	}
 	declared := document.Accounts[position]
+	if login := declared.LoginAccess(); declared.Auth.Kind != contexts.KindClientCredentials &&
+		login.Namespace != "" && key == login.Namespace {
+		// Refused here, before any session is ended or any record dropped. The
+		// login session was authorized for this product's resource and scope
+		// set; with the product gone it would answer for one the account no
+		// longer records, and every command against whichever product became
+		// the login next would be refused until the next login. A client-
+		// credentials account holds no login session, so there is nothing to
+		// protect and the rule does not apply. Only the product's own record is
+		// the login: its gateway key is a different record and is removable.
+		return removalPlan{}, loginProductRemoval(declared, key)
+	}
 	remaining, removed := declared.WithoutRecord(key)
 	if !removed {
 		return removalPlan{}, recordNotHeld(account, key, declared.RecordKeys())
@@ -226,22 +233,39 @@ func planRemoval(document contexts.Document, account, key string) (removalPlan, 
 		records:      records,
 		unreached:    document.SessionsUnreachedBy(next),
 		loginSession: loginSessionKept,
-		login:        remaining.LoginAccess(),
 	}
-	before := declared.LoginAccess()
-	switch {
-	case declared.Auth.Kind == contexts.KindClientCredentials:
+	// The login session always keeps answering for what the account logs in
+	// as: the login product itself is refused above, so nothing removed here
+	// can change which product that is.
+	if declared.Auth.Kind == contexts.KindClientCredentials {
 		plan.loginSession = loginSessionNone
-	case !slices.Equal(before.Scopes, plan.login.Scopes) || before.Resource != plan.login.Resource:
-		// The login session was authorized for what the account logged in
-		// as before. When that changes, the session is still kept — the
-		// account still logs in through this entry — but a product now
-		// asking for it will be refused as drifted until wso2 login
-		// authorizes it again, which is worth saying rather than leaving to
-		// be discovered at the next command.
-		plan.loginSession = loginSessionKeptLoginChanged
 	}
 	return plan, nil
+}
+
+// loginProductRemoval refuses to remove the product an account logs in
+// through, and says what a person can do instead.
+//
+// The recovery names commands that do the job. No command changes an
+// account's login product — it is fixed when the account first records one, so
+// a product recorded later cannot displace it — so sending the reader to wso2
+// login would name a command that cannot help. What does work is an account
+// that logs in through the other product from the start.
+func loginProductRemoval(account contexts.Account, key string) error {
+	others := slices.DeleteFunc(account.RecordKeys(), func(candidate string) bool {
+		return candidate == key
+	})
+	recovery := fmt.Sprintf("To log in through another product, create an account that records it "+
+		"first: wso2 account create <name> --issuer %s --client-id %s --product <namespace> "+
+		"--endpoint <url> --audience <uri>, then wso2 login --context <name>.",
+		account.Auth.Issuer, account.Auth.ClientID)
+	if len(others) > 0 {
+		recovery += fmt.Sprintf(" The account's other records can be removed: %s.", strings.Join(others, ", "))
+	}
+	return problem.New(problem.CategoryUsage, "contexts.login_product",
+		fmt.Sprintf("the account %q logs in through %q, so removing it would leave the login session "+
+			"authorized for a product the account no longer records", account.Name, key)).
+		WithRecovery(recovery)
 }
 
 // reportRemoval states what was removed, what each ended session's issuer was
@@ -287,14 +311,6 @@ func removalNotes(removed productRemoved, plan removalPlan) []string {
 				"revoke the %s session's refresh token, so its own copy of that session may remain "+
 				"usable until it expires.", ended.Record))
 		}
-	}
-	if removed.LoginSession == loginSessionKeptLoginChanged {
-		target := "no product it records"
-		if plan.login.Namespace != "" {
-			target = fmt.Sprintf("the %q product", plan.login.Namespace)
-		}
-		notes = append(notes, fmt.Sprintf("The login session was kept, and was authorized for what "+
-			"was removed; the account now logs in for %s. Run wso2 login to authorize it again.", target))
 	}
 	return notes
 }

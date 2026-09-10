@@ -616,6 +616,14 @@ first-time user meets most often. None of them reaches a browser.
   record the account does not hold. The refusal lists every record it does,
   product namespaces and `<namespace>/gateway` keys alike, and nothing was
   removed or ended.
+- **`contexts.login_product`.** `wso2 account remove-product` named the
+  product the account logs in through. Its login session was authorized for
+  that product, so removing it would leave the session answering for a
+  product the account no longer records; nothing was removed or ended. No
+  command changes an account's login product, so to log in through another
+  one, create an account that records it with `wso2 account create` and log
+  in with `wso2 login --context <name>`. The login product's gateway record
+  is separate and can be removed on its own.
 
 ### The context commands: `shell.*`
 

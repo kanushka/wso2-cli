@@ -276,26 +276,75 @@ func TestRemovingADirectProductLeavesTheLoginSessionIntact(t *testing.T) {
 // own sibling session is then named by nothing — the login session answers
 // for it now — so it is ended rather than left behind, and the report says a
 // login is needed to authorize the login session for it.
-func TestRemovingTheLoginProductKeepsTheLoginSessionAndEndsWhatItNowCovers(t *testing.T) {
+// TestRemovingTheLoginProductIsRefusedBeforeAnythingIsTouched pins the rule
+// that the product an account logs in through cannot be removed out from under
+// it. The login session was authorized for that product's resource and scope
+// set; removed, the session would answer for a product the account no longer
+// records, and every command against whichever product became the login next
+// would be refused until the next login. Moving the pin silently was tried and
+// ended a working session for a product that happened to sort first, so the
+// command refuses instead and says what a person can actually do.
+func TestRemovingTheLoginProductIsRefusedBeforeAnythingIsTouched(t *testing.T) {
 	fixture := newRemovalFixture(t)
-	code, out, errOut := fixture.run(t, "account", "remove-product", removalAccount, "iam")
-	if code != exit.OK {
-		t.Fatalf("exit %d: %s", code, errOut)
+	guardNetwork(t)
+	before := fixture.recordKeys(t)
+	code, _, errOut := fixture.run(t, "account", "remove-product", removalAccount, "iam")
+	if code != exit.Usage {
+		t.Fatalf("exit %d, want the usage class %d: %s", code, exit.Usage, errOut)
 	}
-	fixture.assertKept(t, credentialRef)
-	fixture.assertEnded(t, productRef("api"))
-	for _, ref := range []string{productRef("apim"), productRef(contexts.GatewayKey("apim")), productRef("agent")} {
+	if !strings.Contains(errOut, "contexts.login_product") {
+		t.Errorf("the refusal does not carry contexts.login_product:\n%s", errOut)
+	}
+	// Nothing changed: every session is where it was and every record stays.
+	for ref := range fixture.sessions {
 		fixture.assertKept(t, ref)
 	}
-	if pin := identityNamed(t, loadDocument(t, fixture.shell), removalAccount).LoginProduct; pin != "api" {
-		t.Errorf("login product = %q, want the pin moved to api", pin)
+	if after := fixture.recordKeys(t); !slices.Equal(before, after) {
+		t.Errorf("records changed on a refusal: before %v, after %v", before, after)
 	}
-	if !hasField(out, "Login session", "kept, login changed") || !strings.Contains(out, "wso2 login") {
-		t.Errorf("report:\n%s", out)
+	if pin := identityNamed(t, loadDocument(t, fixture.shell), removalAccount).LoginProduct; pin != "iam" {
+		t.Errorf("login product = %q, want it left on iam", pin)
 	}
-	if code, status, _ := fixture.doctorSession(t); code != exit.OK || status == "fail" {
-		t.Errorf("doctor exited %d with the session check %s", code, status)
+	// The recovery has to name commands that do the job. No command changes an
+	// account's login product, so it must not send the reader to wso2 login
+	// as though one did; it names creating an account that logs in through
+	// the other product instead.
+	if !strings.Contains(errOut, "wso2 account create") || !strings.Contains(errOut, "--product") {
+		t.Errorf("the recovery does not name how to log in through another product:\n%s", errOut)
 	}
+}
+
+func TestRemovingTheLoginProductsGatewayRecordIsAllowed(t *testing.T) {
+	// Only the product's own record is the login. Its gateway record is a
+	// second record the login never binds to, so removing it alone is fine.
+	// The fixture's login product records no gateway, so one is added here:
+	// without it this test would pass by being refused as an unknown record,
+	// which proves nothing about the login rule.
+	fixture := newRemovalFixture(t)
+	if err := contexts.Update(fixture.shell.StateRoot, func(d contexts.Document) (contexts.Document, error) {
+		for i := range d.Accounts {
+			if d.Accounts[i].Name != removalAccount {
+				continue
+			}
+			product := d.Accounts[i].Products["iam"]
+			product.Gateway = &contexts.Gateway{Endpoint: "https://gw.example", Audience: "https://gw.example/api"}
+			d.Accounts[i].Products["iam"] = product
+		}
+		return d, nil
+	}); err != nil {
+		t.Fatalf("giving the login product a gateway: %v", err)
+	}
+	code, _, errOut := fixture.run(t, "account", "remove-product", removalAccount, contexts.GatewayKey("iam"))
+	if code != exit.OK {
+		t.Fatalf("removing the login product's gateway record exited %d: %s", code, errOut)
+	}
+	if slices.Contains(fixture.recordKeys(t), contexts.GatewayKey("iam")) {
+		t.Fatal("the gateway record is still recorded")
+	}
+	if !slices.Contains(fixture.recordKeys(t), "iam") {
+		t.Fatal("removing the gateway record took the login product with it")
+	}
+	fixture.assertKept(t, credentialRef)
 }
 
 func TestRemovingAProductThatHoldsNoSessionEndsNothing(t *testing.T) {
