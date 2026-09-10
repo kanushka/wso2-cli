@@ -612,6 +612,10 @@ first-time user meets most often. None of them reaches a browser.
   from shell history with one flag corrected. `wso2 account list` shows what
   is recorded, and `--replace` overwrites it, replacing the whole record rather
   than merging with it.
+- **`contexts.unknown_product`.** `wso2 account remove-product` named a
+  record the account does not hold. The refusal lists every record it does,
+  product namespaces and `<namespace>/gateway` keys alike, and nothing was
+  removed or ended.
 
 ### The context commands: `shell.*`
 
