@@ -412,7 +412,7 @@ func TestTheRunAsksByALogicalAudienceAndProvesTheDeploymentsOwn(t *testing.T) {
 	if got, want := config.Capabilities().AuthAudiences, []string{smoke.ModuleAudience}; !slices.Equal(got, want) {
 		t.Errorf("the receipt declares %v, want exactly the module's own %v", got, want)
 	}
-	product := config.Document().Identities[0].Products[smoke.Namespace]
+	product := config.Document().Accounts[0].Products[smoke.Namespace]
 	if product.Audience != config.Audience {
 		t.Errorf("the context registers %q, want the deployment's own %q",
 			product.Audience, config.Audience)

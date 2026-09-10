@@ -50,7 +50,7 @@ type kindGate struct {
 	inline func(contextName string) problem.Problem
 }
 
-// check reports why the selected identity cannot hold an interactive session,
+// check reports why the selected account cannot hold an interactive session,
 // or nil when it can.
 func (g kindGate) check(selected contexts.Selection) error {
 	switch selected.Identity.Auth.Kind {
@@ -71,7 +71,7 @@ func (g kindGate) check(selected contexts.Selection) error {
 		return problem.New(problem.CategoryAuthPolicy, "auth.kind_not_implemented",
 			fmt.Sprintf("the %q context uses an authentication kind this release does not implement",
 				selected.Context.Name)).
-			WithRecovery("Use a browser, device-code, or client-credentials identity. Personal " +
+			WithRecovery("Use a browser, device-code, or client-credentials account. Personal " +
 				"access token login is planned.")
 	case contexts.KindOAuthBrowser, contexts.KindOAuthDevice:
 		// The two kinds this release establishes and ends sessions for.
@@ -88,7 +88,7 @@ func (g kindGate) check(selected contexts.Selection) error {
 var loginKindGate = kindGate{
 	command: "login",
 	unselected: "Run wso2 login --url <issuer> --client-id <id> to log in and create the " +
-		"identity and context it authenticates, or wso2 context use <name> to select a " +
+		"account and context it authenticates, or wso2 context use <name> to select a " +
 		"context that is already configured. wso2 context list shows what is configured.",
 	purpose: "to log in to",
 	inline: func(contextName string) problem.Problem {
@@ -100,7 +100,7 @@ var loginKindGate = kindGate{
 
 // logoutKindGate refuses an identity wso2 logout has no session to end for.
 //
-// inline is nil, unlike loginKindGate's: a client-credentials identity holds
+// inline is nil, unlike loginKindGate's: a client-credentials account holds
 // no session for wso2 login to refuse establishing, but wso2 logout still has
 // something to report for one — an empty, no-op end of session — so it is not
 // refused at all. See logout's own doc comment.

@@ -32,26 +32,30 @@ import (
 
 // The way back from each subcommand's usage refusals.
 const (
-	identityAddProductUsage = "Run wso2 identity add-product <identity> <namespace> " +
+	identityAddProductUsage = "Run wso2 account add-product <account> <namespace> " +
 		"--endpoint <url> [--audience <resource-id>] [--scopes <list>] [--replace]."
-	identityListUsage = "Run wso2 identity list [--output table|json]."
+	identityListUsage = "Run wso2 account list [--output table|json]."
 )
 
 // identityRecovery is what every refusal from the identity command itself,
 // rather than one of its subcommands, points a user at.
-const identityRecovery = "Run wso2 identity list to see what login recorded, or " +
-	"wso2 identity add-product to record what a self-hosted deployment reaches. " +
-	"Logging in is what creates an identity."
+const identityRecovery = "Run wso2 account list to see what login recorded, or " +
+	"wso2 account add-product to record what a self-hosted deployment reaches. " +
+	"Logging in is what creates an account."
 
-// identityCommand builds the wso2 identity tree.
+// accountCommand builds the wso2 account tree.
 //
 // There is no create subcommand. Logging in is the only thing that creates an
 // identity (#112 D3), and this family only modifies and reads what login
 // already wrote, which is why adding it does not reopen that decision.
-func (s Shell) identityCommand() *cobra.Command {
+//
+// remove-product is the one member that reaches the network, and only to end
+// the sessions a removal would otherwise strand in the secure store; see
+// identityRemoveProduct.
+func (s Shell) accountCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:                   "identity <subcommand>",
-		Short:                 "Record and inspect what an identity reaches.",
+		Use:                   "account <subcommand>",
+		Short:                 "Record and inspect what an account reaches.",
 		Long:                  identityRecovery,
 		DisableFlagsInUseLine: true,
 		// A RunE is declared because Cobra validates a non-leaf command's
@@ -60,23 +64,24 @@ func (s Shell) identityCommand() *cobra.Command {
 		// whatever ran it. Never cobra.NoArgs or cobra.ExactArgs for this —
 		// both bypass the flag-error hook and exit 70 instead of 64.
 		//
-		// A bare wso2 identity is the other arm, and is deliberately not a
+		// A bare wso2 account is the other arm, and is deliberately not a
 		// refusal. See helpForBareFamily.
 		RunE: func(command *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return helpForBareFamily(command)
 			}
 			return problem.New(problem.CategoryUsage, "shell.unknown_command",
-				fmt.Sprintf("%q is not a wso2 identity subcommand", args[0])).
+				fmt.Sprintf("%q is not a wso2 account subcommand", args[0])).
 				WithRecovery(identityRecovery)
 		},
 	}
 	// The family renders a machine-readable result, and takes no --context: an
 	// identity is named by this family's own arguments, and a selection flag
-	// alongside "wso2 identity list" would be a second answer to a question
+	// alongside "wso2 account list" would be a second answer to a question
 	// nothing asked.
 	declareOutputFlag(command.PersistentFlags())
-	command.AddCommand(s.identityCreateCommand(), s.identityAddProductCommand(), s.identityListCommand())
+	command.AddCommand(s.identityCreateCommand(), s.identityAddProductCommand(),
+		s.identityRemoveProductCommand(), s.identityListCommand())
 	return command
 }
 
@@ -86,9 +91,9 @@ func (s Shell) identityAddProductCommand() *cobra.Command {
 	var replace bool
 	var grant grantFlags
 	command := &cobra.Command{
-		Use:   "add-product <identity> <namespace>",
+		Use:   "add-product <account> <namespace>",
 		Short: "Record a product endpoint a self-hosted deployment cannot advertise.",
-		Args: exactlyTwoArguments("an identity and a product namespace",
+		Args: exactlyTwoArguments("an account and a product namespace",
 			identityAddProductUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			product := contexts.Product{Endpoint: endpoint, Audience: audience, Scopes: scopes}
@@ -111,9 +116,11 @@ func (s Shell) identityAddProductCommand() *cobra.Command {
 	command.Flags().BoolVar(&replace, "replace", false,
 		"Replace the namespace's existing record instead of refusing.")
 	command.Flags().StringVar(&grant.kind, "grant", "",
-		"How access for this product is derived when its issuer is not the identity's: "+
+		"How access for this product is derived when its issuer is not the account's: "+
 			contexts.GrantJWTBearer+" presents an identity token from the login session; "+
-			contexts.GrantFederated+" signs in at the product's own issuer as the named client.")
+			contexts.GrantFederated+" signs in at the product's own issuer as the named client; "+
+			contexts.GrantExchange+" exchanges the login session for the product's audience, with "+
+			"no authorization of its own.")
 	command.Flags().StringVar(&grant.issuer, "grant-issuer", "",
 		"The product's own OpenID issuer, whose token endpoint takes the assertion.")
 	command.Flags().StringVar(&grant.clientID, "grant-client-id", "",
@@ -142,19 +149,40 @@ func (g grantFlags) product() (*contexts.Grant, error) {
 	}
 	if g.kind == "" {
 		return nil, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
-			"wso2 identity add-product needs --grant with --grant-issuer and --grant-client-id").
+			"wso2 account add-product needs --grant with --grant-issuer and --grant-client-id").
 			WithRecovery("Pass --grant " + contexts.GrantJWTBearer + " or --grant " + contexts.GrantFederated +
 				" to derive this product's access. " + identityAddProductUsage)
 	}
-	if g.kind != contexts.GrantJWTBearer && g.kind != contexts.GrantFederated {
+	if g.kind != contexts.GrantJWTBearer && g.kind != contexts.GrantFederated &&
+		g.kind != contexts.GrantExchange {
 		return nil, problem.New(problem.CategoryUsage, "shell.invalid_argument",
 			fmt.Sprintf("%q is not a grant this shell implements", g.kind)).
-			WithRecovery("Pass --grant " + contexts.GrantJWTBearer + " or --grant " + contexts.GrantFederated + ". " +
-				identityAddProductUsage)
+			WithRecovery("Pass --grant " + contexts.GrantJWTBearer + ", --grant " + contexts.GrantFederated +
+				" or --grant " + contexts.GrantExchange + ". " + identityAddProductUsage)
+	}
+	if g.kind == contexts.GrantExchange {
+		// An exchange runs at the account's own issuer as its own client, and
+		// asks for the product's registered audience. There is nothing left
+		// for these flags to name, so naming one is a mistake worth catching
+		// here rather than a value to accept and ignore.
+		if g.issuer != "" || g.clientID != "" {
+			return nil, problem.New(problem.CategoryUsage, "shell.invalid_argument",
+				"--grant-issuer and --grant-client-id do not belong to an exchange grant, which runs "+
+					"at the account's own issuer as its own client").
+				WithRecovery("Omit both flags. " + identityAddProductUsage)
+		}
+		if len(g.scopes) > 0 || g.resource != "" {
+			return nil, problem.New(problem.CategoryUsage, "shell.invalid_argument",
+				"--grant-scopes and --grant-resource do not belong to an exchange grant, which asks "+
+					"for the product's own audience and carries the login session's scopes").
+				WithRecovery("Omit both flags; --audience is what an exchange asks for. " +
+					identityAddProductUsage)
+		}
+		return &contexts.Grant{Kind: g.kind}, nil
 	}
 	if g.issuer == "" || g.clientID == "" {
 		return nil, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
-			"wso2 identity add-product needs --grant-issuer and --grant-client-id with --grant").
+			"wso2 account add-product needs --grant-issuer and --grant-client-id with --grant").
 			WithRecovery("Name the product's own issuer and the public client the shell presents " +
 				"there. " + identityAddProductUsage)
 	}
@@ -167,10 +195,23 @@ func (g grantFlags) product() (*contexts.Grant, error) {
 	return &contexts.Grant{Kind: g.kind, Issuer: g.issuer, ClientID: g.clientID, Scopes: g.scopes, Resource: g.resource}, nil
 }
 
+// grantSummary states where a recorded grant runs and as whom.
+//
+// An exchange names neither an issuer nor a client, because it uses the
+// identity's own, so the general form would render "exchange at  as " — two
+// blanks that read as values the shell failed to load rather than as values
+// that were never there to load.
+func grantSummary(grant contexts.Grant) string {
+	if grant.Kind == contexts.GrantExchange {
+		return grant.Kind + " at the account's own issuer, as its own client"
+	}
+	return grant.Kind + " at " + grant.Issuer + " as " + grant.ClientID
+}
+
 func (s Shell) identityListCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List the identities and the products each one reaches.",
+		Short: "List the accounts and the products each one reaches.",
 		Args:  noArguments(identityListUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.identityList(command)
@@ -205,7 +246,7 @@ func (s Shell) identityAddProduct(
 		// as contexts.document_malformed, which tells a user their file is
 		// wrong over a flag they simply did not type.
 		return problem.New(problem.CategoryUsage, "shell.missing_required_flag",
-			"wso2 identity add-product needs the endpoint the product is served at").
+			"wso2 account add-product needs the endpoint the product is served at").
 			WithRecovery(identityAddProductUsage + " A self-hosted deployment publishes no " +
 				"catalogue of what it serves, so the endpoint can only come from you.")
 	}
@@ -229,13 +270,13 @@ func (s Shell) identityAddProduct(
 	// information and never echoes the value it refused — and output redaction
 	// is key-based, so it would not catch one here. The identity, namespace and
 	// scopes are names.
-	s.log.Debug("recording a product under an identity",
+	s.log.Debug("recording a product under an account",
 		"identity", identity, "namespace", namespace,
 		"scopes", strings.Join(product.Scopes, ","), "replace", replace,
 		"document", contexts.Path(root))
 
 	added := productAdded{
-		Identity:  identity,
+		Account:   identity,
 		Namespace: namespace,
 		Endpoint:  product.Endpoint,
 		Audience:  product.Audience,
@@ -248,13 +289,13 @@ func (s Shell) identityAddProduct(
 	// refusal be reworded honestly. See explainProductRefusal.
 	changed := false
 	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
-		position := slices.IndexFunc(document.Identities, func(candidate contexts.Identity) bool {
+		position := slices.IndexFunc(document.Accounts, func(candidate contexts.Account) bool {
 			return candidate.Name == identity
 		})
 		if position < 0 {
-			return document, unknownIdentity(identity, len(document.Identities) > 0)
+			return document, unknownIdentity(identity, len(document.Accounts) > 0)
 		}
-		declared := document.Identities[position]
+		declared := document.Accounts[position]
 		_, carried := declared.Products[namespace]
 		if carried && !replace {
 			return document, productExists(identity, namespace)
@@ -273,7 +314,7 @@ func (s Shell) identityAddProduct(
 		// being replaced would be a permission nobody asked for.
 		products[namespace] = product
 		declared.Products = products
-		document.Identities[position] = declared
+		document.Accounts[position] = declared
 		changed = true
 		return document, nil
 	})
@@ -287,9 +328,9 @@ func (s Shell) identityAddProduct(
 	// "to" for the ordinary case and "on" for the replacement, because the two
 	// are worth telling apart at a glance: one added something that was not
 	// there and the other overwrote something that was.
-	line := fmt.Sprintf("Added product %q to identity %q.", namespace, identity)
+	line := fmt.Sprintf("Added product %q to account %q.", namespace, identity)
 	if added.Replaced {
-		line = fmt.Sprintf("Replaced product %q on identity %q.", namespace, identity)
+		line = fmt.Sprintf("Replaced product %q on account %q.", namespace, identity)
 	}
 	if _, err := fmt.Fprintf(s.Streams.Out, "\n%s\n", line); err != nil {
 		return err
@@ -312,10 +353,10 @@ func (s Shell) identityList(command *cobra.Command) error {
 		return err
 	}
 
-	listing := identityListing{Identities: make([]identityEntry, 0, len(document.Identities))}
+	listing := accountListing{Accounts: make([]accountEntry, 0, len(document.Accounts))}
 	withoutProducts := 0
-	for _, declared := range document.Identities {
-		entry := identityEntry{
+	for _, declared := range document.Accounts {
+		entry := accountEntry{
 			Name:   declared.Name,
 			Type:   declared.Type,
 			Kind:   declared.Auth.Kind,
@@ -343,7 +384,7 @@ func (s Shell) identityList(command *cobra.Command) error {
 		if len(entry.Products) == 0 {
 			withoutProducts++
 		}
-		listing.Identities = append(listing.Identities, entry)
+		listing.Accounts = append(listing.Accounts, entry)
 	}
 
 	if mode == output.ModeJSON {
@@ -352,18 +393,18 @@ func (s Shell) identityList(command *cobra.Command) error {
 	// An unconfigured machine is a state, not a breakage, so it reports what to
 	// run rather than that nothing is there. Logging in is the only thing that
 	// creates an identity (#112 D3), so nothing else could be named here.
-	if len(listing.Identities) == 0 {
-		_, err := fmt.Fprintln(s.Streams.Out, "No identities are configured.\n\n"+
+	if len(listing.Accounts) == 0 {
+		_, err := fmt.Fprintln(s.Streams.Out, "No accounts are configured.\n\n"+
 			"Run wso2 login --url <issuer> --client-id <id> to create one.")
 		return err
 	}
-	table := output.NewTable("identity", "type", "issuer", "product", "endpoint", "scopes")
-	for _, entry := range listing.Identities {
+	table := output.NewTable("account", "type", "issuer", "product", "endpoint", "scopes")
+	for _, entry := range listing.Accounts {
 		if len(entry.Products) == 0 {
 			table.Append(entry.Name, entry.Type, entry.Issuer, "", "", "")
 			continue
 		}
-		// One row per product, and the identity's own columns repeated on each:
+		// One row per product, and the account's own columns repeated on each:
 		// what a reader of this table wants is the pair, and a blank identity
 		// column on the second row would leave them counting upward to find it.
 		for _, product := range entry.Products {
@@ -413,9 +454,9 @@ func exactlyTwoArguments(what, usage string) cobra.PositionalArgs {
 // The results this family reports. They are rendered the way the context family
 // renders its own; see the comment on that family's result types.
 type (
-	// productAdded is what wso2 identity add-product reports.
+	// productAdded is what wso2 account add-product reports.
 	productAdded struct {
-		Identity  string   `json:"identity"`
+		Account   string   `json:"account"`
 		Namespace string   `json:"namespace"`
 		Endpoint  string   `json:"endpoint"`
 		Audience  string   `json:"audience"`
@@ -439,8 +480,8 @@ type (
 		Gateway   *contexts.Gateway `json:"gateway,omitempty"`
 	}
 
-	// identityEntry is one row group of the listing.
-	identityEntry struct {
+	// accountEntry is one row group of the listing.
+	accountEntry struct {
 		Name     string         `json:"name"`
 		Type     string         `json:"type"`
 		Kind     string         `json:"kind"`
@@ -448,15 +489,15 @@ type (
 		Products []productEntry `json:"products"`
 	}
 
-	// identityListing is what wso2 identity list reports.
-	identityListing struct {
-		Identities []identityEntry `json:"identities"`
+	// accountListing is what wso2 account list reports.
+	accountListing struct {
+		Accounts []accountEntry `json:"accounts"`
 	}
 )
 
 func (p productAdded) fields() [][2]string {
 	fields := [][2]string{
-		{"Identity", p.Identity},
+		{"Account", p.Account},
 		{"Product", p.Namespace},
 		{"Endpoint", p.Endpoint},
 		{"Audience", p.Audience},
@@ -464,7 +505,7 @@ func (p productAdded) fields() [][2]string {
 	}
 	if p.Grant != nil {
 		fields = append(fields,
-			[2]string{"Grant", p.Grant.Kind + " at " + p.Grant.Issuer + " as " + p.Grant.ClientID})
+			[2]string{"Grant", grantSummary(*p.Grant)})
 	}
 	return append(fields, [2]string{"Replaced", yesNo(p.Replaced)})
 }
@@ -478,9 +519,9 @@ func (p productAdded) fields() [][2]string {
 // it.
 func productExists(identity, namespace string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "contexts.product_exists",
-		fmt.Sprintf("the identity %q already records a product in the %q namespace",
+		fmt.Sprintf("the account %q already records a product in the %q namespace",
 			identity, namespace)).
-		WithRecovery("Run wso2 identity list to see what it records. " +
+		WithRecovery("Run wso2 account list to see what it records. " +
 			"Pass --replace to overwrite it, which replaces the whole record.")
 }
 
@@ -526,7 +567,7 @@ func (s Shell) explainProductRefusal(stateRoot string, changed bool, err error) 
 // This lives here rather than beside the check in internal/contexts because it
 // is advice about commands.
 func productRefusalRecovery() string {
-	return "The context document was not changed. Run wso2 identity list to see what the " +
-		"identity records, then correct the command and run it again. " +
+	return "The context document was not changed. Run wso2 account list to see what the " +
+		"account records, then correct the command and run it again. " +
 		identityAddProductUsage
 }

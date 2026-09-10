@@ -67,6 +67,31 @@ func TestWhoamiReportsAClientCredentialsIdentityAsInline(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	if !strings.Contains(out.String(), "inline") || strings.Contains(out.String(), "wso2 login") {
-		t.Fatalf("a client-credentials identity was told to log in:\n%s", out)
+		t.Fatalf("a client-credentials account was told to log in:\n%s", out)
+	}
+}
+
+func TestWhoamiReportsAnExchangedProductAsServedByTheLoginSession(t *testing.T) {
+	// An exchanged product holds no session of its own, so the honest report
+	// is not "none" — which reads as "log in" and would send the user to run
+	// a login that establishes nothing. The login session is what serves it.
+	keyring.MockInit()
+	shell, out, errOut := newShell(t)
+	t.Setenv("WSO2_CONTEXT", "")
+	document := thunderDoc("http://login.example", "http://apim.example")
+	document.Accounts[0].Products["apip"] = contexts.Product{
+		Endpoint: "http://apip.example", Audience: "http://apip.example",
+		Grant: &contexts.Grant{Kind: contexts.GrantExchange}}
+	installLogin(t, shell, document)
+	store := session.Store{StateRoot: shell.StateRoot}
+	if err := store.Save(credentialRef, session.Session{
+		Issuer: "http://login.example", RefreshToken: "rt", Subject: "user-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if code := shell.Run([]string{"whoami"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "apip: exchanged, exchanged") {
+		t.Fatalf("an exchanged product was not reported as served by the login session:\n%s", out)
 	}
 }

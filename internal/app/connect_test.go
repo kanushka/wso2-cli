@@ -92,10 +92,10 @@ func TestConnectAProviderProductCreatesTheIdentityAndContext(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	document := loadDocument(t, shell)
-	if len(document.Identities) != 1 || document.DefaultContext != "thunder" {
+	if len(document.Accounts) != 1 || document.DefaultContext != "thunder" {
 		t.Fatalf("document = %+v", document)
 	}
-	identity := document.Identities[0]
+	identity := document.Accounts[0]
 	if identity.Name != "thunder" || identity.Auth.Kind != contexts.KindOAuthBrowser ||
 		identity.Auth.Issuer != thunderURL || identity.Auth.ClientID != "wso2-cli" ||
 		identity.Auth.Provider != contexts.ProviderThunder || identity.Auth.CredentialRef != "thunder" ||
@@ -121,7 +121,7 @@ func TestConnectANonProviderProductAttachesToTheSelectedIdentity(t *testing.T) {
 	if code != exit.OK {
 		t.Fatalf("apim connect: exit %d: %s", code, errOut)
 	}
-	identity := loadDocument(t, shell).Identities[0]
+	identity := loadDocument(t, shell).Accounts[0]
 	product, recorded := identity.Products["apim"]
 	if !recorded {
 		t.Fatalf("apim not recorded: %+v", identity)
@@ -147,12 +147,12 @@ func TestConnectANonProviderProductAttachesToTheSelectedIdentity(t *testing.T) {
 func TestConnectANonProviderProductNeedsAClientIDWhenTheDescriptorNamesNone(t *testing.T) {
 	shell, _, _ := newConnectShell(t)
 	connect(t, shell, "iam", "connect", thunderURL)
-	// No secret on the line: a browser identity, which needs the product's
+	// No secret on the line: a browser account, which needs the product's
 	// public federated client, not the one bootstrap registers.
 	code, _, errOut := connect(t, shell, "apim", "connect", apimURL)
 	if code != exit.Usage || !strings.Contains(errOut, "shell.missing_required_flag") ||
 		!strings.Contains(errOut, "--client-id") || !strings.Contains(errOut, "public client") ||
-		!strings.Contains(errOut, "federated to the identity's login provider") {
+		!strings.Contains(errOut, "federated to the account's login provider") {
 		t.Fatalf("browser: exit %d, stderr:\n%s", code, errOut)
 	}
 	// A secret on the line: a pipeline, which uses the client bootstrap prints.
@@ -180,7 +180,7 @@ func TestConnectNamesTheContextOnTheNextLineOnlyWhenItIsNotTheSoleSelectedOne(t 
 	if !strings.Contains(out, "Next  Run wso2 login.") || strings.Contains(out, "--context") {
 		t.Errorf("the only context, already selected, is named:\n%s", out)
 	}
-	code, out, errOut = connect(t, shell, "iam", "connect", "http://other.example", "--identity", "other")
+	code, out, errOut = connect(t, shell, "iam", "connect", "http://other.example", "--account", "other")
 	if code != exit.OK {
 		t.Fatalf("second identity: exit %d: %s", code, errOut)
 	}
@@ -196,22 +196,22 @@ func TestConnectWithNoIdentityRefusesANonProviderProduct(t *testing.T) {
 		!strings.Contains(errOut, "connect") {
 		t.Fatalf("exit %d, stderr:\n%s", code, errOut)
 	}
-	if document := loadDocument(t, shell); len(document.Identities) != 0 {
+	if document := loadDocument(t, shell); len(document.Accounts) != 0 {
 		t.Errorf("something was written: %+v", document)
 	}
 }
 
 func TestConnectPicksTheIdentityByLoginProvider(t *testing.T) {
 	shell, _, _ := newConnectShell(t)
-	connect(t, shell, "iam", "connect", "http://one.example", "--identity", "one")
-	connect(t, shell, "iam", "connect", "http://two.example", "--identity", "two")
+	connect(t, shell, "iam", "connect", "http://one.example", "--account", "one")
+	connect(t, shell, "iam", "connect", "http://two.example", "--account", "two")
 	code, _, errOut := connect(t, shell, "apim", "connect", apimURL, "--client-id", apimClient,
 		"--login-provider", "http://two.example")
 	if code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	document := loadDocument(t, shell)
-	for _, identity := range document.Identities {
+	for _, identity := range document.Accounts {
 		_, recorded := identity.Products["apim"]
 		if recorded != (identity.Name == "two") {
 			t.Errorf("apim recorded on %q = %v", identity.Name, recorded)
@@ -233,7 +233,7 @@ func TestConnectASecondProviderProductOnTheSameIssuerRecordsOnTheIdentity(t *tes
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	document := loadDocument(t, shell)
-	if len(document.Identities) != 1 || document.Identities[0].Products["iam"].Audience != "https://localhost:8090/other" {
+	if len(document.Accounts) != 1 || document.Accounts[0].Products["iam"].Audience != "https://localhost:8090/other" {
 		t.Fatalf("document = %+v", document)
 	}
 	code, _, errOut = connect(t, shell, "iam", "connect", thunderURL)
@@ -247,15 +247,15 @@ func TestConnectAProviderProductOnAnotherIssuerCreatesASecondIdentity(t *testing
 	connect(t, shell, "iam", "connect", thunderURL)
 	code, _, errOut := connect(t, shell, "iam", "connect", "http://other.example")
 	if code != exit.Usage || !strings.Contains(errOut, "contexts.identity_exists") ||
-		!strings.Contains(errOut, "--identity") {
+		!strings.Contains(errOut, "--account") {
 		t.Fatalf("a taken name: exit %d, stderr:\n%s", code, errOut)
 	}
-	code, _, errOut = connect(t, shell, "iam", "connect", "http://other.example", "--identity", "other")
+	code, _, errOut = connect(t, shell, "iam", "connect", "http://other.example", "--account", "other")
 	if code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	document := loadDocument(t, shell)
-	if len(document.Identities) != 2 || document.DefaultContext != "thunder" {
+	if len(document.Accounts) != 2 || document.DefaultContext != "thunder" {
 		t.Fatalf("document = %+v", document)
 	}
 }
@@ -267,7 +267,7 @@ func TestConnectAMachineIdentity(t *testing.T) {
 	if code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	identity := loadDocument(t, shell).Identities[0]
+	identity := loadDocument(t, shell).Accounts[0]
 	if identity.Auth.Kind != contexts.KindClientCredentials || identity.Auth.ClientID != "wso2-cli-ci" ||
 		identity.Auth.ClientSecretVariable != "WSO2_CI_CLIENT_SECRET" || identity.Auth.CredentialRef != "" {
 		t.Fatalf("identity = %+v", identity)
@@ -285,13 +285,13 @@ func TestConnectAMachineIdentity(t *testing.T) {
 	if code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	product := loadDocument(t, shell).Identities[0].Products["apim"]
+	product := loadDocument(t, shell).Accounts[0].Products["apim"]
 	if product.ClientIDVariable != "" || product.ClientSecretVariable != "WSO2_APIM_CLIENT_SECRET" ||
 		product.Grant == nil || product.Grant.Issuer != apimURL+"/oauth2/token" ||
 		product.Grant.ClientID != apimClient || product.Audience != apimClient {
 		t.Fatalf("product = %+v, grant = %+v", product, product.Grant)
 	}
-	access, _ := loadDocument(t, shell).Identities[0].Access("apim")
+	access, _ := loadDocument(t, shell).Accounts[0].Access("apim")
 	if access.Strategy != contexts.StrategyInline || access.Issuer != apimURL+"/oauth2/token" {
 		t.Fatalf("access = %+v", access)
 	}
@@ -314,7 +314,7 @@ func TestConnectRefusesAMachineIdentityOnAProductThatDoesNotAllowIt(t *testing.T
 	code, _, errOut = connect(t, shell, "apim", "connect", apimURL, "--client-id", apimClient,
 		"--client-secret-variable", "B")
 	if code != exit.Usage || !strings.Contains(errOut, "shell.conflicting_arguments") {
-		t.Fatalf("a product credential on a browser identity: exit %d, stderr:\n%s", code, errOut)
+		t.Fatalf("a product credential on a browser account: exit %d, stderr:\n%s", code, errOut)
 	}
 }
 
@@ -322,7 +322,7 @@ func TestConnectIsRefusedForAModuleWithoutADescriptor(t *testing.T) {
 	shell, _, _ := newConnectShell(t)
 	code, _, errOut := connect(t, shell, "reference", "connect", "http://reference.example")
 	if code != exit.Usage || !strings.Contains(errOut, "shell.connect_unsupported") ||
-		!strings.Contains(errOut, "wso2 identity add-product") {
+		!strings.Contains(errOut, "wso2 account add-product") {
 		t.Fatalf("exit %d, stderr:\n%s", code, errOut)
 	}
 }
@@ -349,21 +349,21 @@ func TestConnectRendersJSON(t *testing.T) {
 	if code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !strings.Contains(out, `"identity": "thunder"`) || !strings.Contains(out, `"strategy": "direct"`) {
+	if !strings.Contains(out, `"account": "thunder"`) || !strings.Contains(out, `"strategy": "direct"`) {
 		t.Errorf("json:\n%s", out)
 	}
 }
 
-// unpinnedThunderDocument is an identity as wso2 identity create builds one:
+// unpinnedThunderDocument is an identity as wso2 account create builds one:
 // a direct product and no pinned login product, which is also what a document
 // written before the field existed holds.
 func unpinnedThunderDocument() contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: "thunder",
-		Identities: []contexts.Identity{{
+		Accounts: []contexts.Account{{
 			Name: "thunder", Type: "onprem",
-			Auth: contexts.IdentityAuth{
+			Auth: contexts.AccountAuth{
 				Kind: contexts.KindOAuthBrowser, Issuer: thunderURL, ClientID: "wso2-cli",
 				Provider: contexts.ProviderThunder, CredentialRef: "thunder",
 			},
@@ -372,7 +372,7 @@ func unpinnedThunderDocument() contexts.Document {
 				Scopes: []string{"system"},
 			}},
 		}},
-		Contexts: []contexts.Context{{Name: "thunder", Identity: "thunder"}},
+		Contexts: []contexts.Context{{Name: "thunder", Account: "thunder"}},
 	}
 }
 
@@ -392,7 +392,7 @@ func TestConnectKeepsTheLoginProductAnUnpinnedIdentityAlreadyHad(t *testing.T) {
 	if code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	identity := loadDocument(t, shell).Identities[0]
+	identity := loadDocument(t, shell).Accounts[0]
 	if identity.LoginProduct != "zeta" {
 		t.Errorf("the login product moved to %q", identity.LoginProduct)
 	}
@@ -428,12 +428,12 @@ func TestConnectRefusesAProviderProductWhenNoIdentityHasTheLoginProvider(t *test
 	shell, _, _ := newConnectShell(t)
 	connect(t, shell, "iam", "connect", thunderURL)
 	code, _, errOut := connect(t, shell, "iam", "connect", "http://other.example",
-		"--identity", "other", "--login-provider", "http://nosuch.example")
+		"--account", "other", "--login-provider", "http://nosuch.example")
 	if code != exit.Usage || !strings.Contains(errOut, "shell.login_provider_required") {
 		t.Fatalf("exit %d, stderr:\n%s", code, errOut)
 	}
-	if document := loadDocument(t, shell); len(document.Identities) != 1 {
-		t.Errorf("an identity was created: %+v", document.Identities)
+	if document := loadDocument(t, shell); len(document.Accounts) != 1 {
+		t.Errorf("an identity was created: %+v", document.Accounts)
 	}
 }
 
@@ -463,7 +463,7 @@ func TestConnectReadsTheMachineListOfANonProviderProduct(t *testing.T) {
 	if code != exit.OK {
 		t.Fatalf("gateway connect: exit %d: %s", code, errOut)
 	}
-	product := loadDocument(t, shell).Identities[0].Products["gateway"]
+	product := loadDocument(t, shell).Accounts[0].Products["gateway"]
 	if product.ClientSecretVariable != "" {
 		t.Errorf("a credential was recorded: %+v", product)
 	}
@@ -471,5 +471,26 @@ func TestConnectReadsTheMachineListOfANonProviderProduct(t *testing.T) {
 		"--client-id", "legacy-client", "--client-secret-variable", "WSO2_LEGACY_CLIENT_SECRET")
 	if code != exit.AuthPolicy || !strings.Contains(errOut, "auth.product_not_configured") {
 		t.Fatalf("legacy connect: exit %d, stderr:\n%s", code, errOut)
+	}
+}
+
+func TestConnectAndContextCreateNameTheAccountFlagAccount(t *testing.T) {
+	// The documentation already promises --account, and the concept renamed;
+	// a flag still called --account would be the one place the old word
+	// survives, on the command a new user reaches first.
+	for _, command := range [][]string{
+		{"context", "create", "--help"},
+	} {
+		t.Run(strings.Join(command, " "), func(t *testing.T) {
+			shell, out, errOut := newShell(t)
+			_ = shell.Run(command)
+			rendered := out.String() + errOut.String()
+			if strings.Contains(rendered, "--identity") {
+				t.Errorf("%v still offers the old flag name:\n%s", command, rendered)
+			}
+			if !strings.Contains(rendered, "--account") {
+				t.Errorf("%v does not offer --account:\n%s", command, rendered)
+			}
+		})
 	}
 }

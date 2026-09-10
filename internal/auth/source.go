@@ -54,7 +54,7 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 		return nil, denial("auth.context_not_selected",
 			fmt.Sprintf("the %q module needs access, and no WSO2 CLI context is selected", b.namespace()),
 			"Run wso2 context use <name> to select a configured context, or wso2 login "+
-				"--url <issuer> --client-id <id> to create an identity and a context. "+
+				"--url <issuer> --client-id <id> to create an account and a context. "+
 				"wso2 context list shows what is configured.")
 	case contexts.MethodDevelopmentCredential:
 		return b.developmentSource()
@@ -99,6 +99,35 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 			// The login session itself is never established here.
 			source.establish = b.establishFor(access)
 		}
+		if access.Strategy == contexts.StrategyExchanged {
+			// An exchanged product has no session and no authorization of its
+			// own, so what is renewed and locked here is the login session.
+			// The source is rebuilt around that session deliberately rather
+			// than reusing the one above: the access carries the product's
+			// audience and no session reference at all, and a source pointed
+			// at the product would have nothing to load.
+			login := b.Selection.Identity.LoginAccess()
+			return exchangeSource{
+				login: sessionSource{
+					namespace: login.Namespace,
+					product:   login.Namespace,
+					ref:       login.SessionRef,
+					issuer:    login.Issuer,
+					clientID:  login.ClientID,
+					audience:  login.Audience,
+					scopes:    login.Scopes,
+					sessions:  session.Store{StateRoot: b.StateRoot},
+					client:    b.httpClient(),
+					strategy:  login.Strategy,
+
+					contextName:   b.Selection.Context.Name,
+					resourceBound: login.Resource != "",
+				},
+				namespace: access.Namespace,
+				product:   b.namespace(),
+				audience:  access.Audience,
+			}, nil
+		}
 		if access.Strategy == contexts.StrategyDerived {
 			// The product's own issuer answers, from an assertion the session
 			// yields. Everything the session source knows about renewing and
@@ -110,7 +139,7 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 		return nil, denial("auth.kind_not_implemented",
 			fmt.Sprintf("the %q context uses an authentication kind this release does not implement",
 				b.Selection.Context.Name),
-			"Select a context whose identity logs in through the browser or through a device code, "+
+			"Select a context whose account logs in through the browser or through a device code, "+
 				"or one that uses client credentials. Personal access token login is planned.")
 	default:
 		return nil, denial("auth.method_unsupported",
@@ -154,27 +183,27 @@ func (b *Broker) checkProduct(request Request) error {
 	product, configured := b.Selection.Identity.Products[b.Namespace]
 	if !configured {
 		return denial("auth.product_not_configured",
-			fmt.Sprintf("the identity the %q context authenticates as does not configure the %q product",
+			fmt.Sprintf("the account the %q context authenticates as does not configure the %q product",
 				b.Selection.Context.Name, b.namespace()),
-			fmt.Sprintf("Run wso2 identity add-product %s %s --endpoint <url> --audience "+
+			fmt.Sprintf("Run wso2 account add-product %s %s --endpoint <url> --audience "+
 				"<resource-id> --scopes <list> to register it, or select a context whose "+
-				"identity reaches it.", b.Selection.Identity.Name, b.namespace()))
+				"account reaches it.", b.Selection.Identity.Name, b.namespace()))
 	}
 	if request.Record == contexts.GatewayRecord {
 		return b.checkGateway(request, product)
 	}
 	if product.Audience == "" {
 		return denial("auth.product_not_configured",
-			fmt.Sprintf("the identity the %q context authenticates as registers no audience for its "+
+			fmt.Sprintf("the account the %q context authenticates as registers no audience for its "+
 				"%q product, so the shell cannot prove what a token it issues is bound to",
 				b.Selection.Context.Name, b.namespace()),
-			"Set the audience this deployment binds access to on this identity's product entry. It "+
+			"Set the audience this deployment binds access to on this account's product entry. It "+
 				"is the client ID on Asgardeo, the API resource identifier on Identity Server, and "+
 				"the resource server's URI on Thunder.")
 	}
 	if b.Selection.Identity.Auth.Derivation() == contexts.DerivationTokenResource &&
 		product.Grant != nil && product.Grant.Kind == contexts.GrantJWTBearer && product.Grant.Resource == "" {
-		// The identity's assertion session runs at the identity's own issuer,
+		// The identity's assertion session runs at the account's own issuer,
 		// which this derivation binds by resource exactly as the login
 		// session is. A document written before this field was required
 		// still decodes — see contexts.Identity.validateDerivation — so the
@@ -183,16 +212,16 @@ func (b *Broker) checkProduct(request Request) error {
 		return denial("auth.product_not_configured",
 			fmt.Sprintf("the %q product's jwt-bearer grant names no resource for its assertion "+
 				"session, which this deployment binds access by", b.namespace()),
-			fmt.Sprintf("Record the resource with wso2 identity add-product --replace "+
+			fmt.Sprintf("Record the resource with wso2 account add-product --replace "+
 				"--grant-resource <uri>, then run wso2 login --only %s.", b.namespace()))
 	}
 	if len(product.Scopes) > 0 {
 		for _, scope := range request.Scopes {
 			if !slices.Contains(product.Scopes, scope) {
 				return denial("auth.product_not_configured",
-					fmt.Sprintf("the %q module asked for the %q permission, which this identity's %q "+
+					fmt.Sprintf("the %q module asked for the %q permission, which this account's %q "+
 						"product does not carry", b.namespace(), scope, b.namespace()),
-					"Add the permission to this identity's product entry once the deployment grants "+
+					"Add the permission to this account's product entry once the deployment grants "+
 						"it, then retry the command.")
 			}
 		}
@@ -207,14 +236,14 @@ func (b *Broker) checkProduct(request Request) error {
 func (b *Broker) checkGateway(request Request, product contexts.Product) error {
 	if product.Gateway == nil {
 		return denial("auth.product_not_configured",
-			fmt.Sprintf("the identity the %q context authenticates as records no gateway for its %q product",
+			fmt.Sprintf("the account the %q context authenticates as records no gateway for its %q product",
 				b.Selection.Context.Name, b.namespace()),
 			fmt.Sprintf("Run wso2 %s connect <gateway-url> --gateway --audience <api resource identifier> "+
-				"--scopes <list> on this identity, then retry the command.", b.namespace()))
+				"--scopes <list> on this account, then retry the command.", b.namespace()))
 	}
 	if product.Gateway.Audience == "" {
 		return denial("auth.product_not_configured",
-			fmt.Sprintf("the identity the %q context authenticates as registers no audience for its "+
+			fmt.Sprintf("the account the %q context authenticates as registers no audience for its "+
 				"%q product's gateway, so the shell cannot prove what a token it issues is bound to",
 				b.Selection.Context.Name, b.namespace()),
 			fmt.Sprintf("Record the API's resource identifier with wso2 %s connect <gateway-url> --gateway "+
@@ -223,15 +252,15 @@ func (b *Broker) checkGateway(request Request, product contexts.Product) error {
 	if b.Selection.Identity.Auth.Kind == contexts.KindClientCredentials &&
 		!b.Capabilities.Product.Gateway.AllowsMachine(modules.MachineInline) {
 		return denial("auth.product_not_configured",
-			fmt.Sprintf("the %q product's gateway does not accept the machine client this identity holds",
+			fmt.Sprintf("the %q product's gateway does not accept the machine client this account holds",
 				b.namespace()),
-			"Select an identity that signs in through the browser, or install a version of the module "+
+			"Select an account that signs in through the browser, or install a version of the module "+
 				"whose descriptor says how a machine client reaches its gateway.")
 	}
 	for _, scope := range request.Scopes {
 		if !slices.Contains(product.Gateway.Scopes, scope) {
 			return denial("auth.product_not_configured",
-				fmt.Sprintf("the %q module asked for the %q permission, which this identity's %q "+
+				fmt.Sprintf("the %q module asked for the %q permission, which this account's %q "+
 					"gateway record does not carry", b.namespace(), scope, b.namespace()),
 				fmt.Sprintf("Record the permission with wso2 %s connect <gateway-url> --gateway "+
 					"--audience <api resource identifier> --scopes <list> --replace, then retry the command.",
@@ -255,9 +284,9 @@ func (b *Broker) checkHomeTenant() error {
 	}
 	return denial("auth.organization_switch_unsupported",
 		fmt.Sprintf("the %q context targets the %q organization, and this release cannot switch the "+
-			"%q identity's session out of its home tenant",
+			"%q account's session out of its home tenant",
 			b.Selection.Context.Name, organization, b.Selection.Identity.Name),
-		"Select a context that stays in the identity's home tenant, or add an identity whose home "+
+		"Select a context that stays in the account's home tenant, or add an account whose home "+
 			"tenant is the organization you are targeting and log in as it.")
 }
 
@@ -298,8 +327,8 @@ func (b *Broker) developmentSource() (source, error) {
 // two are validated together, so recording one is recording both. A product
 // reached through a grant but naming no credential of its own has nothing to
 // present there and is refused rather than sent with a client the target
-// issuer never registered. Anything else uses the identity's own client and
-// secret, at the identity's own issuer.
+// issuer never registered. Anything else uses the account's own client and
+// secret, at the account's own issuer.
 //
 // The secret is read here rather than at the moment of the grant, so a job that
 // forgot to export it is told so before the shell reaches out to an issuer that
@@ -309,7 +338,7 @@ func (b *Broker) inlineSource(request Request) (source, error) {
 	product := b.Selection.Identity.Products[b.Namespace]
 	clientID := b.Selection.Identity.Auth.ClientID
 	secretVariable := b.Selection.Identity.Auth.ClientSecretVariable
-	// A gateway record is minted from the identity's own machine client at
+	// A gateway record is minted from the account's own machine client at
 	// the login provider, whatever credential the product's own record
 	// carries for its own issuer, so the product's credential and grant are
 	// consulted only for the product's own record. There the secret belongs
@@ -338,9 +367,9 @@ func (b *Broker) inlineSource(request Request) (source, error) {
 		// registration this release does not read without being told.
 		return nil, denial("auth.kind_not_implemented",
 			fmt.Sprintf("the %q product is reached through its own issuer, which does not accept "+
-				"this identity's machine client", b.namespace()),
+				"this account's machine client", b.namespace()),
 			"Record the product's own client credential on its entry with clientIdVariable and "+
-				"clientSecretVariable, or select an interactive identity.")
+				"clientSecretVariable, or select an interactive account.")
 	}
 	secret, err := b.namedSecret(secretVariable, "the client secret")
 	if err != nil {

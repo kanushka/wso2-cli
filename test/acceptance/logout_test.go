@@ -297,7 +297,7 @@ func TestLogoutNamesEveryContextSharingTheSession(t *testing.T) {
 		func(document *contexts.Document) {
 			document.Contexts = append(document.Contexts, contexts.Context{
 				Name:         secondContext,
-				Identity:     loginIdentityName,
+				Account:      loginIdentityName,
 				Organization: referenceOrganization,
 			})
 		})
@@ -323,12 +323,12 @@ func TestLogoutNamesContextsReachingTheSessionThroughAnotherIdentity(t *testing.
 	const secondContext = "reference-alias"
 	deployment := deployLoginWithoutModule(t, fakeissuer.Options{AllowAnyLoopbackPort: true},
 		func(document *contexts.Document) {
-			alias := document.Identities[0]
+			alias := document.Accounts[0]
 			alias.Name = secondIdentity
-			document.Identities = append(document.Identities, alias)
+			document.Accounts = append(document.Accounts, alias)
 			document.Contexts = append(document.Contexts, contexts.Context{
 				Name:         secondContext,
-				Identity:     secondIdentity,
+				Account:      secondIdentity,
 				Organization: referenceOrganization,
 			})
 		})
@@ -387,12 +387,12 @@ func TestLogoutRevealsNoTokenMaterial(t *testing.T) {
 func TestLogoutReportsAnIdentityThatHoldsNoSession(t *testing.T) {
 	deployment := deployLoginWithoutModule(t, fakeissuer.Options{AllowAnyLoopbackPort: true},
 		func(document *contexts.Document) {
-			document.Identities[0].Auth.Kind = contexts.KindClientCredentials
-			document.Identities[0].Auth.ClientSecretVariable = inlineSecretVariable
+			document.Accounts[0].Auth.Kind = contexts.KindClientCredentials
+			document.Accounts[0].Auth.ClientSecretVariable = inlineSecretVariable
 			// The schema refuses a secure-store reference on a non-interactive
 			// identity, which is the same fact this test is about: such an
 			// identity has no session, so it has nowhere to keep one.
-			document.Identities[0].Auth.CredentialRef = ""
+			document.Accounts[0].Auth.CredentialRef = ""
 		})
 
 	if code := deployment.shell.Run([]string{"logout"}); code != exit.OK {

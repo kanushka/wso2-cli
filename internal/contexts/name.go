@@ -27,7 +27,7 @@ import (
 // checked rather than refused for a length nobody chose.
 const nameLimit = 64
 
-// IdentityNameForIssuer derives an identity name from an issuer URL.
+// IdentityNameForIssuer derives an account name from an issuer URL.
 //
 // The rule is deliberately mechanical — take the host, drop the port, lower-case
 // it, and replace each label separator with a hyphen — because the name is
@@ -101,6 +101,6 @@ func sanitizedNamePart(part string) string {
 // have succeeded.
 func underivableIdentityName(from string) error {
 	return contextProblem("contexts.identity_name_underivable",
-		fmt.Sprintf("no identity name can be derived from %q", from),
-		fmt.Sprintf("Name the identity yourself with --context <name>. A name is %s.", NameRule))
+		fmt.Sprintf("no account name can be derived from %q", from),
+		fmt.Sprintf("Name the account yourself with --context <name>. A name is %s.", NameRule))
 }

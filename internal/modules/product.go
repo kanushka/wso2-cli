@@ -34,7 +34,7 @@ const (
 	AudienceClient = "client"
 )
 
-// The strategies a product may allow a client-credentials identity.
+// The strategies a product may allow a client-credentials account.
 const (
 	// MachineInline: the identity's machine client, registered at the login
 	// provider, is minted per product.
@@ -73,10 +73,11 @@ type ProductDescriptor struct {
 	// authorized for exactly these.
 	Scopes []string `json:"scopes"`
 	// Grant is the grant kind the product needs when it is not the login
-	// provider: federated or jwt-bearer. Empty for a product only its own
-	// provider serves.
+	// provider: federated, jwt-bearer or exchange. Empty for a product only
+	// its own provider serves. An exchanged product's audience defaults to
+	// the URL connect is given when DefaultAudience names none.
 	Grant string `json:"grant,omitempty"`
-	// Machine lists the strategies a client-credentials identity may use:
+	// Machine lists the strategies a client-credentials account may use:
 	// MachineInline, MachineCredential, or both.
 	Machine []string `json:"machine,omitempty"`
 	// Gateway is the shape of the product's gateway record, when the product
@@ -98,12 +99,12 @@ type GatewayDescriptor struct {
 	// Scopes are the default scope set a gateway record carries. Normally
 	// empty: the permissions are the API's own, passed to connect.
 	Scopes []string `json:"scopes,omitempty"`
-	// Machine lists the strategies a client-credentials identity may use
+	// Machine lists the strategies a client-credentials account may use
 	// for the gateway record: MachineInline, MachineCredential, or both.
 	Machine []string `json:"machine,omitempty"`
 }
 
-// AllowsMachine reports whether a client-credentials identity may reach the
+// AllowsMachine reports whether a client-credentials account may reach the
 // gateway by the named strategy.
 func (g GatewayDescriptor) AllowsMachine(strategy string) bool {
 	return slices.Contains(g.Machine, strategy)
@@ -126,13 +127,28 @@ func (d ProductDescriptor) AudienceFor(clientID string) string {
 // LoginProvider reports whether a login can run against this product.
 func (d ProductDescriptor) LoginProvider() bool { return d.Provider != "" }
 
-// AllowsMachine reports whether a client-credentials identity may reach
+// Exchanged reports whether the product is reached by exchanging the
+// account's own login session: it validates the login provider's tokens
+// itself, so it has no issuer, client or session of its own to record.
+func (d ProductDescriptor) Exchanged() bool {
+	return !d.LoginProvider() && d.Grant == contexts.GrantExchange
+}
+
+// AllowsMachine reports whether a client-credentials account may reach
 // the product by the named strategy.
 func (d ProductDescriptor) AllowsMachine(strategy string) bool {
 	return slices.Contains(d.Machine, strategy)
 }
 
-var legalDescriptorGrants = []string{contexts.GrantFederated, contexts.GrantJWTBearer}
+var legalDescriptorGrants = []string{
+	contexts.GrantFederated,
+	contexts.GrantJWTBearer,
+	// A product whose deployment validates the login provider's tokens
+	// directly needs no authorization of its own, and connect is what records
+	// that shape. Without it here, every such product would have to be
+	// recorded by hand with wso2 account add-product --grant exchange.
+	contexts.GrantExchange,
+}
 
 // validate refuses a descriptor the shell could not write a record from.
 func (d ProductDescriptor) validate() error {
@@ -155,7 +171,12 @@ func (d ProductDescriptor) validate() error {
 			return refuse(fmt.Sprintf("with a machine strategy %q this shell does not implement", strategy))
 		}
 	}
-	if len(d.Scopes) == 0 {
+	// An exchange carries no resource-server permissions across, so a product
+	// reached by one is authorized by the claims its token carries — the group
+	// mapped to a role at the product — and has no scopes to name. Every other
+	// grant narrows a session to a scope set, and a descriptor that named none
+	// would leave the shell nothing to ask for.
+	if len(d.Scopes) == 0 && d.Grant != contexts.GrantExchange {
 		return refuse("with no scopes")
 	}
 	if d.IssuerPath != "" && !strings.HasPrefix(d.IssuerPath, "/") {
@@ -166,12 +187,12 @@ func (d ProductDescriptor) validate() error {
 			return refuse(fmt.Sprintf("whose gateway block has an audience kind %q that is neither %s nor %s",
 				d.Gateway.Audience, AudienceResource, AudienceClient))
 		}
-		// A gateway is reached at the identity's login provider, so the
-		// only machine strategy it can have is the identity's own client.
+		// A gateway is reached at the account's login provider, so the
+		// only machine strategy it can have is the account's own client.
 		for _, strategy := range d.Gateway.Machine {
 			if strategy != MachineInline {
 				return refuse(fmt.Sprintf("whose gateway block has a machine strategy %q this shell does not implement "+
-					"for a gateway, which is reached only from the identity's own client (%s)", strategy, MachineInline))
+					"for a gateway, which is reached only from the account's own client (%s)", strategy, MachineInline))
 			}
 		}
 	}

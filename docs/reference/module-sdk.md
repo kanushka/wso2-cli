@@ -4,7 +4,7 @@
 **Related:** [Building a product module](../guides/building-product-modules.md),
 [module manifest](module-manifest.md),
 [troubleshooting a module](../guides/troubleshooting-modules.md)
-**Last reviewed:** 2026-09-07
+**Last reviewed:** 2026-09-10
 
 What a command handler receives, and what it may return. A module imports the
 public `github.com/wso2/wso2-cli/sdk/...` packages and never a shell `internal/`
@@ -178,16 +178,16 @@ Acquire(ctx context.Context, request AccessRequest) (Access, error)
 ```
 
 The shell intersects the request with what the installed module's receipt
-declares, finds the selected context and identity, obtains or reuses the
+declares, finds the selected context and account, obtains or reuses the
 product's session, and returns short-lived access for this one invocation. An
 undeclared audience is refused with `auth.audience_not_declared`, and a scope
-neither the receipt nor the identity's product entry for this namespace names
+neither the receipt nor the account's product entry for this namespace names
 is refused with `auth.scope_not_declared`, rather than narrowed away: a module
 silently granted less than it asked for would proceed believing it holds access
 it does not.
 
 `Scopes` may be empty, and ordinarily is. An empty list asks for exactly the
-scopes recorded on the identity's product entry for this namespace, which the
+scopes recorded on the account's product entry for this namespace, which the
 user or the product's `connect` wrote down when the product was recorded, and
 those recorded scopes are the ceiling for every request whichever side named
 them. So a module declares every scope its commands can need once, in
@@ -204,14 +204,25 @@ A denial arrives as a typed problem and should be returned unchanged.
 
 ```go
 type Result struct {
-	Schema string
-	Fields []Field
+	Schema  string
+	Fields  []Field
+	Columns []Column
+	Rows    []Row
 }
 
 type Field struct {
 	Name  string
 	Label string
 	Value string
+}
+
+type Column struct {
+	Name  string
+	Label string
+}
+
+type Row struct {
+	Values []string
 }
 ```
 
@@ -233,8 +244,43 @@ is a deliberate limit of the architecture proof rather than a lasting design:
 giving values their own types is a protocol change and belongs to a slice that
 can carry one.
 
+### Returning a listing
+
+Fields answer for a result that reports one thing: the shell renders them as a
+header row and one value row, so a command that returned one field per item
+would produce one column per item and a line no terminal can show.
+
+A listing declares its columns once and adds a row per item, with `WithColumn`
+and `WithRow`:
+
+```go
+report := result.New("identity.resourceServers/v1").
+	With("count", "Resource servers", strconv.Itoa(len(found))).
+	WithColumn("name", "Name").
+	WithColumn("identifier", "Identifier")
+for _, server := range found {
+	report = report.WithRow(server.Name, server.Identifier)
+}
+return report.With("next", "Next", "Record one with wso2 account add-product."), nil
+```
+
+The columns are declared once rather than restated by every row, which is what
+makes "every row has the same columns" something the shell checks instead of
+something two rows could disagree about. A row carrying the wrong number of
+values is refused rather than padded or trimmed, because either would put a
+value under a header it does not belong to and the reader could not tell.
+
+A result may carry both. The fields describe the listing — how many there are,
+what was filtered — and the rows are the answer, so the shell renders the
+fields as label-and-value lines above the table rather than folding both into
+one table. In JSON the rows are an array of objects under `rows`, keyed by each
+column's `Name`: the label may be reworded without a schema change, and the
+name is what a script depends on.
+
 `Validate` rejects a result the shell could not render: no schema, no fields, a
-field with no name, or the same field name twice.
+field with no name, the same field name twice, rows with no columns declared, a
+column with no name, the same column name twice, or a row whose value count
+differs from the declared columns.
 
 ## Returning a failure
 
@@ -311,7 +357,7 @@ type Access struct {
 Setting `Deny` answers the request with that refusal; anything else is a grant.
 Leaving `Invocation.Access` nil denies every request with
 `testkit.access_not_scripted`, so a handler that asks for access it was never
-given fails loudly rather than silently. Nothing here needs a real identity
+given fails loudly rather than silently. Nothing here needs a real account
 provider.
 
 ```go
@@ -342,6 +388,48 @@ capabilities the way the broker does, so a handler asking for an audience that
 machine with `auth.audience_not_declared`. Install the module and run it under
 a real shell before tagging: see the guide's
 [Run it under the real shell](../guides/building-product-modules.md#run-it-under-the-real-shell-before-you-tag).
+
+## Naming your own commands
+
+```go
+func OwnNamespaceViolations(namespace string, tree commandtree.Tree, dir string) ([]string, error)
+```
+
+`sdk/testkit` also guards against a fault no handler test catches: a "next"
+field or a recovery that names one of this module's own commands under a
+namespace other than its own, or that tells the reader to record this product
+under the wrong name. It shipped once — a repository-wide rename swept a
+module's own namespace out of its user-facing text, so a command that worked
+told the reader to run one that did not exist — and the module still compiled,
+its handlers still returned the right fields, and the shell still rendered them
+faithfully. Only a person following the instruction found out.
+
+`OwnNamespaceViolations` reads `dir` for its own non-test `.go` files rather
+than driving the module through the contract, because a handler test only ever
+exercises the paths it scripts, and the damage this exists to catch can sit
+behind a branch nothing scripts. `tree` is the module's own declared
+tree — `commands().Declare()` — and is where the commands it protects come
+from: a command added to the tree is a command protected here, with no second
+list to keep in step. `namespace` is the module's own, exactly what
+`moduleOptions()` already declares.
+
+```go
+func TestEveryCommandThisModuleNamesIsItsOwn(t *testing.T) {
+	violations, err := testkit.OwnNamespaceViolations(Namespace, commands().Declare(), ".")
+	if err != nil {
+		t.Fatalf("checking that %s names its own commands: %v", Namespace, err)
+	}
+	for _, violation := range violations {
+		t.Error(violation)
+	}
+}
+```
+
+A newly scaffolded module carries this test already; nothing about it needs
+editing as the module grows past its first command. The check follows the tree
+wherever it goes, with one addition that no tree carries: `connect`, which
+every product namespace answers to because the shell serves it itself, named
+once here rather than by every module separately.
 
 ## The rule the SDK cannot enforce
 

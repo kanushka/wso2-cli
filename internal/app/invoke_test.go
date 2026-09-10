@@ -194,14 +194,14 @@ func twoContextDocument() contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: "first",
-		Identities: []contexts.Identity{{
+		Accounts: []contexts.Account{{
 			Name: "acme",
 			Type: "onprem",
-			Auth: contexts.IdentityAuth{Kind: contexts.KindPAT, CredentialRef: "acme-login"},
+			Auth: contexts.AccountAuth{Kind: contexts.KindPAT, CredentialRef: "acme-login"},
 		}},
 		Contexts: []contexts.Context{
-			{Name: "first", Identity: "acme"},
-			{Name: "second", Identity: "acme"},
+			{Name: "first", Account: "acme"},
+			{Name: "second", Account: "acme"},
 		},
 	}
 }

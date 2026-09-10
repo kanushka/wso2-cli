@@ -19,6 +19,7 @@ package contexts_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -44,8 +45,8 @@ func TestSaveWritesADocumentTheShellReadsBack(t *testing.T) {
 	if loaded.DefaultContext != "acme-dev" || len(loaded.Contexts) != 1 {
 		t.Fatalf("the round trip lost content: %+v", loaded)
 	}
-	if len(loaded.Identities) != 1 || loaded.Identities[0].Name != "acme-cloud" {
-		t.Fatalf("the round trip lost the identity: %+v", loaded.Identities)
+	if len(loaded.Accounts) != 1 || loaded.Accounts[0].Name != "acme-cloud" {
+		t.Fatalf("the round trip lost the identity: %+v", loaded.Accounts)
 	}
 }
 
@@ -56,7 +57,7 @@ func TestSaveRefusesADocumentTheShellWouldNotRead(t *testing.T) {
 	invalid := contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: "acme-dev",
-		Contexts:       []contexts.Context{{Name: "acme-dev", Identity: "missing"}},
+		Contexts:       []contexts.Context{{Name: "acme-dev", Account: "missing"}},
 	}
 
 	err := contexts.Save(root, invalid)
@@ -121,7 +122,7 @@ func TestUpdateAppliesTheChange(t *testing.T) {
 
 	err := contexts.Update(root, func(d contexts.Document) (contexts.Document, error) {
 		d.Contexts = append(d.Contexts, contexts.Context{
-			Name: "acme-prod", Identity: "acme-cloud", Organization: "acme",
+			Name: "acme-prod", Account: "acme-cloud", Organization: "acme",
 		})
 		return d, nil
 	})
@@ -175,7 +176,7 @@ func TestUpdateRefusesAChangeTheShellWouldNotRead(t *testing.T) {
 	}
 
 	err = contexts.Update(root, func(d contexts.Document) (contexts.Document, error) {
-		d.Contexts = append(d.Contexts, contexts.Context{Name: "acme-prod", Identity: "missing"})
+		d.Contexts = append(d.Contexts, contexts.Context{Name: "acme-prod", Account: "missing"})
 		return d, nil
 	})
 	assertProblemCode(t, err, "contexts.document_malformed")
@@ -194,8 +195,8 @@ func TestUpdateOnAnAbsentDocumentStartsFromAnEmptyOne(t *testing.T) {
 	// case in every caller.
 	root := t.TempDir()
 	err := contexts.Update(root, func(d contexts.Document) (contexts.Document, error) {
-		if len(d.Contexts) != 0 || len(d.Identities) != 0 {
-			t.Errorf("a fresh root produced %d contexts and %d identities", len(d.Contexts), len(d.Identities))
+		if len(d.Contexts) != 0 || len(d.Accounts) != 0 {
+			t.Errorf("a fresh root produced %d contexts and %d identities", len(d.Contexts), len(d.Accounts))
 		}
 		return documentV2(), nil
 	})
@@ -251,7 +252,10 @@ func TestSaveRefusesToOverwriteADocumentFromANewerShell(t *testing.T) {
 	// this machine wrote and still manages. Decode refuses to read it; a writer
 	// that destroyed it would be doing something no reader is allowed to do.
 	root := t.TempDir()
-	seeded := `{"schemaVersion":3,"defaultContext":"acme-dev"}` + "\n"
+	// One version above whatever this shell writes, derived rather than
+	// spelled, so a later schema bump does not silently turn this test into a
+	// test of the current version.
+	seeded := fmt.Sprintf(`{"schemaVersion":%d,"defaultContext":"acme-dev"}`, contexts.SchemaVersion+1) + "\n"
 	seed(t, root, seeded)
 
 	err := contexts.Save(root, documentV2())
@@ -263,7 +267,7 @@ func TestTheFrozenRefusalNamesTheVersionAndTheFile(t *testing.T) {
 	// The user has to be able to find the file. The refusal Encode makes for
 	// the same family of condition never names one.
 	root := t.TempDir()
-	seed(t, root, `{"schemaVersion":3}`+"\n")
+	seed(t, root, fmt.Sprintf(`{"schemaVersion":%d}`, contexts.SchemaVersion+1)+"\n")
 
 	err := contexts.Save(root, documentV2())
 	var typed problem.Problem
@@ -273,8 +277,11 @@ func TestTheFrozenRefusalNamesTheVersionAndTheFile(t *testing.T) {
 	if !strings.Contains(typed.Message, contexts.Path(root)) {
 		t.Errorf("the message does not name the file: %q", typed.Message)
 	}
-	if !strings.Contains(typed.Message, "3") {
-		t.Errorf("the message does not name the version: %q", typed.Message)
+	// The whole phrase, not the bare digit: a digit alone is found in the
+	// temporary path the message also names often enough to pass on one
+	// machine and fail on another, which is how this check once went blind.
+	if want := fmt.Sprintf("schema version %d", contexts.SchemaVersion+1); !strings.Contains(typed.Message, want) {
+		t.Errorf("the message does not name the version (%q): %q", want, typed.Message)
 	}
 }
 
@@ -407,7 +414,7 @@ func TestConcurrentUpdatesDoNotDiscardEachOther(t *testing.T) {
 			defer group.Done()
 			errs <- contexts.Update(root, func(d contexts.Document) (contexts.Document, error) {
 				d.Contexts = append(d.Contexts, contexts.Context{
-					Name: name, Identity: "acme-cloud", Organization: "acme",
+					Name: name, Account: "acme-cloud", Organization: "acme",
 				})
 				return d, nil
 			})
@@ -455,5 +462,36 @@ func seed(t *testing.T, root, document string) {
 	}
 	if err := os.WriteFile(contexts.Path(root), []byte(document), 0o600); err != nil {
 		t.Fatalf("WriteFile returned %v", err)
+	}
+}
+
+func TestADocumentWrittenBeforeTheRenameIsUpgradedRatherThanFrozen(t *testing.T) {
+	// The frozen refusal exists for a version this shell cannot understand.
+	// The schema before the rename it understands completely — one member name
+	// differs — so freezing it would make every document written by an earlier
+	// shell read-only, and the first wso2 account command after an upgrade
+	// would refuse rather than work.
+	root := t.TempDir()
+	path := filepath.Join(root, "cli", "contexts.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(validV2()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := contexts.Update(root, func(d contexts.Document) (contexts.Document, error) {
+		d.DefaultContext = "acme-dev"
+		return d, nil
+	})
+	if err != nil {
+		t.Fatalf("a pre-rename document was refused rather than upgraded: %v", err)
+	}
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(written), `"accounts"`) ||
+		strings.Contains(string(written), `"identities"`) {
+		t.Fatalf("the upgraded document was not written under the accounts key:\n%s", written)
 	}
 }

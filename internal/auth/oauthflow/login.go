@@ -74,6 +74,14 @@ const (
 	challengeMethodS256 = "S256"
 	// scopeOfflineAccess asks for the refresh token the session is built on.
 	scopeOfflineAccess = "offline_access"
+	// scopeProfile and scopeEmail ask the provider to name the person in the
+	// identity token. OpenID Connect discloses name, given_name and
+	// family_name only under profile, and email only under email, so a login
+	// that asks for neither learns the subject and nothing a person would
+	// recognize — and wso2 whoami then reports an opaque identifier. Both are
+	// standard OpenID scopes every supported deployment answers.
+	scopeProfile = "profile"
+	scopeEmail   = "email"
 )
 
 // LoopbackPorts is the fixed callback port sequence, tried in order. All four
@@ -147,6 +155,13 @@ type Result struct {
 	IDToken string
 	// Email is the verified identity token's email claim, when it carries one.
 	Email string
+	// Name is the login's best guess at a human-readable label for the
+	// signed-in person, resolved by displayName: the identity token's name
+	// claim, given_name and family_name joined when name is absent, or email
+	// when the issuer discloses no name claim at all. It is empty when none of
+	// the four is disclosed — an issuer that names nobody is not asked to have
+	// one invented for it. See displayName.
+	Name string
 }
 
 // Run performs the login and returns the issued token with the verified
@@ -195,7 +210,7 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	callback := serveCallback(listener, state, l.Label)
+	callback := serveCallback(listener, state, l.Label, l.Resource)
 	defer callback.close()
 
 	// A public client has no secret to present, so it identifies itself in the
@@ -260,16 +275,50 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 			"Retry wso2 login from a single terminal and complete only the sign-in it opens.")
 	}
 	var claims struct {
-		Email string `json:"email"`
+		Email      string `json:"email"`
+		Name       string `json:"name"`
+		GivenName  string `json:"given_name"`
+		FamilyName string `json:"family_name"`
 	}
 	// An issuer that discloses no email is a legal issuer; the login reports
 	// what it verified rather than refusing over a claim it did not need.
 	_ = idToken.Claims(&claims)
-	return Result{Token: token, Subject: idToken.Subject, IDToken: rawIDToken, Email: claims.Email}, nil
+	return Result{
+		Token:   token,
+		Subject: idToken.Subject,
+		IDToken: rawIDToken,
+		Email:   claims.Email,
+		Name:    displayName(claims.Name, claims.GivenName, claims.FamilyName, claims.Email),
+	}, nil
 }
 
+// displayName resolves the login's one human-readable label for the signed-in
+// person from whichever of the identity token's name claims the issuer
+// disclosed, in the order a person is most likely to recognise themselves by:
+// the OIDC standard name claim, then given_name and family_name joined, then
+// email — still a name a person chose, unlike the subject identifier the
+// issuer assigned. It returns empty when the issuer discloses none of the
+// four, rather than inventing a name from parts it was never given.
+func displayName(name, givenName, familyName, email string) string {
+	if name != "" {
+		return name
+	}
+	if combined := strings.TrimSpace(givenName + " " + familyName); combined != "" {
+		return combined
+	}
+	return email
+}
+
+// scopes is what the authorization asks for: the OpenID scopes that make a
+// session and name the person in it, then the product's own.
+//
+// The profile and email scopes are asked for here, beside openid, rather than
+// added to the product's scopes, because they are about who signed in and not
+// about what a product may do. That keeps them out of the scope set a session
+// is recorded against, so a session stored before this change is not read as
+// one authorized for a different product.
 func (l Login) scopes() []string {
-	requested := []string{oidc.ScopeOpenID, scopeOfflineAccess}
+	requested := []string{oidc.ScopeOpenID, scopeOfflineAccess, scopeProfile, scopeEmail}
 	for _, scope := range l.Scopes {
 		if !slices.Contains(requested, scope) {
 			requested = append(requested, scope)
@@ -365,6 +414,43 @@ func notCompleted(message, recovery string) problem.Problem {
 	return problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable", message).WithRecovery(recovery)
 }
 
+// TargetRejected is RFC 8707's refusal of an authorization request's resource
+// indicator: the one refusal a retry cannot get past, because what is wrong is
+// the account's record or the deployment's registration. It is a type of its
+// own so a caller that knows more about the account can word the way out; it
+// unwraps to the problem every other caller reports.
+type TargetRejected struct {
+	// Resource is the indicator the request carried, empty when it carried
+	// none, which is what tells the two causes apart.
+	Resource string
+	problem  problem.Problem
+}
+
+func (t TargetRejected) Error() string { return t.problem.Error() }
+
+// Unwrap is the problem the refusal is reported as.
+func (t TargetRejected) Unwrap() error { return t.problem }
+
+// targetRejected words the refusal. The provider's description is not
+// repeated; the code is, because it is a registered value naming the cause
+// rather than text the provider chose.
+func targetRejected(resource string) TargetRejected {
+	if resource == "" {
+		return TargetRejected{problem: problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
+			"the identity provider binds every login to a resource server (invalid_target), and this "+
+				"login named none, because the account records no product its login binds to").
+			WithRecovery("Record the login provider's own product on the account, so the login names " +
+				"its resource server, then retry wso2 login.")}
+	}
+	return TargetRejected{Resource: resource, problem: problem.New(problem.CategoryAuthPolicy,
+		"auth.product_not_configured",
+		fmt.Sprintf("the identity provider does not recognize the resource server %q this login names "+
+			"(invalid_target)", resource)).
+		WithRecovery(fmt.Sprintf("Register %q as a resource server identifier at the identity provider, "+
+			"or record the product with the audience the deployment registered, then retry wso2 login.",
+			resource))}
+}
+
 // identityNotVerified reports an identity token the shell would not accept,
 // and says which kind of failure it was.
 //
@@ -401,7 +487,7 @@ func identityNotVerified(err error) problem.Problem {
 				"deployment that signed you in.")
 	default:
 		return notCompleted("the identity token this login returned did not verify",
-			"Retry wso2 login. The shell does not accept an identity it cannot verify against the issuer's keys.")
+			"Retry wso2 login. The shell does not accept an account it cannot verify against the issuer's keys.")
 	}
 }
 
@@ -425,8 +511,10 @@ const callbackReadHeaderTimeout = 10 * time.Second
 //
 // The state is captured here rather than checked by the caller so that no path
 // through this package can accept a code without it. The label names the
-// product this login is for, and appears on the accepted page alone.
-func serveCallback(listener net.Listener, state, label string) *callback {
+// product this login is for, and appears on the accepted page alone. The
+// resource is the indicator the authorization request carried, empty when it
+// carried none, and words a refusal of it.
+func serveCallback(listener net.Listener, state, label, resource string) *callback {
 	waiting := &callback{results: make(chan callbackResult, 1)}
 	mux := http.NewServeMux()
 	mux.HandleFunc(callbackPath, func(w http.ResponseWriter, r *http.Request) {
@@ -441,9 +529,14 @@ func serveCallback(listener net.Listener, state, label string) *callback {
 			respond(w, pageStrayTab, "")
 			return
 		}
+		if query.Get("error") == "invalid_target" {
+			respond(w, pageRefused, "")
+			waiting.finish(callbackResult{err: targetRejected(resource)})
+			return
+		}
 		if query.Get("error") != "" {
 			// The provider's error code is not echoed to the terminal; what the
-			// user must do is the same whichever refusal it was.
+			// user must do is the same whichever of these refusals it was.
 			respond(w, pageRefused, "")
 			waiting.finish(callbackResult{err: notCompleted(
 				"the identity provider refused this login",

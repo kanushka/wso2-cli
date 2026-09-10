@@ -57,9 +57,9 @@ func healthyShellAgainst(t *testing.T, issuer string) (app.Shell, *bytes.Buffer,
 	shell, out, errOut := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
 	seeded := identityOnlyDocument()
-	seeded.Identities[0].Auth.Issuer = issuer
+	seeded.Accounts[0].Auth.Issuer = issuer
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
 	installLogin(t, shell, seeded)
 	store := session.Store{StateRoot: shell.StateRoot}
 	if err := store.Save("acme-cloud", session.Session{Issuer: issuer, RefreshToken: "rt-1"}); err != nil {
@@ -71,7 +71,7 @@ func healthyShellAgainst(t *testing.T, issuer string) (app.Shell, *bytes.Buffer,
 // TestDoctorOnlineReportsAnUntrustedIssuerCertificate is the defect wso2
 // doctor missed: every offline check passed against an API Manager whose
 // self-signed certificate no product command could get past. Under --online
-// the issuer check dials the selected identity's issuer and reports the
+// the issuer check dials the selected account's issuer and reports the
 // certificate, with the same recovery a product command gives.
 func TestDoctorOnlineReportsAnUntrustedIssuerCertificate(t *testing.T) {
 	keyring.MockInit()

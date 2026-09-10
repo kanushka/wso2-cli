@@ -26,7 +26,7 @@ own, and each ends by handing you the four values section 2 asks for.
 **If the product you are reaching has a module with a product descriptor**,
 you do not assemble those values at all: `wso2 <namespace> connect <url>`
 records the product from its URL, and one login then serves every product
-recorded on the identity. This guide is the one for the context document
+recorded on the account. This guide is the one for the context document
 itself and for a deployment recorded by hand.
 
 ---
@@ -82,10 +82,10 @@ walkthrough states its product's answer and shows the measurement behind it.
 ## 2. The context document
 
 You do not have to write this file by hand. `wso2 login --url <issuer>
---client-id <id>` creates the identity and the context it authenticates,
+--client-id <id>` creates the account and the context it authenticates,
 `wso2 <namespace> connect <url>` records a product whose module carries a
 descriptor, and `wso2 context create` adds further contexts over the same
-identity; section 3 takes the first route, and no editor is involved in it. This section stays because
+account; section 3 takes the first route, and no editor is involved in it. This section stays because
 the file is what those commands write, and reading it is how you check what
 they wrote — and because a context that names an organization, a project, or
 more than one product is still quicker to write than to assemble from flags.
@@ -105,17 +105,17 @@ mkdir -p ~/.wso2/cli
 
 ### 2.2 What it says
 
-A context document names **identities** and **contexts**. An identity says how
-to authenticate and what it may reach. A context selects an identity and the
+A context document names **accounts** and **contexts**. An account says how
+to authenticate and what it may reach. A context selects an account and the
 organization to act within.
 
 Copy this, then replace the four values marked in the comments below it:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "defaultContext": "acme-dev",
-  "identities": [
+  "accounts": [
     {
       "name": "acme-cloud",
       "type": "cloud",
@@ -138,7 +138,7 @@ Copy this, then replace the four values marked in the comments below it:
   "contexts": [
     {
       "name": "acme-dev",
-      "identity": "acme-cloud",
+      "account": "acme-cloud",
       "organization": "acme"
     }
   ]
@@ -161,7 +161,7 @@ Replace:
   client ID substituted here.
 - `scopes`: the scopes you authorized on the application.
 
-Each walkthrough's last-but-one section shows the whole identity block filled in
+Each walkthrough's last-but-one section shows the whole account block filled in
 for that product, including `type` and any product-specific member.
 
 ### 2.3 What each field means
@@ -170,19 +170,19 @@ for that product, including `type` and any product-specific member.
 | --- | --- |
 | `schemaVersion` | Must be `2`. |
 | `defaultContext` | The context used when no `--context` flag and no `WSO2_CONTEXT` is given. Must name a context declared below. |
-| `identities[].name` | Lower-case letters, digits and dashes, starting with a letter, up to 64 characters. |
-| `identities[].type` | `cloud` or `onprem`. Nothing else is accepted. |
-| `auth.kind` | `oauth-browser` for a person at a browser. `oauth-device` for an identity that can only be established without one, covered in section 3.1. `client-credentials` for CI, covered in section 5. `pat` is named by the schema but not implemented in this release. |
+| `accounts[].name` | Lower-case letters, digits and dashes, starting with a letter, up to 64 characters. |
+| `accounts[].type` | `cloud` or `onprem`. Nothing else is accepted. |
+| `auth.kind` | `oauth-browser` for a person at a browser. `oauth-device` for an account that can only be established without one, covered in section 3.1. `client-credentials` for CI, covered in section 5. `pat` is named by the schema but not implemented in this release. |
 | `auth.issuer` | The issuer, verbatim from its discovery document. |
 | `auth.clientId` | The registered public client. |
-| `auth.tenant` | The identity's home organization. |
-| `auth.provider` | Names the product when the shell must ask it for tokens in a product-specific shape. Required for Thunder; see [its walkthrough](login-thunder.md#9-declare-the-identity-then-log-in). |
-| `auth.credentialRef` | The name the session is stored under in the OS secure store. **Required** for `oauth-browser` and `oauth-device`; **not allowed** for `client-credentials`. Same character rules as an identity name. |
-| `products.<namespace>` | What this identity may reach for one module. The namespace is the module's own name, and follows the same character rules as an identity name. |
+| `auth.tenant` | The account's home organization. |
+| `auth.provider` | Names the product when the shell must ask it for tokens in a product-specific shape. Required for Thunder; see [its walkthrough](login-thunder.md#9-declare-the-account-then-log-in). |
+| `auth.credentialRef` | The name the session is stored under in the OS secure store. **Required** for `oauth-browser` and `oauth-device`; **not allowed** for `client-credentials`. Same character rules as an account name. |
+| `products.<namespace>` | What this account may reach for one module. The namespace is the module's own name, and follows the same character rules as an account name. |
 | `products.<namespace>.endpoint` | The product's base URL. **Required** on every product entry, and must be an absolute `http` or `https` URL with a host. |
 | `products.<namespace>.audience` | What the issued token's `aud` claim must carry. A grant whose `aud` does not carry it is refused. It is **not** compared against the audience the module asks for: a module names its API by a logical name compiled into it, while this is the concrete string *this* deployment stamps into `aud`. Which value that is differs by product; section 2.2 has the rule. |
-| `products.<namespace>.scopes` | The permissions this identity carries. A module asking for one that is not listed is refused. |
-| `contexts[].organization` | The organization to act within. Either leave it out, or set it to the identity's `auth.tenant`. This release cannot switch a session out of its home tenant, and any other value is refused. See `auth.organization_switch_unsupported` in section 6. |
+| `products.<namespace>.scopes` | The permissions this account carries. A module asking for one that is not listed is refused. |
+| `contexts[].organization` | The organization to act within. Either leave it out, or set it to the account's `auth.tenant`. This release cannot switch a session out of its home tenant, and any other value is refused. See `auth.organization_switch_unsupported` in section 6. |
 
 ### 2.4 Check it
 
@@ -213,13 +213,13 @@ you registered in section 1, and login creates what it authenticated:
 wso2 login --url https://idp.customer.example --client-id wso2-cli
 ```
 
-It reports the names it assigned. Without `--context` the identity and the
+It reports the names it assigned. Without `--context` the account and the
 context are both named after the issuer host with each dot replaced by a hyphen
 — `idp.customer.example` becomes `idp-customer-example` — and `--context
 <name>` names them both directly. The context name is what you type on every
 `--context` and every `wso2 context use` afterwards, so pass a short one if the
 derived name is longer than you want to live with; `wso2 context create <name>
---identity <identity>` adds a shorter handle to the same identity later.
+--account <account>` adds a shorter handle to the same account later.
 
 An issuer with no host to name, such as one at a bare IP address, is refused
 rather than given a name you could not have predicted; `--context` is the way
@@ -231,12 +231,12 @@ you the corrected command and nothing else. Nor is a session: a document this
 shell may not overwrite, such as a schema version 1 one, is refused before the
 browser opens rather than after a login it could not record.
 
-Running the same login again reuses the identity it created; a login that would
-change the issuer or the client ID of an identity already configured is refused
+Running the same login again reuses the account it created; a login that would
+change the issuer or the client ID of an account already configured is refused
 rather than allowed to replace it.
 
-The created identity reaches no product yet. A self-hosted deployment publishes
-no catalogue of what it serves, so `wso2 identity add-product` records each
+The created account reaches no product yet. A self-hosted deployment publishes
+no catalogue of what it serves, so `wso2 account add-product` records each
 product's endpoint, audience and scopes, and the login output names it.
 
 What happens, in order:
@@ -272,15 +272,15 @@ your browser's `127.0.0.1` is somewhere else.
 The device authorization grant solves that. Nothing is bound to loopback, and
 the approval happens on any other device you like.
 
-**When to use it.** Set `"kind": "oauth-device"` on the identity when that
-identity can *only* be established this way: a deployment where the loopback
+**When to use it.** Set `"kind": "oauth-device"` on the account when that
+account can *only* be established this way: a deployment where the loopback
 callback URLs cannot be registered, or one whose users are never at a machine
-with a reachable browser. It is a property of the identity, not of where you
+with a reachable browser. It is a property of the account, not of where you
 happen to be sitting today.
 
 If you are usually at a laptop and occasionally on a build box, that is the case
 `wso2 login --device-code` is meant for, and **that flag is not in this
-release**. Until it arrives, the way to have both is two identities, one
+release**. Until it arrives, the way to have both is two accounts, one
 `oauth-browser` and one `oauth-device`, with different `credentialRef` values
 and a context for each.
 
@@ -311,7 +311,7 @@ before printing anything.
 
 Every other field means exactly what it means for `oauth-browser`, and
 `credentialRef` is required in the same way. Give it a different value from your
-browser identity's if you keep both, so the two sessions do not share a slot.
+browser account's if you keep both, so the two sessions do not share a slot.
 
 **What you see:**
 
@@ -357,14 +357,14 @@ command afterwards behaves identically.
   a short digest of the state root (`~/.wso2`, or `WSO2_HOME`) the login ran
   under. That store is Keychain on macOS, Secret Service on Linux, and
   Credential Manager on Windows. The digest is what keeps two state roots
-  apart: a second `WSO2_HOME` whose context document also names an identity
+  apart: a second `WSO2_HOME` whose context document also names an account
   `thunder` starts with no session, rather than the first one's, and each
   deployment keeps a refresh token of its own. `wso2 whoami` and every product
   command also check that the stored session was established against the
-  `issuer` the identity names now, and treat one that was not as no session.
+  `issuer` the account names now, and treat one that was not as no session.
   A session stored by a shell older than this rule was written under the bare
   `credentialRef` and is not read: after upgrading, run `wso2 login` once per
-  identity, and `wso2 logout` retires the old entry when it finds one.
+  account, and `wso2 logout` retires the old entry when it finds one.
 - **Nothing under `~/.wso2` holds a credential.** The state root holds the
   context document you wrote, the managed module store, and the advisory lock
   files that keep refresh-token rotation single-writer. No session material is
@@ -401,10 +401,10 @@ shell claims, which is the decision recorded in
 session at the identity provider, so a later `wso2 login` may complete without
 prompting you for credentials; sections 2.3 and 3.3 describe that session.
 And because a session is keyed by `credentialRef`, which belongs to the
-identity, ending it ends it for every context naming that identity; the command
+account, ending it ends it for every context naming that account; the command
 names them.
 
-A `client-credentials` identity has no session to end and is refused with
+A `client-credentials` account has no session to end and is refused with
 `auth.logout_not_required` (section 5).
 
 ---
@@ -412,7 +412,7 @@ A `client-credentials` identity has no session to end and is refused with
 ## 5. CI: authenticate without a login
 
 A CI job has no browser and no secure store, so it does not use a session at
-all. It uses a machine-to-machine identity that carries its own credential and
+all. It uses a machine-to-machine account that carries its own credential and
 exchanges it inline, on every command. **There is no login step in CI.** A job
 that runs `wso2 login` is refused with `auth.login_not_required`.
 
@@ -429,9 +429,9 @@ application, JWT access tokens, and a recorded client ID and secret.
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "defaultContext": "acme-ci",
-  "identities": [
+  "accounts": [
     {
       "name": "acme-machine",
       "type": "cloud",
@@ -454,7 +454,7 @@ application, JWT access tokens, and a recorded client ID and secret.
   "contexts": [
     {
       "name": "acme-ci",
-      "identity": "acme-machine",
+      "account": "acme-machine",
       "organization": "acme"
     }
   ]
@@ -466,26 +466,26 @@ Two differences from section 2.2, and the schema enforces both:
 - `clientSecretVariable` **replaces** `credentialRef`. It names an environment
   variable; it is not the secret. Upper-case letters, digits and underscores,
   starting with a letter.
-- `credentialRef` must **not** appear on a `client-credentials` identity, and
+- `credentialRef` must **not** appear on a `client-credentials` account, and
   `clientSecretVariable` must **not** appear on an `oauth-browser` one.
 
 The secret itself never goes in this file, and the file is safe to commit.
 
-**The example above is an Asgardeo identity, and two of its members are
+**The example above is an Asgardeo account, and two of its members are
 product-specific.** Substitute both before using it against another deployment:
 
 - `audience` follows the same per-product rule as section 2.2, applied to *this*
   application. On Asgardeo it must be the M2M application's own client ID, not
   the API resource identifier the example shows.
-- `auth.provider` carries into a CI identity exactly as it does a browser one.
+- `auth.provider` carries into a CI account exactly as it does a browser one.
   A Thunder deployment needs `"provider": "thunder"` here, because that is what
   makes the shell name the protected resource on the client-credentials
   request, and Thunder refuses a grant that names none. The document parses
   either way, so leaving it out fails at the first command rather than at the
   first
   read. [The Thunder walkthrough](login-thunder.md#7-a-confidential-client-for-ci-if-you-need-one)
-  shows the whole identity, including the two further rules a resource-bound
-  identity must satisfy.
+  shows the whole account, including the two further rules a resource-bound
+  account must satisfy.
 
 ### 5.2 Wire the job
 
@@ -516,10 +516,10 @@ jobs:
 **A caveat about that last step, so it does not surprise you.** `wso2 reference
 status` is the example module this repository ships, and `wso2` dispatches any
 namespace it does not own itself to an installed module. Module *installation*
-commands (`wso2 module install`) are proposed and are not in this release, so
+commands (`wso2 product install`) are proposed and are not in this release, so
 the module has to already be in the managed module store under
 `$WSO2_HOME/cli/modules` for that step to resolve; otherwise it exits with
-`shell.unknown_command`. The identity, the secret variable, and the inline
+`shell.unknown_command`. The account, the secret variable, and the inline
 grant are complete and work today, and `wso2 version` exercises the context
 resolution without needing a module.
 
@@ -553,11 +553,11 @@ first-time user meets most often. None of them reaches a browser.
 - **`contexts.document_malformed`.** The document was read but is not valid.
   The message names the specific defect, and section 2.3 is the field-by-field
   reference for it. The usual causes are a name that breaks the character rules
-  (identity names, context names and `credentialRef` are lower-case letters,
+  (account names, context names and `credentialRef` are lower-case letters,
   digits and dashes, starting with a letter), a `type` that is not exactly
   `cloud` or `onprem`, a missing `endpoint` on a product entry, or the
   `credentialRef` / `clientSecretVariable` rule: exactly one of them belongs on
-  an identity, and which one is decided by `auth.kind`. `wso2 identity
+  an account, and which one is decided by `auth.kind`. `wso2 account
   add-product` reports it for an endpoint that embeds user information, with a
   recovery of its own naming what to take out; the rejected endpoint is never
   repeated back, because it is the likeliest place for a credential to have
@@ -586,32 +586,44 @@ first-time user meets most often. None of them reaches a browser.
 - **`contexts.unknown_context`.** You named a context, with `--context` or
   `WSO2_CONTEXT`, that the document does not declare. The message names the one
   you asked for. Check it against the `contexts` array and `defaultContext`.
-- **`contexts.unknown_identity`.** `wso2 context create --identity` named an
-  identity the document does not declare. Logging in is the only thing that
+- **`contexts.unknown_account`.** `wso2 context create --account` named an
+  account the document does not declare. Logging in is the only thing that
   creates one, so run `wso2 login` first, or check the name against the
-  `identities` array.
-- **`contexts.identity_exists`.** `wso2 login --url` named a context whose
-  identity is already configured against a different issuer or a different
+  `accounts` array.
+- **`contexts.account_exists`.** `wso2 login --url` named a context whose
+  account is already configured against a different issuer or a different
   client ID. The message names both the value on file and the one you asked
-  for. Logging in never replaces an identity, because the issuer and client it
+  for. Logging in never replaces an account, because the issuer and client it
   records are not written down anywhere else; log in under another name with
   `--context`, or correct the flag you mistyped.
-- **`contexts.identity_name_underivable`.** `wso2 login --url` was given an
+- **`contexts.account_name_underivable`.** `wso2 login --url` was given an
   issuer with no host a name can be made from — a bare IP address, or a host
   whose first label starts with a digit — and no `--context` to name the
-  identity instead. A name is lower-case letters, digits and hyphens, starting
+  account instead. A name is lower-case letters, digits and hyphens, starting
   with a letter. Pass `--context <name>`; nothing was written.
 - **`contexts.context_exists`.** `wso2 context create` was given a name the
   document already declares. Creating a context never replaces one, because the
-  organization, project and identity it recorded are not written down anywhere
+  organization, project and account it recorded are not written down anywhere
   else. Choose another name.
-- **`contexts.product_exists`.** `wso2 identity add-product` named a product
-  namespace the identity already records. Recording one never overwrites
+- **`contexts.product_exists`.** `wso2 account add-product` named a product
+  namespace the account already records. Recording one never overwrites
   another on its own, because the endpoint, audience and scopes it held are not
   written down anywhere else; the ordinary way to reach this is a second run
-  from shell history with one flag corrected. `wso2 identity list` shows what
+  from shell history with one flag corrected. `wso2 account list` shows what
   is recorded, and `--replace` overwrites it, replacing the whole record rather
   than merging with it.
+- **`contexts.unknown_product`.** `wso2 account remove-product` named a
+  record the account does not hold. The refusal lists every record it does,
+  product namespaces and `<namespace>/gateway` keys alike, and nothing was
+  removed or ended.
+- **`contexts.login_product`.** `wso2 account remove-product` named the
+  product the account logs in through. Its login session was authorized for
+  that product, so removing it would leave the session answering for a
+  product the account no longer records; nothing was removed or ended. No
+  command changes an account's login product, so to log in through another
+  one, create an account that records it with `wso2 account create` and log
+  in with `wso2 login --context <name>`. The login product's gateway record
+  is separate and can be removed on its own.
 
 ### The context commands: `shell.*`
 
@@ -619,12 +631,12 @@ These are about what you typed, not about the file. Nothing is written when one
 of them is reported.
 
 - **`shell.missing_required_flag`.** A flag the command cannot proceed without
-  was not given. `wso2 context create` reports it for `--identity`: a context
-  authenticates as an identity, and `wso2 login` is what creates one. `wso2
+  was not given. `wso2 context create` reports it for `--account`: a context
+  authenticates as an account, and `wso2 login` is what creates one. `wso2
   login --url` reports it for `--client-id`, which it asks for at a terminal
   and refuses to guess anywhere else — there is no WSO2-published client for a
   self-hosted deployment, so the value can only come from the application you
-  registered. `wso2 identity add-product` reports it for `--endpoint`, which
+  registered. `wso2 account add-product` reports it for `--endpoint`, which
   nothing can discover: a self-hosted deployment publishes no catalogue of what
   it serves. The message says why nothing was asked: `--no-input`,
   `WSO2_NO_INPUT`, or standard input that is not a terminal. Not to be confused
@@ -635,13 +647,13 @@ of them is reported.
   context may not have: names are lower-case letters, digits and hyphens,
   starting with a letter, at most 64 characters. For `wso2 login --url` it is a
   value that is not an issuer URL, and a missing `https://` is the usual cause.
-  `wso2 identity add-product` reports it for a product namespace, which follows
+  `wso2 account add-product` reports it for a product namespace, which follows
   the same name rule, and for a product the context document will not hold: an
-  endpoint no URL parser reads, or a product an identity bound to one protected
+  endpoint no URL parser reads, or a product an account bound to one protected
   resource cannot carry. Nothing was written, so retyping the command is
   usually the whole fix. The resource-bound case is the exception and says so:
   no correction of the command succeeds, because the constraint is on the
-  identity rather than on a flag, so the recovery names `--replace` and a
+  account rather than on a flag, so the recovery names `--replace` and a
   second `wso2 login --context <name>` instead.
 - **`shell.missing_argument`, `shell.unexpected_argument`.** The command was
   given too few or too many arguments. The recovery shows the shape it expects.
@@ -649,7 +661,7 @@ of them is reported.
 ### `auth.context_not_selected`
 
 There is no context document at all, or it declares no context to select.
-Run `wso2 login --url <issuer> --client-id <id>`, which creates the identity
+Run `wso2 login --url <issuer> --client-id <id>`, which creates the account
 and the context it authenticates, or `wso2 context use <name>` to select one
 that already exists. `wso2 context list` shows what is configured. Writing
 `contexts.json` by hand, as section 2 describes, still works and is what that
@@ -657,7 +669,7 @@ section documents, but it is no longer the way in.
 
 ### `shell.unknown_command`
 
-The first word was not a shell command — `context`, `help`, `identity`,
+The first word was not a shell command — `context`, `help`, `account`,
 `login`, `logout`, `module` or `version` — and no installed module owns that
 namespace. `wso2 help` lists the commands the shell owns. See the caveat at
 the end of section 5.2.
@@ -739,10 +751,10 @@ it expired, or a concurrent run rotated it away. Run `wso2 login` again.
 
 ### `auth.logout_not_required`
 
-No longer raised. `wso2 logout` against a context whose identity acquires
-access inline, which in practice means a `client-credentials` identity, now
+No longer raised. `wso2 logout` against a context whose account acquires
+access inline, which in practice means a `client-credentials` account, now
 reports that no session was stored and exits 0, so a pipeline that ends with
-it does not fail. Nothing is stored for such an identity; remove the
+it does not fail. Nothing is stored for such an account; remove the
 credential from the environment to stop the shell acquiring access with it.
 
 ### `auth.keyring_unavailable`
@@ -783,15 +795,15 @@ correct.
 
 ### `auth.organization_switch_unsupported`
 
-> this release cannot switch the ... identity's session out of its home tenant
+> this release cannot switch the ... account's session out of its home tenant
 
-Your context's `organization` names something other than the identity's
-`auth.tenant`. Make them match, or add a second identity whose home tenant is
+Your context's `organization` names something other than the account's
+`auth.tenant`. Make them match, or add a second account whose home tenant is
 the organization you are targeting and log in as it.
 
 ### `auth.product_not_configured`
 
-The module asked for something this identity does not register. The message
+The module asked for something this account does not register. The message
 names both sides. Either the module's namespace is missing from `products`, or
 its entry sets no `audience`, or a scope it asked for is not in the `scopes`
 list. Fix the context document.
@@ -801,6 +813,17 @@ refusal, and is normal: the values come from different vocabularies. What must
 hold is that the deployment binds the token to the `audience` recorded here,
 which is proved when the token arrives and reported as
 `auth.narrowing_unavailable` when it fails.
+
+The same code reports a login the identity provider refused with RFC 8707's
+`invalid_target`, which no retry gets past. When the login named no resource
+server, the account records no product its login binds to: ThunderID binds
+every login to one, so a `wso2 login --url` that creates its account is
+refused this way, and the recovery names the connect of the login provider's
+own product (`wso2 identity connect <issuer-url> --account <name>`), which
+creates the account with that product recorded. When the login named one, the
+deployment has not registered it: register it as a resource server identifier
+at the identity provider, or record the product with the audience the
+deployment did register.
 
 ### `auth.audience_not_declared` / `auth.scope_not_declared`
 
@@ -868,7 +891,7 @@ code. Only the sentence differs, because only the sentence can.
 
 ### `auth.login_not_required`
 
-You ran `wso2 login` on a context whose identity carries its own credential.
+You ran `wso2 login` on a context whose account carries its own credential.
 There is no session to establish; just run the command (section 5).
 
 ### `auth.non_interactive`
@@ -890,7 +913,7 @@ now names. You changed the `issuer` after logging in. Run `wso2 login` again.
 
 ### `auth.session_required`
 
-> the "apim" product has no session under this identity yet
+> the "apim" product has no session under this account yet
 
 Nothing is stored for that product, and the invocation forbade the browser that
 would authorize it: you passed `--no-input`, or `WSO2_NO_INPUT` is set. The
@@ -899,7 +922,7 @@ where a browser can open, or `wso2 login` to authorize every product.
 
 ### `auth.reauthorization_required`
 
-> the "apim" product has a session under this identity, but the identity
+> the "apim" product has a session under this account, but the account
 > provider would not renew it to the permissions the module asked for
 
 A session for the product **is** stored — `wso2 whoami` shows it present — and

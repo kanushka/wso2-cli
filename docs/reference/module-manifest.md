@@ -151,7 +151,7 @@ This is not a style preference. The deployments the shell supports each bind a
 token's audience differently, so a module that compiled one deployment's value in
 would be installable only against the single tenant it was built for.
 
-A scope a handler asks for must be declared here or recorded on the identity's
+A scope a handler asks for must be declared here or recorded on the account's
 product entry for the namespace, and the entry's scopes are the ceiling either
 way. A request naming no scopes asks for exactly the entry's recorded scopes,
 so a module ordinarily declares here every scope its commands can ever need and
@@ -160,7 +160,7 @@ its handlers then name none.
 ## `capabilities.product`
 
 The **product descriptor**: what the module declares about reaching its
-product, so that `wso2 <namespace> connect <url>` can write the identity's
+product, so that `wso2 <namespace> connect <url>` can write the account's
 product record from the URL alone. It travels with the other capabilities
 through the catalog into the receipt, and the shell reads it from the receipt
 before the module is launched; the module never sees `connect`. Everything in
@@ -188,18 +188,18 @@ it is public configuration, and it names no credential.
 | `defaultAudience` | The resource-server URI a `resource` audience defaults to, when the deployment seeds one. `connect --audience` overrides it, and is required when it is empty. | Never; it is optional. |
 | `scopes` | The scopes the product's commands need. `connect` records them on the product entry, and they become the ceiling for every request. | It is empty. |
 | `grant` | How the product is reached when it is not the login provider: `federated` (a public client at the product's own issuer, through the same browser sign-on) or `jwt-bearer`. Empty for a product only its own provider serves. | It names a grant this shell does not implement. |
-| `machine` | The strategies a client-credentials identity may use: `inline` (the identity's own machine client, minted per product) and/or `credential` (a credential of the product's own, given to `connect` as variable names). | It names a strategy this shell does not implement. |
+| `machine` | The strategies a client-credentials account may use: `inline` (the account's own machine client, minted per product) and/or `credential` (a credential of the product's own, given to `connect` as variable names). | It names a strategy this shell does not implement. |
 
 The refusals above are made when the receipt is read, as `modules.receipt_malformed`,
 naming the field. A manifest carrying them builds and tests clean, so read the
 table before tagging.
 
 Two shapes occur. A product that is itself the login provider declares
-`provider`, so `wso2 <namespace> connect <url>` creates the identity, the
+`provider`, so `wso2 <namespace> connect <url>` creates the account, the
 context, and pins the login product. A product reached through a login
 provider declares `issuerPath`, `audience`, `grant: federated` and its
 `machine` strategies, so `wso2 <namespace> connect <url> --client-id <id>`
-attaches it to the identity already logged in, and a pipeline hands it a
+attaches it to the account already logged in, and a pipeline hands it a
 credential of the product's own.
 
 ### When not to declare one
@@ -209,7 +209,7 @@ product's URL. A product whose issuer has to be discovered from the product,
 Agent Manager's bundled ThunderID at a host of its own, found through RFC 9728
 protected-resource metadata, cannot be described here today, and a module for
 it declares none. The shell then refuses `wso2 <namespace> connect` with
-`shell.connect_unsupported`, naming `wso2 identity add-product`, and the module's
+`shell.connect_unsupported`, naming `wso2 account add-product`, and the module's
 `status` should name that command too.
 
 ## What is deliberately absent

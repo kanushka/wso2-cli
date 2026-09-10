@@ -324,7 +324,7 @@ func encodeDocument(value any) ([]byte, error) {
 }
 
 const (
-	reinstallRecovery  = "Reinstall the module so the shell can resolve a valid receipt."
+	reinstallRecovery  = "Reinstall the product so the shell can resolve a valid receipt."
 	pathEscapeRecovery = "Reinstall the module. The shell only launches executables inside a module's own version directory."
 )
 

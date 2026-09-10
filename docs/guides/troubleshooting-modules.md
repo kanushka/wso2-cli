@@ -43,7 +43,7 @@ The manifest and the executable disagree about what the module may request, or
 a handler named a scope nobody recorded.
 
 A scope has two legal sources: the receipt, written from `module.json`, and the
-identity's product entry for the namespace, written by the user or by
+account's product entry for the namespace, written by the user or by
 `connect`. A request naming no scopes asks for the entry's scopes and cannot
 fail this way. So the ordinary fix for `scope_not_declared` is to stop naming
 scopes in the request and declare in `module.json` every scope a command can
@@ -138,7 +138,7 @@ The executable changed after installation. The shell recomputes the digest on
 every launch and refuses when it moved.
 
 For an author this usually means a build was copied over an installed version to
-avoid reinstalling. Reinstall instead: `wso2 module remove api`, then install
+avoid reinstalling. Reinstall instead: `wso2 product remove api`, then install
 again. Removal leaves no receipt or version directory behind, so the next
 install resolves cleanly.
 
@@ -159,10 +159,10 @@ twice.
 
 > the <namespace> module declares no product descriptor, so the shell cannot write its record from a URL
 
-`wso2 <namespace> connect <url>` is the shell's, and it writes the identity's
+`wso2 <namespace> connect <url>` is the shell's, and it writes the account's
 product record from `capabilities.product` in the module's receipt. A module
 that declares none has `connect` refused, and the recovery names
-`wso2 identity add-product`, which writes the same record by hand.
+`wso2 account add-product`, which writes the same record by hand.
 
 For an author this is a choice rather than a defect. Declare a descriptor when
 the product's issuer can be named from the product's URL, and make the module's
@@ -197,7 +197,7 @@ outright, naming the shell's commands, which is the refusal worth reading rather
 than working around.
 
 Changing a namespace afterwards is a migration rather than a rename: it is the
-user's command, the tag prefix, the catalog identity, the executable name, and
+user's command, the tag prefix, the catalog account, the executable name, and
 the installed-store key.
 
 ## `shell.module_not_installed`
@@ -229,7 +229,7 @@ or has been released only as a prerelease while the install is asking for the
 stable channel. Ask for the channel:
 
 ```sh
-wso2 module install api --channel prerelease
+wso2 product install api --channel prerelease
 ```
 
 To run a build that has never been released at all, install it locally rather

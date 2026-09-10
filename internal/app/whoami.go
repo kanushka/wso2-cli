@@ -56,12 +56,19 @@ const (
 	// refresh-token lifetime has passed. Unlike whoamiSessionPresent, this
 	// session cannot renew itself: whatever it could do expired along with it.
 	whoamiSessionExpired = "expired"
-	// whoamiSessionInline is what a client-credentials identity reports for
+	// whoamiSessionInline is what a client-credentials account reports for
 	// itself and for every product it accesses: it acquires access with a
 	// grant per command and holds nothing in the secure store, so "none" (a
 	// state that invites "run wso2 login") would misdescribe a healthy
 	// identity that never logs in at all.
 	whoamiSessionInline = "inline"
+	// whoamiSessionExchanged is what an exchanged product reports. It holds
+	// no session of its own — its access is minted from the login session for
+	// one command — so reporting "none" would read as "not logged in" and
+	// send the reader to run a login that establishes nothing for it. Whether
+	// the product can be reached is the login session's own state, reported
+	// once, above.
+	whoamiSessionExchanged = "exchanged"
 )
 
 // unknownSubject is what wso2 whoami reports for a session predating R6
@@ -84,13 +91,13 @@ const sessionExpiryNotStated = "not stated by the issuer"
 // whichever of "nothing is configured" or "a context is configured but has no
 // session" produced it. TestWhoamiOnAnUnconfiguredMachineReportsPlainly pins
 // this for the unconfigured case specifically.
-const unconfiguredRecovery = "Run wso2 login to create an identity and a context, " +
-	"or wso2 context create <name> --identity <identity> if you already have one."
+const unconfiguredRecovery = "Run wso2 login to create an account and a context, " +
+	"or wso2 context create <name> --account <account> if you already have one."
 
 func (s Shell) whoamiCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:                   "whoami",
-		Short:                 "Show who is signed in, and to what context, identity, and session.",
+		Short:                 "Show who is signed in, and to what context, account, and session.",
 		Args:                  noArguments(whoamiUsage),
 		DisableFlagsInUseLine: true,
 		RunE: func(command *cobra.Command, args []string) error {
@@ -151,7 +158,7 @@ func (s Shell) whoami(command *cobra.Command) error {
 		}
 		report.Configured = true
 		report.Context = selected.Context.Name
-		report.Identity = selected.Context.Identity
+		report.Identity = selected.Context.Account
 		report.Organization = selected.Context.Organization
 
 		store := session.Store{StateRoot: root}
@@ -175,6 +182,7 @@ func (s Shell) whoami(command *cobra.Command) error {
 				report.Recovery = foreignSessionRecovery
 			default:
 				report.Subject = subjectOrUnknown(stored.Subject)
+				report.Name = stored.Name
 				report.Session, report.SessionExpiry, report.Recovery = sessionExpiryState(stored, time.Now())
 			}
 		}
@@ -192,6 +200,8 @@ func (s Shell) whoami(command *cobra.Command) error {
 			entry := whoamiProduct{Namespace: access.Namespace, Strategy: access.Strategy, Session: whoamiSessionNone}
 			if access.Strategy == contexts.StrategyInline {
 				entry.Session = whoamiSessionInline
+			} else if access.Strategy == contexts.StrategyExchanged {
+				entry.Session = whoamiSessionExchanged
 			} else if stored, err := store.Load(access.SessionRef); err == nil {
 				if sessionServes(stored, access.Issuer) {
 					entry.Session, entry.SessionExpiry, _ = sessionExpiryState(stored, time.Now())
@@ -212,8 +222,8 @@ func (s Shell) whoami(command *cobra.Command) error {
 	// must not invent two sentences for the one fact.
 	_, err = fmt.Fprintln(s.Streams.Out,
 		"No context is configured, so commands run against nothing.\n\n"+
-			"Run wso2 login to create an identity and a context, "+
-			"or wso2 context create <name> --identity <identity> if you already have one.")
+			"Run wso2 login to create an account and a context, "+
+			"or wso2 context create <name> --account <account> if you already have one.")
 	return err
 }
 
@@ -282,11 +292,18 @@ type whoamiReport struct {
 	// of empty strings.
 	Configured   bool   `json:"configured"`
 	Context      string `json:"context"`
-	Identity     string `json:"identity"`
+	Identity     string `json:"account"`
 	Organization string `json:"organization"`
 	// Subject is unknownSubject for a pre-R6 session, and empty when there is
 	// no session at all — see whoamiSessionNone.
 	Subject string `json:"subject"`
+	// Name is the human-readable display name the login resolved and stored
+	// (#168) — see session.Session.Name. It is empty, and absent from JSON,
+	// when the session carries none: one stored before the field existed, or
+	// one whose login learned no name claim. Nothing is put in its place,
+	// because the subject is an identifier and not a name, and a reader of
+	// name would take whatever it holds for the person.
+	Name string `json:"name,omitempty"`
 	// Session is one of whoamiSessionNone, whoamiSessionPresent, or
 	// whoamiSessionExpired.
 	Session string `json:"session"`
@@ -305,7 +322,7 @@ type whoamiReport struct {
 	// expired case; TestWhoamiReportsAPresentSessionWithUndisclosedExpiry
 	// pins the one case where it must be empty.
 	Recovery string `json:"recovery,omitempty"`
-	// Products is every record the selected identity declares — each product
+	// Products is every record the selected account declares — each product
 	// and, under its gateway key, its gateway record — with what
 	// Identity.Access says about how it is reached and what the secure store
 	// says about its session. It is nil for an unconfigured machine or an
@@ -329,13 +346,21 @@ type whoamiProduct struct {
 func (w whoamiReport) fields() [][2]string {
 	pairs := [][2]string{
 		{"Context", w.Context},
-		{"Identity", w.Identity},
+		{"Account", w.Identity},
 		{"Organization", w.Organization},
+	}
+	// The Name row is left out, rather than shown blank, when the session
+	// carries no name: the Subject row below already identifies who signed
+	// in, and a blank Name would read as a value the shell failed to load.
+	if w.Name != "" {
+		pairs = append(pairs, [2]string{"Name", w.Name})
+	}
+	pairs = append(pairs, [][2]string{
 		{"Subject", w.Subject},
 		{"Session", w.Session},
 		{"Session expiry", w.SessionExpiry},
 		{"Products", w.productsField()},
-	}
+	}...)
 	if w.Recovery != "" {
 		pairs = append(pairs, [2]string{"Recovery", w.Recovery})
 	}

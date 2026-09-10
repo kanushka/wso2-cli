@@ -81,8 +81,8 @@ func (s Store) PolicyPath(namespace string) string {
 func (s Store) ReadPolicy(namespace string) (Policy, error) {
 	if !namespacePattern.MatchString(namespace) {
 		return Policy{}, problem.New(problem.CategoryUsage, "modules.invalid_namespace",
-			fmt.Sprintf("%q is not a valid module namespace", namespace)).
-			WithRecovery("Run wso2 version to see the installed modules.")
+			fmt.Sprintf("%q is not a valid product namespace", namespace)).
+			WithRecovery("Run wso2 version to see the installed products.")
 	}
 
 	data, err := os.ReadFile(s.PolicyPath(namespace))
@@ -119,5 +119,5 @@ func (p Policy) Encode() ([]byte, error) {
 func policyMalformed(namespace, detail string) problem.Problem {
 	return problem.New(problem.CategoryModuleTrust, "modules.policy_malformed",
 		fmt.Sprintf("the version policy of the %q module %s", namespace, detail)).
-		WithRecovery("Reinstall the module, choosing the channel or the version you want it to follow.")
+		WithRecovery("Reinstall the product, choosing the channel or the version you want it to follow.")
 }

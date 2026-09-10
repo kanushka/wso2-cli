@@ -266,7 +266,7 @@ session.
 
 ## 10. A confidential client for CI, if you need one
 
-A CI job has no browser and no secure store, so it uses a separate identity that
+A CI job has no browser and no secure store, so it uses a separate account that
 carries its own credential. Register a second application for it:
 
 1. A standard-based application with the **Client Credentials** grant and **no**
@@ -306,7 +306,7 @@ the context document and the job wiring.
 ## 12. Log in, and check what it wrote
 
 With the issuer and client ID from the section above, one command creates
-the identity and the context and signs you in:
+the account and the context and signs you in:
 
 ```console
 $ wso2 login --url https://is.example.com/oauth2/token \
@@ -315,12 +315,12 @@ $ wso2 login --url https://is.example.com/oauth2/token \
 
 It reports the names it assigned, and `wso2 context list` shows them.
 What it writes is deliberately spare: the issuer and client ID you passed,
-`"type": "onprem"`, a `credentialRef` equal to the identity name, and no
+`"type": "onprem"`, a `credentialRef` equal to the account name, and no
 products. Everything from here is [the main login guide](login.md), from
 section 2.
 
 The record below is the fuller shape, not what login leaves: add products with
-`wso2 identity add-product`. An Identity Server identity is `"type": "onprem"`,
+`wso2 account add-product`. An Identity Server account is `"type": "onprem"`,
 which is what login already writes, and its `audience` is the API resource
 identifier:
 
@@ -354,7 +354,7 @@ registration changes. See
 ## 13. Proving it against this deployment
 
 The live runs in `test/smoke/` work against Identity Server exactly as they do
-against the other two products. `test/smoke/env.example` carries an Identity
+against the other two products. `test/smoke/env.example` carries an Account
 Server block; fill in what section 11 told you to record and see
 [`test/smoke/RUNNING.md`](../../test/smoke/RUNNING.md).
 

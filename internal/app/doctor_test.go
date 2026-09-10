@@ -126,6 +126,73 @@ func TestDoctorOnAnUnconfiguredMachineExitsCleanly(t *testing.T) {
 	}
 }
 
+// TestDoctorNamesTheContextDocumentInEveryContextCheckOutcome is #170's
+// acceptance criterion on wso2 doctor: whatever the context check reports —
+// not-applicable on a fresh machine, pass on a healthy one, fail on a
+// document that will not decode — its detail names the document it checked,
+// so a reader never has to already know where the shell keeps it to act on
+// what doctor says about it.
+func TestDoctorNamesTheContextDocumentInEveryContextCheckOutcome(t *testing.T) {
+	cases := []struct {
+		name       string
+		install    func(t *testing.T, shell app.Shell)
+		wantStatus string
+	}{
+		{
+			name:       "unconfigured",
+			install:    func(t *testing.T, shell app.Shell) {},
+			wantStatus: "not-applicable",
+		},
+		{
+			name: "healthy",
+			install: func(t *testing.T, shell app.Shell) {
+				keyring.MockInit()
+				seeded := identityOnlyDocument()
+				seeded.DefaultContext = "acme"
+				seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
+				installLogin(t, shell, seeded)
+				store := session.Store{StateRoot: shell.StateRoot}
+				if err := store.Save("acme-cloud", session.Session{
+					Issuer: "https://idp.example", RefreshToken: "rt-1",
+				}); err != nil {
+					t.Fatalf("seed a session: %v", err)
+				}
+			},
+			wantStatus: "pass",
+		},
+		{
+			name: "malformed",
+			install: func(t *testing.T, shell app.Shell) {
+				keyring.MockInit()
+				installMalformedDocument(t, shell)
+			},
+			wantStatus: "fail",
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			shell, out, errOut := newShell(t)
+			testCase.install(t, shell)
+
+			// The exit code is not asserted here: the malformed case exits
+			// nonzero and the other two exit 0, and this test is about what
+			// the context check's own finding says, not the run's overall
+			// status.
+			shell.Run([]string{"doctor", "--output", "json"})
+			report := decodeDoctorReport(t, out.Bytes())
+			finding := report.findingFor(t, "context")
+			if finding.Status != testCase.wantStatus {
+				t.Fatalf("context check = %q, want %q; stderr: %s", finding.Status, testCase.wantStatus, errOut)
+			}
+			wantPath := contexts.Path(shell.StateRoot)
+			if !strings.Contains(finding.Detail, wantPath) {
+				t.Errorf("context check detail does not name the document it checked (%s):\n%q",
+					wantPath, finding.Detail)
+			}
+		})
+	}
+}
+
 // TestDoctorOnAnUnconfiguredMachineTableModeSaysSo proves the table rendering
 // carries the same fact as the JSON rendering, per constraint 6: not just that
 // each check is named, but that each row's own status cell agrees with what
@@ -242,7 +309,7 @@ func TestDoctorHappyPathPassesEveryCheck(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
 	installLogin(t, shell, seeded)
 	store := session.Store{StateRoot: shell.StateRoot}
 	if err := store.Save("acme-cloud", session.Session{
@@ -294,7 +361,7 @@ func TestDoctorReportsALoggedOutContextAsNoneNotAFault(t *testing.T) {
 	keyring.MockInit()
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
 
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, seeded)
@@ -335,7 +402,7 @@ func TestDoctorStillFailsAnUnreadableStoredSession(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
 	installLogin(t, shell, seeded)
 	store := session.Store{StateRoot: shell.StateRoot}
 	if err := keyring.Set(session.Service, store.EntryName("acme-cloud"), "not json"); err != nil {
@@ -453,7 +520,7 @@ func TestDoctorOnlineChecksCatalogReachability(t *testing.T) {
 				code, exit.ModuleProcess, errOut)
 		}
 		// The probe shares the module commands' diagnostic log, so --verbose
-		// surfaces the raw transport detail here exactly as wso2 module list
+		// surfaces the raw transport detail here exactly as wso2 product list
 		// would. Without the wiring this line is absent and the raw cause is
 		// dropped for good.
 		if !strings.Contains(errOut.String(), "a catalog request failed") {
@@ -492,7 +559,7 @@ func TestDoctorRefusesAnUnknownContextAsUsage(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
 	installLogin(t, shell, seeded)
 
 	if code := shell.Run([]string{"doctor", "--context", "nosuch"}); code != exit.Usage {
@@ -510,10 +577,10 @@ func TestDoctorRefusesAnUnknownContextAsUsage(t *testing.T) {
 func TestDoctorHonorsContextPrecedence(t *testing.T) {
 	keyring.MockInit()
 	seeded := identityOnlyDocument()
-	seeded.Identities = append(seeded.Identities, contexts.Identity{
+	seeded.Accounts = append(seeded.Accounts, contexts.Account{
 		Name: "beta-cloud",
 		Type: "cloud",
-		Auth: contexts.IdentityAuth{
+		Auth: contexts.AccountAuth{
 			Kind:          contexts.KindOAuthBrowser,
 			Issuer:        "https://idp.example",
 			ClientID:      "wso2-cli",
@@ -522,8 +589,8 @@ func TestDoctorHonorsContextPrecedence(t *testing.T) {
 	})
 	seeded.DefaultContext = "acme"
 	seeded.Contexts = []contexts.Context{
-		{Name: "acme", Identity: "acme-cloud"},
-		{Name: "beta", Identity: "beta-cloud"},
+		{Name: "acme", Account: "acme-cloud"},
+		{Name: "beta", Account: "beta-cloud"},
 	}
 	// A session exists only for beta's identity, so "session: pass" is only
 	// possible when beta is the context doctor actually resolved.

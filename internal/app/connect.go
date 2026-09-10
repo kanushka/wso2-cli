@@ -27,6 +27,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/output"
@@ -68,7 +69,7 @@ const connectVariableRule = "upper-case letters, digits and underscores, startin
 
 // connectUsage is the way back from connect's usage refusals.
 func connectUsage(namespace string) string {
-	return fmt.Sprintf("Run wso2 %s connect <url> [--identity <name>] [--login-provider <issuer-url>] "+
+	return fmt.Sprintf("Run wso2 %s connect <url> [--account <name>] [--login-provider <issuer-url>] "+
 		"[--client-id <id>] [--client-secret-variable <VAR>] [--audience <value>] "+
 		"[--scopes <list>] [--replace], or wso2 %s connect <gateway-url> --gateway to record the "+
 		"product's gateway.", namespace, namespace)
@@ -86,7 +87,7 @@ func (s Shell) connect(namespace string, receipt modules.Receipt, args []string)
 		return problem.New(problem.CategoryUsage, "shell.connect_unsupported",
 			fmt.Sprintf("the %s module declares no product descriptor, so the shell cannot write its "+
 				"record from a URL", namespace)).
-			WithRecovery(fmt.Sprintf("Record the product with wso2 identity add-product <identity> %s "+
+			WithRecovery(fmt.Sprintf("Record the product with wso2 account add-product <account> %s "+
 				"--endpoint <url> [--audience <value>] [--scopes <list>], or install a version of the "+
 				"module that declares one.", namespace))
 	}
@@ -102,10 +103,10 @@ func (s Shell) connectCommand(namespace string, descriptor modules.ProductDescri
 	var flags connectFlags
 	command := &cobra.Command{
 		Use:   fmt.Sprintf("wso2 %s connect <url>", namespace),
-		Short: fmt.Sprintf("Record the %s product at a URL, on the selected identity or a new one.", namespace),
+		Short: fmt.Sprintf("Record the %s product at a URL, on the selected account or a new one.", namespace),
 		Long: "Writes the product record the module's descriptor describes: the issuer and audience " +
 			"derived from the URL, the scopes its commands need, and the grant it is reached by when " +
-			"the identity's login provider is another product. Nothing is written to the secure " +
+			"the account's login provider is another product. Nothing is written to the secure " +
 			"store and no network call is made; wso2 login is what authorizes it.",
 		Args:                  exactlyOneArgument("the product's URL", connectUsage(namespace)),
 		SilenceErrors:         true,
@@ -127,15 +128,15 @@ func (s Shell) connectCommand(namespace string, descriptor modules.ProductDescri
 	// Declared by hand, as the root declares its own: Cobra's default help
 	// text names the command by the first word of Use, which here is wso2.
 	f.BoolP("help", "h", false, "Show help for a command.")
-	f.StringVar(&flags.identity, "identity", "",
-		"The identity to record the product on, or to create; defaults to the selected context's, "+
+	f.StringVar(&flags.identity, "account", "",
+		"The account to record the product on, or to create; defaults to the selected context's, "+
 			"or to the provider's name for a new one.")
 	f.StringVar(&flags.loginProvider, "login-provider", "",
-		"The issuer URL of the identity to record the product on, when several exist.")
+		"The issuer URL of the account to record the product on, when several exist.")
 	f.StringVar(&flags.clientID, "client-id", descriptor.ClientID,
 		"The OAuth client the shell presents at the product's issuer.")
 	f.StringVar(&flags.clientSecretVariable, "client-secret-variable", "",
-		"The environment variable holding a client secret: creates a client-credentials identity "+
+		"The environment variable holding a client secret: creates a client-credentials account "+
 			"for a login provider, or records the product's own credential on one.")
 	f.StringVar(&flags.clientIDVariable, "client-id-variable", "",
 		"The environment variable holding the product credential's client id, when it is not --client-id.")
@@ -144,8 +145,8 @@ func (s Shell) connectCommand(namespace string, descriptor modules.ProductDescri
 		"The permissions to record, comma-separated, when not the descriptor's.")
 	f.BoolVar(&flags.replace, "replace", false, "Replace the product's existing record instead of refusing.")
 	f.BoolVar(&flags.gateway, "gateway", false,
-		"Record the product's gateway at the URL, beside the product's own record on the identity: "+
-			"reached at the identity's login provider for the API named by --audience.")
+		"Record the product's gateway at the URL, beside the product's own record on the account: "+
+			"reached at the account's login provider for the API named by --audience.")
 	declareContextFlag(f)
 	declareOutputFlag(f)
 	return command
@@ -208,8 +209,9 @@ func (s Shell) connectRun(command *cobra.Command, namespace string, descriptor m
 	}
 
 	var plan connectPlan
+	providers := s.loginProviderNamespaces()
 	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
-		planned, err := planConnect(document, namespace, descriptor, productURL, flags, contextName)
+		planned, err := planConnect(document, namespace, descriptor, productURL, flags, contextName, providers)
 		if err != nil {
 			return document, err
 		}
@@ -219,7 +221,28 @@ func (s Shell) connectRun(command *cobra.Command, namespace string, descriptor m
 	if err != nil {
 		return s.explainWriteRefusal(root, err)
 	}
-	return s.reportConnect(mode, namespace, plan)
+	return s.reportConnect(mode, root, namespace, plan)
+}
+
+// exchangedNext is the next line for a record reached by exchanging the
+// account's login session when that session is already held: there is
+// nothing left to authorize, so the line names the product rather than a
+// login. Whether it is held is read from the secure store, never written; a
+// store that cannot be read is reported as holding nothing, which leaves the
+// caller's login line in place.
+func exchangedNext(root, namespace string, identity contexts.Account, access contexts.ProductAccess) (string, bool) {
+	if access.Strategy != contexts.StrategyExchanged || identity.Auth.Kind == contexts.KindClientCredentials {
+		return "", false
+	}
+	login := identity.LoginAccess()
+	if login.SessionRef == "" {
+		return "", false
+	}
+	if _, err := (session.Store{StateRoot: root}).Load(login.SessionRef); err != nil {
+		return "", false
+	}
+	return fmt.Sprintf("Run wso2 %s --help. The account's login session already reaches it, so "+
+		"there is nothing to log in to.", namespace), true
 }
 
 // connectURL refuses a product URL that is not one. The value is not echoed:
@@ -269,10 +292,22 @@ func checkConnectFlags(namespace string, descriptor modules.ProductDescriptor, f
 	}
 	if descriptor.LoginProvider() && flags.clientIDVariable != "" {
 		return problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
-			fmt.Sprintf("the %s product is a login provider, so its credential is the identity's own: "+
+			fmt.Sprintf("the %s product is a login provider, so its credential is the account's own: "+
 				"--client-id-variable belongs to a product reached through another provider", namespace)).
 			WithRecovery("Pass --client-id <id> --client-secret-variable <VAR> to create a " +
-				"client-credentials identity for it. " + usage)
+				"client-credentials account for it. " + usage)
+	}
+	if descriptor.Exchanged() {
+		// The exchange runs at the account's own issuer as the account's own
+		// client, so a client named for the product is one it never presents.
+		if flags.clientIDSet || flags.clientSecretVariable != "" || flags.clientIDVariable != "" {
+			return problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
+				fmt.Sprintf("the %s product is reached by exchanging the account's own login session, so "+
+					"--client-id, --client-id-variable and --client-secret-variable name a client it "+
+					"never presents", namespace)).
+				WithRecovery("Omit them. " + usage)
+		}
+		return nil
 	}
 	if flags.clientID == "" && flags.clientIDVariable == "" {
 		return clientIDRequired(namespace, flags, usage)
@@ -281,21 +316,21 @@ func checkConnectFlags(namespace string, descriptor modules.ProductDescriptor, f
 		!descriptor.AllowsMachine(modules.MachineInline) {
 		return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
 			fmt.Sprintf("the %s product does not accept a machine client at its own issuer, so it "+
-				"cannot be a client-credentials identity's login provider", namespace)).
+				"cannot be a client-credentials account's login provider", namespace)).
 			WithRecovery("Connect a login provider that accepts one first, then record this product " +
-				"on that identity.")
+				"on that account.")
 	}
 	return nil
 }
 
-// checkIdentityFlags refuses an identity name that cannot be one, and a
+// checkIdentityFlags refuses an account name that cannot be one, and a
 // login provider that is not an issuer URL. Both records connect writes
 // find their identity by them.
 func checkIdentityFlags(flags connectFlags, usage string) error {
 	if flags.identity != "" && !contexts.ValidName(flags.identity) {
 		return problem.New(problem.CategoryUsage, "shell.invalid_argument",
-			fmt.Sprintf("%q cannot be used as an identity name", flags.identity)).
-			WithRecovery(fmt.Sprintf("An identity name is %s. %s", contexts.NameRule, usage))
+			fmt.Sprintf("%q cannot be used as an account name", flags.identity)).
+			WithRecovery(fmt.Sprintf("An account name is %s. %s", contexts.NameRule, usage))
 	}
 	if flags.loginProvider != "" {
 		return refuseNonIssuerURL(flags.loginProvider)
@@ -306,7 +341,7 @@ func checkIdentityFlags(flags connectFlags, usage string) error {
 // connectPlan is what one connect will write: the identity it acts on, the
 // product record, and whether the identity and its context are new.
 type connectPlan struct {
-	identity contexts.Identity
+	identity contexts.Account
 	context  contexts.Context
 	// created reports that the identity and context are new.
 	created bool
@@ -322,8 +357,11 @@ type connectPlan struct {
 }
 
 // planConnect decides what connect writes, from the document as it is.
+//
+// providers are the installed namespaces whose product a login can run
+// against, named by the refusal when there is no account to record on.
 func planConnect(document contexts.Document, namespace string, descriptor modules.ProductDescriptor,
-	productURL string, flags connectFlags, contextName string) (connectPlan, error) {
+	productURL string, flags connectFlags, contextName string, providers []string) (connectPlan, error) {
 	issuer := descriptor.Issuer(productURL)
 	plan := connectPlan{namespace: namespace}
 	target, found, err := connectTarget(document, flags, contextName)
@@ -342,7 +380,7 @@ func planConnect(document contexts.Document, namespace string, descriptor module
 		// creating one here would answer a line that asked for another
 		// identity by silently starting a session somewhere else.
 		if flags.loginProvider != "" && !found {
-			return connectPlan{}, loginProviderRequired(namespace, flags.loginProvider)
+			return connectPlan{}, loginProviderRequired(namespace, flags.loginProvider, providers)
 		}
 		name := flags.identity
 		if name == "" {
@@ -350,19 +388,19 @@ func planConnect(document contexts.Document, namespace string, descriptor module
 		}
 		if declaresIdentity(document, name) {
 			return connectPlan{}, problem.New(problem.CategoryUsage, "contexts.identity_exists",
-				fmt.Sprintf("an identity named %q already exists and authenticates against another issuer", name)).
-				WithRecovery("Pass --identity <name> to create this deployment's identity under another " +
-					"name. Connecting never replaces an identity.")
+				fmt.Sprintf("an account named %q already exists and authenticates against another issuer", name)).
+				WithRecovery("Pass --account <name> to create this deployment's account under another " +
+					"name. Connecting never replaces an account.")
 		}
 		if declaresContext(document, name) {
 			return connectPlan{}, contextExists(name)
 		}
 		plan.identity = newConnectIdentity(name, descriptor, issuer, flags)
-		plan.context = contexts.Context{Name: name, Identity: name}
+		plan.context = contexts.Context{Name: name, Account: name}
 		plan.created = true
 		plan.selected = document.DefaultContext == ""
 	case !found:
-		return connectPlan{}, loginProviderRequired(namespace, flags.loginProvider)
+		return connectPlan{}, loginProviderRequired(namespace, flags.loginProvider, providers)
 	default:
 		plan.identity = target
 	}
@@ -382,9 +420,9 @@ func planConnect(document contexts.Document, namespace string, descriptor module
 		flags.clientSecretVariable != "" {
 		return connectPlan{}, problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
 			fmt.Sprintf("--client-secret-variable records a product credential, which belongs to a "+
-				"client-credentials identity; %q logs in through the browser", plan.identity.Name)).
+				"client-credentials account; %q logs in through the browser", plan.identity.Name)).
 			WithRecovery("Omit the secret variable, or connect the login provider with --client-id and " +
-				"--client-secret-variable first to create a client-credentials identity.")
+				"--client-secret-variable first to create a client-credentials account.")
 	}
 	if _, recorded := plan.identity.Products[namespace]; recorded {
 		if !flags.replace {
@@ -417,42 +455,42 @@ func soleIdentityContext(document contexts.Document, identity string) bool {
 		return false
 	}
 	only := document.Contexts[0]
-	return only.Identity == identity && document.DefaultContext == only.Name
+	return only.Account == identity && document.DefaultContext == only.Name
 }
 
 // connectTarget is the identity a connect records on, when one can be
 // named: by --login-provider, by --identity, or by the selected context.
 func connectTarget(document contexts.Document, flags connectFlags, contextName string) (
-	contexts.Identity, bool, error) {
+	contexts.Account, bool, error) {
 	switch {
 	case flags.loginProvider != "":
-		for _, identity := range document.Identities {
+		for _, identity := range document.Accounts {
 			if identity.Auth.Issuer == strings.TrimRight(flags.loginProvider, "/") {
 				return identity, true, nil
 			}
 		}
-		return contexts.Identity{}, false, nil
+		return contexts.Account{}, false, nil
 	case flags.identity != "":
-		for _, identity := range document.Identities {
+		for _, identity := range document.Accounts {
 			if identity.Name == flags.identity {
 				return identity, true, nil
 			}
 		}
-		return contexts.Identity{}, false, nil
+		return contexts.Account{}, false, nil
 	case len(document.Contexts) == 0:
-		return contexts.Identity{}, false, nil
+		return contexts.Account{}, false, nil
 	}
 	selected, err := document.Select(contextName)
 	if err != nil {
-		return contexts.Identity{}, false, err
+		return contexts.Account{}, false, err
 	}
 	return selected.Identity, true, nil
 }
 
 // newConnectIdentity is the identity a login provider's connect creates.
 func newConnectIdentity(name string, descriptor modules.ProductDescriptor, issuer string,
-	flags connectFlags) contexts.Identity {
-	auth := contexts.IdentityAuth{
+	flags connectFlags) contexts.Account {
+	auth := contexts.AccountAuth{
 		Kind: contexts.KindOAuthBrowser, Issuer: issuer, ClientID: flags.clientID,
 		Provider: descriptor.Provider, CredentialRef: name,
 	}
@@ -461,7 +499,7 @@ func newConnectIdentity(name string, descriptor modules.ProductDescriptor, issue
 		auth.ClientSecretVariable = flags.clientSecretVariable
 		auth.CredentialRef = ""
 	}
-	return contexts.Identity{Name: name, Type: contexts.IdentityTypeForIssuer(issuer), Auth: auth}
+	return contexts.Account{Name: name, Type: contexts.IdentityTypeForIssuer(issuer), Auth: auth}
 }
 
 // connectKind names the identity kind the flags ask for, for a refusal.
@@ -474,7 +512,7 @@ func connectKind(flags connectFlags) string {
 
 // connectProduct is the product record connect writes.
 func connectProduct(namespace string, descriptor modules.ProductDescriptor, productURL, issuer string,
-	flags connectFlags, identity contexts.Identity) (contexts.Product, error) {
+	flags connectFlags, identity contexts.Account) (contexts.Product, error) {
 	product := contexts.Product{Endpoint: productURL, Scopes: descriptor.Scopes}
 	if len(flags.scopes) > 0 {
 		product.Scopes = flags.scopes
@@ -495,9 +533,21 @@ func connectProduct(namespace string, descriptor modules.ProductDescriptor, prod
 	if descriptor.Grant == "" {
 		return contexts.Product{}, problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
 			fmt.Sprintf("the %s product declares no grant, so it can only be reached from its own "+
-				"provider, and the %q identity logs in elsewhere", namespace, identity.Name)).
-			WithRecovery("Select an identity whose login provider serves this product, or record the " +
-				"product with wso2 identity add-product.")
+				"provider, and the %q account logs in elsewhere", namespace, identity.Name)).
+			WithRecovery("Select an account whose login provider serves this product, or record the " +
+				"product with wso2 account add-product.")
+	}
+	if descriptor.Grant == contexts.GrantExchange {
+		// The product accepts the login provider's tokens bound to it, so its
+		// audience defaults to the URL it answers at: the identifier a
+		// deployment registers its resource server under at the login
+		// provider. The grant names no issuer or client, because the exchange
+		// runs at the account's own.
+		if product.Audience == "" {
+			product.Audience = productURL
+		}
+		product.Grant = &contexts.Grant{Kind: contexts.GrantExchange}
+		return product, nil
 	}
 	product.Grant = &contexts.Grant{Kind: descriptor.Grant, Issuer: issuer, ClientID: flags.clientID}
 	if flags.clientSecretVariable != "" {
@@ -507,7 +557,7 @@ func connectProduct(namespace string, descriptor modules.ProductDescriptor, prod
 	return product, nil
 }
 
-// machineNotAccepted refuses a product a client-credentials identity cannot
+// machineNotAccepted refuses a product a client-credentials account cannot
 // reach the way the flags ask. The descriptor's machine list is what the
 // deployment declared, and each of the three answers it can give has its own
 // way out: another identity, fewer flags, or the product's own credential.
@@ -516,19 +566,19 @@ func machineNotAccepted(namespace, identity string, descriptor modules.ProductDe
 	switch {
 	case len(descriptor.Machine) == 0:
 		return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
-			fmt.Sprintf("the %s product declares no way for a client-credentials identity to reach it, "+
+			fmt.Sprintf("the %s product declares no way for a client-credentials account to reach it, "+
 				"and %q holds a machine client", namespace, identity)).
-			WithRecovery("Record the product on an identity that signs in through the browser, or " +
+			WithRecovery("Record the product on an account that signs in through the browser, or " +
 				"install a version of the module whose descriptor says how a machine client reaches it.")
 	case asked == modules.MachineCredential:
 		return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
 			fmt.Sprintf("the %s product accepts the machine client %q already holds, so it carries no "+
 				"credential of its own", namespace, identity)).
-			WithRecovery("Omit --client-secret-variable and --client-id-variable: the identity's own " +
+			WithRecovery("Omit --client-secret-variable and --client-id-variable: the account's own " +
 				"client is what reaches this product.")
 	}
 	return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
-		fmt.Sprintf("the %s product does not accept the machine client the %q identity holds, "+
+		fmt.Sprintf("the %s product does not accept the machine client the %q account holds, "+
 			"so it needs a credential of its own", namespace, identity)).
 		WithRecovery(fmt.Sprintf("Register a client for this CLI on the product (wso2 %s bootstrap "+
 			"does) and pass --client-id <id> --client-secret-variable <VAR> naming its credential, "+
@@ -554,24 +604,57 @@ func clientIDRequired(namespace string, flags connectFlags, usage string) proble
 	return problem.New(problem.CategoryUsage, "shell.missing_required_flag",
 		fmt.Sprintf("the %s module's descriptor names no default client, so connect needs "+
 			"--client-id with the public client the deployment holds for this CLI", namespace)).
-		WithRecovery(fmt.Sprintf("On a browser identity that is a public client registered on the "+
-			"product itself and federated to the identity's login provider, not the confidential "+
+		WithRecovery(fmt.Sprintf("On a browser account that is a public client registered on the "+
+			"product itself and federated to the account's login provider, not the confidential "+
 			"client wso2 %s bootstrap registers. A pipeline passes the bootstrap's client instead, "+
 			"as --client-id <id> --client-secret-variable <VAR>. %s", namespace, usage))
 }
 
 // loginProviderRequired refuses a product with no identity to attach to.
-func loginProviderRequired(namespace, loginProvider string) problem.Problem {
-	message := fmt.Sprintf("the %s product is reached through a login provider, and no identity exists "+
+//
+// The way out names the connect of every installed module whose product is a
+// login provider, since that is what creates an account from a URL; with none
+// installed it names the command that declares one by hand.
+func loginProviderRequired(namespace, loginProvider string, providers []string) problem.Problem {
+	message := fmt.Sprintf("the %s product is reached through a login provider, and no account exists "+
 		"to record it on", namespace)
 	if loginProvider != "" {
-		message = fmt.Sprintf("no identity authenticates against the issuer --login-provider names, "+
+		message = fmt.Sprintf("no account authenticates against the issuer --login-provider names, "+
 			"so the %s product has nowhere to be recorded", namespace)
 	}
+	create := "wso2 account create <name> --issuer <issuer-url> --client-id <id>"
+	if len(providers) > 0 {
+		connects := make([]string, 0, len(providers))
+		for _, provider := range providers {
+			connects = append(connects, fmt.Sprintf("wso2 %s connect <login-provider-url>", provider))
+		}
+		create = strings.Join(connects, " or ") + " [--account <name>]"
+	}
 	return problem.New(problem.CategoryUsage, "shell.login_provider_required", message).
-		WithRecovery("Connect the login provider's own product first, as in wso2 iam connect <url>, " +
-			"then this one; or pass --login-provider <issuer-url> naming an identity that exists. " +
-			"wso2 identity list shows them.")
+		WithRecovery(fmt.Sprintf("Create the account first with %s, then run this command again; or "+
+			"pass --login-provider <issuer-url> naming an account that exists. wso2 account list shows "+
+			"them.", create))
+}
+
+// loginProviderNamespaces are the installed namespaces whose product a login
+// can run against, in namespace order. It is best effort, because it only
+// words a refusal: a store that cannot be read names none.
+func (s Shell) loginProviderNamespaces() []string {
+	store, err := s.store()
+	if err != nil {
+		return nil
+	}
+	installed, _, err := store.Inventory()
+	if err != nil {
+		return nil
+	}
+	var providers []string
+	for _, entry := range installed {
+		if product := entry.Receipt.Capabilities.Product; product != nil && product.LoginProvider() {
+			providers = append(providers, entry.Namespace)
+		}
+	}
+	return providers
 }
 
 // apply writes the plan into the document.
@@ -599,22 +682,22 @@ func (p connectPlan) apply(document contexts.Document) contexts.Document {
 	}
 	if p.created {
 		document.SchemaVersion = contexts.SchemaVersion
-		document.Identities = append(document.Identities, identity)
+		document.Accounts = append(document.Accounts, identity)
 		document.Contexts = append(document.Contexts, p.context)
 		if p.selected {
 			document.DefaultContext = p.context.Name
 		}
 		return document
 	}
-	position := slices.IndexFunc(document.Identities, func(candidate contexts.Identity) bool {
+	position := slices.IndexFunc(document.Accounts, func(candidate contexts.Account) bool {
 		return candidate.Name == identity.Name
 	})
-	document.Identities[position] = identity
+	document.Accounts[position] = identity
 	return document
 }
 
 // reportConnect states what was recorded and what to run next.
-func (s Shell) reportConnect(mode output.Mode, namespace string, plan connectPlan) error {
+func (s Shell) reportConnect(mode output.Mode, root, namespace string, plan connectPlan) error {
 	identity := plan.identity
 	identity.Products = map[string]contexts.Product{namespace: plan.product}
 	access, _ := identity.Access(namespace)
@@ -629,11 +712,16 @@ func (s Shell) reportConnect(mode output.Mode, namespace string, plan connectPla
 	if identity.Auth.Kind == contexts.KindClientCredentials {
 		next = fmt.Sprintf("Run wso2 %s status --context %s.", namespace, identity.Name)
 	}
+	// The account as it stood, not the one-product copy above: which session
+	// is the login one is decided by the products it already recorded.
+	if held, ok := exchangedNext(root, namespace, plan.identity, access); ok {
+		next = held
+	}
 	reported := result.New(connectSchema).
 		With("product", "Product", namespace).
 		With("record", "Record", recordManagement).
-		With("identity", "Identity", identity.Name).
-		With("created", "Identity created", fmt.Sprintf("%t", plan.created)).
+		With("account", "Account", identity.Name).
+		With("created", "Account created", fmt.Sprintf("%t", plan.created)).
 		With("endpoint", "Endpoint", plan.product.Endpoint).
 		With("issuer", "Issuer", access.Issuer).
 		With("clientId", "Client ID", access.ClientID).
@@ -645,7 +733,7 @@ func (s Shell) reportConnect(mode output.Mode, namespace string, plan connectPla
 	if mode == output.ModeJSON {
 		return output.Report(s.Streams.Out, mode, reported)
 	}
-	if _, err := fmt.Fprintf(s.Streams.Out, "\n%s the %q product on the %q identity.\n\n",
+	if _, err := fmt.Fprintf(s.Streams.Out, "\n%s the %q product on the %q account.\n\n",
 		verb, namespace, identity.Name); err != nil {
 		return err
 	}

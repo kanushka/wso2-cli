@@ -35,7 +35,7 @@ import (
 
 // productGrantKind names the grant a product is derived by, empty when the
 // identity's own session answers for it. It is a scheme name, never a secret.
-func productGrantKind(identity contexts.Identity, namespace string) string {
+func productGrantKind(identity contexts.Account, namespace string) string {
 	if grant := identity.Products[namespace].Grant; grant != nil {
 		return grant.Kind
 	}
@@ -44,7 +44,7 @@ func productGrantKind(identity contexts.Identity, namespace string) string {
 
 // productGrantIssuer names the issuer a product's assertion is presented to,
 // empty for a directly served product. The issuer URL is public.
-func productGrantIssuer(identity contexts.Identity, namespace string) string {
+func productGrantIssuer(identity contexts.Account, namespace string) string {
 	if grant := identity.Products[namespace].Grant; grant != nil {
 		return grant.Issuer
 	}
@@ -54,7 +54,7 @@ func productGrantIssuer(identity contexts.Identity, namespace string) string {
 // productStrategy names how the named product is reached under the selected
 // identity, empty when the identity records no such product yet. It is a
 // scheme name, never a secret.
-func productStrategy(identity contexts.Identity, namespace string) string {
+func productStrategy(identity contexts.Account, namespace string) string {
 	if access, recorded := identity.Access(namespace); recorded {
 		return access.Strategy
 	}
@@ -64,7 +64,7 @@ func productStrategy(identity contexts.Identity, namespace string) string {
 // gatewayEndpoint is where the product's gateway is, when the identity
 // records one, and empty otherwise. A location, never a permission: the
 // module asks the broker for the gateway record before calling it.
-func gatewayEndpoint(identity contexts.Identity, namespace string) string {
+func gatewayEndpoint(identity contexts.Account, namespace string) string {
 	if gateway := identity.Products[namespace].Gateway; gateway != nil {
 		return gateway.Endpoint
 	}
@@ -134,7 +134,7 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 	// terms a module is allowed to hear, which is deliberately less than a
 	// maintainer needs. This is where that missing half is written: the
 	// invocation the access will be bound to, the ceiling the receipt declares,
-	// and the derivation the selected identity will be narrowed by. Everything
+	// and the derivation the selected account will be narrowed by. Everything
 	// here is public — a namespace, an audience list, a scheme name — and the
 	// credential the broker reads is named nowhere, in keeping with a denial
 	// never naming it either.
@@ -377,7 +377,7 @@ func unknownOutputMode(namespace, value string) problem.Problem {
 // credentialVariables names every environment variable the identity reads a
 // credential from: its own client secret, and each product's client id and
 // secret. Names only, never values.
-func credentialVariables(identity contexts.Identity) []string {
+func credentialVariables(identity contexts.Account) []string {
 	var names []string
 	for _, name := range []string{identity.Auth.ClientSecretVariable, identity.Auth.CredentialVariable} {
 		if name != "" {

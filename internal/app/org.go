@@ -41,8 +41,8 @@ const orgRecovery = "Run wso2 org current to show the organization the selected 
 // Worded exactly as wso2 context current and wso2 whoami word the same state,
 // because it is the same fact and the shell must not invent a second sentence
 // for it.
-const noContextRecovery = "Run wso2 login to create an identity and a context, " +
-	"or wso2 context create <name> --identity <identity> if you already have one."
+const noContextRecovery = "Run wso2 login to create an account and a context, " +
+	"or wso2 context create <name> --account <account> if you already have one."
 
 // orgCommand builds the wso2 org tree.
 //
@@ -155,8 +155,8 @@ func (s Shell) orgCurrent(command *cobra.Command) error {
 		// sentences for the one fact.
 		_, err = fmt.Fprintln(s.Streams.Out,
 			"No context is configured, so commands run against nothing.\n\n"+
-				"Run wso2 login to create an identity and a context, "+
-				"or wso2 context create <name> --identity <identity> if you already have one.")
+				"Run wso2 login to create an account and a context, "+
+				"or wso2 context create <name> --account <account> if you already have one.")
 	case report.Organization == "":
 		_, err = fmt.Fprintf(s.Streams.Out,
 			"The %q context is selected and names no organization.\n\n"+
@@ -230,7 +230,7 @@ func (s Shell) orgUse(command *cobra.Command, organization string) error {
 		// unset field it is.
 		if _, err := fmt.Fprintf(s.Streams.Out,
 			"\nCleared the %q context's organization; commands run against the deployment "+
-				"the identity names.\n", edited); err != nil {
+				"the account names.\n", edited); err != nil {
 			return err
 		}
 	} else if _, err := fmt.Fprintf(s.Streams.Out,
@@ -319,7 +319,7 @@ func (o orgCurrentReport) fields() [][2]string {
 //
 // Asgardeo, and any provider the document does not name, keep the field: a
 // tenant switch is what the broker's check exists for on them.
-func refuseOrganizationSwitch(identity contexts.Identity, organization string) error {
+func refuseOrganizationSwitch(identity contexts.Account, organization string) error {
 	if organization == "" {
 		return nil
 	}
@@ -329,8 +329,8 @@ func refuseOrganizationSwitch(identity contexts.Identity, organization string) e
 		return nil
 	}
 	return problem.New(problem.CategoryAuthPolicy, "auth.organization_switch_unsupported",
-		fmt.Sprintf("the %q identity authenticates against %s, which has no organization to switch to",
+		fmt.Sprintf("the %q account authenticates against %s, which has no organization to switch to",
 			identity.Name, identity.Auth.Provider)).
 		WithRecovery("Leave the context's organization unset; commands run against the deployment " +
-			"the identity names. Organization switch is for a multi-tenant provider such as Asgardeo.")
+			"the account names. Organization switch is for a multi-tenant provider such as Asgardeo.")
 }

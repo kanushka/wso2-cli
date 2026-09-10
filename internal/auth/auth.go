@@ -204,9 +204,9 @@ func (b *Broker) checkDeclared(request Request) error {
 		if !slices.Contains(b.Capabilities.AuthScopes, scope) && !slices.Contains(recorded, scope) {
 			return denial("auth.scope_not_declared",
 				fmt.Sprintf("the %q module asked for a permission neither its installation nor the "+
-					"identity's product entry declares", b.namespace()),
-				"Reinstall the module, or record the permission on this identity's product entry "+
-					"with wso2 identity add-product --replace. The shell grants only the permissions "+
+					"account's product entry declares", b.namespace()),
+				"Reinstall the module, or record the permission on this account's product entry "+
+					"with wso2 account add-product --replace. The shell grants only the permissions "+
 					"a module receipt or the product entry declares.")
 		}
 	}
@@ -265,7 +265,7 @@ func (b *Broker) credential() (string, error) {
 	return b.namedSecret(b.Selection.Identity.Auth.CredentialVariable, "the credential")
 }
 
-// namedSecret reads the environment variable an identity names, into process
+// namedSecret reads the environment variable an account names, into process
 // memory and nowhere else.
 //
 // It is the one door a secret comes through, so the shape of its refusal is
@@ -370,7 +370,7 @@ func (b BrowserUnavailable) Error() string {
 // login is narrowed to, which establishes every record of the product.
 func SessionRequired(record, product string) Denial {
 	return denial("auth.session_required",
-		fmt.Sprintf("the %q product has no session under this identity yet", record),
+		fmt.Sprintf("the %q product has no session under this account yet", record),
 		fmt.Sprintf("Run wso2 login --only %s to authorize it, or wso2 login to authorize every product.",
 			product))
 }

@@ -209,10 +209,10 @@ func installOAuthContext(t *testing.T, stateRoot, issuerURL, endpoint string) {
 	if err := contextfixture.WriteV2(stateRoot, contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: referenceContextName,
-		Identities: []contexts.Identity{{
+		Accounts: []contexts.Account{{
 			Name: oauthIdentityName,
 			Type: "cloud",
-			Auth: contexts.IdentityAuth{
+			Auth: contexts.AccountAuth{
 				Kind:                 contexts.KindClientCredentials,
 				Issuer:               issuerURL,
 				ClientID:             oauthClientID,
@@ -229,7 +229,7 @@ func installOAuthContext(t *testing.T, stateRoot, issuerURL, endpoint string) {
 		}},
 		Contexts: []contexts.Context{{
 			Name:         referenceContextName,
-			Identity:     oauthIdentityName,
+			Account:      oauthIdentityName,
 			Organization: referenceOrganization,
 		}},
 	}); err != nil {

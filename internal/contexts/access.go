@@ -35,6 +35,10 @@ const (
 	// StrategyFederated: a session at the product's own issuer, obtained as
 	// the product's public client through the login provider's sign-on.
 	StrategyFederated = "federated"
+	// StrategyExchanged: no session of the product's own; the login session's
+	// access token is exchanged at the login issuer, under RFC 8693, for one
+	// bound to the product's audience, per command.
+	StrategyExchanged = "exchanged"
 	// StrategyInline: no session; a client-credentials grant per command.
 	StrategyInline = "inline"
 )
@@ -62,7 +66,7 @@ func ProductSessionRef(credentialRef, namespace string) string {
 // LoginAccess is the authorization wso2 login runs first: the pinned login
 // product, else the first direct product by namespace, else a bare session
 // when the identity records no direct product.
-func (i Identity) LoginAccess() ProductAccess {
+func (i Account) LoginAccess() ProductAccess {
 	access := ProductAccess{
 		Strategy: StrategyDirect, Issuer: i.Auth.Issuer, ClientID: i.Auth.ClientID,
 		SessionRef: i.Auth.CredentialRef,
@@ -90,7 +94,7 @@ func (i Identity) LoginAccess() ProductAccess {
 // Access is how the named product is reached, and whether it is recorded.
 // The name is a product namespace, or a gateway key (GatewayKey) for the
 // product's gateway record.
-func (i Identity) Access(namespace string) (ProductAccess, bool) {
+func (i Account) Access(namespace string) (ProductAccess, bool) {
 	if product, found := SplitGatewayKey(namespace); found {
 		return i.gatewayAccess(product)
 	}
@@ -119,6 +123,17 @@ func (i Identity) Access(namespace string) (ProductAccess, bool) {
 		} else {
 			access.Strategy = StrategySibling
 		}
+	case product.Grant.Kind == GrantExchange:
+		// The exchange runs at the account's own issuer, as its own client,
+		// and asks for the product's audience: the access already carries
+		// both, so only the strategy and the resource are set here. The
+		// session reference is cleared because an exchanged product keeps no
+		// session — the token is minted from the login session for one
+		// command and never stored.
+		access.Strategy = StrategyExchanged
+		access.Resource = product.Audience
+		access.Scopes = sortedScopes(product.Scopes)
+		access.SessionRef = ""
 	case product.Grant.Kind == GrantJWTBearer:
 		access.Strategy = StrategyDerived
 		access.Scopes = product.Grant.AssertionScopes()
@@ -137,9 +152,9 @@ func (i Identity) Access(namespace string) (ProductAccess, bool) {
 // the product records one. A gateway validates tokens from the login
 // provider, so the record is always reached there, under the API's own
 // resource and scope set: direct when those happen to be the login
-// session's, else sibling; inline for a client-credentials identity, minted
+// session's, else sibling; inline for a client-credentials account, minted
 // from its machine client with the gateway audience as the resource.
-func (i Identity) gatewayAccess(namespace string) (ProductAccess, bool) {
+func (i Account) gatewayAccess(namespace string) (ProductAccess, bool) {
 	product, recorded := i.Products[namespace]
 	if !recorded || product.Gateway == nil {
 		return ProductAccess{}, false
@@ -157,6 +172,18 @@ func (i Identity) gatewayAccess(namespace string) (ProductAccess, bool) {
 		access.Strategy = StrategyInline
 		return access, true
 	}
+	// A gateway is reached the way its product is when the product is reached
+	// by exchanging the login session: the gateway validates the same login
+	// provider's tokens, through the same JWKS its control plane does, so
+	// there is nothing for it to authorize separately. Leaving it a sibling
+	// would make a login open a browser for the one record on the product that
+	// never needed one.
+	if product.Grant != nil && product.Grant.Kind == GrantExchange {
+		access.Strategy = StrategyExchanged
+		access.Resource = gateway.Audience
+		access.SessionRef = ""
+		return access, true
+	}
 	login := i.LoginAccess()
 	access.SessionRef = ProductSessionRef(i.Auth.CredentialRef, key)
 	access.Strategy = StrategySibling
@@ -170,7 +197,7 @@ func (i Identity) gatewayAccess(namespace string) (ProductAccess, bool) {
 // RecordKeys names every record the identity holds, in namespace order: each
 // product's own namespace, followed by its gateway key when it records a
 // gateway. Each is a name Access resolves.
-func (i Identity) RecordKeys() []string {
+func (i Account) RecordKeys() []string {
 	var keys []string
 	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
 		keys = append(keys, namespace)
@@ -181,10 +208,10 @@ func (i Identity) RecordKeys() []string {
 	return keys
 }
 
-// inlineAccess is a client-credentials identity's plan for one product: no
+// inlineAccess is a client-credentials account's plan for one product: no
 // session, one grant per command, at the product's own issuer when it names
 // one.
-func (i Identity) inlineAccess(namespace string, product Product) ProductAccess {
+func (i Account) inlineAccess(namespace string, product Product) ProductAccess {
 	access := ProductAccess{
 		Namespace: namespace, Strategy: StrategyInline, Issuer: i.Auth.Issuer,
 		ClientID: i.Auth.ClientID, Audience: product.Audience, Scopes: sortedScopes(product.Scopes),
@@ -202,7 +229,7 @@ func (i Identity) inlineAccess(namespace string, product Product) ProductAccess 
 // and then one per further session, in namespace order, a product's gateway
 // record right after the product's own. A client-credentials identity lists
 // every record, each inline.
-func (i Identity) Accesses() []ProductAccess {
+func (i Account) Accesses() []ProductAccess {
 	if i.Auth.Kind == KindClientCredentials {
 		var all []ProductAccess
 		for _, key := range i.RecordKeys() {
@@ -214,6 +241,12 @@ func (i Identity) Accesses() []ProductAccess {
 	all := []ProductAccess{i.LoginAccess()}
 	for _, key := range i.RecordKeys() {
 		access, _ := i.Access(key)
+		// An exchanged product holds no session, so there is no authorization
+		// to run for it and nothing a login could leave behind. Its access is
+		// minted from the login session at the moment a command needs it.
+		if access.Strategy == StrategyExchanged {
+			continue
+		}
 		if access.SessionRef != all[0].SessionRef {
 			all = append(all, access)
 		}

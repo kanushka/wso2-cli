@@ -17,17 +17,24 @@
 package app_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	keyring "github.com/zalando/go-keyring"
+
 	"github.com/wso2/wso2-cli/internal/app"
+	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/exit"
+	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/internal/state"
 )
 
 // identityOnlyDocument is the state a machine is in after wso2 login has
@@ -37,10 +44,10 @@ import (
 func identityOnlyDocument() contexts.Document {
 	return contexts.Document{
 		SchemaVersion: contexts.SchemaVersion,
-		Identities: []contexts.Identity{{
+		Accounts: []contexts.Account{{
 			Name: "acme-cloud",
 			Type: "cloud",
-			Auth: contexts.IdentityAuth{
+			Auth: contexts.AccountAuth{
 				Kind:          contexts.KindOAuthBrowser,
 				Issuer:        "https://idp.example",
 				ClientID:      "wso2-cli",
@@ -78,7 +85,7 @@ func TestContextCreateWritesASchemaVersionTwoContext(t *testing.T) {
 	installLogin(t, shell, identityOnlyDocument())
 
 	code := shell.Run([]string{"context", "create", "acme",
-		"--identity", "acme-cloud", "--organization", "acme", "--project", "retail"})
+		"--account", "acme-cloud", "--organization", "acme", "--project", "retail"})
 	if code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stdout: %s stderr: %s", code, exit.OK, out, errOut)
 	}
@@ -87,8 +94,8 @@ func TestContextCreateWritesASchemaVersionTwoContext(t *testing.T) {
 		t.Errorf("schemaVersion = %d, want %d", document.SchemaVersion, contexts.SchemaVersion)
 	}
 	created := contextNamed(t, document, "acme")
-	if created.Identity != "acme-cloud" || created.Organization != "acme" || created.Project != "retail" {
-		t.Errorf("created context = %+v, want the identity, organization and project that were named", created)
+	if created.Account != "acme-cloud" || created.Organization != "acme" || created.Project != "retail" {
+		t.Errorf("created context = %+v, want the account, organization and project that were named", created)
 	}
 }
 
@@ -96,10 +103,10 @@ func TestContextCreateIsRefusedWhenTheNameIsTaken(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud", Organization: "first"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "first"}}
 	installLogin(t, shell, seeded)
 
-	code := shell.Run([]string{"context", "create", "acme", "--identity", "acme-cloud",
+	code := shell.Run([]string{"context", "create", "acme", "--account", "acme-cloud",
 		"--organization", "second"})
 	if code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stdout: %s stderr: %s",
@@ -117,7 +124,7 @@ func TestContextCreateIsRefusedWhenTheIdentityDoesNotExist(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, identityOnlyDocument())
 
-	code := shell.Run([]string{"context", "create", "acme", "--identity", "nosuch"})
+	code := shell.Run([]string{"context", "create", "acme", "--account", "nosuch"})
 	if code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stdout: %s stderr: %s",
 			code, exit.Usage, out, errOut)
@@ -128,12 +135,12 @@ func TestContextCreateIsRefusedWhenTheIdentityDoesNotExist(t *testing.T) {
 	// D3: login is the only thing that creates an identity, so it is the only
 	// answer a recovery can honestly give.
 	if !strings.Contains(errOut.String(), "wso2 login") {
-		t.Errorf("the recovery does not name wso2 login, which is what creates an identity:\n%s", errOut)
+		t.Errorf("the recovery does not name wso2 login, which is what creates an account:\n%s", errOut)
 	}
 	// An identity exists here, so the likeliest fault is a mistyped name, and
 	// the recovery names the command that shows what login recorded.
-	if !strings.Contains(errOut.String(), "wso2 identity list") {
-		t.Errorf("the recovery does not name wso2 identity list:\n%s", errOut)
+	if !strings.Contains(errOut.String(), "wso2 account list") {
+		t.Errorf("the recovery does not name wso2 account list:\n%s", errOut)
 	}
 	if len(loadDocument(t, shell).Contexts) != 0 {
 		t.Error("a refused create wrote a context")
@@ -142,12 +149,12 @@ func TestContextCreateIsRefusedWhenTheIdentityDoesNotExist(t *testing.T) {
 
 func TestContextCreateWithNoIdentitiesAtAllPointsAtLoginAlone(t *testing.T) {
 	// A machine nobody has logged in on holds no identities, so there is
-	// nothing for wso2 identity list to show: offering it, or offering wso2
+	// nothing for wso2 account list to show: offering it, or offering wso2
 	// context create again, would walk a first-run user in a circle. Login is
 	// the one honest way forward.
 	shell, out, errOut := newShell(t)
 
-	code := shell.Run([]string{"context", "create", "acme", "--identity", "nosuch"})
+	code := shell.Run([]string{"context", "create", "acme", "--account", "nosuch"})
 	if code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stdout: %s stderr: %s",
 			code, exit.Usage, out, errOut)
@@ -155,14 +162,14 @@ func TestContextCreateWithNoIdentitiesAtAllPointsAtLoginAlone(t *testing.T) {
 	if !strings.Contains(errOut.String(), "contexts.unknown_identity") {
 		t.Errorf("stderr does not carry contexts.unknown_identity:\n%s", errOut)
 	}
-	if !strings.Contains(errOut.String(), "no identities exist") {
-		t.Errorf("the refusal does not say no identities exist:\n%s", errOut)
+	if !strings.Contains(errOut.String(), "no accounts exist") {
+		t.Errorf("the refusal does not say no accounts exist:\n%s", errOut)
 	}
 	if !strings.Contains(errOut.String(), "wso2 login") {
 		t.Errorf("the recovery does not name wso2 login:\n%s", errOut)
 	}
-	if strings.Contains(errOut.String(), "wso2 identity list") {
-		t.Errorf("the recovery offers wso2 identity list with nothing to list:\n%s", errOut)
+	if strings.Contains(errOut.String(), "wso2 account list") {
+		t.Errorf("the recovery offers wso2 account list with nothing to list:\n%s", errOut)
 	}
 }
 
@@ -173,8 +180,8 @@ func TestContextCreateNamesTheFlagWhenNoIdentityIsGiven(t *testing.T) {
 	if code := shell.Run([]string{"context", "create", "acme"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
 	}
-	if !strings.Contains(errOut.String(), "--identity") {
-		t.Errorf("the refusal does not name --identity:\n%s", errOut)
+	if !strings.Contains(errOut.String(), "--account") {
+		t.Errorf("the refusal does not name --account:\n%s", errOut)
 	}
 }
 
@@ -182,7 +189,7 @@ func TestTheFirstContextCreatedBecomesTheDefault(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, identityOnlyDocument())
 
-	if code := shell.Run([]string{"context", "create", "acme", "--identity", "acme-cloud"}); code != exit.OK {
+	if code := shell.Run([]string{"context", "create", "acme", "--account", "acme-cloud"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	if selected := loadDocument(t, shell).DefaultContext; selected != "acme" {
@@ -199,10 +206,10 @@ func TestASecondContextCreatedDoesNotStealTheDefault(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	installLogin(t, shell, identityOnlyDocument())
 
-	if code := shell.Run([]string{"context", "create", "acme", "--identity", "acme-cloud"}); code != exit.OK {
+	if code := shell.Run([]string{"context", "create", "acme", "--account", "acme-cloud"}); code != exit.OK {
 		t.Fatalf("first create: exit code = %d; stderr: %s", code, errOut)
 	}
-	if code := shell.Run([]string{"context", "create", "beta", "--identity", "acme-cloud"}); code != exit.OK {
+	if code := shell.Run([]string{"context", "create", "beta", "--account", "acme-cloud"}); code != exit.OK {
 		t.Fatalf("second create: exit code = %d; stderr: %s", code, errOut)
 	}
 	if selected := loadDocument(t, shell).DefaultContext; selected != "acme" {
@@ -215,8 +222,8 @@ func TestContextUseSelectsAndWritesNothingElse(t *testing.T) {
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
 	seeded.Contexts = []contexts.Context{
-		{Name: "acme", Identity: "acme-cloud", Organization: "acme"},
-		{Name: "beta", Identity: "acme-cloud", Organization: "beta"},
+		{Name: "acme", Account: "acme-cloud", Organization: "acme"},
+		{Name: "beta", Account: "acme-cloud", Organization: "beta"},
 	}
 	installLogin(t, shell, seeded)
 	before := loadDocument(t, shell)
@@ -240,7 +247,7 @@ func TestContextUseIsRefusedForAnUnknownName(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
 	installLogin(t, shell, seeded)
 
 	if code := shell.Run([]string{"context", "use", "nosuch"}); code != exit.Usage {
@@ -259,8 +266,8 @@ func TestContextListRendersEveryContextAndMarksTheDefault(t *testing.T) {
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "beta"
 	seeded.Contexts = []contexts.Context{
-		{Name: "acme", Identity: "acme-cloud"},
-		{Name: "beta", Identity: "acme-cloud"},
+		{Name: "acme", Account: "acme-cloud"},
+		{Name: "beta", Account: "acme-cloud"},
 	}
 	installLogin(t, shell, seeded)
 
@@ -299,14 +306,14 @@ func TestContextCurrentReportsTheSelectedContext(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud", Organization: "acme"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "acme"}}
 	installLogin(t, shell, seeded)
 
 	if code := shell.Run([]string{"context", "current"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	if !strings.Contains(out.String(), "acme-cloud") {
-		t.Errorf("the report does not name the identity the context authenticates as:\n%s", out)
+		t.Errorf("the report does not name the account the context authenticates as:\n%s", out)
 	}
 }
 
@@ -329,7 +336,7 @@ func TestContextCurrentOnAMachineWithNoDocumentSaysSoPlainly(t *testing.T) {
 
 func TestEveryContextSubcommandRendersJSON(t *testing.T) {
 	for name, args := range map[string][]string{
-		"create":  {"context", "create", "gamma", "--identity", "acme-cloud", "--output", "json"},
+		"create":  {"context", "create", "gamma", "--account", "acme-cloud", "--output", "json"},
 		"use":     {"context", "use", "beta", "--output", "json"},
 		"list":    {"context", "list", "--output", "json"},
 		"current": {"context", "current", "--output", "json"},
@@ -339,8 +346,8 @@ func TestEveryContextSubcommandRendersJSON(t *testing.T) {
 			seeded := identityOnlyDocument()
 			seeded.DefaultContext = "acme"
 			seeded.Contexts = []contexts.Context{
-				{Name: "acme", Identity: "acme-cloud"},
-				{Name: "beta", Identity: "acme-cloud"},
+				{Name: "acme", Account: "acme-cloud"},
+				{Name: "beta", Account: "acme-cloud"},
 			}
 			installLogin(t, shell, seeded)
 
@@ -404,13 +411,13 @@ func TestNoContextSubcommandOpensANetworkConnection(t *testing.T) {
 	// where a well-meaning "let me check the issuer before I complain" would be
 	// added, and it is the path a first-run user reaches first.
 	invocations := map[string][]string{
-		"create":                 {"context", "create", "gamma", "--identity", "acme-cloud", "--organization", "acme"},
+		"create":                 {"context", "create", "gamma", "--account", "acme-cloud", "--organization", "acme"},
 		"use":                    {"context", "use", "beta"},
 		"list":                   {"context", "list"},
 		"current":                {"context", "current"},
-		"create, taken name":     {"context", "create", "acme", "--identity", "acme-cloud"},
-		"create, no identity":    {"context", "create", "delta", "--identity", "nosuch"},
-		"create, illegal name":   {"context", "create", "Delta", "--identity", "acme-cloud"},
+		"create, taken name":     {"context", "create", "acme", "--account", "acme-cloud"},
+		"create, no account":     {"context", "create", "delta", "--account", "nosuch"},
+		"create, illegal name":   {"context", "create", "Delta", "--account", "acme-cloud"},
 		"create, no name":        {"context", "create"},
 		"use, unknown name":      {"context", "use", "nosuch"},
 		"list, stray argument":   {"context", "list", "extra"},
@@ -422,8 +429,8 @@ func TestNoContextSubcommandOpensANetworkConnection(t *testing.T) {
 			seeded := identityOnlyDocument()
 			seeded.DefaultContext = "acme"
 			seeded.Contexts = []contexts.Context{
-				{Name: "acme", Identity: "acme-cloud"},
-				{Name: "beta", Identity: "acme-cloud"},
+				{Name: "acme", Account: "acme-cloud"},
+				{Name: "beta", Account: "acme-cloud"},
 			}
 			installLogin(t, shell, seeded)
 			// The exit code is not asserted: what is asserted is that whatever
@@ -488,7 +495,7 @@ func TestContextCreateOnAVersionOneDocumentExplainsWhatToDo(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	installLegacy(t, shell)
 
-	if code := shell.Run([]string{"context", "create", "acme", "--identity", "legacy"}); code != exit.Usage {
+	if code := shell.Run([]string{"context", "create", "acme", "--account", "legacy"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
 	}
 	reported := errOut.String()
@@ -537,7 +544,7 @@ func TestSelectedIsABooleanWhereverItAppears(t *testing.T) {
 	installLogin(t, shell, identityOnlyDocument())
 
 	if code := shell.Run([]string{"context", "create", "acme",
-		"--identity", "acme-cloud", "--output", "json"}); code != exit.OK {
+		"--account", "acme-cloud", "--output", "json"}); code != exit.OK {
 		t.Fatalf("create: exit code = %d; stderr: %s", code, errOut)
 	}
 	var created map[string]any
@@ -632,7 +639,7 @@ func TestContextCreateRefusesANameTheDocumentCannotHold(t *testing.T) {
 			shell, _, errOut := newShell(t)
 			installLogin(t, shell, identityOnlyDocument())
 
-			code := shell.Run([]string{"context", "create", name, "--identity", "acme-cloud"})
+			code := shell.Run([]string{"context", "create", name, "--account", "acme-cloud"})
 			if code != exit.Usage {
 				t.Fatalf("exit code = %d, want the usage class %d; stderr: %s",
 					code, exit.Usage, errOut)
@@ -662,17 +669,337 @@ func TestTheFrozenDocumentRecoveryRoutesThroughLogin(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	installLegacy(t, shell)
 
-	if code := shell.Run([]string{"context", "create", "acme", "--identity", "legacy"}); code != exit.Usage {
+	if code := shell.Run([]string{"context", "create", "acme", "--account", "legacy"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
 	}
 	reported := errOut.String()
 	if !strings.Contains(reported, "wso2 login") {
-		t.Errorf("the recovery does not route through wso2 login, which is what creates an identity:\n%s",
+		t.Errorf("the recovery does not route through wso2 login, which is what creates an account:\n%s",
 			reported)
 	}
 	// The instruction that does not work: moving the file aside and re-running
 	// this command refuses again, because the identity went with the file.
 	if strings.Contains(reported, "run the command again") {
 		t.Errorf("the recovery still tells the user to re-run a command that would refuse:\n%s", reported)
+	}
+}
+
+// contextShowReport mirrors what wso2 context show --output json publishes,
+// so a test can decode it without depending on the command's own unexported
+// type.
+type contextShowReport struct {
+	Path           string `json:"path"`
+	Written        bool   `json:"written"`
+	SchemaVersion  int    `json:"schemaVersion"`
+	DefaultContext string `json:"defaultContext"`
+	Accounts       []struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+		Auth struct {
+			Kind                 string `json:"kind"`
+			Issuer               string `json:"issuer"`
+			CredentialRef        string `json:"credentialRef"`
+			ClientSecretVariable string `json:"clientSecretVariable"`
+		} `json:"auth"`
+	} `json:"accounts"`
+	Contexts []contexts.Context `json:"contexts"`
+}
+
+// decodeContextShowReport parses wso2 context show --output json.
+func decodeContextShowReport(t *testing.T, rendered []byte) contextShowReport {
+	t.Helper()
+	var report contextShowReport
+	if err := json.Unmarshal(rendered, &report); err != nil {
+		t.Fatalf("the output is not one JSON document: %v\n%s", err, rendered)
+	}
+	return report
+}
+
+// TestContextShowReportsThePathEvenWithNothingWritten is acceptance criterion
+// 1 and 3 of #170 together: the path is reported, and it is reported on a
+// fresh machine that has never written the document at all.
+func TestContextShowReportsThePathEvenWithNothingWritten(t *testing.T) {
+	shell, out, errOut := newShell(t)
+
+	if code := shell.Run([]string{"context", "show", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	report := decodeContextShowReport(t, out.Bytes())
+	want := contexts.Path(shell.StateRoot)
+	if report.Path != want {
+		t.Errorf("path = %q, want %q", report.Path, want)
+	}
+	if report.Written {
+		t.Errorf("written = true on a machine that has never written the document")
+	}
+	if report.Accounts == nil || len(report.Accounts) != 0 {
+		t.Errorf("accounts = %v, want an empty list rather than null", report.Accounts)
+	}
+	if report.Contexts == nil || len(report.Contexts) != 0 {
+		t.Errorf("contexts = %v, want an empty list rather than null", report.Contexts)
+	}
+
+	tableShell, tableOut, tableErrOut := newShell(t)
+	if code := tableShell.Run([]string{"context", "show"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, tableErrOut)
+	}
+	if !strings.Contains(tableOut.String(), contexts.Path(tableShell.StateRoot)) {
+		t.Errorf("table rendering does not name the document's path:\n%s", tableOut)
+	}
+	if !strings.Contains(tableOut.String(), "No context document has been written yet") {
+		t.Errorf("table rendering does not say that no document has been written:\n%s", tableOut)
+	}
+}
+
+// TestContextShowReflectsWSO2Home is acceptance criterion 1: the reported path
+// follows WSO2_HOME rather than a fixed location, proven the way state_test.go
+// proves state.Root itself — through the real environment variable, with no
+// shell.StateRoot override standing in for it.
+func TestContextShowReflectsWSO2Home(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(state.RootEnvVar, home)
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	shell := app.Shell{Streams: output.Streams{Out: out, Err: errOut}}
+
+	if code := shell.Run([]string{"context", "show", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	report := decodeContextShowReport(t, out.Bytes())
+	want := contexts.Path(home)
+	if report.Path != want {
+		t.Errorf("path = %q, want %q derived from WSO2_HOME=%s", report.Path, want, home)
+	}
+}
+
+// TestContextShowRendersTheWholeDocument proves the document is shown in
+// full, in both renderings: every account, every context, the schema version,
+// and the default context — not only the subset wso2 context list or
+// wso2 account list already report.
+func TestContextShowRendersTheWholeDocument(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	seeded := identityOnlyDocument()
+	seeded.Accounts = append(seeded.Accounts, contexts.Account{
+		Name: "beta-machine",
+		Type: "onprem",
+		Auth: contexts.AccountAuth{
+			Kind:                 contexts.KindClientCredentials,
+			Issuer:               "https://idp.beta.example",
+			ClientID:             "beta-client",
+			ClientSecretVariable: "WSO2_BETA_CLIENT_SECRET",
+		},
+	})
+	seeded.DefaultContext = "acme"
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "acme"}}
+	installLogin(t, shell, seeded)
+
+	if code := shell.Run([]string{"context", "show", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	report := decodeContextShowReport(t, out.Bytes())
+	if !report.Written {
+		t.Fatalf("written = false for a document this test installed")
+	}
+	if report.SchemaVersion != contexts.SchemaVersion {
+		t.Errorf("schemaVersion = %d, want %d", report.SchemaVersion, contexts.SchemaVersion)
+	}
+	if report.DefaultContext != "acme" {
+		t.Errorf("defaultContext = %q, want %q", report.DefaultContext, "acme")
+	}
+	if len(report.Accounts) != 2 {
+		t.Fatalf("accounts = %d, want 2 (browser and client-credentials): %+v", len(report.Accounts), report.Accounts)
+	}
+	if len(report.Contexts) != 1 || report.Contexts[0].Name != "acme" {
+		t.Errorf("contexts = %+v, want the one seeded context named acme", report.Contexts)
+	}
+
+	tableShell, tableOut, tableErrOut := newShell(t)
+	installLogin(t, tableShell, seeded)
+	if code := tableShell.Run([]string{"context", "show"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, tableErrOut)
+	}
+	for _, want := range []string{"acme-cloud", "beta-machine", "acme"} {
+		if !strings.Contains(tableOut.String(), want) {
+			t.Errorf("table rendering does not name %q:\n%s", want, tableOut)
+		}
+	}
+}
+
+// TestContextShowNamesCredentialSourcesButNeverACredential is acceptance
+// criterion 4: the document names credential sources — a secure-store
+// reference, an environment variable name — and this command shows them,
+// because that is the whole point of showing the document ("who has
+// hand-edited the document" needs to see where a credential is supposed to
+// come from). What it must never show is a credential value, proven here two
+// ways: structurally, that the source names decode out of the report at all,
+// and behaviorally, that a real secret sitting behind one of those sources
+// never reaches the rendered output.
+func TestContextShowNamesCredentialSourcesButNeverACredential(t *testing.T) {
+	keyring.MockInit()
+	shell, out, errOut := newShell(t)
+	seeded := identityOnlyDocument() // acme-cloud, credentialRef "acme-cloud"
+	seeded.Accounts = append(seeded.Accounts, contexts.Account{
+		Name: "beta-machine",
+		Type: "onprem",
+		Auth: contexts.AccountAuth{
+			Kind:                 contexts.KindClientCredentials,
+			Issuer:               "https://idp.beta.example",
+			ClientID:             "beta-client",
+			ClientSecretVariable: "WSO2_BETA_CLIENT_SECRET",
+		},
+	})
+	installLogin(t, shell, seeded)
+
+	// A real secret behind the browser account's credential reference: what
+	// this command must never let slip, whichever rendering asks for it.
+	const canarySecret = "canary-refresh-token-2f8c-do-not-disclose"
+	store := session.Store{StateRoot: shell.StateRoot}
+	if err := store.Save("acme-cloud", session.Session{
+		Issuer: "https://idp.example", RefreshToken: canarySecret,
+	}); err != nil {
+		t.Fatalf("seed a session: %v", err)
+	}
+
+	if code := shell.Run([]string{"context", "show", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	report := decodeContextShowReport(t, out.Bytes())
+	found := map[string]bool{}
+	for _, account := range report.Accounts {
+		switch account.Name {
+		case "acme-cloud":
+			if account.Auth.CredentialRef != "acme-cloud" {
+				t.Errorf("acme-cloud's credentialRef = %q, want the source named", account.Auth.CredentialRef)
+			}
+			found["acme-cloud"] = true
+		case "beta-machine":
+			if account.Auth.ClientSecretVariable != "WSO2_BETA_CLIENT_SECRET" {
+				t.Errorf("beta-machine's clientSecretVariable = %q, want the source named",
+					account.Auth.ClientSecretVariable)
+			}
+			found["beta-machine"] = true
+		}
+	}
+	if !found["acme-cloud"] || !found["beta-machine"] {
+		t.Fatalf("both accounts were not found in the report: %+v", report.Accounts)
+	}
+
+	tableShell, tableOut, tableErrOut := newShell(t)
+	installLogin(t, tableShell, seeded)
+	tableStore := session.Store{StateRoot: tableShell.StateRoot}
+	if err := tableStore.Save("acme-cloud", session.Session{
+		Issuer: "https://idp.example", RefreshToken: canarySecret,
+	}); err != nil {
+		t.Fatalf("seed a session: %v", err)
+	}
+	if code := tableShell.Run([]string{"context", "show"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, tableErrOut)
+	}
+	// Both renderings' sources are checked so a leak that only reaches one of
+	// them cannot slip past this test.
+	for _, written := range []string{out.String() + errOut.String(), tableOut.String() + tableErrOut.String()} {
+		if strings.Contains(written, canarySecret) {
+			t.Fatalf("the stored session's refresh token reached wso2 context show's output:\n%s", written)
+		}
+	}
+	if !strings.Contains(tableOut.String(), "secure store: acme-cloud") {
+		t.Errorf("the table rendering does not name the secure-store credential source:\n%s", tableOut)
+	}
+	if !strings.Contains(tableOut.String(), "env: WSO2_BETA_CLIENT_SECRET") {
+		t.Errorf("the table rendering does not name the environment-variable credential source:\n%s", tableOut)
+	}
+}
+
+func TestContextListNamesTheAccountColumnAccount(t *testing.T) {
+	// A column header is a single word, which the repository-wide guard skips
+	// on purpose — the bare word "identity" is also a product namespace — so
+	// the header has its own test.
+	shell, out, errOut := newShell(t)
+	installLogin(t, shell, selfHostedDocument())
+	if code := shell.Run([]string{"context", "list"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	header := strings.SplitN(out.String(), "\n", 2)[0]
+	if strings.Contains(header, "IDENTITY") {
+		t.Errorf("wso2 context list heads a column IDENTITY: %q", header)
+	}
+	if !strings.Contains(header, "ACCOUNT") {
+		t.Errorf("wso2 context list has no ACCOUNT column: %q", header)
+	}
+	out.Reset()
+	if code := shell.Run([]string{"--output", "json", "context", "list"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if strings.Contains(out.String(), `"identity"`) {
+		t.Errorf("wso2 context list --output json still keys the account as identity:\n%s", out)
+	}
+}
+
+func TestContextShowTableShowsEveryProductRecordWhole(t *testing.T) {
+	// #170: "shows the document's contents whole, in table and JSON output."
+	// The table once named each account's products and nothing about them, so
+	// only JSON actually showed the document whole. A reader of the table has
+	// to see what a record reaches and how, including the gateway record and
+	// which product the account logs in through.
+	shell, out, errOut := newShell(t)
+	document := thunderDoc("http://login.example", "http://apim.example")
+	product := document.Accounts[0].Products["iam"]
+	product.Gateway = &contexts.Gateway{Endpoint: "https://gw.example", Audience: "https://gw.example/hello"}
+	document.Accounts[0].Products["iam"] = product
+	installLogin(t, shell, document)
+
+	if code := shell.Run([]string{"context", "show"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	rendered := out.String()
+	for _, want := range []string{
+		"Products",                   // the section exists
+		"https://localhost:8090/mcp", // iam's audience
+		"system",                     // iam's scopes
+		"iam/gateway",                // the gateway record, as its own row
+		"https://gw.example/hello",   // the gateway's audience
+		"federated",                  // apim's grant
+		"http://apim.example",        // apim's endpoint
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("wso2 context show does not show %q:\n%s", want, rendered)
+		}
+	}
+	// The login product is marked, the way the contexts table marks the
+	// default context: which product an account logs in through decides what
+	// every other product's session is obtained from.
+	login := document.Accounts[0].LoginAccess().Namespace
+	found := false
+	for _, line := range strings.Split(rendered, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == "*" && slices.Contains(fields, login) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the login product %q is not marked in the products table:\n%s", login, rendered)
+	}
+}
+
+func TestContextShowKeepsAVersionOneDocumentsCredentialSource(t *testing.T) {
+	// A version 1 document is read into the current shape, and its account's
+	// credential variable lives in a field that is never encoded, because the
+	// shell never writes a version 1 document back. Showing the document is not
+	// writing it: dropping the variable there loses the one fact that says
+	// where the account's credential comes from, in the table and in JSON.
+	shell, out, errOut := newShell(t)
+	installLegacy(t, shell)
+
+	if code := shell.Run([]string{"context", "show"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "WSO2_DEV_CREDENTIAL") {
+		t.Errorf("the table drops the version 1 credential variable:\n%s", out)
+	}
+	out.Reset()
+	if code := shell.Run([]string{"--output", "json", "context", "show"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "WSO2_DEV_CREDENTIAL") {
+		t.Errorf("the JSON drops the version 1 credential variable:\n%s", out)
 	}
 }

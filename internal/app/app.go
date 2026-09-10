@@ -166,7 +166,41 @@ func (s Shell) dispatch(args []string) error {
 		return root.Execute()
 	}
 
+	if moved := movedAccountVerb(name, args[1:]); moved != nil {
+		return moved
+	}
 	return s.dispatchNamespace(root, name, args[1:])
+}
+
+// movedAccountVerb answers a command that named the account family by the word
+// it used to be called, and reports nil for everything else.
+//
+// ADR 0015 renamed the shell's identity command to account and gave the freed
+// word to a product namespace, so no alias could be kept: an alias is a shell
+// command, and a shell command shadows the namespace it shares a name with.
+// A redirect is not an alias. It is consulted after Cobra has already declined
+// the name, before the module store is opened, and it fires only for the three
+// verbs the shell itself used to own — so a module command sharing one of
+// those names is reached exactly as it would have been, and the namespace
+// stays the module's.
+//
+// It exists because both refusals a moved command would otherwise reach are
+// wrong rather than merely unhelpful. An uninstalled namespace reports that
+// nothing owns the word, and an installed one reports that the module has no
+// such command; each tells a user the command does not exist, at the one
+// moment the shell knows both that it did and where it went.
+func movedAccountVerb(namespace string, args []string) error {
+	if namespace != "identity" || len(args) == 0 {
+		return nil
+	}
+	verb := args[0]
+	if verb != "create" && verb != "add-product" && verb != "list" {
+		return nil
+	}
+	return problem.New(problem.CategoryUsage, "shell.command_moved",
+		fmt.Sprintf("wso2 identity %s is now wso2 account %s", verb, verb)).
+		WithRecovery(fmt.Sprintf("Run wso2 account %s instead. The account command became account, "+
+			"and account is now a product namespace.", verb))
 }
 
 // isShellCommand reports whether a name is a command the shell owns. A built-in
@@ -299,12 +333,12 @@ func (s Shell) help(root *cobra.Command) error {
 // module answers to. Dispatch and the help command refuse with it alike, so a
 // typo costs the same message whichever way it was asked about.
 func unknownNamespace(root *cobra.Command, namespace string) error {
-	recovery := "Run wso2 help to see the shell commands, or wso2 version to see the installed modules."
+	recovery := "Run wso2 help to see the shell commands, or wso2 version to see the installed products."
 	if suggestion := suggestionFor(root, namespace); suggestion != "" {
 		recovery = suggestion + " " + recovery
 	}
 	return problem.New(problem.CategoryUsage, "shell.unknown_command",
-		fmt.Sprintf("%q is not a shell command and no installed module owns that namespace", namespace)).
+		fmt.Sprintf("%q is not a shell command and no installed product owns that namespace", namespace)).
 		WithRecovery(recovery)
 }
 

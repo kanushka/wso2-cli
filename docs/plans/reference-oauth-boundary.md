@@ -37,7 +37,7 @@ format it was handed, and a service is configured with a source credential or
 an issuer, never both and never neither.
 
 The acceptance harness grows a second arm: a schema version 2
-client-credentials identity against `internal/auth/fakeissuer`, which needs no
+client-credentials account against `internal/auth/fakeissuer`, which needs no
 keyring and therefore runs the shell as a real subprocess — which the
 in-process login tests structurally cannot.
 

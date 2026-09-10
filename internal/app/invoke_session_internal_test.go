@@ -49,10 +49,10 @@ func sessionEstablisherDoc(loginIssuer string) contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: "acme-dev",
-		Identities: []contexts.Identity{{
+		Accounts: []contexts.Account{{
 			Name: "acme-cloud",
 			Type: "cloud",
-			Auth: contexts.IdentityAuth{
+			Auth: contexts.AccountAuth{
 				Kind:          contexts.KindOAuthBrowser,
 				Provider:      contexts.ProviderThunder,
 				Issuer:        loginIssuer,
@@ -73,7 +73,7 @@ func sessionEstablisherDoc(loginIssuer string) contexts.Document {
 				},
 			},
 		}},
-		Contexts: []contexts.Context{{Name: "acme-dev", Identity: "acme-cloud", Organization: "acme"}},
+		Contexts: []contexts.Context{{Name: "acme-dev", Account: "acme-cloud", Organization: "acme"}},
 	}
 }
 

@@ -18,6 +18,7 @@ package contexts_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,7 +77,7 @@ func TestALegacyContextWithoutAnEndpointCarriesNoProduct(t *testing.T) {
 	if err != nil {
 		t.Fatalf("legacy decode: %v", err)
 	}
-	if products := document.Identities[0].Products; len(products) != 0 {
+	if products := document.Accounts[0].Products; len(products) != 0 {
 		t.Fatalf("an endpointless v1 context grew products: %+v", products)
 	}
 }
@@ -90,8 +91,8 @@ func TestALegacyContextNamingAnotherMethodStillLoads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("legacy decode: %v", err)
 	}
-	if document.Identities[0].Auth.Kind != "browser-pkce" {
-		t.Fatalf("the mapped identity reports kind %q, want it as written", document.Identities[0].Auth.Kind)
+	if document.Accounts[0].Auth.Kind != "browser-pkce" {
+		t.Fatalf("the mapped identity reports kind %q, want it as written", document.Accounts[0].Auth.Kind)
 	}
 }
 
@@ -123,7 +124,7 @@ func TestAnEmptyLegacyDocumentIsNotEncodable(t *testing.T) {
 }
 
 func TestUnknownSchemaVersionFailsClosed(t *testing.T) {
-	_, err := contexts.Decode([]byte(`{"schemaVersion": 3}`))
+	_, err := contexts.Decode([]byte(fmt.Sprintf(`{"schemaVersion": %d}`, contexts.SchemaVersion+1)))
 	assertProblemCode(t, err, "contexts.schema_unsupported")
 }
 

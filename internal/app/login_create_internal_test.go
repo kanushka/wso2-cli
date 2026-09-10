@@ -47,7 +47,7 @@ func TestPlanLoginDerivesTheIdentityTypeFromTheIssuer(t *testing.T) {
 				t.Fatalf("planLogin: %v", err)
 			}
 			if selected.Identity.Type != testCase.want {
-				t.Errorf("planned identity type = %q, want %q",
+				t.Errorf("planned account type = %q, want %q",
 					selected.Identity.Type, testCase.want)
 			}
 		})
@@ -68,22 +68,22 @@ func TestTheProductlessLoginReportMatchesTheDeploymentKind(t *testing.T) {
 		refuses      []string
 	}{
 		{
-			name:         "a cloud identity is not called self-hosted",
+			name:         "a cloud account is not called self-hosted",
 			identityType: contexts.TypeCloud,
 			wants: []string{
-				"No products are configured for this identity yet.",
+				"No products are configured for this account yet.",
 				"discovered automatically",
-				"wso2 identity add-product customer",
+				"wso2 account add-product customer",
 			},
 			refuses: []string{"self-hosted"},
 		},
 		{
-			name:         "a self-hosted identity keeps the discoverability explanation",
+			name:         "a self-hosted account keeps the discoverability explanation",
 			identityType: contexts.TypeOnprem,
 			wants: []string{
-				"No products are configured for this identity.",
+				"No products are configured for this account.",
 				"A self-hosted deployment is not\ndiscoverable",
-				"wso2 identity add-product customer",
+				"wso2 account add-product customer",
 			},
 			refuses: []string{"discovered automatically"},
 		},
@@ -91,7 +91,7 @@ func TestTheProductlessLoginReportMatchesTheDeploymentKind(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			out := &bytes.Buffer{}
 			shell := Shell{Streams: output.Streams{Out: out, Err: &bytes.Buffer{}}}
-			identity := contexts.Identity{Name: "customer", Type: testCase.identityType}
+			identity := contexts.Account{Name: "customer", Type: testCase.identityType}
 
 			err := shell.reportLoginWrite(loginWrite{
 				Identity: "customer", Context: "customer",
@@ -143,7 +143,7 @@ func TestPlanLoginRecordsTheAsgardeoTenantAsTheOrganization(t *testing.T) {
 					selected.Context.Organization, testCase.want)
 			}
 			if selected.Identity.Auth.Tenant != testCase.want {
-				t.Errorf("planned identity tenant = %q, want %q",
+				t.Errorf("planned account tenant = %q, want %q",
 					selected.Identity.Auth.Tenant, testCase.want)
 			}
 		})
@@ -156,9 +156,9 @@ func TestPlanLoginRecordsTheAsgardeoTenantAsTheOrganization(t *testing.T) {
 func TestPlanLoginKeepsADeclaredContextsOrganization(t *testing.T) {
 	document := contexts.Document{
 		SchemaVersion: contexts.SchemaVersion,
-		Identities: []contexts.Identity{{
+		Accounts: []contexts.Account{{
 			Name: "acme-asgardeo", Type: contexts.TypeCloud,
-			Auth: contexts.IdentityAuth{
+			Auth: contexts.AccountAuth{
 				Kind:          contexts.KindOAuthBrowser,
 				Issuer:        "https://api.asgardeo.io/t/acme/oauth2/token",
 				ClientID:      "wso2-cli",
@@ -166,7 +166,7 @@ func TestPlanLoginKeepsADeclaredContextsOrganization(t *testing.T) {
 			},
 		}},
 		Contexts: []contexts.Context{{
-			Name: "acme-asgardeo", Identity: "acme-asgardeo",
+			Name: "acme-asgardeo", Account: "acme-asgardeo",
 			Organization: "acme-partner",
 		}},
 		DefaultContext: "acme-asgardeo",

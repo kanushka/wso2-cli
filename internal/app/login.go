@@ -173,7 +173,7 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 		// docs is written that way — so the honest advice names the file.
 		return loginOutcome{}, problem.New(problem.CategoryAuthPolicy, "auth.non_interactive",
 			mode+" cannot run in non-interactive mode, which "+control+" asked for").
-			WithRecovery(fmt.Sprintf("Automation uses a client-credentials identity, which "+
+			WithRecovery(fmt.Sprintf("Automation uses a client-credentials account, which "+
 				"acquires access inline without a login step. No command creates one yet: "+
 				"declare it in the context document at %s.", contexts.Path(root)))
 	}
@@ -265,10 +265,10 @@ func (s Shell) loginAccesses(selected contexts.Selection, flags loginFlags) ([]c
 		access, recorded := selected.Identity.Access(flags.only)
 		if !recorded {
 			return nil, problem.New(problem.CategoryUsage, "shell.invalid_argument",
-				fmt.Sprintf("the %q identity records no %q product to authorize",
+				fmt.Sprintf("the %q account records no %q product to authorize",
 					selected.Identity.Name, flags.only)).
-				WithRecovery("Name a product the identity records, or one record of it as " +
-					"<namespace>/gateway; wso2 identity list shows them.")
+				WithRecovery("Name a product the account records, or one record of it as " +
+					"<namespace>/gateway; wso2 account list shows them.")
 		}
 		accesses := []contexts.ProductAccess{access}
 		// A product namespace names the whole product: its own record and its
@@ -277,7 +277,13 @@ func (s Shell) loginAccesses(selected contexts.Selection, flags loginFlags) ([]c
 		if gateway, recorded := selected.Identity.Access(contexts.GatewayKey(flags.only)); recorded {
 			accesses = append(accesses, gateway)
 		}
-		return accesses, nil
+		// An exchanged record has no authorization to run: its access is
+		// minted from the login session when a command needs it. Accesses()
+		// skips one for the same reason, and --only resolves a record directly
+		// rather than through Accesses, so without this the shell would open a
+		// browser for a product that can never answer one and then wait on a
+		// loopback listener until the login deadline.
+		return withoutExchanged(accesses), nil
 	case flags.noProducts:
 		if err := checkLoginAccessBinds(selected.Identity); err != nil {
 			return nil, err
@@ -291,6 +297,18 @@ func (s Shell) loginAccesses(selected contexts.Selection, flags loginFlags) ([]c
 	}
 }
 
+// withoutExchanged drops the records a login has no authorization to run.
+func withoutExchanged(accesses []contexts.ProductAccess) []contexts.ProductAccess {
+	kept := make([]contexts.ProductAccess, 0, len(accesses))
+	for _, access := range accesses {
+		if access.Strategy == contexts.StrategyExchanged {
+			continue
+		}
+		kept = append(kept, access)
+	}
+	return kept
+}
+
 // checkLoginAccessBinds refuses a login whose first authorization has nothing
 // to bind to on a deployment that requires it.
 //
@@ -301,25 +319,25 @@ func (s Shell) loginAccesses(selected contexts.Selection, flags loginFlags) ([]c
 // deployment that binds a login to one protected resource, RFC 8707 gives it
 // nothing to name, and sending the authorization anyway would ask an issuer
 // that requires a resource indicator for one this identity cannot supply.
-func checkLoginAccessBinds(identity contexts.Identity) error {
+func checkLoginAccessBinds(identity contexts.Account) error {
 	if identity.Auth.Derivation() != contexts.DerivationTokenResource ||
 		len(identity.Products) == 0 || identity.LoginAccess().Namespace != "" {
 		return nil
 	}
 	return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
-		fmt.Sprintf("the %q identity records no product its login can bind to; every product it "+
+		fmt.Sprintf("the %q account records no product its login can bind to; every product it "+
 			"records is reached by a grant", identity.Name)).
-		WithRecovery("Record a direct product with wso2 identity add-product, then run wso2 login.")
+		WithRecovery("Record a direct product with wso2 account add-product, then run wso2 login.")
 }
 
 // checkDerivedResource refuses to open a browser for a derived access this
 // deployment could never carry out: a jwt-bearer grant's assertion session
-// runs at the identity's own issuer, and on a deployment that binds access by
+// runs at the account's own issuer, and on a deployment that binds access by
 // resource that session needs one exactly as the login session does. A
 // document written before this was required still decodes — see
 // contexts.Identity.validateDerivation — so the refusal belongs here, at the
 // one place that actually needs the resource, rather than at document load.
-func checkDerivedResource(identity contexts.Identity, access contexts.ProductAccess) error {
+func checkDerivedResource(identity contexts.Account, access contexts.ProductAccess) error {
 	if access.Strategy != contexts.StrategyDerived || access.Resource != "" ||
 		identity.Auth.Derivation() != contexts.DerivationTokenResource {
 		return nil
@@ -327,7 +345,7 @@ func checkDerivedResource(identity contexts.Identity, access contexts.ProductAcc
 	return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
 		fmt.Sprintf("the %q product's jwt-bearer grant names no resource for its assertion "+
 			"session, which this deployment binds access by", access.Namespace)).
-		WithRecovery(fmt.Sprintf("Record the resource with wso2 identity add-product --replace "+
+		WithRecovery(fmt.Sprintf("Record the resource with wso2 account add-product --replace "+
 			"--grant-resource <uri>, then run wso2 login --only %s.", access.Namespace))
 }
 
@@ -401,6 +419,7 @@ func (s Shell) establishProduct(selected contexts.Selection, access contexts.Pro
 			AccessToken:      result.Token.AccessToken,
 			ExpiresAt:        result.Token.Expiry.UTC(),
 			Subject:          result.Subject,
+			Name:             result.Name,
 			IDToken:          result.IDToken,
 			SessionExpiresAt: sessionExpiresAt,
 			Strategy:         access.Strategy,
@@ -414,7 +433,7 @@ func (s Shell) establishProduct(selected contexts.Selection, access contexts.Pro
 	return result, nil
 }
 
-// establishSession runs the login mode the selected identity's kind names, for
+// establishSession runs the login mode the selected account's kind names, for
 // one access.
 //
 // The two modes differ in how a person proves who they are and in nothing else:
@@ -501,7 +520,7 @@ func (s Shell) reportLogin(selected contexts.Selection, outcome loginOutcome) er
 
 // productNamespaces names the product namespaces this identity claims to reach,
 // in a stable order.
-func productNamespaces(identity contexts.Identity) string {
+func productNamespaces(identity contexts.Account) string {
 	namespaces := slices.Sorted(maps.Keys(identity.Products))
 	if len(namespaces) == 0 {
 		return "none configured"

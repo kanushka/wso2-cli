@@ -63,8 +63,8 @@ type Status struct {
 //
 // namespaces narrows the report to those modules, refusing exactly as Update
 // would if one of them is not installed (selectInstalled is shared with it).
-// Called with none, it reports every installed module — what wso2 module list
-// wants, and also what a --dry-run wso2 module update --all wants, since an
+// Called with none, it reports every installed module — what wso2 product list
+// wants, and also what a --dry-run wso2 product update --all wants, since an
 // empty namespace list means "every module" for both.
 func (i Installer) Check(ctx context.Context, namespaces ...string) ([]Status, error) {
 	installed, _, err := i.Store.Inventory()
@@ -94,7 +94,7 @@ func (i Installer) Check(ctx context.Context, namespaces ...string) ([]Status, e
 // publishes nothing", and a caller rendering these must say "unknown" rather
 // than reuse the unpublished wording.
 //
-// It exists so wso2 module list can still answer its local half — what is
+// It exists so wso2 product list can still answer its local half — what is
 // installed — when the catalog origin cannot be reached (fix round 2, F4):
 // the same question wso2 version already answers offline.
 func (i Installer) CheckLocal() ([]Status, error) {
@@ -370,7 +370,7 @@ func selectInstalled(installed []modules.Installed, namespaces []string) ([]modu
 		if !found {
 			return nil, problem.New(problem.CategoryUsage, "modules.not_installed",
 				fmt.Sprintf("no version of the %q module is installed", namespace)).
-				WithRecovery("Run wso2 module install " + namespace + " to install it, or wso2 version to see what is installed.")
+				WithRecovery("Run wso2 product install " + namespace + " to install it, or wso2 version to see what is installed.")
 		}
 	}
 	return selected, nil

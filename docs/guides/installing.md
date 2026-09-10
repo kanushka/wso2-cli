@@ -64,17 +64,17 @@ not a product, and it is deliberately kept on the **prerelease** channel so
 that following stable never offers it to you:
 
 ```sh
-$ wso2 module available
+$ wso2 product available
 MODULE      CHANNEL      VERSION
 reference   prerelease   v0.1.0-rc.4
 
-Run wso2 module install <module> to install one.
+Run wso2 product install <product> to install one.
 ```
 
 Asking for it explicitly by channel installs it:
 
 ```sh
-$ wso2 module install reference --channel prerelease
+$ wso2 product install reference --channel prerelease
 Installed reference v0.1.0-rc.4 for darwin/arm64.
 The artifact was checked against the digest the catalog publishes. Artifacts are integrity-checked, not signed.
 ```
@@ -86,7 +86,7 @@ same guarantee, and the same limit, described above for the shell's own
 binaries.
 
 ```sh
-$ wso2 module list
+$ wso2 product list
 MODULE      INSTALLED     CHANNEL      UPDATE
 reference   v0.1.0-rc.4   prerelease   current
 
@@ -100,13 +100,13 @@ than pretending to work:
 ```sh
 $ wso2 reference status
 error: the "reference" module needs access, and no WSO2 CLI context is selected (auth.context_not_selected)
-  Run wso2 context use <name> to select a configured context, or wso2 login --url <issuer> --client-id <id> to create an identity and a context. wso2 context list shows what is configured.
+  Run wso2 context use <name> to select a configured context, or wso2 login --url <issuer> --client-id <id> to create an account and a context. wso2 context list shows what is configured.
 ```
 
 Removing a module is explicit too:
 
 ```sh
-$ wso2 module remove reference --yes
+$ wso2 product remove reference --yes
 Removed the reference module.
 ```
 

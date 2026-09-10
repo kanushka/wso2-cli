@@ -40,4 +40,5 @@ var files = []generatedFile{
 	{pathTemplate: "README.md", template: "README.md.tmpl"},
 	{pathTemplate: "cmd/{{.Executable}}/main.go", template: "main.go.tmpl"},
 	{pathTemplate: "cmd/{{.Executable}}/main_test.go", template: "main_test.go.tmpl"},
+	{pathTemplate: "cmd/{{.Executable}}/namespace_test.go", template: "namespace_test.go.tmpl"},
 }

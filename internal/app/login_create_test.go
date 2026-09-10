@@ -35,7 +35,7 @@ import (
 
 // newCreatingLogin is a shell whose browser hook follows the authorization URL,
 // against an issuer whose identifier carries a hostname. The hostname matters:
-// an issuer at 127.0.0.1 has no name to derive an identity name from, which is
+// an issuer at 127.0.0.1 has no name to derive an account name from, which is
 // the refusal TestLoginRefusesAnIssuerNoNameCanBeDerivedFrom covers instead.
 func newCreatingLogin(t *testing.T) (app.Shell, *bytes.Buffer, *bytes.Buffer, *fakeissuer.Issuer) {
 	t.Helper()
@@ -66,48 +66,48 @@ func TestLoginCreatesAnIdentityAndAContextWhenNoneMatches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load after login: %v", err)
 	}
-	if len(document.Identities) != 1 || len(document.Contexts) != 1 {
-		t.Fatalf("login wrote %d identities and %d contexts, want one of each",
-			len(document.Identities), len(document.Contexts))
+	if len(document.Accounts) != 1 || len(document.Contexts) != 1 {
+		t.Fatalf("login wrote %d accounts and %d contexts, want one of each",
+			len(document.Accounts), len(document.Contexts))
 	}
-	identity := document.Identities[0]
+	identity := document.Accounts[0]
 	if identity.Name != "customer" {
-		t.Errorf("identity name = %q, want customer", identity.Name)
+		t.Errorf("account name = %q, want customer", identity.Name)
 	}
 	// The fake issuer lives on localhost, which is nobody's cloud, so the
 	// derived deployment kind has to be the self-hosted one.
 	if identity.Type != contexts.TypeOnprem {
-		t.Errorf("identity type = %q, want %q", identity.Type, contexts.TypeOnprem)
+		t.Errorf("account type = %q, want %q", identity.Type, contexts.TypeOnprem)
 	}
 	if identity.Auth.Issuer != issuer.URL {
-		t.Errorf("identity issuer = %q, want %q", identity.Auth.Issuer, issuer.URL)
+		t.Errorf("account issuer = %q, want %q", identity.Auth.Issuer, issuer.URL)
 	}
 	if identity.Auth.ClientID != "wso2-cli" {
-		t.Errorf("identity clientId = %q, want wso2-cli", identity.Auth.ClientID)
+		t.Errorf("account clientId = %q, want wso2-cli", identity.Auth.ClientID)
 	}
 	if identity.Auth.CredentialRef != identity.Name {
-		t.Errorf("credentialRef = %q, want the identity name %q",
+		t.Errorf("credentialRef = %q, want the account name %q",
 			identity.Auth.CredentialRef, identity.Name)
 	}
 	if identity.Auth.Kind != contexts.KindOAuthBrowser {
-		t.Errorf("identity kind = %q, want %q", identity.Auth.Kind, contexts.KindOAuthBrowser)
+		t.Errorf("account kind = %q, want %q", identity.Auth.Kind, contexts.KindOAuthBrowser)
 	}
 	if len(identity.Products) != 0 {
 		t.Errorf("login wrote a products block: %v", identity.Products)
 	}
-	if document.Contexts[0].Name != "customer" || document.Contexts[0].Identity != "customer" {
+	if document.Contexts[0].Name != "customer" || document.Contexts[0].Account != "customer" {
 		t.Errorf("context = %+v, want customer authenticating as customer", document.Contexts[0])
 	}
 	// The names it assigned, because a name the user is not told is a name they
 	// have to go and read out of a JSON file.
-	for _, expected := range []string{`Created identity "customer"`, `context "customer"`} {
+	for _, expected := range []string{`Created account "customer"`, `context "customer"`} {
 		if !strings.Contains(out.String(), expected) {
 			t.Errorf("the report is missing %q in:\n%s", expected, out)
 		}
 	}
 	// The session went where every other login puts one.
 	if _, err := (session.Store{StateRoot: shell.StateRoot}).Load("customer"); err != nil {
-		t.Fatalf("session not stored under the identity's credentialRef: %v", err)
+		t.Fatalf("session not stored under the account's credentialRef: %v", err)
 	}
 }
 
@@ -129,14 +129,14 @@ func TestWithoutTheContextFlagTheIdentityNameIsDerivedAndReported(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Load after login: %v", err)
 	}
-	if len(document.Identities) != 1 || document.Identities[0].Name != derived {
-		t.Fatalf("login wrote %+v, want one identity named %q", document.Identities, derived)
+	if len(document.Accounts) != 1 || document.Accounts[0].Name != derived {
+		t.Fatalf("login wrote %+v, want one account named %q", document.Accounts, derived)
 	}
 	if len(document.Contexts) != 1 || document.Contexts[0].Name != derived {
 		t.Fatalf("login wrote %+v, want one context named %q", document.Contexts, derived)
 	}
 	if !strings.Contains(out.String(), derived) {
-		t.Errorf("the report does not name the derived identity %q:\n%s", derived, out)
+		t.Errorf("the report does not name the derived account %q:\n%s", derived, out)
 	}
 }
 
@@ -170,8 +170,8 @@ func TestASelfHostedLoginNamesIdentityAddProduct(t *testing.T) {
 		"--client-id", "wso2-cli", "--context", "customer"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
-	if !strings.Contains(out.String(), "wso2 identity add-product customer") {
-		t.Errorf("the report does not name wso2 identity add-product:\n%s", out)
+	if !strings.Contains(out.String(), "wso2 account add-product customer") {
+		t.Errorf("the report does not name wso2 account add-product:\n%s", out)
 	}
 }
 
@@ -192,9 +192,9 @@ func TestLoginReusesAnIdentityWhoseIssuerAndClientMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load after login: %v", err)
 	}
-	if len(document.Identities) != 1 || len(document.Contexts) != 1 {
-		t.Fatalf("two logins wrote %d identities and %d contexts, want one of each",
-			len(document.Identities), len(document.Contexts))
+	if len(document.Accounts) != 1 || len(document.Contexts) != 1 {
+		t.Fatalf("two logins wrote %d accounts and %d contexts, want one of each",
+			len(document.Accounts), len(document.Contexts))
 	}
 }
 
@@ -218,16 +218,16 @@ func TestLoginIsRefusedWhenAnIdentityOfThatNameDiffers(t *testing.T) {
 			installLogin(t, shell, contexts.Document{
 				SchemaVersion:  contexts.SchemaVersion,
 				DefaultContext: "customer",
-				Identities: []contexts.Identity{{
+				Accounts: []contexts.Account{{
 					Name: "customer", Type: "onprem",
-					Auth: contexts.IdentityAuth{
+					Auth: contexts.AccountAuth{
 						Kind:          contexts.KindOAuthBrowser,
 						Issuer:        "https://idp.customer.example",
 						ClientID:      "wso2-cli",
 						CredentialRef: "customer",
 					},
 				}},
-				Contexts: []contexts.Context{{Name: "customer", Identity: "customer"}},
+				Contexts: []contexts.Context{{Name: "customer", Account: "customer"}},
 			})
 			before, err := os.ReadFile(contexts.Path(shell.StateRoot))
 			if err != nil {
@@ -379,14 +379,14 @@ func TestLoginWithoutTheURLFlagStillLogsInToTheSelectedContext(t *testing.T) {
 	if code := shell.Run([]string{"login"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
-	if strings.Contains(out.String(), "Created identity") {
+	if strings.Contains(out.String(), "Created account") {
 		t.Errorf("a login without --url created something:\n%s", out)
 	}
 	document, err := contexts.Load(shell.StateRoot)
 	if err != nil {
 		t.Fatalf("Load after login: %v", err)
 	}
-	if len(document.Identities) != 1 || len(document.Contexts) != 1 {
+	if len(document.Accounts) != 1 || len(document.Contexts) != 1 {
 		t.Errorf("a login without --url changed the document: %+v", document)
 	}
 }

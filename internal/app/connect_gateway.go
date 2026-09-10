@@ -41,13 +41,13 @@ const (
 // gatewayUsage is the way back from connect --gateway's usage refusals.
 func gatewayUsage(namespace string) string {
 	return fmt.Sprintf("Run wso2 %s connect <gateway-url> --gateway [--audience <value>] [--scopes <list>] "+
-		"[--replace] [--identity <name>] [--login-provider <issuer-url>].", namespace)
+		"[--replace] [--account <name>] [--login-provider <issuer-url>].", namespace)
 }
 
 // checkGatewayFlags refuses a --gateway line the shell could not write from,
 // before the document is opened.
 //
-// A gateway record is reached at the identity's login provider as the
+// A gateway record is reached at the account's login provider as the
 // identity's own client, so the flags that name another client — the one
 // the management record presents at the product's own issuer — describe
 // nothing a gateway record can hold.
@@ -62,7 +62,7 @@ func checkGatewayFlags(namespace string, descriptor modules.ProductDescriptor, f
 	}
 	if flags.clientIDSet || flags.clientSecretVariable != "" || flags.clientIDVariable != "" {
 		return problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
-			"--gateway records a gateway reached at the identity's login provider as the identity's own "+
+			"--gateway records a gateway reached at the account's login provider as the account's own "+
 				"client, so --client-id, --client-id-variable and --client-secret-variable name a client "+
 				"it never presents").
 			WithRecovery("Omit them. " + usage)
@@ -70,7 +70,9 @@ func checkGatewayFlags(namespace string, descriptor modules.ProductDescriptor, f
 	if err := checkIdentityFlags(flags, usage); err != nil {
 		return err
 	}
-	if descriptor.Gateway.Audience == modules.AudienceResource && flags.audience == "" {
+	// An exchanged product's gateway defaults to its own URL, as the product
+	// does, so only the plan can tell whether an audience is still missing.
+	if descriptor.Gateway.Audience == modules.AudienceResource && flags.audience == "" && !descriptor.Exchanged() {
 		return audienceRequired(namespace, usage)
 	}
 	return nil
@@ -90,7 +92,7 @@ func audienceRequired(namespace, usage string) problem.Problem {
 // gatewayPlan is what one connect --gateway will write: the identity it acts
 // on and the gateway record it adds to that identity's product.
 type gatewayPlan struct {
-	identity  contexts.Identity
+	identity  contexts.Account
 	namespace string
 	gateway   contexts.Gateway
 	// replaced reports that the product recorded a gateway before.
@@ -117,9 +119,9 @@ func planGateway(document contexts.Document, namespace string, descriptor module
 	}
 	if target.Auth.Kind == contexts.KindClientCredentials && !descriptor.Gateway.AllowsMachine(modules.MachineInline) {
 		return gatewayPlan{}, problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
-			fmt.Sprintf("the %s product's gateway does not accept the machine client the %q identity "+
+			fmt.Sprintf("the %s product's gateway does not accept the machine client the %q account "+
 				"holds", namespace, target.Name)).
-			WithRecovery("Record the gateway on an identity that signs in through the browser, or install " +
+			WithRecovery("Record the gateway on an account that signs in through the browser, or install " +
 				"a version of the module whose descriptor says how a machine client reaches its gateway.")
 	}
 	plan := gatewayPlan{identity: target, namespace: namespace}
@@ -137,6 +139,13 @@ func planGateway(document contexts.Document, namespace string, descriptor module
 	if plan.gateway.Audience == "" && descriptor.Gateway.Audience == modules.AudienceClient && !resourceBound {
 		plan.gateway.Audience = target.Auth.ClientID
 	}
+	// A gateway of a product reached by exchange is reached by exchange too
+	// (contexts.Account.Access), so it takes the same default the product
+	// does: the URL it answers at. The recorded grant decides rather than the
+	// descriptor, because a product recorded by hand may be reached otherwise.
+	if plan.gateway.Audience == "" && product.Grant != nil && product.Grant.Kind == contexts.GrantExchange {
+		plan.gateway.Audience = gatewayURL
+	}
 	if plan.gateway.Audience == "" {
 		return gatewayPlan{}, audienceRequired(namespace, gatewayUsage(namespace))
 	}
@@ -151,25 +160,25 @@ func planGateway(document contexts.Document, namespace string, descriptor module
 // record yet.
 func productRequired(namespace string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "shell.product_required",
-		fmt.Sprintf("the %s product is not recorded on the identity, and a gateway is a second record "+
+		fmt.Sprintf("the %s product is not recorded on the account, and a gateway is a second record "+
 			"of a product, not a product of its own", namespace)).
 		WithRecovery(fmt.Sprintf("Run wso2 %s connect <management-url> first, then this command; or pass "+
-			"--identity <name> or --login-provider <issuer-url> naming an identity that records the "+
-			"product. wso2 identity list shows them.", namespace))
+			"--account <name> or --login-provider <issuer-url> naming an account that records the "+
+			"product. wso2 account list shows them.", namespace))
 }
 
 // gatewayExists refuses a second gateway on a product without --replace.
 func gatewayExists(identity, namespace string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "contexts.product_exists",
-		fmt.Sprintf("the identity %q already records a gateway for the %q product", identity, namespace)).
-		WithRecovery("Run wso2 identity list to see what it records. " +
+		fmt.Sprintf("the account %q already records a gateway for the %q product", identity, namespace)).
+		WithRecovery("Run wso2 account list to see what it records. " +
 			"Pass --replace to overwrite the gateway record, which replaces the whole of it.")
 }
 
 // identityWithGateway is the identity as the plan leaves it: the gateway
 // record set on the product, every other record in place. It copies rather
 // than mutates, so the plan can be reported and applied from the same value.
-func (p gatewayPlan) identityWithGateway() contexts.Identity {
+func (p gatewayPlan) identityWithGateway() contexts.Account {
 	identity := p.identity
 	products := maps.Clone(identity.Products)
 	product := products[p.namespace]
@@ -183,10 +192,10 @@ func (p gatewayPlan) identityWithGateway() contexts.Identity {
 // apply writes the plan into the document.
 func (p gatewayPlan) apply(document contexts.Document) contexts.Document {
 	identity := p.identityWithGateway()
-	position := slices.IndexFunc(document.Identities, func(candidate contexts.Identity) bool {
+	position := slices.IndexFunc(document.Accounts, func(candidate contexts.Account) bool {
 		return candidate.Name == identity.Name
 	})
-	document.Identities[position] = identity
+	document.Accounts[position] = identity
 	return document
 }
 
@@ -210,8 +219,8 @@ func (s Shell) reportGateway(mode output.Mode, root string, plan gatewayPlan) er
 	reported := result.New(connectSchema).
 		With("product", "Product", plan.namespace).
 		With("record", "Record", recordGateway).
-		With("identity", "Identity", plan.identity.Name).
-		With("created", "Identity created", "false").
+		With("account", "Account", plan.identity.Name).
+		With("created", "Account created", "false").
 		With("endpoint", "Endpoint", plan.gateway.Endpoint).
 		With("issuer", "Issuer", access.Issuer).
 		With("clientId", "Client ID", access.ClientID).
@@ -223,7 +232,7 @@ func (s Shell) reportGateway(mode output.Mode, root string, plan gatewayPlan) er
 	if mode == output.ModeJSON {
 		return output.Report(s.Streams.Out, mode, reported)
 	}
-	if _, err := fmt.Fprintf(s.Streams.Out, "\n%s the %q gateway on the %q identity.\n\n",
+	if _, err := fmt.Fprintf(s.Streams.Out, "\n%s the %q gateway on the %q account.\n\n",
 		verb, plan.namespace, plan.identity.Name); err != nil {
 		return err
 	}
@@ -235,6 +244,10 @@ func (s Shell) gatewayNext(root string, plan gatewayPlan) string {
 	identity := plan.identity
 	if identity.Auth.Kind == contexts.KindClientCredentials {
 		return fmt.Sprintf("Run wso2 %s status --context %s.", plan.namespace, identity.Name)
+	}
+	access, _ := plan.identityWithGateway().Access(contexts.GatewayKey(plan.namespace))
+	if next, ok := exchangedNext(root, plan.namespace, identity, access); ok {
+		return next
 	}
 	context := " --context " + identity.Name
 	if plan.sole {

@@ -32,7 +32,7 @@ import (
 )
 
 func TestCommandNamesAreDerivedFromTheShellCommandTree(t *testing.T) {
-	if got, want := app.CommandNames(), []string{"config", "context", "doctor", "help", "identity", "login", "logout", "module", "org", "version", "whoami"}; !slices.Equal(got, want) {
+	if got, want := app.CommandNames(), []string{"account", "config", "context", "doctor", "help", "login", "logout", "module", "org", "product", "version", "whoami"}; !slices.Equal(got, want) {
 		t.Errorf("CommandNames() = %v, want %v", got, want)
 	}
 }
@@ -46,13 +46,20 @@ func TestHelpListsEveryShellCommand(t *testing.T) {
 	if code := shell.Run([]string{"help"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	for _, command := range []string{"config", "context", "doctor", "help", "identity", "login", "logout", "module", "org", "version", "whoami"} {
+	// "module" is deliberately absent: it is the hidden deprecated spelling of
+	// product, and a help page that advertised it would teach the word the
+	// deprecation exists to retire. It still resolves, which
+	// TestTheProductCommandReplacesModuleAndModuleStaysAsAnAlias proves.
+	for _, command := range []string{"account", "config", "context", "doctor", "help", "login", "logout", "org", "product", "version", "whoami"} {
 		if !strings.Contains(out.String(), command) {
 			t.Errorf("help does not list the %q command:\n%s", command, out)
 		}
 	}
-	if !strings.Contains(out.String(), "installed modules") {
-		t.Errorf("help does not say product commands come from installed modules:\n%s", out)
+	if strings.Contains(out.String(), "   module ") {
+		t.Errorf("help advertises the deprecated module spelling:\n%s", out)
+	}
+	if !strings.Contains(out.String(), "installed products") {
+		t.Errorf("help does not say product commands come from installed products:\n%s", out)
 	}
 }
 
@@ -65,7 +72,7 @@ func TestACommandDescribesItsOwnFlags(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	if !strings.Contains(out.String(), "module") {
-		t.Fatalf("wso2 module --help does not describe the command:\n%s", out)
+		t.Fatalf("wso2 product --help does not describe the command:\n%s", out)
 	}
 }
 
@@ -359,11 +366,11 @@ func TestAFailureInsideACommandIsNotReportedAsAUsageProblem(t *testing.T) {
 func TestEveryCommandFamilyAnswersABareNameWithHelp(t *testing.T) {
 	// Each family and one subcommand its help has to name.
 	families := map[string]string{
-		"context":  "create",
-		"identity": "add-product",
-		"module":   "available",
-		"org":      "current",
-		"config":   "set",
+		"context": "create",
+		"account": "add-product",
+		"module":  "available",
+		"org":     "current",
+		"config":  "set",
 	}
 	for family, subcommand := range families {
 		t.Run(family, func(t *testing.T) {
@@ -405,7 +412,7 @@ func TestEveryCommandFamilyAnswersABareNameWithHelp(t *testing.T) {
 // families refuse instead, and giving the bare form back to help must not take
 // that with it.
 func TestEveryCommandFamilyRefusesAnUnknownSubcommand(t *testing.T) {
-	for _, family := range []string{"context", "identity", "module", "org", "config"} {
+	for _, family := range []string{"context", "account", "product", "org", "config"} {
 		t.Run(family, func(t *testing.T) {
 			shell, _, errOut := newShell(t)
 
@@ -527,7 +534,7 @@ func TestHelpListsTheInstalledModuleNamespaces(t *testing.T) {
 		t.Errorf("help does not name the installed namespace:\n%s", out)
 	}
 	if !strings.Contains(out.String(), "wso2 <namespace> --help") {
-		t.Errorf("help does not say how to see a module's commands:\n%s", out)
+		t.Errorf("help does not say how to see a product's commands:\n%s", out)
 	}
 }
 
@@ -542,8 +549,8 @@ func TestHelpSaysWhenNoModuleIsInstalled(t *testing.T) {
 	if !strings.Contains(out.String(), "None are installed") {
 		t.Errorf("help does not say no modules are installed:\n%s", out)
 	}
-	if !strings.Contains(out.String(), "wso2 module available") {
-		t.Errorf("help does not point at wso2 module available:\n%s", out)
+	if !strings.Contains(out.String(), "wso2 product available") {
+		t.Errorf("help does not point at wso2 product available:\n%s", out)
 	}
 }
 
@@ -558,7 +565,7 @@ func TestHelpStillRendersWhenTheStateRootIsUnusable(t *testing.T) {
 	if code := shell.Run([]string{"help"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	if !strings.Contains(out.String(), "Product commands are provided by installed modules.") {
+	if !strings.Contains(out.String(), "Product commands are provided by installed products.") {
 		t.Errorf("help lost its product-commands footer:\n%s", out)
 	}
 }
@@ -675,7 +682,7 @@ func TestHelpAboutAnUndeclaredModuleIsRefusedTruthfully(t *testing.T) {
 	if !strings.Contains(errOut.String(), "shell.module_help_undeclared") {
 		t.Errorf("the missing declaration is not named:\n%s", errOut)
 	}
-	if !strings.Contains(errOut.String(), "wso2 module install reference --channel stable") {
+	if !strings.Contains(errOut.String(), "wso2 product install reference --channel stable") {
 		t.Errorf("the recovery does not point at a build that declares its commands:\n%s", errOut)
 	}
 }

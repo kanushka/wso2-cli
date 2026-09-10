@@ -27,7 +27,7 @@ import (
 
 func TestIdentityCreateWritesABrowserIdentityWithOneProduct(t *testing.T) {
 	shell, out, errOut := newShell(t)
-	code := shell.Run([]string{"identity", "create", "thunder-admin",
+	code := shell.Run([]string{"account", "create", "thunder-admin",
 		"--issuer", "http://localhost:8490", "--client-id", "wso2-cli", "--provider", "thunder",
 		"--product", "iam", "--endpoint", "http://localhost:8490",
 		"--audience", "https://localhost:8090/mcp", "--scope", "system"})
@@ -35,10 +35,10 @@ func TestIdentityCreateWritesABrowserIdentityWithOneProduct(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	document := loadDocument(t, shell)
-	if len(document.Identities) != 1 {
-		t.Fatalf("identities = %+v", document.Identities)
+	if len(document.Accounts) != 1 {
+		t.Fatalf("identities = %+v", document.Accounts)
 	}
-	identity := document.Identities[0]
+	identity := document.Accounts[0]
 	if identity.Name != "thunder-admin" || identity.Type != "onprem" ||
 		identity.Auth.Kind != contexts.KindOAuthBrowser || identity.Auth.Provider != "thunder" ||
 		identity.Auth.Issuer != "http://localhost:8490" || identity.Auth.ClientID != "wso2-cli" ||
@@ -50,7 +50,7 @@ func TestIdentityCreateWritesABrowserIdentityWithOneProduct(t *testing.T) {
 		t.Errorf("product = %+v", got)
 	}
 	if document.DefaultContext != "thunder-admin" || len(document.Contexts) != 1 ||
-		document.Contexts[0].Identity != "thunder-admin" {
+		document.Contexts[0].Account != "thunder-admin" {
 		t.Errorf("context not written or selected: %+v", document)
 	}
 	if !strings.Contains(out.String(), "Next  Run wso2 login --context thunder-admin") {
@@ -60,7 +60,7 @@ func TestIdentityCreateWritesABrowserIdentityWithOneProduct(t *testing.T) {
 
 func TestIdentityCreateWithASecretVariableIsClientCredentials(t *testing.T) {
 	shell, out, errOut := newShell(t)
-	code := shell.Run([]string{"identity", "create", "apim-admin",
+	code := shell.Run([]string{"account", "create", "apim-admin",
 		"--issuer", "https://localhost:9443/oauth2/token", "--client-id", "abc",
 		"--client-secret-variable", "WSO2_APIM_CLIENT_SECRET",
 		"--product", "apim", "--endpoint", "https://localhost:9443", "--audience", "abc",
@@ -68,7 +68,7 @@ func TestIdentityCreateWithASecretVariableIsClientCredentials(t *testing.T) {
 	if code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	identity := loadDocument(t, shell).Identities[0]
+	identity := loadDocument(t, shell).Accounts[0]
 	if identity.Auth.Kind != contexts.KindClientCredentials ||
 		identity.Auth.ClientSecretVariable != "WSO2_APIM_CLIENT_SECRET" || identity.Auth.CredentialRef != "" {
 		t.Errorf("identity = %+v", identity)
@@ -84,7 +84,7 @@ func TestIdentityCreateWithASecretVariableIsClientCredentials(t *testing.T) {
 
 func TestIdentityCreateRefusesAThunderProductWithoutAnAudience(t *testing.T) {
 	shell, _, errOut := newShell(t)
-	code := shell.Run([]string{"identity", "create", "thunder-admin",
+	code := shell.Run([]string{"account", "create", "thunder-admin",
 		"--issuer", "http://localhost:8490", "--client-id", "wso2-cli", "--provider", "thunder",
 		"--product", "iam", "--endpoint", "http://localhost:8490"})
 	if code != exit.Usage {
@@ -94,14 +94,14 @@ func TestIdentityCreateRefusesAThunderProductWithoutAnAudience(t *testing.T) {
 		!strings.Contains(errOut.String(), "--audience") {
 		t.Errorf("stderr:\n%s", errOut)
 	}
-	if document := loadDocument(t, shell); len(document.Identities) != 0 {
-		t.Errorf("a refused identity was written: %+v", document.Identities)
+	if document := loadDocument(t, shell); len(document.Accounts) != 0 {
+		t.Errorf("a refused identity was written: %+v", document.Accounts)
 	}
 }
 
 func TestIdentityCreateRefusesADuplicateAndAHalfProduct(t *testing.T) {
 	shell, _, errOut := newShell(t)
-	args := []string{"identity", "create", "one", "--issuer", "https://issuer.example", "--client-id", "c"}
+	args := []string{"account", "create", "one", "--issuer", "https://issuer.example", "--client-id", "c"}
 	if code := shell.Run(args); code != exit.OK {
 		t.Fatalf("first create: exit %d: %s", code, errOut)
 	}
@@ -110,13 +110,13 @@ func TestIdentityCreateRefusesADuplicateAndAHalfProduct(t *testing.T) {
 		t.Errorf("duplicate: exit %d, stderr:\n%s", code, errOut)
 	}
 	errOut.Reset()
-	code := shell.Run([]string{"identity", "create", "two", "--issuer", "https://issuer.example",
+	code := shell.Run([]string{"account", "create", "two", "--issuer", "https://issuer.example",
 		"--client-id", "c", "--endpoint", "https://product.example"})
 	if code != exit.Usage || !strings.Contains(errOut.String(), "shell.conflicting_arguments") {
 		t.Errorf("half product: exit %d, stderr:\n%s", code, errOut)
 	}
 	errOut.Reset()
-	code = shell.Run([]string{"identity", "create", "three", "--issuer", "https://issuer.example",
+	code = shell.Run([]string{"account", "create", "three", "--issuer", "https://issuer.example",
 		"--client-id", "c", "--provider", "nosuch"})
 	if code != exit.Usage || !strings.Contains(errOut.String(), "shell.invalid_argument") {
 		t.Errorf("provider: exit %d, stderr:\n%s", code, errOut)

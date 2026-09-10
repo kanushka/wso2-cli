@@ -250,7 +250,7 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	if declared := read(IdentityTypeVar); declared != "" {
 		if declared != "cloud" && declared != "onprem" {
 			return Config{}, fmt.Errorf(
-				"%s: %q is not an identity type the context schema accepts; use cloud or onprem",
+				"%s: %q is not an account type the context schema accepts; use cloud or onprem",
 				IdentityTypeVar, declared)
 		}
 		config.IdentityType = declared
@@ -327,10 +327,10 @@ func (c Config) Document() contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: ContextName,
-		Identities: []contexts.Identity{{
+		Accounts: []contexts.Account{{
 			Name: IdentityName,
 			Type: c.IdentityType,
-			Auth: contexts.IdentityAuth{
+			Auth: contexts.AccountAuth{
 				Kind:          kind,
 				Issuer:        c.Issuer,
 				ClientID:      c.ClientID,
@@ -351,8 +351,8 @@ func (c Config) Document() contexts.Document {
 			},
 		}},
 		Contexts: []contexts.Context{{
-			Name:     ContextName,
-			Identity: IdentityName,
+			Name:    ContextName,
+			Account: IdentityName,
 			// The context stays in the identity's home tenant. Naming any other
 			// organization would provoke auth.organization_switch_unsupported,
 			// which is a refusal about the document rather than the deployment.
@@ -374,10 +374,10 @@ func (c Config) CIDocument() contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: CIContextName,
-		Identities: []contexts.Identity{{
+		Accounts: []contexts.Account{{
 			Name: CIIdentityName,
 			Type: c.IdentityType,
-			Auth: contexts.IdentityAuth{
+			Auth: contexts.AccountAuth{
 				Kind:     contexts.KindClientCredentials,
 				Issuer:   c.Issuer,
 				ClientID: c.CIClientID,
@@ -399,7 +399,7 @@ func (c Config) CIDocument() contexts.Document {
 		}},
 		Contexts: []contexts.Context{{
 			Name:         CIContextName,
-			Identity:     CIIdentityName,
+			Account:      CIIdentityName,
 			Organization: c.Tenant,
 		}},
 	}

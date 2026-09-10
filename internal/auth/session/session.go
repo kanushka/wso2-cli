@@ -58,6 +58,15 @@ type Session struct {
 	// than as a blank field, rather than this type asserting a guarantee it
 	// cannot enforce.
 	Subject string `json:"subject,omitempty"`
+	// Name is the human-readable display name the login resolved for the
+	// signed-in person — the identity token's name claim, given_name and
+	// family_name joined, or email, whichever oauthflow's displayName found
+	// first (internal/auth/oauthflow/login.go). omitempty, so an entry written
+	// before this field existed decodes with it empty rather than failing to
+	// decode, exactly as Subject's own comment explains. wso2 whoami is the one
+	// place that reads it, and it falls back to the subject it already knows
+	// rather than rendering a blank field or inventing a name.
+	Name string `json:"name,omitempty"`
 	// SessionExpiresAt is when the REFRESH token stops working, not the access
 	// token — see ExpiresAt above for that one. It is the zero value whenever
 	// the issuer has not disclosed a refresh-token lifetime, which most

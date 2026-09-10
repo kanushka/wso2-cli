@@ -52,13 +52,13 @@ func broker(t *testing.T) *auth.Broker {
 		Selection: contexts.Selection{
 			Context: contexts.Context{
 				Name:         "reference-local",
-				Identity:     "reference-local",
+				Account:      "reference-local",
 				Organization: organization,
 			},
-			Identity: contexts.Identity{
+			Identity: contexts.Account{
 				Name: "reference-local",
 				Type: "onprem",
-				Auth: contexts.IdentityAuth{
+				Auth: contexts.AccountAuth{
 					Kind:               contexts.MethodDevelopmentCredential,
 					CredentialVariable: credentialVar,
 				},
@@ -292,13 +292,13 @@ func productionBroker(t *testing.T, kind string) *auth.Broker {
 		Selection: contexts.Selection{
 			Context: contexts.Context{
 				Name:         "reference-cloud",
-				Identity:     "reference-cloud",
+				Account:      "reference-cloud",
 				Organization: homeTenant,
 			},
-			Identity: contexts.Identity{
+			Identity: contexts.Account{
 				Name: "reference-cloud",
 				Type: "cloud",
-				Auth: contexts.IdentityAuth{
+				Auth: contexts.AccountAuth{
 					Kind:          kind,
 					Issuer:        "https://issuer.example.test",
 					ClientID:      "wso2cli",
@@ -358,7 +358,7 @@ func TestTheIdentityKindDecidesWhichPolicyTheBrokerApplies(t *testing.T) {
 			kind: "browser-pkce",
 			code: "auth.method_unsupported",
 		},
-		"a browser identity that configures no product": {
+		"a browser account that configures no product": {
 			kind:   contexts.KindOAuthBrowser,
 			mutate: func(b *auth.Broker) { b.Selection.Identity.Products = nil },
 			code:   "auth.product_not_configured",
@@ -367,7 +367,7 @@ func TestTheIdentityKindDecidesWhichPolicyTheBrokerApplies(t *testing.T) {
 		// refused here. The two vocabularies are not comparable, and the
 		// binding is proved against the issued token instead; see
 		// TestAccessIsGrantedWhenTheDeploymentBindsTheRegisteredAudience.
-		"a browser identity that registers no audience": {
+		"a browser account that registers no audience": {
 			kind: contexts.KindOAuthBrowser,
 			mutate: func(b *auth.Broker) {
 				withProduct(b, contexts.Product{
@@ -377,7 +377,7 @@ func TestTheIdentityKindDecidesWhichPolicyTheBrokerApplies(t *testing.T) {
 			},
 			code: "auth.product_not_configured",
 		},
-		"a browser identity whose product does not carry the scope": {
+		"a browser account whose product does not carry the scope": {
 			kind: contexts.KindOAuthBrowser,
 			mutate: func(b *auth.Broker) {
 				withProduct(b, contexts.Product{
@@ -388,17 +388,17 @@ func TestTheIdentityKindDecidesWhichPolicyTheBrokerApplies(t *testing.T) {
 			},
 			code: "auth.product_not_configured",
 		},
-		"a browser identity asked to act outside its home tenant": {
+		"a browser account asked to act outside its home tenant": {
 			kind:   contexts.KindOAuthBrowser,
 			mutate: func(b *auth.Broker) { b.Selection.Context.Organization = "another-org" },
 			code:   "auth.organization_switch_unsupported",
 		},
-		"a client-credentials identity that configures no product": {
+		"a client-credentials account that configures no product": {
 			kind:   contexts.KindClientCredentials,
 			mutate: func(b *auth.Broker) { b.Selection.Identity.Products = nil },
 			code:   "auth.product_not_configured",
 		},
-		"a client-credentials identity asked to act outside its home tenant": {
+		"a client-credentials account asked to act outside its home tenant": {
 			kind:   contexts.KindClientCredentials,
 			mutate: func(b *auth.Broker) { b.Selection.Context.Organization = "another-org" },
 			code:   "auth.organization_switch_unsupported",
@@ -467,8 +467,8 @@ func TestAProductNamespaceTheIdentityDoesNotConfigureIsRefused(t *testing.T) {
 	// The command that records a product registration exists, so the recovery
 	// names it — with this identity and namespace filled in — rather than
 	// sending the user to edit a file by hand.
-	if !strings.Contains(refusal.Problem.Recovery, "wso2 identity add-product reference-cloud api") {
-		t.Errorf("the recovery %q does not name wso2 identity add-product for this identity and namespace",
+	if !strings.Contains(refusal.Problem.Recovery, "wso2 account add-product reference-cloud api") {
+		t.Errorf("the recovery %q does not name wso2 account add-product for this identity and namespace",
 			refusal.Problem.Recovery)
 	}
 }

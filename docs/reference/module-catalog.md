@@ -162,9 +162,9 @@ usable.
 ## Installing from the catalog
 
 ```sh
-wso2 module install reference
-wso2 module install reference@4.5.0
-wso2 module install reference --channel prerelease
+wso2 product install reference
+wso2 product install reference@4.5.0
+wso2 product install reference --channel prerelease
 ```
 
 The shell reads `index.json` to find the namespace and where its history is
@@ -229,7 +229,7 @@ can drive the shell against a local origin serving a generated catalog.
 ## Discovering what can be installed
 
 ```sh
-wso2 module available
+wso2 product available
 ```
 
 One request, the index, lists every namespace the catalog publishes with the
@@ -239,12 +239,12 @@ from the shell rather than from this document.
 ## Update checks, channels, and pins
 
 ```sh
-wso2 module list
-wso2 module update reference
-wso2 module update --all
+wso2 product list
+wso2 product update reference
+wso2 product update --all
 ```
 
-`wso2 module list` reports the installed modules and which of them have an
+`wso2 product list` reports the installed modules and which of them have an
 update available. It costs one request whatever is installed, because
 `index.json` already carries the latest version per channel and no version
 history is fetched: a check selects nothing, and selecting is what a history is
@@ -267,9 +267,9 @@ An install records what it was asked for, and an update reads it back. That is
 what makes a channel a property of the module rather than of the shell, so a
 user takes a prerelease of one product without taking prereleases of all of
 them, and what makes a pin survive an update run rather than being a one-off
-argument. A pinned module is passed over by `wso2 module update --all` rather
+argument. A pinned module is passed over by `wso2 product update --all` rather
 than moved, so updating everything else cannot silently take a module off the
-version it is held at. Re-running `wso2 module install` is how a module's
+version it is held at. Re-running `wso2 product install` is how a module's
 channel or pin is changed, because what is recorded is what the last install
 asked for.
 

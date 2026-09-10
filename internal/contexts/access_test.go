@@ -23,10 +23,10 @@ import (
 	"github.com/wso2/wso2-cli/internal/contexts"
 )
 
-func thunderIdentity() contexts.Identity {
-	return contexts.Identity{
+func thunderIdentity() contexts.Account {
+	return contexts.Account{
 		Name: "thunder", Type: "onprem",
-		Auth: contexts.IdentityAuth{
+		Auth: contexts.AccountAuth{
 			Kind: contexts.KindOAuthBrowser, Issuer: "http://localhost:8492",
 			ClientID: "wso2-cli", CredentialRef: "thunder", Provider: contexts.ProviderThunder,
 		},
@@ -91,8 +91,8 @@ func TestAJWTBearerGrantIsDerivedFromItsOwnAssertionSession(t *testing.T) {
 }
 
 func TestAProductSharingTheLoginScopeSetIsDirect(t *testing.T) {
-	identity := contexts.Identity{Name: "is", Type: "onprem",
-		Auth: contexts.IdentityAuth{Kind: contexts.KindOAuthBrowser, Issuer: "https://is.example",
+	identity := contexts.Account{Name: "is", Type: "onprem",
+		Auth: contexts.AccountAuth{Kind: contexts.KindOAuthBrowser, Issuer: "https://is.example",
 			ClientID: "wso2-cli", CredentialRef: "is"},
 		Products: map[string]contexts.Product{
 			"a": {Endpoint: "https://a.example", Audience: "a", Scopes: []string{"x", "y"}},
@@ -157,8 +157,8 @@ func TestAProductCredentialIsBothVariablesOrNeither(t *testing.T) {
 	identity.Auth.ClientSecretVariable = "WSO2_CI_SECRET"
 	identity.Products["apim"] = contexts.Product{Endpoint: "https://localhost:9443", Audience: "https://localhost:9443/apim",
 		ClientIDVariable: "WSO2_APIM_CLIENT_ID"}
-	document := contexts.Document{SchemaVersion: contexts.SchemaVersion, Identities: []contexts.Identity{identity},
-		Contexts: []contexts.Context{{Name: "ci", Identity: "thunder"}}, DefaultContext: "ci"}
+	document := contexts.Document{SchemaVersion: contexts.SchemaVersion, Accounts: []contexts.Account{identity},
+		Contexts: []contexts.Context{{Name: "ci", Account: "thunder"}}, DefaultContext: "ci"}
 	if _, err := document.Encode(); err == nil {
 		t.Fatal("a product naming only a client id variable was accepted")
 	}
@@ -173,9 +173,9 @@ func TestAProductCredentialIsBothVariablesOrNeither(t *testing.T) {
 	// Auth is a plain struct, not a map: the document copied it by value when
 	// built above, so the mutation above has to be re-applied to the document
 	// itself, not just to the local identity variable, to be seen.
-	document.Identities = []contexts.Identity{identity}
+	document.Accounts = []contexts.Account{identity}
 	if _, err := document.Encode(); err == nil {
-		t.Fatal("a product credential on a browser identity was accepted")
+		t.Fatal("a product credential on a browser account was accepted")
 	}
 }
 
@@ -226,11 +226,93 @@ func TestAPinNamingAnUnreachableProductIsMalformed(t *testing.T) {
 		identity := thunderIdentity()
 		identity.LoginProduct = pin
 		document := contexts.Document{SchemaVersion: contexts.SchemaVersion, DefaultContext: "thunder",
-			Identities: []contexts.Identity{identity},
-			Contexts:   []contexts.Context{{Name: "thunder", Identity: "thunder"}}}
+			Accounts: []contexts.Account{identity},
+			Contexts: []contexts.Context{{Name: "thunder", Account: "thunder"}}}
 		root := t.TempDir()
 		if err := contexts.Save(root, document); err == nil {
 			t.Errorf("a pin naming %q was written", pin)
+		}
+	}
+}
+
+func TestAnExchangeGrantIsReachedAtTheLoginIssuerWithTheProductAudienceAsItsResource(t *testing.T) {
+	identity := thunderIdentity()
+	identity.Products["apip"] = contexts.Product{Endpoint: "http://localhost:9251",
+		Audience: "http://localhost:9251", Grant: &contexts.Grant{Kind: contexts.GrantExchange}}
+	access, ok := identity.Access("apip")
+	if !ok || access.Strategy != contexts.StrategyExchanged {
+		t.Fatalf("apip access = %+v, %v, want an exchanged strategy", access, ok)
+	}
+	// The exchange runs at the account's own issuer, as the account's own
+	// client: it is the login session that is exchanged, so nothing about
+	// the product's own deployment takes part in obtaining the token.
+	if access.Issuer != "http://localhost:8492" || access.ClientID != "wso2-cli" {
+		t.Fatalf("apip access = %+v, want the login issuer and client", access)
+	}
+	// The product's audience is what the exchange asks for as its resource,
+	// and it is what the returned token must be bound to.
+	if access.Resource != "http://localhost:9251" || access.Audience != "http://localhost:9251" {
+		t.Fatalf("apip access = %+v, want the product audience as the resource", access)
+	}
+	// An exchanged product stores no session of its own: its token is minted
+	// from the login session on demand and never outlives the command.
+	if access.SessionRef != "" {
+		t.Fatalf("apip access = %+v, want no session reference of its own", access)
+	}
+}
+
+func TestALoginRunsNoAuthorizationForAnExchangedProduct(t *testing.T) {
+	// An exchanged product is reached by exchanging the login session, so a
+	// login that authorized one would be opening a browser for a product that
+	// never needed it — which is the whole of what the strategy buys.
+	identity := contexts.Account{Name: "thunder", Type: "onprem",
+		Auth: contexts.AccountAuth{Kind: contexts.KindOAuthBrowser, Issuer: "http://localhost:8501",
+			ClientID: "wso2-cli", CredentialRef: "thunder", Provider: contexts.ProviderThunder},
+		Products: map[string]contexts.Product{
+			"thunder": {Endpoint: "http://localhost:8501", Audience: "https://localhost:8090/mcp",
+				Scopes: []string{"system"}},
+			"apip": {Endpoint: "http://localhost:9251", Audience: "http://localhost:9251",
+				Grant: &contexts.Grant{Kind: contexts.GrantExchange}},
+		}}
+	accesses := identity.Accesses()
+	if len(accesses) != 1 {
+		t.Fatalf("a login would run %d authorizations, want only the login one: %+v", len(accesses), accesses)
+	}
+	if accesses[0].Namespace != "thunder" || accesses[0].Strategy != contexts.StrategyDirect {
+		t.Fatalf("the one authorization is %+v, want the direct login product", accesses[0])
+	}
+}
+
+func TestAnExchangedProductsGatewayIsExchangedToo(t *testing.T) {
+	// A gateway validates the login provider's tokens through the same JWKS
+	// its control plane does, so a product reached by exchanging the login
+	// session reaches its gateway the same way. Leaving the gateway a sibling
+	// would make wso2 login open a browser for the one record on the product
+	// that never needed one.
+	identity := contexts.Account{Name: "c1", Type: "onprem",
+		Auth: contexts.AccountAuth{Kind: contexts.KindOAuthBrowser, Issuer: "http://localhost:8501",
+			ClientID: "wso2-cli", CredentialRef: "c1", Provider: contexts.ProviderThunder},
+		Products: map[string]contexts.Product{
+			"identity": {Endpoint: "http://localhost:8501", Audience: "https://localhost:8090/mcp",
+				Scopes: []string{"system"}},
+			"api": {Endpoint: "http://localhost:9251", Audience: "http://localhost:9251",
+				Grant:   &contexts.Grant{Kind: contexts.GrantExchange},
+				Gateway: &contexts.Gateway{Endpoint: "http://localhost:9091", Audience: "http://localhost:9091"}},
+		}}
+	gateway, recorded := identity.Access(contexts.GatewayKey("api"))
+	if !recorded {
+		t.Fatal("the gateway record was not resolved")
+	}
+	if gateway.Strategy != contexts.StrategyExchanged {
+		t.Fatalf("the gateway strategy is %q, want exchanged", gateway.Strategy)
+	}
+	if gateway.Resource != "http://localhost:9091" || gateway.SessionRef != "" {
+		t.Fatalf("the gateway access is %+v, want the gateway audience and no session", gateway)
+	}
+	// And a login runs no authorization for it.
+	for _, access := range identity.Accesses() {
+		if access.Namespace == contexts.GatewayKey("api") {
+			t.Fatalf("a login would authorize the exchanged gateway: %+v", access)
 		}
 	}
 }

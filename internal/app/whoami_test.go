@@ -36,8 +36,9 @@ import (
 type whoamiReport struct {
 	Configured    bool   `json:"configured"`
 	Context       string `json:"context"`
-	Identity      string `json:"identity"`
+	Identity      string `json:"account"`
 	Organization  string `json:"organization"`
+	Name          string `json:"name"`
 	Subject       string `json:"subject"`
 	Session       string `json:"session"`
 	SessionExpiry string `json:"sessionExpiry"`
@@ -67,7 +68,7 @@ func decodeWhoamiReport(t *testing.T, rendered []byte) whoamiReport {
 func whoamiSeededDocument() contexts.Document {
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Identity: "acme-cloud", Organization: "acme-org"}}
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "acme-org"}}
 	return seeded
 }
 
@@ -278,6 +279,12 @@ func TestWhoamiRendersAPreR6SessionAsUnknownAndNotStated(t *testing.T) {
 	if report.Subject != "unknown" {
 		t.Errorf("subject = %q, want \"unknown\" for a pre-R6 session", report.Subject)
 	}
+	// A session this old carries no name member either, and whoami claims
+	// none (#168): the subject is reported under its own label as "unknown",
+	// and Name is left out rather than filled with it.
+	if report.Name != "" {
+		t.Errorf("name = %q, want none for a pre-R6 session that carries no name", report.Name)
+	}
 	if report.SessionExpiry != "not stated by the issuer" {
 		t.Errorf("sessionExpiry = %q, want the not-stated wording for a pre-R6 session", report.SessionExpiry)
 	}
@@ -296,6 +303,107 @@ func TestWhoamiRendersAPreR6SessionAsUnknownAndNotStated(t *testing.T) {
 	}
 	if strings.Contains(tableOut.String(), "\x00") {
 		t.Errorf("unexpected control byte in the table rendering:\n%s", tableOut)
+	}
+}
+
+// TestWhoamiReportsTheStoredDisplayName proves the human-readable name a login
+// resolved and stored reaches wso2 whoami, in both renderings, alongside the
+// subject identifier rather than in place of it (#168): a deployment names a
+// person by the subject in its own logs and refusals, so whoami keeps
+// reporting it even once it also reports a name a person actually recognises.
+func TestWhoamiReportsTheStoredDisplayName(t *testing.T) {
+	keyring.MockInit()
+	const subject = "01900000-0000-7000-8000-000000000030"
+	shell, out, errOut := newShell(t)
+	installLogin(t, shell, whoamiSeededDocument())
+	store := session.Store{StateRoot: shell.StateRoot}
+	if err := store.Save("acme-cloud", session.Session{
+		Issuer: "https://idp.example", RefreshToken: "rt-1", Subject: subject, Name: "Ada Lovelace",
+	}); err != nil {
+		t.Fatalf("seed a session: %v", err)
+	}
+
+	if code := shell.Run([]string{"whoami", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	report := decodeWhoamiReport(t, out.Bytes())
+	if report.Name != "Ada Lovelace" {
+		t.Errorf("name = %q, want %q", report.Name, "Ada Lovelace")
+	}
+	if report.Subject != subject {
+		t.Errorf("subject = %q, want the raw subject %q to remain reported alongside the name", report.Subject, subject)
+	}
+
+	tableShell, tableOut, tableErrOut := newShell(t)
+	installLogin(t, tableShell, whoamiSeededDocument())
+	if err := (session.Store{StateRoot: tableShell.StateRoot}).Save("acme-cloud", session.Session{
+		Issuer: "https://idp.example", RefreshToken: "rt-1", Subject: subject, Name: "Ada Lovelace",
+	}); err != nil {
+		t.Fatalf("seed a session: %v", err)
+	}
+	if code := tableShell.Run([]string{"whoami"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, tableErrOut)
+	}
+	if !strings.Contains(tableOut.String(), "Ada Lovelace") {
+		t.Errorf("the table rendering does not show the stored name:\n%s", tableOut)
+	}
+	if !strings.Contains(tableOut.String(), subject) {
+		t.Errorf("the table rendering does not show the subject alongside the name:\n%s", tableOut)
+	}
+}
+
+// TestWhoamiFallsBackToTheSubjectWhenNoNameWasStored proves a session
+// established before this change — carrying a subject but no name member at
+// all, exactly what a shell before #168 wrote — is still reported sensibly:
+// whoami falls back to the subject it already knows rather than leaving the
+// field blank or inventing a name it was never told.
+// TestWhoamiClaimsNoNameWhenNoneWasStored holds both halves of #168's rule for
+// a session that carries no name: "without an empty field and without claiming a
+// name it does not have". Reporting the subject under Name met the first half
+// and broke the second — a script reading name got an opaque identifier
+// presented as a person — so the name is left out entirely. The subject is
+// still reported under its own label, so nothing a reader relies on is lost.
+func TestWhoamiClaimsNoNameWhenNoneWasStored(t *testing.T) {
+	keyring.MockInit()
+	const subject = "01900000-0000-7000-8000-000000000030"
+	shell, out, errOut := newShell(t)
+	installLogin(t, shell, whoamiSeededDocument())
+	// Built as raw JSON, deliberately bypassing session.Session, so this cannot
+	// pass merely because the struct's zero value for Name happens to agree
+	// with what whoami wants to report — the same discipline
+	// TestWhoamiRendersAPreR6SessionAsUnknownAndNotStated applies to Subject.
+	if err := keyring.Set(session.Service, session.Store{StateRoot: shell.StateRoot}.EntryName("acme-cloud"),
+		`{"issuer":"https://idp.example","refreshToken":"rt-1","subject":"`+subject+`"}`); err != nil {
+		t.Fatalf("seed a pre-#168 session: %v", err)
+	}
+
+	if code := shell.Run([]string{"whoami", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(out.Bytes(), &raw); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if _, present := raw["name"]; present {
+		t.Errorf("the JSON claims a name the session does not have: %s", out)
+	}
+	if report := decodeWhoamiReport(t, out.Bytes()); report.Subject != subject {
+		t.Errorf("subject = %q, want %q still reported", report.Subject, subject)
+	}
+
+	out.Reset()
+	if code := shell.Run([]string{"whoami"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	// No Name row at all rather than a blank one, and the subject is not
+	// passed off under it.
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "Name") {
+			t.Errorf("the table carries a Name row for a session with no name: %q", line)
+		}
+	}
+	if !strings.Contains(out.String(), subject) {
+		t.Errorf("the table no longer reports the subject:\n%s", out)
 	}
 }
 
@@ -323,17 +431,17 @@ func TestWhoamiRefusesAnUnknownContextAsUsage(t *testing.T) {
 func TestWhoamiHonorsContextPrecedence(t *testing.T) {
 	keyring.MockInit()
 	seeded := whoamiSeededDocument()
-	seeded.Identities = append(seeded.Identities, contexts.Identity{
+	seeded.Accounts = append(seeded.Accounts, contexts.Account{
 		Name: "beta-cloud",
 		Type: "cloud",
-		Auth: contexts.IdentityAuth{
+		Auth: contexts.AccountAuth{
 			Kind:          contexts.KindOAuthBrowser,
 			Issuer:        "https://idp.example",
 			ClientID:      "wso2-cli",
 			CredentialRef: "beta-cloud",
 		},
 	})
-	seeded.Contexts = append(seeded.Contexts, contexts.Context{Name: "beta", Identity: "beta-cloud"})
+	seeded.Contexts = append(seeded.Contexts, contexts.Context{Name: "beta", Account: "beta-cloud"})
 	seedBetaSession := func(t *testing.T, shell app.Shell) {
 		t.Helper()
 		installLogin(t, shell, seeded)
@@ -401,7 +509,7 @@ func TestWhoamiBothRenderingsAgree(t *testing.T) {
 		t.Helper()
 		installLogin(t, shell, whoamiSeededDocument())
 		if err := (session.Store{StateRoot: shell.StateRoot}).Save("acme-cloud", session.Session{
-			Issuer: "https://idp.example", RefreshToken: "rt-1", Subject: "user-1",
+			Issuer: "https://idp.example", RefreshToken: "rt-1", Subject: "user-1", Name: "Ada Lovelace",
 			SessionExpiresAt: past,
 		}); err != nil {
 			t.Fatalf("seed a session: %v", err)
@@ -436,7 +544,7 @@ func TestWhoamiBothRenderingsAgree(t *testing.T) {
 	// deleting the {"Session expiry", ...} row from whoamiReport.fields()
 	// left this test green before this fix; it now fails that mutation.
 	for _, want := range []string{
-		report.Context, report.Identity, report.Organization, report.Subject,
+		report.Context, report.Identity, report.Organization, report.Name, report.Subject,
 		report.Session, report.SessionExpiry, report.Recovery,
 	} {
 		if !strings.Contains(tableOut.String(), want) {

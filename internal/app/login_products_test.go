@@ -34,8 +34,8 @@ import (
 // federated product at a second issuer.
 func thunderDoc(loginIssuer, productIssuer string) contexts.Document {
 	document := browserDoc(loginIssuer)
-	document.Identities[0].Auth.Provider = contexts.ProviderThunder
-	document.Identities[0].Products = map[string]contexts.Product{
+	document.Accounts[0].Auth.Provider = contexts.ProviderThunder
+	document.Accounts[0].Products = map[string]contexts.Product{
 		"iam": {Endpoint: loginIssuer, Audience: "https://localhost:8090/mcp", Scopes: []string{"system"}},
 		"gateway": {Endpoint: "https://gw.example", Audience: "http://localhost:18080/mockapi",
 			Scopes: []string{"orders:read"}},
@@ -145,7 +145,7 @@ func TestLoginWithNoProductsReportsTheBareSession(t *testing.T) {
 	keyring.MockInit()
 	login := fakeissuer.New(t, fakeissuer.Options{RefreshScopeMode: "honor"})
 	document := browserDoc(login.URL)
-	document.Identities[0].Products = nil
+	document.Accounts[0].Products = nil
 	shell, out, errOut := newLoginShell(t)
 	installLogin(t, shell, document)
 	followBrowser(&shell)
@@ -225,8 +225,8 @@ func TestLoginRefusesWhenEveryProductIsReachedByAGrant(t *testing.T) {
 	keyring.MockInit()
 	login := fakeissuer.New(t, fakeissuer.Options{RequireResource: true})
 	document := browserDoc(login.URL)
-	document.Identities[0].Auth.Provider = contexts.ProviderThunder
-	document.Identities[0].Products = map[string]contexts.Product{
+	document.Accounts[0].Auth.Provider = contexts.ProviderThunder
+	document.Accounts[0].Products = map[string]contexts.Product{
 		"apim": {Endpoint: login.URL, Audience: "apim-cli", Scopes: []string{"apim:api_view"},
 			Grant: &contexts.Grant{Kind: contexts.GrantFederated, Issuer: login.URL, ClientID: "apim-cli"}},
 	}
@@ -238,5 +238,30 @@ func TestLoginRefusesWhenEveryProductIsReachedByAGrant(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "auth.product_not_configured") {
 		t.Fatalf("stderr does not name auth.product_not_configured:\n%s", errOut)
+	}
+}
+
+func TestLoginOnlyAnExchangedProductAuthorizesNothing(t *testing.T) {
+	// Accesses() skips an exchanged product, but --only resolves the access
+	// directly and bypassed that: the shell opened a browser for a product
+	// that has no authorization to run, then waited on a loopback listener
+	// until the login deadline. Nothing to establish is a finished login, not
+	// a browser.
+	keyring.MockInit()
+	shell, out, errOut := newLoginShell(t)
+	document := thunderDoc("http://login.example", "http://apim.example")
+	document.Accounts[0].Products["api"] = contexts.Product{
+		Endpoint: "http://api.example", Audience: "http://api.example",
+		Grant: &contexts.Grant{Kind: contexts.GrantExchange}}
+	installLogin(t, shell, document)
+	shell.OpenBrowser = func(string) error {
+		t.Fatal("wso2 login --only api opened a browser for an exchanged product")
+		return nil
+	}
+	if code := shell.Run([]string{"login", "--only", "api"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if !strings.Contains(out.String()+errOut.String(), "api") {
+		t.Fatalf("the report does not mention the product:\n%s%s", out, errOut)
 	}
 }

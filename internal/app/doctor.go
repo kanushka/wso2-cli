@@ -178,16 +178,29 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 	failures := make(map[string]problem.Problem, len(severityRank))
 	var findings []doctorFinding
 
+	// documentPath is named in the context check's own detail, whatever the
+	// outcome, so a user reading the report never has to already know where
+	// the shell keeps the document to act on what this check says about it
+	// (#170). nameDocument only appends it when the detail does not already
+	// carry it — contexts.Load's own unreadable-file message already does —
+	// so the path is never printed twice.
+	documentPath := contexts.Path(root)
 	switch {
 	case loadErr != nil:
 		typed := doctorProblem(loadErr)
 		failures[checkContext] = typed
-		findings = append(findings, failFinding(checkContext, typed))
+		findings = append(findings, doctorFinding{
+			Check:    checkContext,
+			Status:   statusFail,
+			Detail:   nameDocument(typed.Message, documentPath),
+			Recovery: typed.Recovery,
+		})
 	case len(document.Contexts) == 0:
 		findings = append(findings, notApplicableFinding(checkContext,
-			"no context document is configured"))
+			nameDocument("no context document is configured", documentPath)))
 	default:
-		findings = append(findings, passFinding(checkContext, "the context document is valid"))
+		findings = append(findings, passFinding(checkContext,
+			nameDocument("the context document is valid", documentPath)))
 	}
 
 	store := session.Store{StateRoot: root}
@@ -369,7 +382,7 @@ func catalogCheck(stateRoot string, log catalog.DebugLog) (doctorFinding, *probl
 	origin := catalog.Origin(stateRoot)
 	// The log is the same one --verbose turns on for module commands, so a
 	// probe that fails for transport reasons surfaces the raw detail there
-	// exactly as wso2 module list would (review on #161).
+	// exactly as wso2 product list would (review on #161).
 	client := catalog.Client{Origin: origin, OriginConfigured: catalog.OriginConfigured(stateRoot), Log: log}
 	if _, err := client.Index(ctx); err != nil {
 		typed := doctorProblem(err)
@@ -425,4 +438,15 @@ func noneFinding(check, detail, recovery string) doctorFinding {
 
 func failFinding(check string, typed problem.Problem) doctorFinding {
 	return doctorFinding{Check: check, Status: statusFail, Detail: typed.Message, Recovery: typed.Recovery}
+}
+
+// nameDocument appends the context document's path to a check detail, unless
+// the detail already names it. contexts.Load's own unreadable-file message
+// already does, and appending a second time would read as two different
+// files rather than one detail stated twice.
+func nameDocument(detail, path string) string {
+	if strings.Contains(detail, path) {
+		return detail
+	}
+	return fmt.Sprintf("%s (context document: %s)", detail, path)
 }

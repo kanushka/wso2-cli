@@ -74,6 +74,29 @@ type Options struct {
 	// secret, so only a test whose subject is a wrong credential has to state
 	// one.
 	ClientSecret string
+	// ScopeGatedClaims mints an identity token's profile and email claims only
+	// when the grant carries the profile and email scopes, as OpenID Connect
+	// Core section 5.4 has it and as ThunderID was measured doing on
+	// 2026-09-10. Off by default, because most tests here are about something
+	// other than claims and were written against a fixture that minted email
+	// unconditionally. A test about what a login learns of the person must turn
+	// it on: without it the fixture hands over a name no real deployment
+	// would, which is how a login that never asked for one shipped once.
+	ScopeGatedClaims bool
+	// ExchangeGrant registers RFC 8693 token exchange on this issuer. The
+	// grant it runs is modelled on ThunderID as measured on 2026-09-09: the
+	// subject token must be one this issuer minted, the resource indicator
+	// decides the audience, no refresh token comes back, and the resource
+	// server permissions the subject token carried are dropped rather than
+	// carried across. A test that asked for scopes here would be asserting
+	// behaviour no measured deployment has.
+	ExchangeGrant bool
+	// ExchangeAudience overrides the audience the exchange stamps in,
+	// ignoring the resource the request asked for. It models the deployment
+	// that answers 200 with a token bound somewhere else — which is what
+	// ThunderID does for a request that says audience where it should say
+	// resource, and is the only thing the shell's binding check catches.
+	ExchangeAudience string
 	// Host replaces the host of the issuer identifier, keeping the port the
 	// test server listens on. It exists because 127.0.0.1 is not a name: a
 	// caller that derives a name from the issuer host has nothing to derive
@@ -93,6 +116,15 @@ type Options struct {
 	// server has to accept, binding the token to an organization through the
 	// issuer it trusts rather than through a claim.
 	OrganizationClaim string
+	// Name, GivenName, and FamilyName are the OIDC standard name claims minted
+	// into the identity token when set, modeling the claims ThunderID's
+	// identity token carries alongside email. All three are empty by default:
+	// most tests care only about the subject and the fixed email claim below,
+	// and a claim this fixture does not model must not appear in a token just
+	// because a field exists to carry it.
+	Name       string
+	GivenName  string
+	FamilyName string
 	// RequireResource refuses any authorization request that carries no RFC 8707
 	// resource indicator, and mints the audience from the one it was given.
 	//
@@ -262,6 +294,11 @@ type Issuer struct {
 	// map iteration order could not name "most recent" if a test ever started
 	// two authorizations.
 	lastDeviceCode string
+	// refuseExchange makes the exchange grant answer unauthorized_client, as
+	// an issuer does for a client the grant is not registered on.
+	refuseExchange bool
+	// onRevoke runs once, the first time the revocation endpoint is reached.
+	onRevoke func()
 }
 
 type codeGrant struct {
@@ -602,9 +639,80 @@ func (i *Issuer) handleToken(w http.ResponseWriter, r *http.Request) {
 		i.deviceGrant(w, r)
 	case bearerGrantType:
 		i.bearerGrant(w, r)
+	case exchangeGrantType:
+		i.exchangeGrant(w, r)
 	default:
 		oauthError(w, http.StatusBadRequest, "unsupported_grant_type")
 	}
+}
+
+const exchangeGrantType = "urn:ietf:params:oauth:grant-type:token-exchange"
+
+// OnRevoke runs fn the first time a client reaches the revocation endpoint,
+// before the endpoint answers.
+//
+// It exists for the one race a command that revokes and then writes has to
+// survive: another invocation changing the document while the network call is
+// in flight. Running fn inside the request places the change exactly between
+// the two, which no amount of scheduling from the test could do reliably. It
+// runs once, so a command revoking several sessions sees one change.
+func (i *Issuer) OnRevoke(fn func()) {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	i.onRevoke = fn
+}
+
+// RefuseExchange makes every later exchange answer unauthorized_client, the
+// way an issuer answers a client the grant is not registered on.
+func (i *Issuer) RefuseExchange() {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	i.refuseExchange = true
+}
+
+// exchangeGrant is RFC 8693 as ThunderID runs it, measured 2026-09-09.
+//
+// Three details are the fixture's whole reason to exist, because each is a
+// way a real deployment answers 200 with something the shell must not hand a
+// module. The resource indicator decides the audience, so a request that
+// named none, or that named it under the wrong parameter, gets a token bound
+// somewhere else. No refresh token comes back, so nothing here could be
+// stored as a session even if the shell wanted to. And the subject token's
+// resource server permissions do not cross: what comes back carries the
+// OIDC scopes and nothing more, which is why an exchanged product is
+// authorized by the claims it carries rather than by a scope set.
+func (i *Issuer) exchangeGrant(w http.ResponseWriter, r *http.Request) {
+	i.mutex.Lock()
+	refusing, registered := i.refuseExchange, i.opts.ExchangeGrant
+	subject, minted := i.accessTokens[r.PostForm.Get("subject_token")]
+	i.mutex.Unlock()
+	if !registered || refusing {
+		oauthError(w, http.StatusBadRequest, "unauthorized_client")
+		return
+	}
+	if presentedClientID(r) == "" {
+		oauthError(w, http.StatusUnauthorized, "invalid_client")
+		return
+	}
+	if !minted {
+		oauthError(w, http.StatusBadRequest, "invalid_grant")
+		return
+	}
+	_ = subject
+	audience := r.PostForm.Get("resource")
+	if i.opts.ExchangeAudience != "" {
+		audience = i.opts.ExchangeAudience
+	}
+	// Only the OIDC scopes survive; the permissions the subject token held on
+	// a resource server do not, exactly as measured.
+	issued := []string{"openid"}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"access_token":      i.mintAccessTokenFor("user-1", issued, audience),
+		"issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+		"token_type":        "Bearer",
+		"expires_in":        300,
+		"scope":             strings.Join(issued, " "),
+	})
 }
 
 const bearerGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer"
@@ -663,7 +771,7 @@ func (i *Issuer) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		"access_token": i.mintAccessTokenFor("user-1", grant.scopes, grant.resource),
 		"token_type":   "Bearer",
 		"expires_in":   300,
-		"id_token":     i.mintIDToken(grant.clientID, grant.nonce),
+		"id_token":     i.mintIDToken(grant.clientID, grant.nonce, grant.scopes),
 		"scope":        strings.Join(grant.scopes, " "),
 	}
 	if !i.opts.OmitRefreshToken {
@@ -779,7 +887,7 @@ func (i *Issuer) refreshGrant(w http.ResponseWriter, r *http.Request) {
 	// A renewal under openid carries a fresh identity token, as OpenID Connect
 	// Core section 12 permits, for the client that presented the refresh token.
 	if slices.Contains(issued, "openid") {
-		response["id_token"] = i.mintIDToken(presentedClientID(r), "")
+		response["id_token"] = i.mintIDToken(presentedClientID(r), "", issued)
 	}
 	if !i.opts.OmitRefreshScopeField {
 		response["scope"] = strings.Join(issued, " ")
@@ -981,7 +1089,7 @@ func (i *Issuer) issueDeviceTokens(w http.ResponseWriter, scopes []string, clien
 		if i.opts.DeviceIDTokenAudience != "" {
 			audience = i.opts.DeviceIDTokenAudience
 		}
-		response["id_token"] = i.mintIDToken(audience, "")
+		response["id_token"] = i.mintIDToken(audience, "", scopes)
 	}
 	writeJSON(w, http.StatusOK, response)
 }
@@ -1090,6 +1198,13 @@ func scopeMode(t *testing.T, option, configured string) string {
 // deployment that lets its public client revoke. RefuseRevocation is how a test
 // asks for the other kind.
 func (i *Issuer) handleRevoke(w http.ResponseWriter, r *http.Request) {
+	i.mutex.Lock()
+	hook := i.onRevoke
+	i.onRevoke = nil
+	i.mutex.Unlock()
+	if hook != nil {
+		hook()
+	}
 	if err := r.ParseForm(); err != nil {
 		oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
@@ -1225,7 +1340,7 @@ func (i *Issuer) mintAccessTokenFor(subject string, scopes []string, resource st
 	return token
 }
 
-func (i *Issuer) mintIDToken(clientID, nonce string) string {
+func (i *Issuer) mintIDToken(clientID, nonce string, scopes []string) string {
 	now := time.Now()
 	claims := map[string]any{
 		"iss":   i.URL,
@@ -1234,7 +1349,22 @@ func (i *Issuer) mintIDToken(clientID, nonce string) string {
 		"exp":   now.Add(5 * time.Minute).Unix(),
 		"iat":   now.Unix(),
 		"nonce": nonce,
-		"email": "dev@example.test",
+	}
+	// Under ScopeGatedClaims each claim is disclosed only under the scope
+	// that governs it; otherwise the fixture keeps its historical behaviour.
+	disclosesEmail := !i.opts.ScopeGatedClaims || slices.Contains(scopes, "email")
+	disclosesProfile := !i.opts.ScopeGatedClaims || slices.Contains(scopes, "profile")
+	if disclosesEmail {
+		claims["email"] = "dev@example.test"
+	}
+	if disclosesProfile && i.opts.Name != "" {
+		claims["name"] = i.opts.Name
+	}
+	if disclosesProfile && i.opts.GivenName != "" {
+		claims["given_name"] = i.opts.GivenName
+	}
+	if disclosesProfile && i.opts.FamilyName != "" {
+		claims["family_name"] = i.opts.FamilyName
 	}
 	if i.opts.OmitNonce {
 		delete(claims, "nonce")

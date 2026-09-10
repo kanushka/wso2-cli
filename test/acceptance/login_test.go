@@ -231,10 +231,10 @@ func browserDocument(issuerURL, endpoint string) contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: referenceContextName,
-		Identities: []contexts.Identity{{
+		Accounts: []contexts.Account{{
 			Name: loginIdentityName,
 			Type: "cloud",
-			Auth: contexts.IdentityAuth{
+			Auth: contexts.AccountAuth{
 				Kind:          contexts.KindOAuthBrowser,
 				Issuer:        issuerURL,
 				ClientID:      loginClientID,
@@ -251,7 +251,7 @@ func browserDocument(issuerURL, endpoint string) contexts.Document {
 		}},
 		Contexts: []contexts.Context{{
 			Name:         referenceContextName,
-			Identity:     loginIdentityName,
+			Account:      loginIdentityName,
 			Organization: referenceOrganization,
 		}},
 	}
@@ -546,7 +546,7 @@ func deployInline(t *testing.T, options fakeissuer.Options, secret string) *logi
 	// read the variable rather than that the fixture is permissive.
 	options.ClientSecret = inlineClientSecret
 	deployment := deployLogin(t, options, func(document *contexts.Document) {
-		identity := &document.Identities[0].Auth
+		identity := &document.Accounts[0].Auth
 		identity.Kind = contexts.KindClientCredentials
 		// A non-interactive identity holds no secure-store reference: there is
 		// no session to keep.

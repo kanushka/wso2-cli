@@ -784,3 +784,89 @@ func runGo(t *testing.T, directory string, environment []string, args ...string)
 		t.Fatalf("go %s in %s failed: %v\n%s", strings.Join(args, " "), directory, err, output)
 	}
 }
+
+// protectedIdentityTerms are the uses of "identity" that survive the rename in
+// ADR 0015: two OIDC terms, a product name, a provider value, and the redirect
+// that exists precisely to name the word a user typed.
+var protectedIdentityTerms = []string{
+	"identity provider", "Identity Provider", "identity providers", "Identity Providers",
+	"identity token", "Identity token", "identity tokens",
+	"Identity Server", "identity-server",
+	"wso2 identity %s is now wso2 account %s",
+	// "wso2 identity ..." is the product namespace's own command line, which
+	// ADR 0015 gave that word to. It is the one place the word is not the
+	// account concept, and a module naming its own commands has to use it.
+	"wso2 identity",
+	// The namespace argument of add-product, for the identity product itself.
+	"add-product <account> identity",
+	// The product the identity namespace reaches, named in its own prose. The
+	// rename turned it into "the account product", which names nothing.
+	"identity product",
+}
+
+// TestNoUserVisibleStringCallsAnAccountAnIdentity holds the rename ADR 0015
+// made. The shell's identity command and its concept became account, and
+// `identity` became a product namespace, so a message still calling an account
+// an identity is now ambiguous rather than merely dated: the same word names
+// the thing a user logs in as and the product they reach.
+//
+// It scans prose — a literal carrying a space — rather than every literal,
+// because the single-word ones are not prose at all: "identity" is the product
+// namespace, contexts.identity_exists is a problem code a script matches on,
+// json:"identities" is the pre-rename schema key the migration reads, and an
+// import path names a directory. Renaming any of those would break something
+// while fixing nothing a user reads.
+//
+// The first pass over this repository renamed every "wso2 identity <verb>" and
+// missed the prose around them, which is the mistake this test exists to catch
+// next time.
+func TestNoUserVisibleStringCallsAnAccountAnIdentity(t *testing.T) {
+	root := repoRoot(t)
+	for _, module := range goModules(t) {
+		for _, path := range goFiles(t, filepath.Join(root, module)) {
+			relative, _ := filepath.Rel(root, path)
+			// Generated protocol code is excluded: its descriptor bytes carry
+			// ModuleIdentity and ShellIdentity, which name which module and
+			// which shell are speaking and have nothing to do with an account.
+			// Renaming them would change the wire contract.
+			if strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, ".pb.go") ||
+				strings.Contains(relative, filepath.Join("internal", "boundaries")) {
+				continue
+			}
+			for _, literal := range stringLiterals(t, path) {
+				if !strings.Contains(literal, " ") {
+					continue
+				}
+				held := literal
+				for _, term := range protectedIdentityTerms {
+					held = strings.ReplaceAll(held, term, "")
+				}
+				if strings.Contains(strings.ToLower(held), "identit") {
+					t.Errorf("%s: a user-visible string calls an account an identity: %q",
+						relative, literal)
+				}
+			}
+		}
+	}
+}
+
+// stringLiterals reads every string literal in a Go file, which is what a user
+// can be shown; comments are deliberately not read.
+func stringLiterals(t *testing.T, path string) []string {
+	t.Helper()
+	fileSet := token.NewFileSet()
+	parsed, err := parser.ParseFile(fileSet, path, nil, 0)
+	if err != nil {
+		t.Fatalf("cannot parse %s: %v", path, err)
+	}
+	var literals []string
+	ast.Inspect(parsed, func(node ast.Node) bool {
+		if literal, ok := node.(*ast.BasicLit); ok && literal.Kind == token.STRING {
+			if unquoted, err := strconv.Unquote(literal.Value); err == nil {
+				literals = append(literals, unquoted)
+			}
+		}
+		return true
+	})
+	return literals
+}

@@ -36,10 +36,10 @@ import (
 	"github.com/wso2/wso2-cli/internal/state"
 )
 
-// moduleCommandFrom runs one wso2 module subcommand against a catalog origin.
+// moduleCommandFrom runs one wso2 product subcommand against a catalog origin.
 func moduleCommandFrom(shell, stateRoot, origin string, args ...string) (string, string, error) {
 	environment := shellEnvironment(stateRoot, catalog.OriginEnvVar+"="+origin)
-	return runShellWith(shell, environment, append([]string{"module"}, args...)...)
+	return runShellWith(shell, environment, append([]string{"product"}, args...)...)
 }
 
 // requireLaunchable proves an installed module is not merely present but works:
@@ -396,7 +396,7 @@ func TestAPinnedVersionInstallsNonInteractively(t *testing.T) {
 	var installed []string
 	for run := 1; run <= 2; run++ {
 		stateRoot := isolatedStateRoot(t)
-		command := exec.Command(shell, "module", "install", catalogNamespace+"@4.5.0")
+		command := exec.Command(shell, "product", "install", catalogNamespace+"@4.5.0")
 		command.Env = shellEnvironment(stateRoot, catalog.OriginEnvVar+"="+origin.server.URL)
 		command.Stdin = strings.NewReader("")
 		var stdout, stderr strings.Builder

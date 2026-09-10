@@ -41,10 +41,10 @@ func browserDoc(issuerURL string) contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: "acme-dev",
-		Identities: []contexts.Identity{{
+		Accounts: []contexts.Account{{
 			Name: "acme-cloud",
 			Type: "cloud",
-			Auth: contexts.IdentityAuth{
+			Auth: contexts.AccountAuth{
 				Kind:          contexts.KindOAuthBrowser,
 				Issuer:        issuerURL,
 				ClientID:      "client-123",
@@ -59,7 +59,7 @@ func browserDoc(issuerURL string) contexts.Document {
 				},
 			},
 		}},
-		Contexts: []contexts.Context{{Name: "acme-dev", Identity: "acme-cloud", Organization: "acme"}},
+		Contexts: []contexts.Context{{Name: "acme-dev", Account: "acme-cloud", Organization: "acme"}},
 	}
 }
 
@@ -67,10 +67,10 @@ func browserDoc(issuerURL string) contexts.Document {
 func identityDoc(kind string) func(string) contexts.Document {
 	return func(issuerURL string) contexts.Document {
 		document := browserDoc(issuerURL)
-		document.Identities[0].Auth.Kind = kind
+		document.Accounts[0].Auth.Kind = kind
 		if kind == contexts.KindClientCredentials {
-			document.Identities[0].Auth.CredentialRef = ""
-			document.Identities[0].Auth.ClientSecretVariable = "WSO2_ACME_CLIENT_SECRET"
+			document.Accounts[0].Auth.CredentialRef = ""
+			document.Accounts[0].Auth.ClientSecretVariable = "WSO2_ACME_CLIENT_SECRET"
 		}
 		return document
 	}
@@ -210,7 +210,7 @@ func TestTheNoInputRefusalNamesTheControlThatFired(t *testing.T) {
 			// needs, so the recovery must say so and name the file to edit
 			// rather than advertise a command that does not exist.
 			if !strings.Contains(errOut.String(), "No command creates one yet") {
-				t.Errorf("the recovery does not say no command creates a client-credentials identity:\n%s", errOut)
+				t.Errorf("the recovery does not say no command creates a client-credentials account:\n%s", errOut)
 			}
 			if !strings.Contains(errOut.String(), contexts.Path(shell.StateRoot)) {
 				t.Errorf("the recovery does not name the context document's path:\n%s", errOut)
@@ -376,6 +376,14 @@ func TestLoginRecordsSubjectAndDisclosedSessionExpiry(t *testing.T) {
 	if stored.Subject != "user-1" {
 		t.Errorf("stored session subject = %q, want %q (fakeissuer's own subject)", stored.Subject, "user-1")
 	}
+	// The fixture issuer discloses no name or given/family name claim, so the
+	// login's resolved display name falls back to the email claim it already
+	// reads — carried through to the stored session rather than read and
+	// discarded (#168).
+	if stored.Name != "dev@example.test" {
+		t.Errorf("stored session name = %q, want %q (fakeissuer's email, the fallback with no name claim)",
+			stored.Name, "dev@example.test")
+	}
 	if stored.SessionExpiresAt.IsZero() {
 		t.Fatal("the disclosed refresh-token lifetime was not recorded as SessionExpiresAt")
 	}
@@ -511,10 +519,10 @@ func TestLoginCompletesFromThePrintedURL(t *testing.T) {
 func TestLoginSelectsTheContextNamedByTheFlag(t *testing.T) {
 	shell, _, errOut := newLoginShell(t)
 	document := browserDoc("https://issuer.example.test")
-	document.Identities = append(document.Identities, contexts.Identity{
+	document.Accounts = append(document.Accounts, contexts.Account{
 		Name: "acme-ci",
 		Type: "cloud",
-		Auth: contexts.IdentityAuth{
+		Auth: contexts.AccountAuth{
 			Kind:                 contexts.KindClientCredentials,
 			Issuer:               "https://issuer.example.test",
 			ClientID:             "client-ci",
@@ -522,13 +530,13 @@ func TestLoginSelectsTheContextNamedByTheFlag(t *testing.T) {
 		},
 	})
 	document.Contexts = append(document.Contexts,
-		contexts.Context{Name: "acme-ci", Identity: "acme-ci", Organization: "acme"})
+		contexts.Context{Name: "acme-ci", Account: "acme-ci", Organization: "acme"})
 	installLogin(t, shell, document)
 
 	if code := shell.Run([]string{"login", "--context", "acme-ci"}); code != exit.AuthPolicy {
 		t.Fatalf("exit code = %d, want %d (auth policy); stderr: %s", code, exit.AuthPolicy, errOut)
 	}
-	// The default context is a browser identity, so this code can only come
+	// The default context is a browser account, so this code can only come
 	// from the context the flag named.
 	requireRefusal(t, errOut.String(), "auth.login_not_required")
 }

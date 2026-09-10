@@ -43,13 +43,13 @@ import (
 // on the network and on what is published that day.
 func listModules(shell, stateRoot, origin string) (string, string, error) {
 	environment := shellEnvironment(stateRoot, catalog.OriginEnvVar+"="+origin)
-	return runShellWith(shell, environment, "module", "list")
+	return runShellWith(shell, environment, "product", "list")
 }
 
 // removeModule runs one removal and reports both streams and the exit error.
 func removeModule(shell, stateRoot string, args ...string) (string, string, error) {
 	return runShellWith(shell, shellEnvironment(stateRoot),
-		append([]string{"module", "remove"}, args...)...)
+		append([]string{"product", "remove"}, args...)...)
 }
 
 // TestRemovingAModuleTakesItOffTheMachine is the whole of what removal means
@@ -190,7 +190,7 @@ func TestRemovingAModuleThatIsNotInstalledIsRefused(t *testing.T) {
 
 	// The refusal has to leave the user somewhere to go next, and what is
 	// installed is the thing they need to see.
-	if !strings.Contains(stderr, "wso2 module list") {
+	if !strings.Contains(stderr, "wso2 product list") {
 		t.Errorf("the refusal does not name how to see what is installed:\n%s", stderr)
 	}
 }

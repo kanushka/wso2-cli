@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -31,18 +33,20 @@ import (
 
 // The way back from each subcommand's usage refusals.
 const (
-	contextCreateUsage = "Run wso2 context create <name> --identity <identity> " +
+	contextCreateUsage = "Run wso2 context create <name> --account <account> " +
 		"[--organization <name>] [--project <name>]."
 	contextUseUsage     = "Run wso2 context use <name>."
 	contextListUsage    = "Run wso2 context list [--output table|json]."
 	contextCurrentUsage = "Run wso2 context current [--output table|json]."
+	contextShowUsage    = "Run wso2 context show [--output table|json]."
 )
 
 // contextRecovery is what every refusal from the context command itself,
 // rather than one of its subcommands, points a user at.
 const contextRecovery = "Run wso2 context list to see the contexts on this machine, " +
 	"wso2 context current to show the selected one, wso2 context use <name> to select " +
-	"another, or wso2 context create <name> to add one."
+	"another, wso2 context create <name> to add one, or wso2 context show to see the " +
+	"document whole and where it lives."
 
 // contextCommand builds the wso2 context tree.
 //
@@ -78,7 +82,7 @@ func (s Shell) contextCommand() *cobra.Command {
 	// alongside "wso2 context use beta" would be two answers to one question.
 	declareOutputFlag(command.PersistentFlags())
 	command.AddCommand(s.contextCreateCommand(), s.contextUseCommand(),
-		s.contextListCommand(), s.contextCurrentCommand())
+		s.contextListCommand(), s.contextCurrentCommand(), s.contextShowCommand())
 	return command
 }
 
@@ -92,8 +96,8 @@ func (s Shell) contextCreateCommand() *cobra.Command {
 			return s.contextCreate(command, args[0], identity, organization, project)
 		},
 	}
-	command.Flags().StringVar(&identity, "identity", "",
-		"Authenticate this context as the named identity.")
+	command.Flags().StringVar(&identity, "account", "",
+		"Authenticate this context as the named account.")
 	command.Flags().StringVar(&organization, "organization", "",
 		"Run commands within this organization.")
 	// Accepted and left unvalidated on purpose: the field is already in schema
@@ -135,6 +139,17 @@ func (s Shell) contextCurrentCommand() *cobra.Command {
 		Args:  noArguments(contextCurrentUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.contextCurrent(command)
+		},
+	}
+}
+
+func (s Shell) contextShowCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "show",
+		Short: "Show the context document whole: where it lives, and everything it declares.",
+		Args:  noArguments(contextShowUsage),
+		RunE: func(command *cobra.Command, args []string) error {
+			return s.contextShow(command)
 		},
 	}
 }
@@ -221,8 +236,8 @@ func (s Shell) contextCreate(command *cobra.Command, name, identity, organizatio
 		// takes the route exactlyOneArgument's comment describes and would exit
 		// outside the documented classes.
 		return problem.New(problem.CategoryUsage, "shell.missing_required_flag",
-			"wso2 context create needs an identity to authenticate the context as").
-			WithRecovery(contextCreateUsage + " Run wso2 login to create an identity.")
+			"wso2 context create needs an account to authenticate the context as").
+			WithRecovery(contextCreateUsage + " Run wso2 login to create an account.")
 	}
 	// Checked before the document is opened, so that a name the user mistyped
 	// is refused as the argument it is. Left to the document, the same mistake
@@ -255,14 +270,14 @@ func (s Shell) contextCreate(command *cobra.Command, name, identity, organizatio
 			return document, contextExists(name)
 		}
 		if !declaresIdentity(document, identity) {
-			return document, unknownIdentity(identity, len(document.Identities) > 0)
+			return document, unknownIdentity(identity, len(document.Accounts) > 0)
 		}
 		// A fresh machine yields the zero document, whose schema version is
 		// zero rather than the one the shell writes.
 		document.SchemaVersion = contexts.SchemaVersion
 		document.Contexts = append(document.Contexts, contexts.Context{
 			Name:         name,
-			Identity:     identity,
+			Account:      identity,
 			Organization: organization,
 			Project:      project,
 		})
@@ -354,7 +369,7 @@ func (s Shell) contextList(command *cobra.Command) error {
 	for _, configured := range document.Contexts {
 		listing.Contexts = append(listing.Contexts, contextEntry{
 			Name:         configured.Name,
-			Identity:     configured.Identity,
+			Identity:     configured.Account,
 			Organization: configured.Organization,
 			Project:      configured.Project,
 			Selected:     configured.Name == document.DefaultContext,
@@ -369,7 +384,7 @@ func (s Shell) contextList(command *cobra.Command) error {
 		_, err := fmt.Fprintln(s.Streams.Out, "No contexts are configured.\n\n"+contextCreateUsage)
 		return err
 	}
-	table := output.NewTable("current", "context", "identity", "organization", "project")
+	table := output.NewTable("current", "context", "account", "organization", "project")
 	for _, entry := range listing.Contexts {
 		table.Append(selectionMark(entry.Selected), entry.Name, entry.Identity,
 			entry.Organization, entry.Project)
@@ -401,7 +416,7 @@ func (s Shell) contextCurrent(command *cobra.Command) error {
 		current = contextCurrent{
 			Configured:   true,
 			Context:      selected.Context.Name,
-			Identity:     selected.Context.Identity,
+			Identity:     selected.Context.Account,
 			Organization: selected.Context.Organization,
 			Project:      selected.Context.Project,
 		}
@@ -416,9 +431,80 @@ func (s Shell) contextCurrent(command *cobra.Command) error {
 	// it worse.
 	_, err = fmt.Fprintln(s.Streams.Out,
 		"No context is configured, so commands run against nothing.\n\n"+
-			"Run wso2 login to create an identity and a context, "+
-			"or wso2 context create <name> --identity <identity> if you already have one.")
+			"Run wso2 login to create an account and a context, "+
+			"or wso2 context create <name> --account <account> if you already have one.")
 	return err
+}
+
+// contextShow reports where the context document lives and shows it whole:
+// every account and every context it declares, alongside the schema version
+// and the selected default.
+//
+// It exists because the other subcommands each show a part — list shows
+// contexts, and wso2 account list (identity.go) shows accounts and their
+// products — and none of them names the file all of it lives in. A user
+// working out why a command reaches a product the way it does, or who has
+// hand-edited the document because no command could do what they needed, has
+// to know where the shell keeps it before they can go look, and that depends
+// on WSO2_HOME and the platform default (state.Root) rather than being fixed
+// (#170).
+//
+// The path is reported even when nothing has been written there yet: a user
+// who has never logged in still needs to know where a document would go, and
+// contexts.Load answers a missing file with the zero Document rather than an
+// error, so Written is the only thing that tells the two states apart.
+//
+// Nothing here needs redacting. contexts.Account and contexts.Context, which
+// this renders directly, are named and located values only — a credential
+// reference, an environment variable name, an issuer, never a token or a
+// secret — by the same guarantee internal/contexts documents at its own
+// package level. Showing the document whole is what proves that guarantee to
+// a reader instead of asking them to take it on faith.
+func (s Shell) contextShow(command *cobra.Command) error {
+	mode, err := s.shellOutputMode(command)
+	if err != nil {
+		return err
+	}
+	root, err := s.stateRoot()
+	if err != nil {
+		return err
+	}
+	path := contexts.Path(root)
+	// Load treats a missing file as the empty document, which is the right
+	// answer for every other reader but leaves this command with no way to
+	// tell "nothing written" from "written and empty" — the two states this
+	// report exists to tell apart. Stat is asked directly instead of guessing
+	// from what Load returns.
+	_, statErr := os.Stat(path)
+	written := statErr == nil
+
+	document, err := contexts.Load(root)
+	if err != nil {
+		return err
+	}
+
+	report := contextDocumentReport{
+		Path:           path,
+		Written:        written,
+		SchemaVersion:  document.SchemaVersion,
+		DefaultContext: document.DefaultContext,
+		Accounts:       showAccounts(document.Accounts),
+		Contexts:       document.Contexts,
+	}
+	// Never nil in either rendering: a JSON caller iterating "accounts" or
+	// "contexts" on a fresh machine must see an empty list, not learn to
+	// special-case null first.
+	if report.Accounts == nil {
+		report.Accounts = []shownAccount{}
+	}
+	if report.Contexts == nil {
+		report.Contexts = []contexts.Context{}
+	}
+
+	if mode == output.ModeJSON {
+		return encodeContextJSON(s.Streams.Out, report)
+	}
+	return report.renderTable(s.Streams.Out)
 }
 
 // The results this family reports.
@@ -435,7 +521,7 @@ type (
 	// contextCreated is what wso2 context create reports.
 	contextCreated struct {
 		Context      string `json:"context"`
-		Identity     string `json:"identity"`
+		Identity     string `json:"account"`
 		Organization string `json:"organization"`
 		Project      string `json:"project"`
 		// Selected reports whether this context is now the one commands run
@@ -456,7 +542,7 @@ type (
 		// empty name" out of empty strings.
 		Configured   bool   `json:"configured"`
 		Context      string `json:"context"`
-		Identity     string `json:"identity"`
+		Identity     string `json:"account"`
 		Organization string `json:"organization"`
 		Project      string `json:"project"`
 	}
@@ -466,7 +552,7 @@ type (
 	// unset value, and the other results in this family omit nothing either.
 	contextEntry struct {
 		Name         string `json:"name"`
-		Identity     string `json:"identity"`
+		Identity     string `json:"account"`
 		Organization string `json:"organization"`
 		Project      string `json:"project"`
 		Selected     bool   `json:"selected"`
@@ -476,12 +562,49 @@ type (
 	contextListing struct {
 		Contexts []contextEntry `json:"contexts"`
 	}
+
+	// contextDocumentReport is what wso2 context show reports: the on-disk
+	// context document verbatim, plus where it lives and whether it has been
+	// written at all.
+	//
+	// Accounts and Contexts are contexts.Account and contexts.Context
+	// themselves, not a narrower view built for this command: the whole
+	// point of "show the document" is that nothing in it is trimmed the way
+	// wso2 account list trims the credential reference from its own rows.
+	// Neither type has anywhere to put a credential (internal/contexts's own
+	// package doc), so embedding them whole costs nothing that R8's design
+	// promises to withhold.
+	contextDocumentReport struct {
+		// Path is the context document's location inside the shell's state
+		// root, which WSO2_HOME (state.RootEnvVar) overrides. Reported
+		// whichever way Written comes out.
+		Path string `json:"path"`
+		// Written reports whether a document exists at Path. False on a
+		// fresh machine is a state, not a failure.
+		Written        bool               `json:"written"`
+		SchemaVersion  int                `json:"schemaVersion"`
+		DefaultContext string             `json:"defaultContext"`
+		Accounts       []shownAccount     `json:"accounts"`
+		Contexts       []contexts.Context `json:"contexts"`
+	}
+
+	// shownAccount is one account as wso2 context show reports it: the account
+	// as the document records it, plus where its credential comes from.
+	//
+	// The source is derived rather than read from a member because no single
+	// member holds it for every kind of account, and one of them — a version
+	// 1 document's credential variable — is never encoded at all. It names a
+	// source and never a credential: the account has nowhere to hold one.
+	shownAccount struct {
+		contexts.Account
+		CredentialSource string `json:"credentialSource"`
+	}
 )
 
 func (c contextCreated) fields() [][2]string {
 	return [][2]string{
 		{"Context", c.Context},
-		{"Identity", c.Identity},
+		{"Account", c.Identity},
 		{"Organization", c.Organization},
 		{"Project", c.Project},
 		{"Selected", yesNo(c.Selected)},
@@ -491,9 +614,147 @@ func (c contextCreated) fields() [][2]string {
 func (c contextCurrent) fields() [][2]string {
 	return [][2]string{
 		{"Context", c.Context},
-		{"Identity", c.Identity},
+		{"Account", c.Identity},
 		{"Organization", c.Organization},
 		{"Project", c.Project},
+	}
+}
+
+// renderTable writes the whole document as a person reads it: the path and
+// whether it exists, then one table per section the document declares.
+//
+// It does not go through the reportable interface renderContext uses: that
+// interface renders one row of labelled fields, and this report is a
+// document with two collections in it, which is not a shape fields() can
+// carry without flattening one of them into a single unreadable cell.
+func (c contextDocumentReport) renderTable(w io.Writer) error {
+	if err := output.Fields(w, [][2]string{
+		{"Path", c.Path},
+		{"Written", yesNo(c.Written)},
+	}); err != nil {
+		return err
+	}
+	if !c.Written {
+		_, err := fmt.Fprintln(w, "\nNo context document has been written yet.\n\n"+contextCreateUsage)
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "\nSchema version: %d\nDefault context: %s\n",
+		c.SchemaVersion, c.DefaultContext); err != nil {
+		return err
+	}
+
+	if len(c.Accounts) == 0 {
+		if _, err := fmt.Fprintln(w, "\nNo accounts are declared."); err != nil {
+			return err
+		}
+	} else {
+		if _, err := fmt.Fprintln(w, "\nAccounts"); err != nil {
+			return err
+		}
+		table := output.NewTable("name", "type", "kind", "issuer", "credential source", "products")
+		for _, account := range c.Accounts {
+			table.Append(account.Name, account.Type, account.Auth.Kind, account.Auth.Issuer,
+				account.CredentialSource, productNamespaces(account.Account))
+		}
+		if err := table.Render(w); err != nil {
+			return err
+		}
+		accounts := make([]contexts.Account, 0, len(c.Accounts))
+		for _, account := range c.Accounts {
+			accounts = append(accounts, account.Account)
+		}
+		if err := renderProductRecords(w, accounts); err != nil {
+			return err
+		}
+	}
+
+	if len(c.Contexts) == 0 {
+		_, err := fmt.Fprintln(w, "\nNo contexts are declared.")
+		return err
+	}
+	if _, err := fmt.Fprintln(w, "\nContexts"); err != nil {
+		return err
+	}
+	table := output.NewTable("default", "name", "account", "organization", "project")
+	for _, entry := range c.Contexts {
+		table.Append(selectionMark(entry.Name == c.DefaultContext), entry.Name, entry.Account,
+			entry.Organization, entry.Project)
+	}
+	return table.Render(w)
+}
+
+// renderProductRecords shows every record each account holds, whole: what it
+// reaches and how, one row per record.
+//
+// The accounts table can only name an account's products, and a reader
+// deciding why a command reaches a product the way it does needs the rest —
+// the endpoint it calls, the audience a token is bound to, the scopes it may
+// ask for, and the grant it is reached by. A gateway record is a row of its
+// own under its <namespace>/gateway key, because it is reached separately.
+//
+// The login product is marked, as the contexts table marks the default
+// context: every other product's session is obtained through the one an
+// account logs in through, so it is the record that explains the rest. A
+// client-credentials account logs in through nothing and marks nothing.
+func renderProductRecords(w io.Writer, accounts []contexts.Account) error {
+	table := output.NewTable("login", "account", "record", "endpoint", "audience", "scopes", "grant")
+	rows := 0
+	for _, account := range accounts {
+		login := ""
+		if account.Auth.Kind != contexts.KindClientCredentials {
+			login = account.LoginAccess().Namespace
+		}
+		for _, key := range account.RecordKeys() {
+			namespace, gateway := contexts.SplitGatewayKey(key)
+			product := account.Products[namespace]
+			endpoint, audience, scopes, grant := product.Endpoint, product.Audience, product.Scopes, ""
+			if gateway {
+				endpoint, audience, scopes = product.Gateway.Endpoint, product.Gateway.Audience, product.Gateway.Scopes
+			} else if product.Grant != nil {
+				grant = product.Grant.Kind
+			}
+			table.Append(selectionMark(key == login), account.Name, key, endpoint, audience,
+				strings.Join(scopes, ","), grant)
+			rows++
+		}
+	}
+	if rows == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintln(w, "\nProducts"); err != nil {
+		return err
+	}
+	return table.Render(w)
+}
+
+// showAccounts pairs each account with where its credential comes from.
+func showAccounts(accounts []contexts.Account) []shownAccount {
+	shown := make([]shownAccount, 0, len(accounts))
+	for _, account := range accounts {
+		shown = append(shown, shownAccount{Account: account, CredentialSource: credentialSource(account.Auth)})
+	}
+	return shown
+}
+
+// credentialSource names where an account's credential comes from — never the
+// credential itself, which AccountAuth has nowhere to hold. A browser account
+// names the secure-store entry its session lives under; a client-credentials
+// account names the environment variable its secret is read from at use. An
+// account with neither, which validate() never actually permits, renders
+// blank rather than guessing.
+func credentialSource(auth contexts.AccountAuth) string {
+	switch {
+	case auth.CredentialRef != "":
+		return "secure store: " + auth.CredentialRef
+	case auth.ClientSecretVariable != "":
+		return "env: " + auth.ClientSecretVariable
+	case auth.CredentialVariable != "":
+		// A version 1 document's account: its credential is read from this
+		// variable, in a field the shell never encodes because it never writes
+		// a version 1 document back. Showing the document is not writing it.
+		return "env: " + auth.CredentialVariable
+	default:
+		return ""
 	}
 }
 
@@ -566,7 +827,7 @@ func (s Shell) explainWriteRefusal(stateRoot string, err error) error {
 			"which this shell reads but does not write", contexts.Path(stateRoot))).
 		WithRecovery("wso2 context list and wso2 context current still read it as it is. " +
 			"To write, move the file aside; the shell then starts a fresh schema version 2 " +
-			"document. Nothing is converted, so run wso2 login to create an identity and " +
+			"document. Nothing is converted, so run wso2 login to create an account and " +
 			"wso2 context create to declare the contexts again.")
 }
 
@@ -582,7 +843,7 @@ func declaresContext(document contexts.Document, name string) bool {
 
 // declaresIdentity reports whether the document declares this identity.
 func declaresIdentity(document contexts.Document, name string) bool {
-	for _, candidate := range document.Identities {
+	for _, candidate := range document.Accounts {
 		if candidate.Name == name {
 			return true
 		}
@@ -604,24 +865,24 @@ func contextExists(name string) problem.Problem {
 // unknownIdentity refuses a context that would authenticate as nothing.
 //
 // The recovery names wso2 login because login is the only thing that creates an
-// identity: there is no wso2 identity create, by decision (#112 D3), so any
+// identity: there is no wso2 account create, by decision (#112 D3), so any
 // other advice would send the user looking for a command that does not exist.
 // Which recovery depends on whether any identity exists at all: a document with
-// identities offers wso2 identity list, because the likeliest fault is a
+// identities offers wso2 account list, because the likeliest fault is a
 // mistyped name, and a document with none offers nothing to list, so pointing
 // at the list would send a first-run user in a circle back to login.
 func unknownIdentity(name string, anyDeclared bool) problem.Problem {
 	if !anyDeclared {
 		return problem.New(problem.CategoryUsage, "contexts.unknown_identity",
-			fmt.Sprintf("no identity named %q is configured, and no identities exist", name)).
+			fmt.Sprintf("no account named %q is configured, and no accounts exist", name)).
 			WithRecovery("Run wso2 login --url <issuer> --client-id <id> to log in and create " +
-				"one. Logging in is the only thing that creates an identity.")
+				"one. Logging in is the only thing that creates an account.")
 	}
 	return problem.New(problem.CategoryUsage, "contexts.unknown_identity",
-		fmt.Sprintf("no identity named %q is configured", name)).
-		WithRecovery("Run wso2 identity list to see the identities login created, or wso2 login " +
+		fmt.Sprintf("no account named %q is configured", name)).
+		WithRecovery("Run wso2 account list to see the accounts login created, or wso2 login " +
 			"--url <issuer> --client-id <id> to create one. Logging in is the only thing that " +
-			"creates an identity.")
+			"creates an account.")
 }
 
 // selectionMark marks the row a command would run against.

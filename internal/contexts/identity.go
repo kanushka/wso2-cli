@@ -195,16 +195,16 @@ func TenantForIssuer(issuer string) string {
 // this pattern is the enforcement of.
 var refPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 
-// Identity is one authentication arrangement the shell can log in as. It names
+// Account is one authentication arrangement the shell can log in as. It names
 // where credentials come from and never holds one.
-type Identity struct {
+type Account struct {
 	// Name identifies the identity; contexts reference it.
 	Name string `json:"name"`
 	// Type says whether the identity targets a cloud or on-premises
 	// deployment. It is "cloud" or "onprem".
 	Type string `json:"type"`
 	// Auth says how the shell authenticates as this identity.
-	Auth IdentityAuth `json:"auth"`
+	Auth AccountAuth `json:"auth"`
 	// Products are the product services reachable under this identity, keyed
 	// by product namespace.
 	Products map[string]Product `json:"products,omitempty"`
@@ -219,9 +219,9 @@ type Identity struct {
 	synthetic bool
 }
 
-// IdentityAuth is an identity's authentication arrangement. Every member is a
+// AccountAuth is an identity's authentication arrangement. Every member is a
 // name or a location; none holds a credential.
-type IdentityAuth struct {
+type AccountAuth struct {
 	// Kind identifies how the shell obtains access.
 	Kind string `json:"kind"`
 	// Issuer is the token issuer the shell authenticates against.
@@ -259,7 +259,7 @@ type IdentityAuth struct {
 // requires, and an explicit derivation states what this deployment actually
 // does. Saying both is legal, because a deployment that has not registered a
 // resource server is a real state and the document has to be able to say so.
-func (a IdentityAuth) Derivation() string {
+func (a AccountAuth) Derivation() string {
 	if a.Narrowing != "" {
 		return a.Narrowing
 	}
@@ -337,8 +337,14 @@ const GrantJWTBearer = "jwt-bearer"
 // sign-on. The session is the product issuer's own refresh token.
 const GrantFederated = "federated"
 
+// GrantExchange exchanges the login session's own access token at the
+// identity's issuer, under RFC 8693, for one bound to the product's
+// audience. It names neither an issuer nor a client because it uses the
+// identity's own: the product never authorizes anything itself.
+const GrantExchange = "exchange"
+
 // legalGrants are the grant kinds this shell implements.
-var legalGrants = map[string]bool{GrantJWTBearer: true, GrantFederated: true}
+var legalGrants = map[string]bool{GrantJWTBearer: true, GrantFederated: true, GrantExchange: true}
 
 // Grant is one way of deriving a product's access from the session. It names
 // where the assertion goes and what the assertion must carry; like everything
@@ -348,10 +354,13 @@ type Grant struct {
 	// Kind names the grant. Only GrantJWTBearer is read.
 	Kind string `json:"kind"`
 	// Issuer is the product's own OpenID issuer, whose token endpoint takes
-	// the assertion.
-	Issuer string `json:"issuer"`
+	// the assertion. Omitted for an exchange grant, which runs at the
+	// identity's own issuer and would otherwise write a member that is not
+	// unset but meaningless.
+	Issuer string `json:"issuer,omitempty"`
 	// ClientID is the public client the shell presents at that issuer.
-	ClientID string `json:"clientId"`
+	// Omitted for an exchange grant, for the same reason as Issuer.
+	ClientID string `json:"clientId,omitempty"`
 	// Scopes are what the identity's issuer is asked for when the session is
 	// refreshed for the assertion: the scopes that make the identity token
 	// carry the claims the product maps. openid is always among them.
@@ -378,20 +387,20 @@ func (g Grant) AssertionScopes() []string {
 	return scopes
 }
 
-// Direct reports whether the identity's own session answers for this product.
+// Direct reports whether the account's own session answers for this product.
 // A product with a grant is derived instead, at another issuer.
 func (p Product) Direct() bool { return p.Grant == nil }
 
 // Synthetic reports whether this identity was manufactured by the v1
 // compatibility read. A synthetic identity is readable but never written back.
-func (i Identity) Synthetic() bool { return i.synthetic }
+func (i Account) Synthetic() bool { return i.synthetic }
 
-func (i Identity) validate() error {
+func (i Account) validate() error {
 	if !namePattern.MatchString(i.Name) {
-		return malformed(fmt.Sprintf("declares an invalid identity name %q", i.Name))
+		return malformed(fmt.Sprintf("declares an invalid account name %q", i.Name))
 	}
 	if i.Type != TypeCloud && i.Type != TypeOnprem {
-		return malformed(fmt.Sprintf("declares an identity type for %q that is neither cloud nor onprem", i.Name))
+		return malformed(fmt.Sprintf("declares an account type for %q that is neither cloud nor onprem", i.Name))
 	}
 	if err := i.Auth.validate(i.Name); err != nil {
 		return err
@@ -403,22 +412,22 @@ func (i Identity) validate() error {
 	// one unreadable product is refused for the same reason on every run.
 	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
 		if !namePattern.MatchString(namespace) {
-			return malformed(fmt.Sprintf("declares an invalid product namespace on the identity %q", i.Name))
+			return malformed(fmt.Sprintf("declares an invalid product namespace on the account %q", i.Name))
 		}
 		if err := i.Products[namespace].validate(i.Name); err != nil {
 			return err
 		}
 		if i.Products[namespace].ClientSecretVariable != "" && i.Auth.Kind != KindClientCredentials {
 			return malformed(fmt.Sprintf(
-				"declares a product credential on the interactive identity %q; a product credential "+
-					"belongs to a client-credentials identity", i.Name))
+				"declares a product credential on the interactive account %q; a product credential "+
+					"belongs to a client-credentials account", i.Name))
 		}
 	}
 	if i.LoginProduct != "" {
 		pinned, recorded := i.Products[i.LoginProduct]
 		if !recorded || !pinned.Direct() {
 			return malformed(fmt.Sprintf(
-				"pins the login of the identity %q to a product it does not reach directly", i.Name))
+				"pins the login of the account %q to a product it does not reach directly", i.Name))
 		}
 	}
 	return nil
@@ -435,13 +444,13 @@ func (i Identity) validate() error {
 // products — each becomes its own resource-bound session, the login's or a
 // sibling's, since the deployments this derivation serves accept only one
 // resource indicator per authorization, not one product per identity.
-func (i Identity) validateDerivation() error {
+func (i Account) validateDerivation() error {
 	if i.Auth.Derivation() != DerivationTokenResource {
 		return nil
 	}
 	if len(i.Products) == 0 {
 		return malformed(fmt.Sprintf(
-			"declares the identity %q against a deployment that binds a login to a product, "+
+			"declares the account %q against a deployment that binds a login to a product, "+
 				"and gives it none", i.Name))
 	}
 	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
@@ -451,7 +460,7 @@ func (i Identity) validateDerivation() error {
 		audience := i.Products[namespace].Audience
 		if audience == "" {
 			return malformed(fmt.Sprintf(
-				"declares the %q product on the identity %q without the audience its deployment "+
+				"declares the %q product on the account %q without the audience its deployment "+
 					"binds access to", namespace, i.Name))
 		}
 		// The audience travels as an RFC 8707 resource indicator, which section
@@ -468,7 +477,7 @@ func (i Identity) validateDerivation() error {
 		// opinion the specification does not.
 		if !absoluteURI(audience) {
 			return malformed(fmt.Sprintf(
-				"declares the %q product on the identity %q with an audience that is not an "+
+				"declares the %q product on the account %q with an audience that is not an "+
 					"absolute URI, which is what its deployment binds access by", namespace, i.Name))
 		}
 	}
@@ -481,12 +490,12 @@ func (i Identity) validateDerivation() error {
 		}
 		if gateway.Audience == "" {
 			return malformed(fmt.Sprintf(
-				"declares the %q product's gateway on the identity %q without the audience its "+
+				"declares the %q product's gateway on the account %q without the audience its "+
 					"deployment binds access to", namespace, i.Name))
 		}
 		if !absoluteURI(gateway.Audience) {
 			return malformed(fmt.Sprintf(
-				"declares the %q product's gateway on the identity %q with an audience that is not an "+
+				"declares the %q product's gateway on the account %q with an audience that is not an "+
 					"absolute URI, which is what its deployment binds access by", namespace, i.Name))
 		}
 	}
@@ -500,7 +509,7 @@ func absoluteURI(value string) bool {
 	return err == nil && parsed.Scheme != "" && parsed.Fragment == ""
 }
 
-func (a IdentityAuth) validate(identity string) error {
+func (a AccountAuth) validate(identity string) error {
 	if a.Provider != "" {
 		if _, known := providerDerivation[a.Provider]; !known {
 			return malformed(fmt.Sprintf(
@@ -509,42 +518,42 @@ func (a IdentityAuth) validate(identity string) error {
 	}
 	if a.Narrowing != "" && !legalDerivations[a.Narrowing] {
 		return malformed(fmt.Sprintf(
-			"declares a derivation for the identity %q that this shell does not implement", identity))
+			"declares a derivation for the account %q that this shell does not implement", identity))
 	}
 	if !legalKinds[a.Kind] {
-		return malformed(fmt.Sprintf("declares an authentication kind for the identity %q that this shell does not read", identity))
+		return malformed(fmt.Sprintf("declares an authentication kind for the account %q that this shell does not read", identity))
 	}
 	switch a.Kind {
 	case KindOAuthBrowser, KindOAuthDevice:
 		if a.Issuer == "" || a.ClientID == "" {
-			return malformed(fmt.Sprintf("declares the interactive identity %q without an issuer and client identifier", identity))
+			return malformed(fmt.Sprintf("declares the interactive account %q without an issuer and client identifier", identity))
 		}
 		if a.CredentialRef == "" || !refPattern.MatchString(a.CredentialRef) {
 			// The rejected value is not echoed: what was pasted where a
 			// reference belongs may be a credential.
 			return contextProblem("contexts.document_malformed",
-				fmt.Sprintf("the identity %q does not name a secure-store reference as its credential source", identity),
+				fmt.Sprintf("the account %q does not name a secure-store reference as its credential source", identity),
 				"Name the secure-store entry, not a credential value. A reference is one lower-case word.")
 		}
 		if a.ClientSecretVariable != "" {
-			return malformed(fmt.Sprintf("declares a client secret source on the interactive identity %q", identity))
+			return malformed(fmt.Sprintf("declares a client secret source on the interactive account %q", identity))
 		}
 	case KindClientCredentials:
 		if a.Issuer == "" || a.ClientID == "" {
-			return malformed(fmt.Sprintf("declares the identity %q without an issuer and client identifier", identity))
+			return malformed(fmt.Sprintf("declares the account %q without an issuer and client identifier", identity))
 		}
 		if a.ClientSecretVariable == "" || !variablePattern.MatchString(a.ClientSecretVariable) {
 			return contextProblem("contexts.document_malformed",
-				fmt.Sprintf("the identity %q does not name an environment variable as its client secret source", identity),
+				fmt.Sprintf("the account %q does not name an environment variable as its client secret source", identity),
 				"Name the environment variable holding the client secret, not the secret itself.")
 		}
 		if a.CredentialRef != "" {
-			return malformed(fmt.Sprintf("declares a secure-store reference on the non-interactive identity %q", identity))
+			return malformed(fmt.Sprintf("declares a secure-store reference on the non-interactive account %q", identity))
 		}
 	case KindPAT:
 		if a.CredentialRef == "" || !refPattern.MatchString(a.CredentialRef) {
 			return contextProblem("contexts.document_malformed",
-				fmt.Sprintf("the identity %q does not name a secure-store reference as its credential source", identity),
+				fmt.Sprintf("the account %q does not name a secure-store reference as its credential source", identity),
 				"Name the secure-store entry, not a credential value. A reference is one lower-case word.")
 		}
 		// A personal access token has no client secret. Accepting the member
@@ -552,17 +561,17 @@ func (a IdentityAuth) validate(identity string) error {
 		// pasted value unchecked on the kind whose users are most likely to be
 		// holding a raw token, so it is refused rather than ignored.
 		if a.ClientSecretVariable != "" {
-			return malformed(fmt.Sprintf("declares a client secret source on the token identity %q", identity))
+			return malformed(fmt.Sprintf("declares a client secret source on the token account %q", identity))
 		}
 	}
 	// The issuer URL, like an endpoint, may not embed user information.
 	if a.Issuer != "" {
 		parsed, err := url.Parse(a.Issuer)
 		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-			return malformed(fmt.Sprintf("declares an issuer for the identity %q that this shell cannot read", identity))
+			return malformed(fmt.Sprintf("declares an issuer for the account %q that this shell cannot read", identity))
 		}
 		if parsed.User != nil {
-			return malformed(fmt.Sprintf("declares an issuer for the identity %q that embeds credentials in its URL", identity))
+			return malformed(fmt.Sprintf("declares an issuer for the account %q that embeds credentials in its URL", identity))
 		}
 	}
 	return nil
@@ -574,15 +583,15 @@ func (p Product) validate(identity string) error {
 	// one is the most likely place for a credential to have been typed by
 	// mistake.
 	if p.Endpoint == "" {
-		return malformed(fmt.Sprintf("declares a product without an endpoint on the identity %q", identity))
+		return malformed(fmt.Sprintf("declares a product without an endpoint on the account %q", identity))
 	}
 	parsed, err := url.Parse(p.Endpoint)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return malformed(fmt.Sprintf("declares a product endpoint on the identity %q that this shell cannot read", identity))
+		return malformed(fmt.Sprintf("declares a product endpoint on the account %q that this shell cannot read", identity))
 	}
 	if parsed.User != nil {
 		return contextProblem("contexts.document_malformed",
-			fmt.Sprintf("a product endpoint on the identity %q embeds credentials in its URL", identity),
+			fmt.Sprintf("a product endpoint on the account %q embeds credentials in its URL", identity),
 			"Remove the user information from the endpoint. A context names a credential source; "+
 				"it never carries a credential.")
 	}
@@ -592,18 +601,18 @@ func (p Product) validate(identity string) error {
 	// without a secret names half of nothing.
 	if p.ClientIDVariable != "" && p.ClientSecretVariable == "" {
 		return malformed(fmt.Sprintf(
-			"declares a product credential on the identity %q with a client id variable and no secret", identity))
+			"declares a product credential on the account %q with a client id variable and no secret", identity))
 	}
 	if p.ClientSecretVariable != "" && p.ClientIDVariable == "" && p.Grant == nil {
 		return malformed(fmt.Sprintf(
-			"declares a product credential on the identity %q with no client id for it: name one with "+
+			"declares a product credential on the account %q with no client id for it: name one with "+
 				"clientIdVariable, or reach the product through a grant naming its client", identity))
 	}
 	if p.ClientSecretVariable != "" {
 		if !variablePattern.MatchString(p.ClientSecretVariable) ||
 			(p.ClientIDVariable != "" && !variablePattern.MatchString(p.ClientIDVariable)) {
 			return contextProblem("contexts.document_malformed",
-				fmt.Sprintf("a product on the identity %q does not name environment variables as its credential source", identity),
+				fmt.Sprintf("a product on the account %q does not name environment variables as its credential source", identity),
 				"Name the environment variables holding the product's client id and secret, not the values.")
 		}
 	}
@@ -619,8 +628,18 @@ func (p Product) validate(identity string) error {
 		// command that needs the product.
 		if p.Audience == "" {
 			return malformed(fmt.Sprintf(
-				"declares a product with a grant on the identity %q without the audience the "+
+				"declares a product with a grant on the account %q without the audience the "+
 					"derived access is proved against", identity))
+		}
+		if p.Grant.Kind == GrantExchange && !absoluteURI(p.Audience) {
+			// An exchange sends the audience as an RFC 8707 resource
+			// indicator, which must be an absolute URI. A deployment answers a
+			// bare name with invalid_target, which reads as a resource server
+			// nobody registered and sends the reader to create one that is
+			// already there. The true cause is stated once, here.
+			return malformed(fmt.Sprintf(
+				"declares an exchange product on the account %q whose audience is not an absolute "+
+					"URI, and an exchange asks for it as a resource indicator", identity))
 		}
 		return p.Grant.validate(identity)
 	}
@@ -632,15 +651,15 @@ func (p Product) validate(identity string) error {
 // echoed.
 func (g Gateway) validate(identity string) error {
 	if g.Endpoint == "" {
-		return malformed(fmt.Sprintf("declares a product gateway without an endpoint on the identity %q", identity))
+		return malformed(fmt.Sprintf("declares a product gateway without an endpoint on the account %q", identity))
 	}
 	parsed, err := url.Parse(g.Endpoint)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return malformed(fmt.Sprintf("declares a product gateway endpoint on the identity %q that this shell cannot read", identity))
+		return malformed(fmt.Sprintf("declares a product gateway endpoint on the account %q that this shell cannot read", identity))
 	}
 	if parsed.User != nil {
 		return contextProblem("contexts.document_malformed",
-			fmt.Sprintf("a product gateway endpoint on the identity %q embeds credentials in its URL", identity),
+			fmt.Sprintf("a product gateway endpoint on the account %q embeds credentials in its URL", identity),
 			"Remove the user information from the endpoint. A context names a credential source; "+
 				"it never carries a credential.")
 	}
@@ -653,26 +672,38 @@ func (g Gateway) validate(identity string) error {
 func (g Grant) validate(identity string) error {
 	if !legalGrants[g.Kind] {
 		return malformed(fmt.Sprintf(
-			"declares a product grant on the identity %q of a kind this shell does not implement", identity))
+			"declares a product grant on the account %q of a kind this shell does not implement", identity))
+	}
+	if g.Kind == GrantExchange {
+		// An exchange is run at the account's own issuer, as its own client,
+		// for the product's own audience. A document that named an issuer or
+		// a client here would be stating something the shell already holds and
+		// could contradict, so naming either is refused rather than ignored.
+		if g.Issuer != "" || g.ClientID != "" {
+			return malformed(fmt.Sprintf(
+				"declares an exchange grant on the account %q that names its own issuer or client, "+
+					"which an exchange never uses", identity))
+		}
+		return nil
 	}
 	if g.ClientID == "" {
 		return malformed(fmt.Sprintf(
-			"declares a product grant on the identity %q without the client it presents", identity))
+			"declares a product grant on the account %q without the client it presents", identity))
 	}
 	parsed, err := url.Parse(g.Issuer)
 	if g.Issuer == "" || err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return malformed(fmt.Sprintf(
-			"declares a product grant on the identity %q whose issuer this shell cannot read", identity))
+			"declares a product grant on the account %q whose issuer this shell cannot read", identity))
 	}
 	if parsed.User != nil {
 		return contextProblem("contexts.document_malformed",
-			fmt.Sprintf("a product grant on the identity %q embeds credentials in its issuer URL", identity),
+			fmt.Sprintf("a product grant on the account %q embeds credentials in its issuer URL", identity),
 			"Remove the user information from the issuer. A context names a credential source; "+
 				"it never carries a credential.")
 	}
 	if g.Resource != "" && !absoluteURI(g.Resource) {
 		return malformed(fmt.Sprintf(
-			"declares a product grant on the identity %q with a resource that is not an absolute URI",
+			"declares a product grant on the account %q with a resource that is not an absolute URI",
 			identity))
 	}
 	return nil

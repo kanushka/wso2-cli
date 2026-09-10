@@ -38,20 +38,20 @@ const catalogTimeout = 10 * time.Minute
 
 // The way back from each subcommand's usage refusals.
 const (
-	moduleAvailableUsage = "Run wso2 module available."
-	moduleListUsage      = "Run wso2 module list."
-	moduleInstallUsage   = "Run wso2 module install <module> [--channel <channel>], " +
-		"or wso2 module install <module>@<version> to pin an exact version."
-	moduleRemoveUsage = "Run wso2 module remove <module> [--yes] [--dry-run] [--no-input]."
-	moduleUpdateUsage = "Run wso2 module update <module> [--yes] [--dry-run] [--no-input], " +
-		"or wso2 module update --all [--yes] [--dry-run] [--no-input]."
+	moduleAvailableUsage = "Run wso2 product available."
+	moduleListUsage      = "Run wso2 product list."
+	moduleInstallUsage   = "Run wso2 product install <product> [--channel <channel>], " +
+		"or wso2 product install <product>@<version> to pin an exact version."
+	moduleRemoveUsage = "Run wso2 product remove <product> [--yes] [--dry-run] [--no-input]."
+	moduleUpdateUsage = "Run wso2 product update <product> [--yes] [--dry-run] [--no-input], " +
+		"or wso2 product update --all [--yes] [--dry-run] [--no-input]."
 )
 
-const moduleRecovery = "Run wso2 module available to see what can be installed, " +
-	"wso2 module install <module> to install one, wso2 module update --all to update what is " +
-	"installed, or wso2 module remove <module> to take one off this machine."
+const moduleRecovery = "Run wso2 product available to see what can be installed, " +
+	"wso2 product install <product> to install one, wso2 product update --all to update what is " +
+	"installed, or wso2 product remove <product> to take one off this machine."
 
-// moduleCommand builds the wso2 module tree.
+// moduleCommand builds the wso2 product tree.
 //
 // Every subcommand below declares its own flags directly (#89): available,
 // install, list, remove, and update all had DisableFlagParsing and hand-scanned
@@ -62,10 +62,10 @@ const moduleRecovery = "Run wso2 module available to see what can be installed, 
 // bare boolean flag has only one to get right. Declaring all of them together
 // is what retires the loops rather than leaving a mix of declared and scanned
 // flags in the same command bodies.
-func (s Shell) moduleCommand() *cobra.Command {
+func (s Shell) productCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:                   "module <subcommand>",
-		Short:                 "Install, list, and update product modules from the module catalog.",
+		Use:                   "product <subcommand>",
+		Short:                 "Install, list, and update products from the catalog.",
 		Long:                  moduleRecovery,
 		DisableFlagsInUseLine: true,
 		// A RunE is declared for the reason org's and identity's are: Cobra
@@ -74,14 +74,14 @@ func (s Shell) moduleCommand() *cobra.Command {
 		// subcommand. Never cobra.NoArgs or cobra.ExactArgs here — both bypass
 		// the flag-error hook and exit 70 instead of 64.
 		//
-		// A bare wso2 module is the other arm, and is deliberately not a
+		// A bare wso2 product is the other arm, and is deliberately not a
 		// refusal. See helpForBareFamily.
 		RunE: func(command *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return helpForBareFamily(command)
 			}
 			return problem.New(problem.CategoryUsage, "shell.unknown_command",
-				fmt.Sprintf("%q is not a wso2 module subcommand", args[0])).
+				fmt.Sprintf("%q is not a wso2 product subcommand", args[0])).
 				WithRecovery(moduleRecovery)
 		},
 	}
@@ -91,7 +91,7 @@ func (s Shell) moduleCommand() *cobra.Command {
 	// argument, not by --context, and its report is prose meant to be read, not
 	// a schema a script parses. moduleinstall_test.go's
 	// TestVerboseInstallKeepsProgressOffStdout confirms by hand that
-	// wso2 module install <module> --output json is refused outright, and this
+	// wso2 product install <product> --output json is refused outright, and this
 	// absence is where that refusal now comes from.
 	command.AddCommand(s.moduleAvailableCommand(), s.moduleInstallCommand(), s.moduleListCommand(),
 		s.moduleRemoveCommand(), s.moduleUpdateCommand())
@@ -101,7 +101,7 @@ func (s Shell) moduleCommand() *cobra.Command {
 func (s Shell) moduleAvailableCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "available",
-		Short: "List the product modules the catalog publishes.",
+		Short: "List the products the catalog publishes.",
 		Args:  noArguments(moduleAvailableUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.moduleAvailable()
@@ -118,7 +118,7 @@ func (s Shell) moduleAvailableCommand() *cobra.Command {
 func (s Shell) moduleListCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "list",
-		Short: "Report the installed modules and which have an update available.",
+		Short: "Report the installed products and which have an update available.",
 		Args:  noArguments(moduleListUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.moduleList()
@@ -133,17 +133,17 @@ func (s Shell) moduleListCommand() *cobra.Command {
 func (s Shell) moduleInstallCommand() *cobra.Command {
 	var channel string
 	command := &cobra.Command{
-		Use:   "install <module>[@<version>]",
-		Short: "Install one product module from the catalog.",
+		Use:   "install <product>[@<version>]",
+		Short: "Install one product from the catalog.",
 		// The @<version> form is accepted, acted on, and until now appeared
 		// nowhere in this command's help: a user could create a pin without
 		// being told the syntax exists, let alone how to undo it (F7).
 		Long: "Install one product module from the catalog.\n\n" +
 			"Without a version, the newest version on the chosen release channel that this " +
-			"shell can launch is installed. Naming the module as <module>@<version> installs " +
-			"that exact version and pins it: wso2 module update passes a pinned module over " +
-			"until a plain wso2 module install <module> clears the pin.",
-		Args: exactlyOneArgument("a module to install", moduleInstallUsage),
+			"shell can launch is installed. Naming the product as <product>@<version> installs " +
+			"that exact version and pins it: wso2 product update passes a pinned module over " +
+			"until a plain wso2 product install <product> clears the pin.",
+		Args: exactlyOneArgument("a product to install", moduleInstallUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			// The module may be named as "<module>@<version>" to pin an exact
 			// version; Cut on an absent "@" leaves version empty, which is
@@ -172,9 +172,9 @@ func (s Shell) moduleInstallCommand() *cobra.Command {
 func (s Shell) moduleRemoveCommand() *cobra.Command {
 	var opts removeOptions
 	command := &cobra.Command{
-		Use:   "remove <module>",
-		Short: "Take one installed module off this machine.",
-		Args:  exactlyOneArgument("the module to remove", moduleRemoveUsage),
+		Use:   "remove <product>",
+		Short: "Take one installed product off this machine.",
+		Args:  exactlyOneArgument("the product to remove", moduleRemoveUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			opts.namespace = args[0]
 			return s.moduleRemove(opts)
@@ -193,8 +193,8 @@ func (s Shell) moduleUpdateCommand() *cobra.Command {
 	var opts updateOptions
 	var all bool
 	command := &cobra.Command{
-		Use:   "update <module...> | update --all",
-		Short: "Bring installed modules to the newest version their channel publishes.",
+		Use:   "update <product...> | update --all",
+		Short: "Bring installed products to the newest version their channel publishes.",
 		// Not exactlyOneArgument or noArguments: this command takes zero or
 		// more module names, and which count is valid depends on --all, so the
 		// combination is checked in RunE once both are parsed, exactly as
@@ -209,13 +209,13 @@ func (s Shell) moduleUpdateCommand() *cobra.Command {
 				// flag instead of a hand-written scan, and an automation
 				// contract keyed on this code must not see it change.
 				return problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
-					"--all updates every installed module, so naming one as well is ambiguous").
-					WithRecovery("Run wso2 module update <module>, or wso2 module update --all.")
+					"--all updates every installed product, so naming one as well is ambiguous").
+					WithRecovery("Run wso2 product update <product>, or wso2 product update --all.")
 			}
 			if !all && len(opts.namespaces) == 0 {
 				return problem.New(problem.CategoryUsage, "shell.missing_argument",
-					"wso2 module update needs a module, or --all").
-					WithRecovery("Run wso2 module update <module>, or wso2 module update --all.")
+					"wso2 product update needs a product, or --all").
+					WithRecovery("Run wso2 product update <product>, or wso2 product update --all.")
 			}
 			return s.moduleUpdate(opts)
 		},
@@ -249,7 +249,7 @@ func (s Shell) moduleUpdateCommand() *cobra.Command {
 // a typo would look, for one prompt, like a real module about to be deleted.
 func (s Shell) moduleRemove(opts removeOptions) error {
 	if opts.yes && opts.dryRun {
-		return conflictingConfirmationFlags("wso2 module remove")
+		return conflictingConfirmationFlags("wso2 product remove")
 	}
 
 	store, err := s.store()
@@ -276,14 +276,14 @@ func (s Shell) moduleRemove(opts removeOptions) error {
 				fmt.Sprintf("removing the %s module", opts.namespace), reason)
 		}
 		confirmed, err := s.confirm(fmt.Sprintf(
-			"Remove the %s module? This deletes it from this machine and cannot be undone. [y/N]: ",
+			"Remove the %s product? This deletes it from this machine and cannot be undone. [y/N]: ",
 			opts.namespace))
 		if err != nil {
 			return err
 		}
 		if !confirmed {
 			_, err := fmt.Fprintf(s.Streams.Out,
-				"Removal cancelled; the %s module is unchanged.\n", opts.namespace)
+				"Removal cancelled; the %s product is unchanged.\n", opts.namespace)
 			return err
 		}
 	}
@@ -300,7 +300,7 @@ func (s Shell) moduleRemove(opts removeOptions) error {
 		return notInstalledProblem(opts.namespace)
 	}
 
-	_, err = fmt.Fprintf(s.Streams.Out, "Removed the %s module.\n", opts.namespace)
+	_, err = fmt.Fprintf(s.Streams.Out, "Removed the %s product.\n", opts.namespace)
 	return err
 }
 
@@ -310,10 +310,10 @@ func (s Shell) moduleRemove(opts removeOptions) error {
 func notInstalledProblem(namespace string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "shell.module_not_installed",
 		fmt.Sprintf("no %s module is installed", namespace)).
-		WithRecovery("Run wso2 module list to see what is installed.")
+		WithRecovery("Run wso2 product list to see what is installed.")
 }
 
-// removeOptions is wso2 module remove's parsed arguments.
+// removeOptions is wso2 product remove's parsed arguments.
 type removeOptions struct {
 	namespace string
 	yes       bool
@@ -414,12 +414,12 @@ func (s Shell) moduleInstall(namespace string, policy catalog.Policy) error {
 	case installed.PinnedVersion != "":
 		_, err = fmt.Fprintf(s.Streams.Out,
 			"Pinned %s to v%s. It will not be updated until the pin is cleared; "+
-				"run wso2 module install %s to clear it.\n",
+				"run wso2 product install %s to clear it.\n",
 			installed.Namespace, installed.PinnedVersion, installed.Namespace)
 	case installed.ClearedPinnedVersion != "":
 		_, err = fmt.Fprintf(s.Streams.Out,
 			"The pin to v%s was cleared; %s follows its release channel again "+
-				"and wso2 module update can move it.\n",
+				"and wso2 product update can move it.\n",
 			installed.ClearedPinnedVersion, installed.Namespace)
 	}
 	return err
@@ -493,7 +493,7 @@ func (s Shell) moduleAvailable() error {
 		_, err := fmt.Fprintln(s.Streams.Out, "The module catalog publishes no modules.")
 		return err
 	}
-	table := output.NewTable("module", "channel", "version")
+	table := output.NewTable("product", "channel", "version")
 	for _, module := range available {
 		for _, channel := range module.Channels {
 			table.Append(module.Namespace, channel.Channel, "v"+channel.Version)
@@ -503,7 +503,7 @@ func (s Shell) moduleAvailable() error {
 		return err
 	}
 	_, err = fmt.Fprintln(s.Streams.Out,
-		"\nRun wso2 module install <module> to install one.")
+		"\nRun wso2 product install <product> to install one.")
 	return err
 }
 
@@ -538,16 +538,16 @@ func (s Shell) moduleList() error {
 		// downgraded to a diagnostic (fix round 2, F4). The run exits 0: the
 		// stderr warning, not the exit code, is where the degraded half is
 		// reported, the same contract a corrupt preferences document already
-		// has. wso2 module available, whose whole question is the catalog,
+		// has. wso2 product available, whose whole question is the catalog,
 		// still fails outright.
 		return s.moduleListOffline(installer, unreachable)
 	}
 
 	if len(statuses) == 0 {
-		_, err := fmt.Fprintln(s.Streams.Out, "No modules are installed.")
+		_, err := fmt.Fprintln(s.Streams.Out, "No products are installed.")
 		return err
 	}
-	table := output.NewTable("module", "installed", "channel", "update")
+	table := output.NewTable("product", "installed", "channel", "update")
 	for _, status := range statuses {
 		table.Append(status.Namespace, "v"+status.Installed, channelColumn(status), updateColumn(status))
 	}
@@ -582,10 +582,10 @@ func (s Shell) moduleListOffline(installer install.Installer, unreachable proble
 		return err
 	}
 	if len(statuses) == 0 {
-		_, err := fmt.Fprintln(s.Streams.Out, "No modules are installed.")
+		_, err := fmt.Fprintln(s.Streams.Out, "No products are installed.")
 		return err
 	}
-	table := output.NewTable("module", "installed", "channel", "update")
+	table := output.NewTable("product", "installed", "channel", "update")
 	for _, status := range statuses {
 		update := "unknown"
 		if status.Pinned {
@@ -602,7 +602,7 @@ func (s Shell) moduleListOffline(installer install.Installer, unreachable proble
 	return nil
 }
 
-// moduleState is the one classification wso2 module list reports.
+// moduleState is the one classification wso2 product list reports.
 //
 // The UPDATE column and the summary beneath the table both derive from it, so
 // they cannot disagree. They used to disagree: the column distinguished four
@@ -660,29 +660,29 @@ func listSummary(statuses []install.Status) []string {
 		counts[stateOf(status)]++
 	}
 	if counts[stateCurrent] == len(statuses) {
-		return []string{"Every installed module is current."}
+		return []string{"Every installed product is current."}
 	}
 
 	var lines []string
 	if n := counts[stateUpdatable]; n > 0 {
 		lines = append(lines, fmt.Sprintf(
-			"%d %s an update available. Run wso2 module update --all to take %s.",
-			n, pluralize(n, "module has", "modules have"), pluralize(n, "it", "them")))
+			"%d %s an update available. Run wso2 product update --all to take %s.",
+			n, pluralize(n, "product has", "products have"), pluralize(n, "it", "them")))
 	}
 	if n := counts[stateCurrent]; n > 0 {
 		lines = append(lines, fmt.Sprintf("%d %s current.",
-			n, pluralize(n, "module is", "modules are")))
+			n, pluralize(n, "product is", "products are")))
 	}
 	if n := counts[statePinned]; n > 0 {
 		lines = append(lines, fmt.Sprintf(
 			"%d %s pinned and will not be updated.",
-			n, pluralize(n, "module is", "modules are")))
+			n, pluralize(n, "product is", "products are")))
 	}
 	if n := counts[stateUnpublished]; n > 0 {
 		lines = append(lines, fmt.Sprintf(
 			"%d %s not published on the channel %s, so whether %s current is unknown. "+
-				"Run wso2 module available to see what the catalog publishes.",
-			n, pluralize(n, "module is", "modules are"),
+				"Run wso2 product available to see what the catalog publishes.",
+			n, pluralize(n, "product is", "products are"),
 			pluralize(n, "it follows", "they follow"),
 			pluralize(n, "it is", "they are")))
 	}
@@ -738,7 +738,7 @@ func updateColumn(status install.Status) string {
 // update is refused keeps the version that was active before the run, and the
 // refusal is reported rather than swallowed.
 //
-// #112 §7 named wso2 module update --all specifically as acting immediately
+// #112 §7 named wso2 product update --all specifically as acting immediately
 // with no confirmation, no --yes, and no --dry-run, so the confirmation guards
 // only the unnamed, --all form. The reason is unboundedness, not
 // destructiveness: activate (install.go) never deactivates a module until a
@@ -753,7 +753,7 @@ func updateColumn(status install.Status) string {
 // nothing was going to ask.
 func (s Shell) moduleUpdate(opts updateOptions) error {
 	if opts.yes && opts.dryRun {
-		return conflictingConfirmationFlags("wso2 module update")
+		return conflictingConfirmationFlags("wso2 product update")
 	}
 
 	installer, err := s.installer()
@@ -794,7 +794,7 @@ func (s Shell) moduleUpdate(opts updateOptions) error {
 		}
 	}
 
-	// An empty namespace list is wso2 module update --all, so what was asked
+	// An empty namespace list is wso2 product update --all, so what was asked
 	// for is logged as it was parsed rather than as it was typed: an update
 	// that moved a module the user did not name is read here.
 	s.log.Debug("updating modules from the catalog",
@@ -808,7 +808,7 @@ func (s Shell) moduleUpdate(opts updateOptions) error {
 		return err
 	}
 	if len(outcomes) == 0 {
-		_, err := fmt.Fprintln(s.Streams.Out, "No modules are installed.")
+		_, err := fmt.Fprintln(s.Streams.Out, "No products are installed.")
 		return err
 	}
 
@@ -834,7 +834,7 @@ func (s Shell) moduleUpdate(opts updateOptions) error {
 	return failures[0]
 }
 
-// reportUpdatePlan renders what wso2 module update would do without doing it.
+// reportUpdatePlan renders what wso2 product update would do without doing it.
 //
 // It reads Installer.Check rather than a second planner of its own: Check
 // already computes, in one index request, exactly the []Status Update acts
@@ -848,7 +848,7 @@ func (s Shell) reportUpdatePlan(installer install.Installer, namespaces []string
 		return err
 	}
 	if len(statuses) == 0 {
-		_, err := fmt.Fprintln(s.Streams.Out, "No modules are installed.")
+		_, err := fmt.Fprintln(s.Streams.Out, "No products are installed.")
 		return err
 	}
 	for _, status := range statuses {
@@ -869,11 +869,11 @@ func dryRunUpdateLine(status install.Status) string {
 	switch {
 	case status.Pinned:
 		return fmt.Sprintf("%s is pinned to v%s and would not be updated. "+
-			"Run wso2 module install %s to clear the pin.",
+			"Run wso2 product install %s to clear the pin.",
 			status.Namespace, status.PinnedVersion, status.Namespace)
 	case status.Available == "":
 		return fmt.Sprintf("The catalog publishes no version of %s on the %s channel, "+
-			"so whether v%s is up to date is unknown. Run wso2 module available to see what it publishes.",
+			"so whether v%s is up to date is unknown. Run wso2 product available to see what it publishes.",
 			status.Namespace, status.Channel, status.Installed)
 	case status.Update:
 		return fmt.Sprintf("%s would be updated from v%s to v%s.",
@@ -893,21 +893,21 @@ func updateLine(outcome install.Outcome) (string, error) {
 		// otherwise find it: a plain install clearing a pin is a side effect
 		// of the install path, not a command of its own (F7).
 		return fmt.Sprintf("%s is pinned to v%s and was not updated. "+
-			"Run wso2 module install %s to clear the pin.",
+			"Run wso2 product install %s to clear the pin.",
 			outcome.Namespace, outcome.From, outcome.Namespace), nil
 	case install.ActionFailed:
 		return fmt.Sprintf("%s could not be updated. v%s is still active.",
 			outcome.Namespace, outcome.From), outcome.Err
 	case install.ActionNotPublished:
 		return fmt.Sprintf("The catalog publishes no version of %s on the %s channel, "+
-			"so whether v%s is up to date is unknown. Run wso2 module available to see what it publishes.",
+			"so whether v%s is up to date is unknown. Run wso2 product available to see what it publishes.",
 			outcome.Namespace, outcome.Channel, outcome.From), nil
 	default:
 		return fmt.Sprintf("%s is current at v%s.", outcome.Namespace, outcome.From), nil
 	}
 }
 
-// updateOptions is wso2 module update's parsed arguments.
+// updateOptions is wso2 product update's parsed arguments.
 type updateOptions struct {
 	namespaces []string
 	yes        bool
@@ -923,4 +923,36 @@ func asProblem(err error) problem.Problem {
 		return typed
 	}
 	return problem.New(problem.CategoryModuleProcess, "modules.update_failed", err.Error())
+}
+
+// moduleAliasCommand keeps wso2 module working, as the deprecated spelling of
+// wso2 product.
+//
+// It is a whole command rather than a Cobra alias because Cobra's aliases are
+// matched on a subcommand, not on a root family, and because the deprecation
+// has to be said out loud: an alias that works silently teaches nobody the new
+// word, and the old one then outlives the release that replaced it. The notice
+// goes to the diagnostic stream, so a script parsing the result on stdout is
+// unaffected by it.
+//
+// ADR 0015 keeps this alias and refuses one for identity. The difference is
+// not politeness: no product is named module, so this word shadows no
+// namespace and reserving it stops one claiming it later, while identity is a
+// namespace the shell must leave free to dispatch.
+func (s Shell) moduleAliasCommand() *cobra.Command {
+	command := s.productCommand()
+	command.Use = "module <subcommand>"
+	command.Short = "Deprecated spelling of wso2 product."
+	command.Hidden = true
+	// PersistentPreRunE and not PersistentPreRun, and it calls the root's hook
+	// rather than replacing it: Cobra runs only the closest hook in the chain,
+	// so a hook declared here silently disables the shell-flag handling the
+	// root declares — --output, --context and --verbose would all stop working
+	// under the alias while continuing to work under wso2 product.
+	command.PersistentPreRunE = func(command *cobra.Command, args []string) error {
+		_, _ = fmt.Fprintln(s.Streams.Err,
+			"wso2 module is the deprecated spelling of wso2 product; run wso2 product instead.")
+		return s.applyShellFlags(command, args)
+	}
+	return command
 }

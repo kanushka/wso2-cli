@@ -34,8 +34,8 @@ installer's broken advice is separable and worth fixing now.
 have no common source, so help advertises what the command refuses, and the
 refusal's recovery points back at the help that advertised it.
 
-Reproduces on `config`, `context`, `org`, `identity`, `login`, `version`, and
-every `module` subcommand.
+Reproduces on `config`, `context`, `org`, `account`, `login`, `version`, and
+every `product` subcommand.
 
 The allowlist is right and well reasoned — each entry carries its justification.
 Only the help generation is wrong. Two ways to fix it:
@@ -50,7 +50,7 @@ Only the help generation is wrong. Two ways to fix it:
   and 17 describe.
 
 Either way, the refusal must name the command typed, not its family:
-`wso2 module available --output json` currently reports "wso2 module does not
+`wso2 product available --output json` currently reports "wso2 module does not
 take the flag --output".
 
 **Needs a decision.** See [Decisions](#decisions-needed).

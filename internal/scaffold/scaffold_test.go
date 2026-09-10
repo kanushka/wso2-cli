@@ -486,3 +486,27 @@ func runGo(t *testing.T, directory string, args ...string) {
 		t.Fatalf("go %s in %s failed: %v\n%s", strings.Join(args, " "), directory, err, output)
 	}
 }
+
+func TestTheScaffoldNamesCommandsTheShellStillHas(t *testing.T) {
+	// A generated module's first instruction is the first thing a new
+	// contributor runs. Naming a command that moved sends them to a refusal on
+	// their first minute, and the templates are not Go source so a rename pass
+	// over *.go never sees them.
+	root := temporaryRepository(t)
+	if _, err := scaffold.Generate(scaffold.Request{RepositoryRoot: root, Namespace: "example"}); err != nil {
+		t.Fatalf("scaffold: %v", err)
+	}
+	generated, err := os.ReadFile(filepath.Join(root, "modules", "example",
+		"cmd", "wso2-module-example", "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, moved := range []string{"wso2 identity add-product", "wso2 identity list", "wso2 module "} {
+		if strings.Contains(string(generated), moved) {
+			t.Errorf("the scaffold names %q, which the shell no longer answers", moved)
+		}
+	}
+	if !strings.Contains(string(generated), "wso2 account add-product") {
+		t.Errorf("the scaffold does not name wso2 account add-product:\n%s", generated)
+	}
+}

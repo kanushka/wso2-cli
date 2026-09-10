@@ -995,7 +995,18 @@ type Result struct {
 	Schema string `protobuf:"bytes,1,opt,name=schema,proto3" json:"schema,omitempty"`
 	// fields are the result's values in presentation order. The shell renders
 	// them in this order in every output mode.
-	Fields        []*ResultField `protobuf:"bytes,2,rep,name=fields,proto3" json:"fields,omitempty"`
+	Fields []*ResultField `protobuf:"bytes,2,rep,name=fields,proto3" json:"fields,omitempty"`
+	// columns declare what each row carries, in presentation order. They are
+	// empty for a result that reports one thing rather than a listing.
+	//
+	// Columns are declared once rather than restated by every row, which is what
+	// makes "every row has the same columns" a fact the shell can check instead
+	// of something two rows could disagree about.
+	Columns []*ResultColumn `protobuf:"bytes,3,rep,name=columns,proto3" json:"columns,omitempty"`
+	// rows are a listing's items, one per row, each carrying one value per
+	// declared column in the same order. A result carrying rows and no columns
+	// is refused, as is a row whose value count differs from the columns.
+	Rows          []*ResultRow `protobuf:"bytes,4,rep,name=rows,proto3" json:"rows,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1044,6 +1055,124 @@ func (x *Result) GetFields() []*ResultField {
 	return nil
 }
 
+func (x *Result) GetColumns() []*ResultColumn {
+	if x != nil {
+		return x.Columns
+	}
+	return nil
+}
+
+func (x *Result) GetRows() []*ResultRow {
+	if x != nil {
+		return x.Rows
+	}
+	return nil
+}
+
+// ResultColumn declares one column of a listing.
+type ResultColumn struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the stable machine name, used as the JSON key of this column's
+	// value in every row.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// label is the human-readable header. It falls back to name.
+	Label         string `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResultColumn) Reset() {
+	*x = ResultColumn{}
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResultColumn) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResultColumn) ProtoMessage() {}
+
+func (x *ResultColumn) ProtoReflect() protoreflect.Message {
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResultColumn.ProtoReflect.Descriptor instead.
+func (*ResultColumn) Descriptor() ([]byte, []int) {
+	return file_wso2_cli_module_v1_contract_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ResultColumn) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ResultColumn) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+// ResultRow is one item of a listing.
+type ResultRow struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// values are the row's cells, one per declared column, in the order the
+	// columns were declared. Every value is a string for the same reason a
+	// field's is: the shell renders a product's result without interpreting it.
+	Values        []string `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResultRow) Reset() {
+	*x = ResultRow{}
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResultRow) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResultRow) ProtoMessage() {}
+
+func (x *ResultRow) ProtoReflect() protoreflect.Message {
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResultRow.ProtoReflect.Descriptor instead.
+func (*ResultRow) Descriptor() ([]byte, []int) {
+	return file_wso2_cli_module_v1_contract_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ResultRow) GetValues() []string {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
 // ResultField is one named value of a result.
 type ResultField struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1066,7 +1195,7 @@ type ResultField struct {
 
 func (x *ResultField) Reset() {
 	*x = ResultField{}
-	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[12]
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1078,7 +1207,7 @@ func (x *ResultField) String() string {
 func (*ResultField) ProtoMessage() {}
 
 func (x *ResultField) ProtoReflect() protoreflect.Message {
-	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[12]
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1091,7 +1220,7 @@ func (x *ResultField) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultField.ProtoReflect.Descriptor instead.
 func (*ResultField) Descriptor() ([]byte, []int) {
-	return file_wso2_cli_module_v1_contract_proto_rawDescGZIP(), []int{12}
+	return file_wso2_cli_module_v1_contract_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ResultField) GetName() string {
@@ -1137,7 +1266,7 @@ type Problem struct {
 
 func (x *Problem) Reset() {
 	*x = Problem{}
-	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[13]
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1149,7 +1278,7 @@ func (x *Problem) String() string {
 func (*Problem) ProtoMessage() {}
 
 func (x *Problem) ProtoReflect() protoreflect.Message {
-	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[13]
+	mi := &file_wso2_cli_module_v1_contract_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1162,7 +1291,7 @@ func (x *Problem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Problem.ProtoReflect.Descriptor instead.
 func (*Problem) Descriptor() ([]byte, []int) {
-	return file_wso2_cli_module_v1_contract_proto_rawDescGZIP(), []int{13}
+	return file_wso2_cli_module_v1_contract_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Problem) GetCategory() string {
@@ -1250,10 +1379,17 @@ const file_wso2_cli_module_v1_contract_proto_rawDesc = "" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12&\n" +
 	"\x0fexpires_at_unix\x18\x02 \x01(\x03R\rexpiresAtUnix\"E\n" +
 	"\fAccessDenied\x125\n" +
-	"\aproblem\x18\x01 \x01(\v2\x1b.wso2.cli.module.v1.ProblemR\aproblem\"Y\n" +
+	"\aproblem\x18\x01 \x01(\v2\x1b.wso2.cli.module.v1.ProblemR\aproblem\"\xc8\x01\n" +
 	"\x06Result\x12\x16\n" +
 	"\x06schema\x18\x01 \x01(\tR\x06schema\x127\n" +
-	"\x06fields\x18\x02 \x03(\v2\x1f.wso2.cli.module.v1.ResultFieldR\x06fields\"M\n" +
+	"\x06fields\x18\x02 \x03(\v2\x1f.wso2.cli.module.v1.ResultFieldR\x06fields\x12:\n" +
+	"\acolumns\x18\x03 \x03(\v2 .wso2.cli.module.v1.ResultColumnR\acolumns\x121\n" +
+	"\x04rows\x18\x04 \x03(\v2\x1d.wso2.cli.module.v1.ResultRowR\x04rows\"8\n" +
+	"\fResultColumn\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05label\x18\x02 \x01(\tR\x05label\"#\n" +
+	"\tResultRow\x12\x16\n" +
+	"\x06values\x18\x01 \x03(\tR\x06values\"M\n" +
 	"\vResultField\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x14\n" +
@@ -1282,7 +1418,7 @@ func file_wso2_cli_module_v1_contract_proto_rawDescGZIP() []byte {
 }
 
 var file_wso2_cli_module_v1_contract_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_wso2_cli_module_v1_contract_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_wso2_cli_module_v1_contract_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_wso2_cli_module_v1_contract_proto_goTypes = []any{
 	(OutputMode)(0),           // 0: wso2.cli.module.v1.OutputMode
 	(*Envelope)(nil),          // 1: wso2.cli.module.v1.Envelope
@@ -1297,8 +1433,10 @@ var file_wso2_cli_module_v1_contract_proto_goTypes = []any{
 	(*AccessGranted)(nil),     // 10: wso2.cli.module.v1.AccessGranted
 	(*AccessDenied)(nil),      // 11: wso2.cli.module.v1.AccessDenied
 	(*Result)(nil),            // 12: wso2.cli.module.v1.Result
-	(*ResultField)(nil),       // 13: wso2.cli.module.v1.ResultField
-	(*Problem)(nil),           // 14: wso2.cli.module.v1.Problem
+	(*ResultColumn)(nil),      // 13: wso2.cli.module.v1.ResultColumn
+	(*ResultRow)(nil),         // 14: wso2.cli.module.v1.ResultRow
+	(*ResultField)(nil),       // 15: wso2.cli.module.v1.ResultField
+	(*Problem)(nil),           // 16: wso2.cli.module.v1.Problem
 }
 var file_wso2_cli_module_v1_contract_proto_depIdxs = []int32{
 	2,  // 0: wso2.cli.module.v1.Envelope.hello:type_name -> wso2.cli.module.v1.Hello
@@ -1308,19 +1446,21 @@ var file_wso2_cli_module_v1_contract_proto_depIdxs = []int32{
 	10, // 4: wso2.cli.module.v1.Envelope.access_granted:type_name -> wso2.cli.module.v1.AccessGranted
 	11, // 5: wso2.cli.module.v1.Envelope.access_denied:type_name -> wso2.cli.module.v1.AccessDenied
 	12, // 6: wso2.cli.module.v1.Envelope.result:type_name -> wso2.cli.module.v1.Result
-	14, // 7: wso2.cli.module.v1.Envelope.problem:type_name -> wso2.cli.module.v1.Problem
+	16, // 7: wso2.cli.module.v1.Envelope.problem:type_name -> wso2.cli.module.v1.Problem
 	3,  // 8: wso2.cli.module.v1.Hello.module:type_name -> wso2.cli.module.v1.ModuleIdentity
 	5,  // 9: wso2.cli.module.v1.Welcome.shell:type_name -> wso2.cli.module.v1.ShellIdentity
 	0,  // 10: wso2.cli.module.v1.Invoke.output_mode:type_name -> wso2.cli.module.v1.OutputMode
 	7,  // 11: wso2.cli.module.v1.Invoke.policy:type_name -> wso2.cli.module.v1.InvocationPolicy
 	8,  // 12: wso2.cli.module.v1.Invoke.context:type_name -> wso2.cli.module.v1.InvocationContext
-	14, // 13: wso2.cli.module.v1.AccessDenied.problem:type_name -> wso2.cli.module.v1.Problem
-	13, // 14: wso2.cli.module.v1.Result.fields:type_name -> wso2.cli.module.v1.ResultField
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	16, // 13: wso2.cli.module.v1.AccessDenied.problem:type_name -> wso2.cli.module.v1.Problem
+	15, // 14: wso2.cli.module.v1.Result.fields:type_name -> wso2.cli.module.v1.ResultField
+	13, // 15: wso2.cli.module.v1.Result.columns:type_name -> wso2.cli.module.v1.ResultColumn
+	14, // 16: wso2.cli.module.v1.Result.rows:type_name -> wso2.cli.module.v1.ResultRow
+	17, // [17:17] is the sub-list for method output_type
+	17, // [17:17] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_wso2_cli_module_v1_contract_proto_init() }
@@ -1344,7 +1484,7 @@ func file_wso2_cli_module_v1_contract_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_wso2_cli_module_v1_contract_proto_rawDesc), len(file_wso2_cli_module_v1_contract_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   14,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

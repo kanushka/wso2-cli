@@ -48,7 +48,13 @@ import (
 // SchemaVersion is the current context-document schema. The shell also reads
 // SchemaVersionLegacy documents through a compatibility mapping; any other
 // version fails closed rather than being partly interpreted.
-const SchemaVersion = 2
+const SchemaVersion = 3
+
+// SchemaVersionAccounts is the schema before the identity concept became the
+// account one. It differs from the current schema in one member name — the
+// document's list of accounts was called "identities" — so it is read into the
+// same shape and written back at the current version.
+const SchemaVersionAccounts = 2
 
 // FileName is the context document's fixed name inside the shell state tree.
 const FileName = "contexts.json"
@@ -90,19 +96,19 @@ type Document struct {
 	SchemaVersion int `json:"schemaVersion"`
 	// DefaultContext is the name of the context commands run against.
 	DefaultContext string `json:"defaultContext"`
-	// Identities are the authentication arrangements contexts reference.
-	Identities []Identity `json:"identities"`
+	// Accounts are the authentication arrangements contexts reference.
+	Accounts []Account `json:"accounts"`
 	// Contexts are the configured contexts.
 	Contexts []Context `json:"contexts"`
 }
 
-// Context is one target a command can run against. It references an identity
+// Context is one target a command can run against. It references an account
 // for authentication and narrows it to an organization and project.
 type Context struct {
 	// Name identifies the context.
 	Name string `json:"name"`
-	// Identity names the identity this context authenticates as.
-	Identity string `json:"identity"`
+	// Account names the account this context authenticates as.
+	Account string `json:"account"`
 	// Organization is the organization commands run within. Access is bound
 	// to it, so a token minted here is refused elsewhere.
 	Organization string `json:"organization,omitempty"`
@@ -113,7 +119,7 @@ type Context struct {
 // Selection is one resolved context together with its identity.
 type Selection struct {
 	Context  Context
-	Identity Identity
+	Identity Account
 }
 
 // Path reports the context document's location inside a state root.
@@ -155,6 +161,8 @@ func Decode(data []byte) (Document, error) {
 	switch probe.SchemaVersion {
 	case SchemaVersionLegacy:
 		return decodeLegacy(data)
+	case SchemaVersionAccounts:
+		return decodeAccountsSchema(data)
 	case SchemaVersion:
 		return decodeCurrent(data)
 	default:
@@ -162,6 +170,62 @@ func Decode(data []byte) (Document, error) {
 			fmt.Sprintf("context document schema version %d is not supported by this shell", probe.SchemaVersion),
 			"Update the WSO2 CLI, or run the WSO2 CLI version that manages this document.")
 	}
+}
+
+// decodeAccountsSchema reads a document written before the rename, whose only
+// difference from the current schema is that the accounts were called
+// identities.
+//
+// The rewrite is textual and confined to the one member name at the document's
+// top level, so nothing inside an account — a product's own members, a
+// credential reference — is touched by it. The document then decodes through
+// exactly the path a current one does, which is what keeps one schema's
+// validation from drifting from the other's.
+func decodeAccountsSchema(data []byte) (Document, error) {
+	// Both spellings the rename changed are read here: the document's list of
+	// accounts, and each context's reference to one. A shim that read only the
+	// first would decode every context with an empty account reference, which
+	// validation would then refuse as a context naming no account — a refusal
+	// whose cause is this decode rather than anything the user wrote.
+	type shimContext struct {
+		Name string `json:"name"`
+		// The pre-rename spelling, deliberately: this shim exists to read a
+		// document written before the rename, and reading it under the new key
+		// would decode every context with an empty account reference.
+		Account      string `json:"identity"`
+		Organization string `json:"organization,omitempty"`
+		Project      string `json:"project,omitempty"`
+	}
+	var shim struct {
+		SchemaVersion  int           `json:"schemaVersion"`
+		DefaultContext string        `json:"defaultContext"`
+		Accounts       []Account     `json:"identities"`
+		Contexts       []shimContext `json:"contexts"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(&shim); err != nil {
+		return Document{}, malformed("is not valid JSON")
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return Document{}, malformed("contains more than one JSON document")
+	}
+	document := Document{
+		SchemaVersion:  SchemaVersion,
+		DefaultContext: shim.DefaultContext,
+		Accounts:       shim.Accounts,
+	}
+	// A conversion rather than a field-by-field copy: shimContext differs from
+	// Context only in the JSON tag of its account member, and Go converts
+	// between struct types whose fields agree in everything but their tags.
+	// The conversion is also what breaks the build if the two ever drift
+	// apart, where a copy would silently drop a field Context gained.
+	for _, c := range shim.Contexts {
+		document.Contexts = append(document.Contexts, Context(c))
+	}
+	if err := document.validate(); err != nil {
+		return Document{}, err
+	}
+	return document, nil
 }
 
 // decodeCurrent is the strict single-document decode of the current schema.
@@ -216,7 +280,7 @@ func (d Document) compatibilityRead() bool {
 	if d.SchemaVersion == SchemaVersionLegacy {
 		return true
 	}
-	for _, identity := range d.Identities {
+	for _, identity := range d.Accounts {
 		if identity.synthetic {
 			return true
 		}
@@ -246,7 +310,7 @@ func (d Document) Select(name string) (Selection, error) {
 	}
 	for _, candidate := range d.Contexts {
 		if candidate.Name == wanted {
-			return Selection{Context: candidate, Identity: d.identity(candidate.Identity)}, nil
+			return Selection{Context: candidate, Identity: d.identity(candidate.Account)}, nil
 		}
 	}
 	return Selection{}, unknownContext(wanted)
@@ -270,7 +334,7 @@ func (d Document) ContextsUsingCredential(ref string) []string {
 	}
 	var names []string
 	for _, candidate := range d.Contexts {
-		if d.identity(candidate.Identity).Auth.CredentialRef == ref {
+		if d.identity(candidate.Account).Auth.CredentialRef == ref {
 			names = append(names, candidate.Name)
 		}
 	}
@@ -278,15 +342,15 @@ func (d Document) ContextsUsingCredential(ref string) []string {
 	return names
 }
 
-func (d Document) identity(name string) Identity {
-	for _, candidate := range d.Identities {
+func (d Document) identity(name string) Account {
+	for _, candidate := range d.Accounts {
 		if candidate.Name == name {
 			return candidate
 		}
 	}
 	// Unreachable for a validated document: every context references a
 	// declared identity.
-	return Identity{}
+	return Account{}
 }
 
 func unknownContext(name string) problem.Problem {
@@ -303,8 +367,8 @@ func unknownContext(name string) problem.Problem {
 func noContextConfigured(name string) problem.Problem {
 	return contextProblem("contexts.unknown_context",
 		fmt.Sprintf("no context named %q is configured, and no contexts exist", name),
-		"Run wso2 login --url <issuer> --client-id <id> to create an identity and a context, "+
-			"or wso2 context create <name> --identity <identity> if you already have one.")
+		"Run wso2 login --url <issuer> --client-id <id> to create an account and a context, "+
+			"or wso2 context create <name> --account <account> if you already have one.")
 }
 
 // validate proves the document is internally consistent before any command
@@ -316,10 +380,10 @@ func (d Document) validate() error {
 			"Update the WSO2 CLI, or run the WSO2 CLI version that manages this document.")
 	}
 
-	identities := make(map[string]struct{}, len(d.Identities))
-	for _, identity := range d.Identities {
+	identities := make(map[string]struct{}, len(d.Accounts))
+	for _, identity := range d.Accounts {
 		if _, duplicate := identities[identity.Name]; duplicate {
-			return malformed(fmt.Sprintf("declares the identity %q more than once", identity.Name))
+			return malformed(fmt.Sprintf("declares the account %q more than once", identity.Name))
 		}
 		identities[identity.Name] = struct{}{}
 		if err := identity.validate(); err != nil {
@@ -336,9 +400,9 @@ func (d Document) validate() error {
 			return malformed(fmt.Sprintf("declares the context %q more than once", candidate.Name))
 		}
 		seen[candidate.Name] = struct{}{}
-		if _, found := identities[candidate.Identity]; !found {
-			return malformed(fmt.Sprintf("the context %q references the identity %q, which the document does not declare",
-				candidate.Name, candidate.Identity))
+		if _, found := identities[candidate.Account]; !found {
+			return malformed(fmt.Sprintf("the context %q references the account %q, which the document does not declare",
+				candidate.Name, candidate.Account))
 		}
 	}
 
