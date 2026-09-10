@@ -70,7 +70,9 @@ func checkGatewayFlags(namespace string, descriptor modules.ProductDescriptor, f
 	if err := checkIdentityFlags(flags, usage); err != nil {
 		return err
 	}
-	if descriptor.Gateway.Audience == modules.AudienceResource && flags.audience == "" {
+	// An exchanged product's gateway defaults to its own URL, as the product
+	// does, so only the plan can tell whether an audience is still missing.
+	if descriptor.Gateway.Audience == modules.AudienceResource && flags.audience == "" && !descriptor.Exchanged() {
 		return audienceRequired(namespace, usage)
 	}
 	return nil
@@ -136,6 +138,13 @@ func planGateway(document contexts.Document, namespace string, descriptor module
 	resourceBound := target.Auth.Derivation() == contexts.DerivationTokenResource
 	if plan.gateway.Audience == "" && descriptor.Gateway.Audience == modules.AudienceClient && !resourceBound {
 		plan.gateway.Audience = target.Auth.ClientID
+	}
+	// A gateway of a product reached by exchange is reached by exchange too
+	// (contexts.Account.Access), so it takes the same default the product
+	// does: the URL it answers at. The recorded grant decides rather than the
+	// descriptor, because a product recorded by hand may be reached otherwise.
+	if plan.gateway.Audience == "" && product.Grant != nil && product.Grant.Kind == contexts.GrantExchange {
+		plan.gateway.Audience = gatewayURL
 	}
 	if plan.gateway.Audience == "" {
 		return gatewayPlan{}, audienceRequired(namespace, gatewayUsage(namespace))
@@ -235,6 +244,10 @@ func (s Shell) gatewayNext(root string, plan gatewayPlan) string {
 	identity := plan.identity
 	if identity.Auth.Kind == contexts.KindClientCredentials {
 		return fmt.Sprintf("Run wso2 %s status --context %s.", plan.namespace, identity.Name)
+	}
+	access, _ := plan.identityWithGateway().Access(contexts.GatewayKey(plan.namespace))
+	if next, ok := exchangedNext(root, plan.namespace, identity, access); ok {
+		return next
 	}
 	context := " --context " + identity.Name
 	if plan.sole {
