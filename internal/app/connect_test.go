@@ -470,6 +470,22 @@ func TestConnectReadsTheMachineListOfANonProviderProduct(t *testing.T) {
 	}
 }
 
+func TestConnectHelpRendersNoTemplatePlaceholder(t *testing.T) {
+	// connect's command has no parent, so the shared template reads it as the
+	// root, whose command sections it does not carry.
+	shell, _, _ := newConnectShell(t)
+	code, out, errOut := connect(t, shell, "iam", "connect", "--help")
+	if code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if strings.Contains(out, "<no value>") {
+		t.Errorf("help renders a template placeholder:\n%s", out)
+	}
+	if !strings.Contains(out, "Flags") {
+		t.Errorf("help lost its flags:\n%s", out)
+	}
+}
+
 func TestConnectAndContextCreateNameTheAccountFlagAccount(t *testing.T) {
 	// The documentation already promises --account, and the concept renamed;
 	// a flag still called --account would be the one place the old word

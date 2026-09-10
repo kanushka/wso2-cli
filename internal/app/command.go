@@ -50,7 +50,7 @@ const (
 const helpTemplate = `Usage: {{.UseLine}}
 {{if .Long}}
 {{.Long}}
-{{end}}{{if not .HasParent}}{{.Annotations.commandSections}}{{else if .HasAvailableSubCommands}}
+{{end}}{{if not .HasParent}}{{with .Annotations.commandSections}}{{.}}{{end}}{{else if .HasAvailableSubCommands}}
 Shell commands
 {{range .Commands}}{{if or .IsAvailableCommand (eq .Name "help")}}   {{rpad .Name .NamePadding}}   {{.Short}}
 {{end}}{{end}}{{end}}{{if .HasAvailableFlags}}
