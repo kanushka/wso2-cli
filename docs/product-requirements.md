@@ -378,7 +378,6 @@ work is picked up.
 Proposed command surface:
 
 ```shell
-wso2 product available
 wso2 product install api
 wso2 product install api@1.8.0
 wso2 product list

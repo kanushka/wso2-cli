@@ -229,12 +229,17 @@ can drive the shell against a local origin serving a generated catalog.
 ## Discovering what can be installed
 
 ```sh
-wso2 product available
+wso2 product list
 ```
 
-One request, the index, lists every namespace the catalog publishes with the
-latest version on each of its channels. What exists is therefore discoverable
-from the shell rather than from this document.
+One request, the index, lists every namespace the catalog publishes beside what
+is installed. A namespace that is not installed is a row naming the channel a
+plain install would follow — stable, or the only channel it publishes on, which
+the install command beneath the table then names with `--channel` — and the
+latest version on it. What exists is therefore discoverable from the shell
+rather than from this document. `wso2 product available`, which listed the
+catalog on its own before ADR 0015 merged the two, is kept as a hidden,
+deprecated spelling of `wso2 product list`.
 
 ## Update checks, channels, and pins
 
@@ -244,12 +249,15 @@ wso2 product update reference
 wso2 product update --all
 ```
 
-`wso2 product list` reports the installed modules and which of them have an
-update available. It costs one request whatever is installed, because
-`index.json` already carries the latest version per channel and no version
-history is fetched: a check selects nothing, and selecting is what a history is
-for. Extending a module's release history therefore does not make a check cost
-more, which is the property the index exists for.
+`wso2 product list` also reports which installed modules have an update
+available. It costs one request whatever is installed, because `index.json`
+already carries the latest version per channel and no version history is
+fetched: a check selects nothing, and selecting is what a history is for.
+Extending a module's release history therefore does not make a check cost more,
+which is the property the index exists for. When the origin cannot be reached,
+the installed modules are still listed from local state with their update
+`unknown`, a warning on standard error says the updates and the installable
+products are unknown, and the command exits 0.
 
 Channel and pin are recorded per module, in a `policy.json` beside that
 module's installations:

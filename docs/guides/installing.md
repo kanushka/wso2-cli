@@ -64,11 +64,11 @@ not a product, and it is deliberately kept on the **prerelease** channel so
 that following stable never offers it to you:
 
 ```sh
-$ wso2 product available
-MODULE      CHANNEL      VERSION
-reference   prerelease   v0.1.0-rc.4
+$ wso2 product list
+PRODUCT     INSTALLED   CHANNEL      UPDATE
+reference   —           prerelease   v0.1.0-rc.4 to install
 
-Run wso2 product install <product> to install one.
+1 product is not installed. Run wso2 product install reference --channel prerelease to install it.
 ```
 
 Asking for it explicitly by channel installs it:
@@ -87,10 +87,10 @@ binaries.
 
 ```sh
 $ wso2 product list
-MODULE      INSTALLED     CHANNEL      UPDATE
+PRODUCT     INSTALLED     CHANNEL      UPDATE
 reference   v0.1.0-rc.4   prerelease   current
 
-Every installed module is current.
+Every installed product is current.
 ```
 
 A module's own subcommands are separate from the shell's. Most need an

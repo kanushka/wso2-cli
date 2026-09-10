@@ -89,8 +89,11 @@ func TestRemovingAModuleTakesItOffTheMachine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listing returned %v", err)
 	}
-	if strings.Contains(inventory, catalogNamespace) {
-		t.Errorf("a removed module is still listed as installed:\n%s", inventory)
+	// The catalog still publishes it, so the list still names it — as a
+	// product to install, with no installed version.
+	if row := catalogNamespace + " — stable v4.5.0 to install"; !strings.Contains(
+		strings.Join(strings.Fields(inventory), " "), row) {
+		t.Errorf("a removed module is not listed as not installed:\n%s", inventory)
 	}
 }
 
@@ -144,8 +147,14 @@ func TestRemovingOneModuleLeavesTheOthersInstalled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listing returned %v", err)
 	}
-	if !strings.Contains(inventory, catalogOtherNamespace) {
-		t.Errorf("the module that was not named is no longer listed:\n%s", inventory)
+	// The list names every product the catalog publishes, installed or not,
+	// so the row has to carry the installed version to prove anything.
+	listed := strings.Join(strings.Fields(inventory), " ")
+	if !strings.Contains(listed, catalogOtherNamespace+" v1.0.0 stable current") {
+		t.Errorf("the module that was not named is no longer listed as installed:\n%s", inventory)
+	}
+	if !strings.Contains(listed, catalogNamespace+" — stable") {
+		t.Errorf("the removed module is not listed as not installed:\n%s", inventory)
 	}
 }
 

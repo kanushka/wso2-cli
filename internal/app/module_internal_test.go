@@ -52,8 +52,12 @@ func TestTheThreeUpdateRenderingsAgreeOnAnUnpublishedModule(t *testing.T) {
 		if !strings.Contains(line, "stable") {
 			t.Errorf("the %s does not name the channel that publishes nothing: %q", name, line)
 		}
-		if !strings.Contains(line, "wso2 product available") {
-			t.Errorf("the %s does not name a way to find out what is published: %q", name, line)
+		// wso2 product list names a product once, on the channel it follows,
+		// so it cannot answer where else this one is published. An install
+		// naming a channel either follows one that publishes it or is refused
+		// with the channels that do.
+		if !strings.Contains(line, "wso2 product install reference --channel <channel>") {
+			t.Errorf("the %s does not name a way onto a channel that publishes it: %q", name, line)
 		}
 	}
 
@@ -132,6 +136,7 @@ func TestTheListSummaryNeverCallsANonCurrentModuleCurrent(t *testing.T) {
 		Namespace: "apim", Installed: "1.0.0", Channel: "stable",
 		Available: "1.1.0", Update: true,
 	}
+	notInstalled := install.Status{Namespace: "reference", Channel: "stable", Available: "0.1.0"}
 
 	for name, test := range map[string]struct {
 		statuses []install.Status
@@ -146,7 +151,7 @@ func TestTheListSummaryNeverCallsANonCurrentModuleCurrent(t *testing.T) {
 		},
 		"an unpublished module alone": {
 			statuses: []install.Status{unpublished},
-			mustName: []string{"not published", "wso2 product available"},
+			mustName: []string{"not published", "wso2 product install <product> --channel <channel>"},
 		},
 		"a pinned module beside a current one": {
 			statuses: []install.Status{pinned, current},
@@ -160,6 +165,17 @@ func TestTheListSummaryNeverCallsANonCurrentModuleCurrent(t *testing.T) {
 			statuses:         []install.Status{current},
 			wantCurrentClaim: true,
 			mustName:         []string{"Every installed product is current."},
+		},
+		// A product that is not installed is neither current nor otherwise,
+		// so it must not spoil the short line for what is installed.
+		"every installed module current beside one not installed": {
+			statuses:         []install.Status{current, notInstalled},
+			wantCurrentClaim: true,
+			mustName:         []string{"Every installed product is current.", "1 product is not installed."},
+		},
+		"nothing installed": {
+			statuses: []install.Status{notInstalled},
+			mustName: []string{"1 product is not installed."},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -186,10 +202,11 @@ func TestTheListSummaryNeverCallsANonCurrentModuleCurrent(t *testing.T) {
 // above and still drift the next time a state is added.
 func TestTheListSummaryAndTheUpdateColumnCannotDisagree(t *testing.T) {
 	for name, status := range map[string]install.Status{
-		"pinned":      {Namespace: "a", Installed: "1.0.0", Pinned: true, PinnedVersion: "1.0.0"},
-		"unpublished": {Namespace: "b", Installed: "1.0.0", Channel: "stable"},
-		"updatable":   {Namespace: "c", Installed: "1.0.0", Channel: "stable", Available: "1.1.0", Update: true},
-		"current":     {Namespace: "d", Installed: "1.0.0", Channel: "stable", Available: "1.0.0"},
+		"pinned":        {Namespace: "a", Installed: "1.0.0", Pinned: true, PinnedVersion: "1.0.0"},
+		"unpublished":   {Namespace: "b", Installed: "1.0.0", Channel: "stable"},
+		"updatable":     {Namespace: "c", Installed: "1.0.0", Channel: "stable", Available: "1.1.0", Update: true},
+		"current":       {Namespace: "d", Installed: "1.0.0", Channel: "stable", Available: "1.0.0"},
+		"not installed": {Namespace: "e", Channel: "stable", Available: "1.0.0"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			column := updateColumn(status)
@@ -248,6 +265,7 @@ func TestTheListSummaryCountsReadAsFinishedSentences(t *testing.T) {
 	updatable := install.Status{Namespace: "c", Installed: "1.0.0", Channel: "stable",
 		Available: "1.1.0", Update: true}
 	current := install.Status{Namespace: "d", Installed: "1.0.0", Channel: "stable", Available: "1.0.0"}
+	notInstalled := install.Status{Namespace: "e", Channel: "stable", Available: "1.0.0"}
 	second := func(status install.Status) install.Status {
 		status.Namespace += "2"
 		return status
@@ -290,6 +308,15 @@ func TestTheListSummaryCountsReadAsFinishedSentences(t *testing.T) {
 			statuses: []install.Status{unpublished, second(unpublished)},
 			want: "2 products are not published on the channel they follow, " +
 				"so whether they are current is unknown.",
+		},
+		"one not installed": {
+			statuses: []install.Status{notInstalled, current},
+			want:     "1 product is not installed. Run wso2 product install e to install it.",
+		},
+		"two not installed": {
+			statuses: []install.Status{notInstalled, second(notInstalled)},
+			want: "2 products are not installed. " +
+				"Run wso2 product install <product> to install one.",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

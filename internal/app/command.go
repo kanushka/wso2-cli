@@ -197,7 +197,7 @@ func (s Shell) productFooter() string {
 		return genericProductFooter
 	}
 	if len(installed) == 0 {
-		return genericProductFooter + " None are installed; run wso2 product available to see what can be."
+		return genericProductFooter + " None are installed; run wso2 product list to see what can be."
 	}
 	namespaces := make([]string, 0, len(installed))
 	for _, entry := range installed {

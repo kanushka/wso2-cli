@@ -418,9 +418,9 @@ func TestAPinnedVersionInstallsNonInteractively(t *testing.T) {
 	}
 }
 
-// The modules available to install can be listed from the shell, so what exists
-// is discoverable without reading documentation. It costs one request, because
-// the index alone answers the question.
+// The products available to install are listed beside what is installed, so
+// what exists is discoverable without reading documentation. It costs one
+// request, because the index alone answers the question.
 func TestTheAvailableModulesCanBeListedFromTheShell(t *testing.T) {
 	shell := buildShell(t)
 	origin := newCatalogOrigin(t, hostPlatformOptions(),
@@ -428,17 +428,19 @@ func TestTheAvailableModulesCanBeListedFromTheShell(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 	origin.forget()
 
-	stdout, stderr, err := moduleCommandFrom(shell, stateRoot, origin.server.URL, "available")
+	stdout, stderr, err := moduleCommandFrom(shell, stateRoot, origin.server.URL, "list")
 	if err != nil {
 		t.Fatalf("listing the catalog returned %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
 
+	// A plain install follows stable, so that is the version each row offers,
+	// even for a product with a newer prerelease.
 	for _, want := range []string{
-		catalogNamespace, "v4.5.0", "prerelease", "v4.6.0-rc.1",
-		catalogOtherNamespace, "v1.0.0",
+		catalogNamespace + " — stable v4.5.0 to install",
+		catalogOtherNamespace + " — stable v1.0.0 to install",
 	} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("the catalog listing does not mention %q:\n%s", want, stdout)
+		if !strings.Contains(strings.Join(strings.Fields(stdout), " "), want) {
+			t.Errorf("the catalog listing does not read %q:\n%s", want, stdout)
 		}
 	}
 	if got := origin.totalRequests(); got != 1 {
