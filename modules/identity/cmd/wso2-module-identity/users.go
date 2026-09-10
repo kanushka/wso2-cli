@@ -19,7 +19,6 @@ package main
 import (
 	"context"
 	"strconv"
-	"strings"
 
 	"github.com/wso2/wso2-cli/modules/identity/internal/thunder"
 	"github.com/wso2/wso2-cli/sdk/module"
@@ -54,26 +53,17 @@ func usersList(ctx context.Context, request module.Request) (result.Result, erro
 		return result.Result{}, callFailed(err, "read the users", request.Context.Endpoint)
 	}
 	report := result.New(UsersSchema).
-		With("count", "Users", strconv.Itoa(listing.TotalResults))
+		With("count", "Users", strconv.Itoa(listing.TotalResults)).
+		WithColumn("username", "Username").
+		WithColumn("email", "Email").
+		WithColumn("id", "ID")
 	for _, u := range listing.Users {
 		// The username is the display attribute ThunderID's Person type
 		// declares, and the one an administrator recognizes; the id is what
 		// every other command takes, so both are reported.
-		report = report.With("user."+u.ID, attributeOr(u, "username", u.ID), summarize(u))
+		report = report.WithRow(attributeOr(u, "username", u.ID), u.Attributes["email"], u.ID)
 	}
 	return report.With(NextField, "Next", usersNext(listing)), nil
-}
-
-// summarize renders one user as a single cell: what the deployment knows about
-// them, in a fixed order so two runs read the same way.
-func summarize(u user) string {
-	parts := []string{u.ID}
-	for _, name := range []string{"email", "given_name", "family_name"} {
-		if value := u.Attributes[name]; value != "" {
-			parts = append(parts, value)
-		}
-	}
-	return strings.Join(parts, "  ")
 }
 
 func attributeOr(u user, name, fallback string) string {

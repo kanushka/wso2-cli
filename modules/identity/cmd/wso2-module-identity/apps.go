@@ -19,7 +19,6 @@ package main
 import (
 	"context"
 	"strconv"
-	"strings"
 
 	"github.com/wso2/wso2-cli/sdk/module"
 	"github.com/wso2/wso2-cli/sdk/result"
@@ -51,15 +50,14 @@ func appsList(ctx context.Context, request module.Request) (result.Result, error
 		return result.Result{}, callFailed(err, "read the applications", request.Context.Endpoint)
 	}
 	report := result.New(AppsSchema).
-		With("count", "Applications", strconv.Itoa(listing.TotalResults))
+		With("count", "Applications", strconv.Itoa(listing.TotalResults)).
+		WithColumn("name", "Name").
+		WithColumn("clientId", "Client ID").
+		WithColumn("type", "Type")
 	for _, app := range listing.Applications {
-		// The client identifier leads: it is what an operator records as the
-		// account's client, and what a deployment names in a refusal.
-		parts := []string{app.ClientID}
-		if app.Type != "" {
-			parts = append(parts, app.Type)
-		}
-		report = report.With("application."+app.ID, app.Name, strings.Join(parts, "  "))
+		// The client identifier is what an operator records as the account's
+		// client, and what a deployment names in a refusal.
+		report = report.WithRow(app.Name, app.ClientID, app.Type)
 	}
 	return report.With(NextField, "Next",
 		"The shell logs in as one of these; wso2 account list shows which."), nil

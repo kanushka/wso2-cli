@@ -64,11 +64,14 @@ func resourceServersList(ctx context.Context, request module.Request) (result.Re
 		return result.Result{}, callFailed(err, "read the resource servers", request.Context.Endpoint)
 	}
 	report := result.New(ResourceServersSchema).
-		With("count", "Resource servers", strconv.Itoa(listing.TotalResults))
+		With("count", "Resource servers", strconv.Itoa(listing.TotalResults)).
+		WithColumn("name", "Name").
+		WithColumn("identifier", "Identifier").
+		WithColumn("id", "ID")
 	for _, rs := range listing.ResourceServers {
-		// The identifier leads, because it is the value an operator copies
+		// The identifier is second, because it is the value an operator copies
 		// into an account's product record as the audience.
-		report = report.With("resourceServer."+rs.ID, rs.Name, rs.Identifier)
+		report = report.WithRow(rs.Name, rs.Identifier, rs.ID)
 	}
 	return report.With(NextField, "Next",
 		"Record one on an account with wso2 account add-product <account> <namespace> "+

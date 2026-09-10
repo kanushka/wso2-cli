@@ -87,8 +87,9 @@ func TestCreatingAResourceServerRefusesAPermissionCarryingTheDelimiter(t *testin
 	}
 }
 
-// renderFields flattens a result's values so a test can assert on what a table
-// would show without depending on field order.
+// renderFields flattens a result's values so a test can assert on what a
+// rendering would show without depending on field or column order. A listing
+// carries its answer in rows, so both halves are flattened.
 func renderFields(outcome testkit.Outcome) string {
 	if outcome.Result == nil {
 		return ""
@@ -96,6 +97,9 @@ func renderFields(outcome testkit.Outcome) string {
 	var b strings.Builder
 	for _, field := range outcome.Result.Fields {
 		b.WriteString(field.Name + "=" + field.Value + "\n")
+	}
+	for _, row := range outcome.Result.Rows {
+		b.WriteString(strings.Join(row.Values, "\t") + "\n")
 	}
 	return b.String()
 }
