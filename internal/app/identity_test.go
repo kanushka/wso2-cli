@@ -360,7 +360,7 @@ func TestIdentitySubcommandsRenderJSON(t *testing.T) {
 			t.Fatalf("exit code = %d, want %d; stdout: %s stderr: %s", code, exit.OK, out, errOut)
 		}
 		var listing struct {
-			Identities []struct {
+			Accounts []struct {
 				Name     string `json:"name"`
 				Type     string `json:"type"`
 				Kind     string `json:"kind"`
@@ -370,16 +370,16 @@ func TestIdentitySubcommandsRenderJSON(t *testing.T) {
 					Endpoint  string   `json:"endpoint"`
 					Scopes    []string `json:"scopes"`
 				} `json:"products"`
-			} `json:"identities"`
+			} `json:"accounts"`
 		}
 		if err := json.Unmarshal(out.Bytes(), &listing); err != nil {
 			t.Fatalf("the output is not JSON: %v\n%s", err, out)
 		}
-		if len(listing.Identities) != 1 || len(listing.Identities[0].Products) != 1 {
-			t.Fatalf("the listing does not carry the identity and its product: %+v", listing)
+		if len(listing.Accounts) != 1 || len(listing.Accounts[0].Products) != 1 {
+			t.Fatalf("the listing does not carry the account and its product: %+v", listing)
 		}
-		if listing.Identities[0].Products[0].Namespace != "api" {
-			t.Errorf("the product namespace is not carried: %+v", listing.Identities[0].Products[0])
+		if listing.Accounts[0].Products[0].Namespace != "api" {
+			t.Errorf("the product namespace is not carried: %+v", listing.Accounts[0].Products[0])
 		}
 		if strings.Contains(out.String(), "credentialRef") {
 			t.Errorf("the JSON listing names the credential reference:\n%s", out)
@@ -578,5 +578,27 @@ func TestAMovedAccountVerbNamesWhereItWent(t *testing.T) {
 				t.Fatalf("the refusal does not name where the command went:\n%s", errOut)
 			}
 		})
+	}
+}
+
+func TestAccountListJSONNamesTheAccountsKeyAccounts(t *testing.T) {
+	// The rename reaches the machine-readable output too: a script reading
+	// wso2 account list --output json should find the concept spelled the way
+	// every other surface spells it. Leaving it as "identities" would make the
+	// JSON the one place the old word survives.
+	shell, out, errOut := newShell(t)
+	installLogin(t, shell, selfHostedDocument())
+	if code := shell.Run([]string{"--output", "json", "account", "list"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	var decoded map[string]json.RawMessage
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("the rendering is not valid JSON: %v\n%s", err, out)
+	}
+	if _, found := decoded["accounts"]; !found {
+		t.Fatalf("wso2 account list --output json has no accounts key: %s", out)
+	}
+	if _, found := decoded["identities"]; found {
+		t.Fatalf("wso2 account list --output json still names the concept identities: %s", out)
 	}
 }
