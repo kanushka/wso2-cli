@@ -188,7 +188,7 @@ build-shell:
 # docs/adr/0011-local-module-install-through-a-development-origin.md.
 #
 # The version is a pinned prerelease, so nothing following stable is ever
-# offered it and `wso2 module update` leaves it alone. `wso2 module remove
+# offered it and `wso2 product update` leaves it alone. `wso2 product remove
 # <namespace>` takes it off again. VERSION names another one, for rehearsing
 # what a specific release will look like installed.
 #
