@@ -99,7 +99,7 @@ func commandEnd(tokens []string, index int) (end int, punctuation string) {
 // splitTrailing separates sentence punctuation from the end of a word. A
 // closing bracket or angle bracket belongs to the command, so it stays.
 func splitTrailing(word string) (body, punctuation string) {
-	body = strings.TrimRight(word, ".,;:)")
+	body = strings.TrimRight(word, ".,;:?!)")
 	return body, word[len(body):]
 }
 
