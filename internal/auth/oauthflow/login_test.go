@@ -171,6 +171,58 @@ func TestBrowserLoginRoundTrip(t *testing.T) {
 	}
 }
 
+// TestBrowserLoginResolvesADisplayName proves the login turns whichever of the
+// identity token's name claims an issuer discloses into one human-readable
+// Result.Name, in the order a person actually recognises themselves by: the
+// standard name claim first, given_name and family_name joined when name is
+// absent, and the email claim — still more recognisable than a bare subject —
+// when the issuer discloses no name at all (#168). ThunderID's identity token
+// carries name, given_name, and family_name alongside email, so a login
+// against it already knows more than the subject; this is what makes that
+// knowledge available to whoami instead of being read and discarded.
+func TestBrowserLoginResolvesADisplayName(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		opts     fakeissuer.Options
+		wantName string
+	}{
+		"the name claim wins outright, even over given_name and family_name": {
+			opts: fakeissuer.Options{
+				Audience: "reference-status", AllowAnyLoopbackPort: true,
+				Name: "Ada Lovelace", GivenName: "Ada", FamilyName: "Lovelace",
+			},
+			wantName: "Ada Lovelace",
+		},
+		"given_name and family_name join when name is absent": {
+			opts: fakeissuer.Options{
+				Audience: "reference-status", AllowAnyLoopbackPort: true,
+				GivenName: "Ada", FamilyName: "Lovelace",
+			},
+			wantName: "Ada Lovelace",
+		},
+		"email is the fallback when the issuer discloses no name claim at all": {
+			opts:     fakeissuer.Options{Audience: "reference-status", AllowAnyLoopbackPort: true},
+			wantName: "dev@example.test",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			issuer := fakeissuer.New(t, testCase.opts)
+			printed := &recorder{}
+			login := browserLogin(issuer, printed, func(authURL string) error {
+				go visit(issuer, authURL)
+				return nil
+			})
+
+			result, err := login.Run(testContext(t, 30*time.Second))
+			if err != nil {
+				t.Fatalf("login: %v", err)
+			}
+			if result.Name != testCase.wantName {
+				t.Fatalf("result.Name = %q, want %q", result.Name, testCase.wantName)
+			}
+		})
+	}
+}
+
 // TestLoginVerifiesThroughACertificateItCannotParse proves a key set is read
 // for the keys in it and not for the certificates published beside them.
 //

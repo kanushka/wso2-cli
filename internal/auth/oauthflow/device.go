@@ -225,12 +225,20 @@ func (d DeviceLogin) identify(
 		return Result{}, identityNotVerified(err)
 	}
 	var claims struct {
-		Email string `json:"email"`
+		Email      string `json:"email"`
+		Name       string `json:"name"`
+		GivenName  string `json:"given_name"`
+		FamilyName string `json:"family_name"`
 	}
 	_ = verified.Claims(&claims)
 	result.Subject = verified.Subject
 	result.IDToken = raw
 	result.Email = claims.Email
+	// See displayName's own doc comment in login.go for the order it resolves
+	// in; a device login reads the identical claims off the identical identity
+	// token shape, so the two flows must not learn two different names for the
+	// same session.
+	result.Name = displayName(claims.Name, claims.GivenName, claims.FamilyName, claims.Email)
 	return result, nil
 }
 

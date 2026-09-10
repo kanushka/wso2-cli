@@ -147,6 +147,13 @@ type Result struct {
 	IDToken string
 	// Email is the verified identity token's email claim, when it carries one.
 	Email string
+	// Name is the login's best guess at a human-readable label for the
+	// signed-in person, resolved by displayName: the identity token's name
+	// claim, given_name and family_name joined when name is absent, or email
+	// when the issuer discloses no name claim at all. It is empty when none of
+	// the four is disclosed — an issuer that names nobody is not asked to have
+	// one invented for it. See displayName.
+	Name string
 }
 
 // Run performs the login and returns the issued token with the verified
@@ -260,12 +267,38 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 			"Retry wso2 login from a single terminal and complete only the sign-in it opens.")
 	}
 	var claims struct {
-		Email string `json:"email"`
+		Email      string `json:"email"`
+		Name       string `json:"name"`
+		GivenName  string `json:"given_name"`
+		FamilyName string `json:"family_name"`
 	}
 	// An issuer that discloses no email is a legal issuer; the login reports
 	// what it verified rather than refusing over a claim it did not need.
 	_ = idToken.Claims(&claims)
-	return Result{Token: token, Subject: idToken.Subject, IDToken: rawIDToken, Email: claims.Email}, nil
+	return Result{
+		Token:   token,
+		Subject: idToken.Subject,
+		IDToken: rawIDToken,
+		Email:   claims.Email,
+		Name:    displayName(claims.Name, claims.GivenName, claims.FamilyName, claims.Email),
+	}, nil
+}
+
+// displayName resolves the login's one human-readable label for the signed-in
+// person from whichever of the identity token's name claims the issuer
+// disclosed, in the order a person is most likely to recognise themselves by:
+// the OIDC standard name claim, then given_name and family_name joined, then
+// email — still a name a person chose, unlike the subject identifier the
+// issuer assigned. It returns empty when the issuer discloses none of the
+// four, rather than inventing a name from parts it was never given.
+func displayName(name, givenName, familyName, email string) string {
+	if name != "" {
+		return name
+	}
+	if combined := strings.TrimSpace(givenName + " " + familyName); combined != "" {
+		return combined
+	}
+	return email
 }
 
 func (l Login) scopes() []string {

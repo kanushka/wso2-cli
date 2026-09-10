@@ -376,6 +376,14 @@ func TestLoginRecordsSubjectAndDisclosedSessionExpiry(t *testing.T) {
 	if stored.Subject != "user-1" {
 		t.Errorf("stored session subject = %q, want %q (fakeissuer's own subject)", stored.Subject, "user-1")
 	}
+	// The fixture issuer discloses no name or given/family name claim, so the
+	// login's resolved display name falls back to the email claim it already
+	// reads — carried through to the stored session rather than read and
+	// discarded (#168).
+	if stored.Name != "dev@example.test" {
+		t.Errorf("stored session name = %q, want %q (fakeissuer's email, the fallback with no name claim)",
+			stored.Name, "dev@example.test")
+	}
 	if stored.SessionExpiresAt.IsZero() {
 		t.Fatal("the disclosed refresh-token lifetime was not recorded as SessionExpiresAt")
 	}

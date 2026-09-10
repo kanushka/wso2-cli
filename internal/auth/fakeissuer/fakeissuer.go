@@ -107,6 +107,15 @@ type Options struct {
 	// server has to accept, binding the token to an organization through the
 	// issuer it trusts rather than through a claim.
 	OrganizationClaim string
+	// Name, GivenName, and FamilyName are the OIDC standard name claims minted
+	// into the identity token when set, modeling the claims ThunderID's
+	// identity token carries alongside email. All three are empty by default:
+	// most tests care only about the subject and the fixed email claim below,
+	// and a claim this fixture does not model must not appear in a token just
+	// because a field exists to carry it.
+	Name       string
+	GivenName  string
+	FamilyName string
 	// RequireResource refuses any authorization request that carries no RFC 8707
 	// resource indicator, and mints the audience from the one it was given.
 	//
@@ -1309,6 +1318,15 @@ func (i *Issuer) mintIDToken(clientID, nonce string) string {
 		"iat":   now.Unix(),
 		"nonce": nonce,
 		"email": "dev@example.test",
+	}
+	if i.opts.Name != "" {
+		claims["name"] = i.opts.Name
+	}
+	if i.opts.GivenName != "" {
+		claims["given_name"] = i.opts.GivenName
+	}
+	if i.opts.FamilyName != "" {
+		claims["family_name"] = i.opts.FamilyName
 	}
 	if i.opts.OmitNonce {
 		delete(claims, "nonce")
