@@ -456,3 +456,34 @@ func TestLoginRefusesWhenNoLoopbackPortIsFree(t *testing.T) {
 		}
 	}
 }
+
+func TestBrowserLoginAsksForTheScopesThatCarryAName(t *testing.T) {
+	// An OpenID provider puts profile and email claims in an identity token
+	// only when the authorization asked for the profile and email scopes.
+	// Measured against ThunderID 2026-09-10: an authorization for "openid
+	// system" mints an identity token carrying sub and nothing a person would
+	// recognize, while "openid system profile email" adds name, given_name,
+	// family_name and email. A login that asks for neither can resolve no
+	// display name however carefully it reads the claims, so wso2 whoami ends
+	// up reporting the subject after all — which is exactly what shipped once,
+	// because a fixture that minted those claims unconditionally hid it.
+	issuer := fakeissuer.New(t, fakeissuer.Options{
+		Audience: "reference-status", AllowAnyLoopbackPort: true,
+		Name: "Ada Lovelace", ScopeGatedClaims: true,
+	})
+	printed := &recorder{}
+	login := browserLogin(issuer, printed, func(authURL string) error {
+		go visit(issuer, authURL)
+		return nil
+	})
+	result, err := login.Run(context.Background())
+	if err != nil {
+		t.Fatalf("login failed: %v", err)
+	}
+	if result.Name != "Ada Lovelace" {
+		t.Fatalf("resolved name = %q, want the name the provider discloses under the profile scope", result.Name)
+	}
+	if result.Email != "dev@example.test" {
+		t.Fatalf("resolved email = %q, want the email the provider discloses under the email scope", result.Email)
+	}
+}

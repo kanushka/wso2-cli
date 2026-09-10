@@ -74,6 +74,14 @@ const (
 	challengeMethodS256 = "S256"
 	// scopeOfflineAccess asks for the refresh token the session is built on.
 	scopeOfflineAccess = "offline_access"
+	// scopeProfile and scopeEmail ask the provider to name the person in the
+	// identity token. OpenID Connect discloses name, given_name and
+	// family_name only under profile, and email only under email, so a login
+	// that asks for neither learns the subject and nothing a person would
+	// recognize — and wso2 whoami then reports an opaque identifier. Both are
+	// standard OpenID scopes every supported deployment answers.
+	scopeProfile = "profile"
+	scopeEmail   = "email"
 )
 
 // LoopbackPorts is the fixed callback port sequence, tried in order. All four
@@ -301,8 +309,16 @@ func displayName(name, givenName, familyName, email string) string {
 	return email
 }
 
+// scopes is what the authorization asks for: the OpenID scopes that make a
+// session and name the person in it, then the product's own.
+//
+// The profile and email scopes are asked for here, beside openid, rather than
+// added to the product's scopes, because they are about who signed in and not
+// about what a product may do. That keeps them out of the scope set a session
+// is recorded against, so a session stored before this change is not read as
+// one authorized for a different product.
 func (l Login) scopes() []string {
-	requested := []string{oidc.ScopeOpenID, scopeOfflineAccess}
+	requested := []string{oidc.ScopeOpenID, scopeOfflineAccess, scopeProfile, scopeEmail}
 	for _, scope := range l.Scopes {
 		if !slices.Contains(requested, scope) {
 			requested = append(requested, scope)

@@ -74,6 +74,15 @@ type Options struct {
 	// secret, so only a test whose subject is a wrong credential has to state
 	// one.
 	ClientSecret string
+	// ScopeGatedClaims mints an identity token's profile and email claims only
+	// when the grant carries the profile and email scopes, as OpenID Connect
+	// Core section 5.4 has it and as ThunderID was measured doing on
+	// 2026-09-10. Off by default, because most tests here are about something
+	// other than claims and were written against a fixture that minted email
+	// unconditionally. A test about what a login learns of the person must turn
+	// it on: without it the fixture hands over a name no real deployment
+	// would, which is how a login that never asked for one shipped once.
+	ScopeGatedClaims bool
 	// ExchangeGrant registers RFC 8693 token exchange on this issuer. The
 	// grant it runs is modelled on ThunderID as measured on 2026-09-09: the
 	// subject token must be one this issuer minted, the resource indicator
@@ -746,7 +755,7 @@ func (i *Issuer) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		"access_token": i.mintAccessTokenFor("user-1", grant.scopes, grant.resource),
 		"token_type":   "Bearer",
 		"expires_in":   300,
-		"id_token":     i.mintIDToken(grant.clientID, grant.nonce),
+		"id_token":     i.mintIDToken(grant.clientID, grant.nonce, grant.scopes),
 		"scope":        strings.Join(grant.scopes, " "),
 	}
 	if !i.opts.OmitRefreshToken {
@@ -862,7 +871,7 @@ func (i *Issuer) refreshGrant(w http.ResponseWriter, r *http.Request) {
 	// A renewal under openid carries a fresh identity token, as OpenID Connect
 	// Core section 12 permits, for the client that presented the refresh token.
 	if slices.Contains(issued, "openid") {
-		response["id_token"] = i.mintIDToken(presentedClientID(r), "")
+		response["id_token"] = i.mintIDToken(presentedClientID(r), "", issued)
 	}
 	if !i.opts.OmitRefreshScopeField {
 		response["scope"] = strings.Join(issued, " ")
@@ -1064,7 +1073,7 @@ func (i *Issuer) issueDeviceTokens(w http.ResponseWriter, scopes []string, clien
 		if i.opts.DeviceIDTokenAudience != "" {
 			audience = i.opts.DeviceIDTokenAudience
 		}
-		response["id_token"] = i.mintIDToken(audience, "")
+		response["id_token"] = i.mintIDToken(audience, "", scopes)
 	}
 	writeJSON(w, http.StatusOK, response)
 }
@@ -1308,7 +1317,7 @@ func (i *Issuer) mintAccessTokenFor(subject string, scopes []string, resource st
 	return token
 }
 
-func (i *Issuer) mintIDToken(clientID, nonce string) string {
+func (i *Issuer) mintIDToken(clientID, nonce string, scopes []string) string {
 	now := time.Now()
 	claims := map[string]any{
 		"iss":   i.URL,
@@ -1317,15 +1326,21 @@ func (i *Issuer) mintIDToken(clientID, nonce string) string {
 		"exp":   now.Add(5 * time.Minute).Unix(),
 		"iat":   now.Unix(),
 		"nonce": nonce,
-		"email": "dev@example.test",
 	}
-	if i.opts.Name != "" {
+	// Under ScopeGatedClaims each claim is disclosed only under the scope
+	// that governs it; otherwise the fixture keeps its historical behaviour.
+	disclosesEmail := !i.opts.ScopeGatedClaims || slices.Contains(scopes, "email")
+	disclosesProfile := !i.opts.ScopeGatedClaims || slices.Contains(scopes, "profile")
+	if disclosesEmail {
+		claims["email"] = "dev@example.test"
+	}
+	if disclosesProfile && i.opts.Name != "" {
 		claims["name"] = i.opts.Name
 	}
-	if i.opts.GivenName != "" {
+	if disclosesProfile && i.opts.GivenName != "" {
 		claims["given_name"] = i.opts.GivenName
 	}
-	if i.opts.FamilyName != "" {
+	if disclosesProfile && i.opts.FamilyName != "" {
 		claims["family_name"] = i.opts.FamilyName
 	}
 	if i.opts.OmitNonce {
