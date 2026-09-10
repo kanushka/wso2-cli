@@ -314,12 +314,16 @@ func TestModuleUpdateAllRefusesToPromptOnPipedStdin(t *testing.T) {
 	shell, out, errOut := newModuleShell(t)
 	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
 
-	if code := shell.Run([]string{"module", "update", "--all"}); code != exit.Usage {
+	if code := shell.Run([]string{"product", "update", "--all"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
 	}
 	requireRefusal(t, errOut.String(), "shell.non_interactive")
 	if !strings.Contains(errOut.String(), "standard input is not a terminal") {
 		t.Errorf("the refusal does not name standard input:\n%s", errOut)
+	}
+	if strings.Contains(errOut.String(), "installed module") ||
+		!strings.Contains(errOut.String(), "installed product") {
+		t.Errorf("the refusal does not describe the product scope:\n%s", errOut)
 	}
 	if out.String() != "" {
 		t.Errorf("a refused update wrote to standard output:\n%s", out)
@@ -336,7 +340,7 @@ func TestModuleUpdateAllSkipsThePromptWhenNothingIsInstalled(t *testing.T) {
 	shell, out, errOut := newModuleShell(t)
 	shell.Reader = failIfReadReader{t}
 
-	if code := shell.Run([]string{"module", "update", "--all"}); code != exit.OK {
+	if code := shell.Run([]string{"product", "update", "--all"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	if !strings.Contains(out.String(), "No products are installed.") {
@@ -357,7 +361,7 @@ func TestModuleUpdateAllSkipsThePromptWhenEveryInstalledModuleIsPinned(t *testin
 	shell.Reader = failIfReadReader{t}
 	catalogServing(t, `{"schemaVersion":1,"modules":[]}`)
 
-	if code := shell.Run([]string{"module", "update", "--all"}); code != exit.OK {
+	if code := shell.Run([]string{"product", "update", "--all"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	if !strings.Contains(out.String(), "reference is pinned to v0.1.0 and was not updated.") {
@@ -374,7 +378,7 @@ func TestModuleUpdateAllYesSkipsThePrompt(t *testing.T) {
 	shell, out, errOut := newModuleShell(t)
 	shell.Reader = failIfReadReader{t}
 
-	if code := shell.Run([]string{"module", "update", "--all", "--yes"}); code != exit.OK {
+	if code := shell.Run([]string{"product", "update", "--all", "--yes"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	if !strings.Contains(out.String(), "No products are installed.") {
@@ -389,7 +393,7 @@ func TestModuleUpdateAllRefusesYesAndDryRunTogether(t *testing.T) {
 	shell, _, errOut := newModuleShell(t)
 	shell.Reader = failIfReadReader{t}
 
-	code := shell.Run([]string{"module", "update", "--all", "--yes", "--dry-run"})
+	code := shell.Run([]string{"product", "update", "--all", "--yes", "--dry-run"})
 	if code != exit.Usage {
 		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
 	}
@@ -404,11 +408,15 @@ func TestModuleUpdateAllAnsweringNoChangesNothing(t *testing.T) {
 	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
 	shell.Reader = strings.NewReader("no\n")
 
-	if code := shell.Run([]string{"module", "update", "--all"}); code != exit.OK {
+	if code := shell.Run([]string{"product", "update", "--all"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	if !strings.Contains(out.String(), "cancelled") {
 		t.Errorf("stdout does not report the cancellation:\n%s", out)
+	}
+	if strings.Contains(errOut.String(), "installed module") ||
+		!strings.Contains(errOut.String(), "installed product") {
+		t.Errorf("the prompt does not describe the product scope:\n%s", errOut)
 	}
 	active, err := modules.NewStore(storeRoot(shell)).ReadActive("reference")
 	if err != nil {
@@ -433,7 +441,7 @@ func TestModuleUpdateAllDryRunReportsWithoutChanging(t *testing.T) {
 		`{"namespace":"reference","path":"reference","channels":`+
 		`[{"channel":"stable","version":"0.1.0"}]}]}`)
 
-	if code := shell.Run([]string{"module", "update", "--all", "--dry-run"}); code != exit.OK {
+	if code := shell.Run([]string{"product", "update", "--all", "--dry-run"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	if !strings.Contains(out.String(), "reference is already current at v0.1.0") {
@@ -461,7 +469,7 @@ func TestModuleUpdateAllReportsAModuleTheCatalogDoesNotPublish(t *testing.T) {
 	shell.Reader = failIfReadReader{t}
 	catalogServing(t, `{"schemaVersion":1,"modules":[]}`)
 
-	if code := shell.Run([]string{"module", "update", "--all", "--yes"}); code != exit.OK {
+	if code := shell.Run([]string{"product", "update", "--all", "--yes"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	if !strings.Contains(out.String(), "The catalog publishes no version of reference on the stable channel") {
@@ -484,7 +492,7 @@ func TestModuleUpdateAllDryRunReportsAPinnedModuleWithoutChanging(t *testing.T) 
 		`{"namespace":"reference","path":"reference","channels":`+
 		`[{"channel":"stable","version":"0.2.0"}]}]}`)
 
-	if code := shell.Run([]string{"module", "update", "--all", "--dry-run"}); code != exit.OK {
+	if code := shell.Run([]string{"product", "update", "--all", "--dry-run"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	if !strings.Contains(out.String(), "reference is pinned to v0.1.0 and would not be updated.") {
@@ -510,7 +518,7 @@ func TestModuleUpdateAllDryRunReportsAnAvailableUpdateWithoutChanging(t *testing
 		`{"namespace":"reference","path":"reference","channels":`+
 		`[{"channel":"stable","version":"0.2.0"}]}]}`)
 
-	if code := shell.Run([]string{"module", "update", "--all", "--dry-run"}); code != exit.OK {
+	if code := shell.Run([]string{"product", "update", "--all", "--dry-run"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	if !strings.Contains(out.String(), "reference would be updated from v0.1.0 to v0.2.0.") {
@@ -537,7 +545,7 @@ func TestModuleUpdateNamedModuleDryRunReportsWithoutChanging(t *testing.T) {
 		`{"namespace":"reference","path":"reference","channels":`+
 		`[{"channel":"stable","version":"0.2.0"}]}]}`)
 
-	if code := shell.Run([]string{"module", "update", "reference", "--dry-run"}); code != exit.OK {
+	if code := shell.Run([]string{"product", "update", "reference", "--dry-run"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	if !strings.Contains(out.String(), "reference would be updated from v0.1.0 to v0.2.0.") {
@@ -567,7 +575,7 @@ func TestModuleUpdateNamedModuleDryRunReportsWithoutChanging(t *testing.T) {
 func TestModuleUpdateUnknownFlagRecoveryNamesTheAcceptedFlags(t *testing.T) {
 	shell, _, errOut := newModuleShell(t)
 
-	if code := shell.Run([]string{"module", "update", "--all", "--bogus"}); code != exit.Usage {
+	if code := shell.Run([]string{"product", "update", "--all", "--bogus"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
 	}
 	requireRefusal(t, errOut.String(), "shell.unknown_flag")
@@ -575,6 +583,43 @@ func TestModuleUpdateUnknownFlagRecoveryNamesTheAcceptedFlags(t *testing.T) {
 		if !strings.Contains(errOut.String(), want) {
 			t.Errorf("the recovery does not name %s:\n%s", want, errOut)
 		}
+	}
+}
+
+// TestProductUpdateRejectsSeveralNamedProducts holds the public command to
+// its two deliberate scopes: one named product, or every installed product.
+// Accepting several names would create a third, partly bounded scope whose
+// confirmation and partial-failure semantics are not part of the command.
+func TestProductUpdateRejectsSeveralNamedProducts(t *testing.T) {
+	shell, out, errOut := newModuleShell(t)
+
+	if code := shell.Run([]string{"product", "update", "api", "identity"}); code != exit.Usage {
+		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
+	}
+	requireRefusal(t, errOut.String(), "shell.unexpected_argument")
+	if !strings.Contains(errOut.String(), "wso2 product update <product>") ||
+		!strings.Contains(errOut.String(), "wso2 product update --all") {
+		t.Errorf("the refusal does not name the two accepted forms:\n%s", errOut)
+	}
+	if out.String() != "" {
+		t.Errorf("a refused update wrote to standard output:\n%s", out)
+	}
+}
+
+// TestProductUpdateHelpCallsItsTargetsProducts enforces ADR 0015 at the
+// command interface. Module remains the contributor-facing implementation
+// term, but a user installs and updates products.
+func TestProductUpdateHelpCallsItsTargetsProducts(t *testing.T) {
+	shell, out, errOut := newModuleShell(t)
+
+	if code := shell.Run([]string{"product", "update", "--help"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if strings.Contains(out.String(), "installed module") {
+		t.Fatalf("product update help exposes the contributor term module:\n%s", out)
+	}
+	if !strings.Contains(out.String(), "Update every installed product that is not pinned.") {
+		t.Fatalf("product update help does not describe products:\n%s", out)
 	}
 }
 
@@ -589,7 +634,7 @@ func TestModuleUpdateOfOneNamedModuleNeedsNoConfirmation(t *testing.T) {
 		`{"namespace":"reference","path":"reference","channels":`+
 		`[{"channel":"stable","version":"0.1.0"}]}]}`)
 
-	if code := shell.Run([]string{"module", "update", "reference"}); code != exit.OK {
+	if code := shell.Run([]string{"product", "update", "reference"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	if !strings.Contains(out.String(), "reference is current at v0.1.0") {
@@ -697,7 +742,7 @@ func TestModuleUpdateOfAPinnedModuleNamesTheClearingCommand(t *testing.T) {
 		`{"namespace":"reference","path":"reference","channels":`+
 		`[{"channel":"stable","version":"0.2.0"}]}]}`)
 
-	if code := shell.Run([]string{"module", "update", "reference"}); code != exit.OK {
+	if code := shell.Run([]string{"product", "update", "reference"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	want := "reference is pinned to v0.1.0 and was not updated. " +
