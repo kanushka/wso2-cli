@@ -97,7 +97,7 @@ func TestAcceptedCallbackNamesTheProduct(t *testing.T) {
 	if !strings.Contains(page.body, "You are signed in") {
 		t.Fatalf("the accepted page does not say the login worked:\n%s", page.body)
 	}
-	if !strings.Contains(page.body, "apim") {
+	if !strings.Contains(page.body, "run <strong>apim</strong> product commands") {
 		t.Fatalf("the accepted page does not name the product:\n%s", page.body)
 	}
 	// The page never repeats what the browser carried to it. The code is the
@@ -108,6 +108,21 @@ func TestAcceptedCallbackNamesTheProduct(t *testing.T) {
 	}
 	if strings.Contains(page.body, authorizationCode) {
 		t.Fatalf("the authorization code reached the page:\n%s", page.body)
+	}
+}
+
+// TestAcceptedCallbackWithoutProduct covers a login that names no product: the
+// sentence drops the product rather than leaving a gap where it would go.
+func TestAcceptedCallbackWithoutProduct(t *testing.T) {
+	page := fetchCallback(t, "", 30*time.Second, func(code, state string) url.Values {
+		return url.Values{"code": {code}, "state": {state}}
+	})
+
+	if !strings.Contains(page.body, "The WSO2 CLI can now run commands for you.") {
+		t.Fatalf("the accepted page without a product lost its sentence:\n%s", page.body)
+	}
+	if strings.Contains(page.body, "<strong>") {
+		t.Fatalf("the accepted page without a product still sets one in bold:\n%s", page.body)
 	}
 }
 

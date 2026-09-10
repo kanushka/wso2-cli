@@ -24,8 +24,8 @@ import (
 )
 
 // The four pages the loopback listener can serve. Each is one card on a plain
-// page: what happened, one sentence about it, the product the login was for
-// when the caller named one, and what to do next.
+// page: what happened, one sentence about it, and what to do next. The accepted
+// page's sentence names the product the login was for when the caller named one.
 //
 // The two rejected callbacks must not read like the accepted one. They differ
 // by icon, by icon color, and by never using the word that means the login
@@ -42,8 +42,10 @@ var (
 		light:  "#1E7A3C",
 		dark:   "#4FB871",
 		title:  "You are signed in",
-		body:   "The terminal has what it needs.",
-		hint:   "You can close this tab.",
+		body:   "The WSO2 CLI can now run commands for you.",
+		// %s is the product, already escaped and set in bold.
+		productBody: "The WSO2 CLI can now run %s product commands for you.",
+		hint:        "You can close this tab and return to the terminal.",
 	}
 	pageRefused = callbackPage{
 		status: http.StatusOK,
@@ -97,7 +99,10 @@ type callbackPage struct {
 	dark  string
 	title string
 	body  string
-	hint  string
+	// productBody replaces body when the login names a product. Empty on the
+	// pages that must never name one.
+	productBody string
+	hint        string
 }
 
 // callbackDocument is the whole page, with the color scheme, the status color,
@@ -114,14 +119,12 @@ const callbackDocument = `<!doctype html>
   color-scheme: light dark;
   --page: #FAFAFA; --card: #FFFFFF; --line: #E5E5E5;
   --ink: #111111; --muted: #5F5A57;
-  --chip-bg: #FEF1ED; --chip-line: #F8C4B4;
   --status: %s;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --page: #0B0B0B; --card: #141414; --line: #262626;
     --ink: #F5F5F5; --muted: #A29C97;
-    --chip-bg: #1C1614; --chip-line: #3A2A24;
     --status: %s;
   }
 }
@@ -152,16 +155,7 @@ h1 {
 }
 p { margin: 0; }
 .body { font-size: 15.5px; color: var(--muted); }
-.product {
-  align-self: flex-start; padding: 6px 12px; font-size: 13px;
-  background: var(--chip-bg); border: 1px solid var(--chip-line);
-  border-radius: 999px;
-}
-.product::before {
-  content: ""; display: inline-block; width: 6px; height: 6px;
-  margin-right: 8px; vertical-align: 1px;
-  background: #F14E23; border-radius: 50%%;
-}
+.body strong { font-weight: 600; color: var(--ink); }
 hr { width: 100%%; height: 1px; margin: 2px 0 0; border: 0; background: var(--line); }
 .hint { font-size: 13.5px; color: var(--muted); }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.8px; }
@@ -175,7 +169,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 <h1>%s</h1>
 </div>
 <p class="body">%s</p>
-%s<hr>
+<hr>
 <p class="hint">%s</p>
 </main>
 </body>
@@ -186,9 +180,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 // page that does not come from this file, so it is escaped: it is read from the
 // context document, which the shell does not author.
 func (p callbackPage) render(product string) string {
-	chip := ""
-	if strings.TrimSpace(product) != "" {
-		chip = fmt.Sprintf("<p class=\"product\">%s</p>\n", html.EscapeString(product))
+	body := p.body
+	if p.productBody != "" && strings.TrimSpace(product) != "" {
+		body = fmt.Sprintf(p.productBody, "<strong>"+html.EscapeString(product)+"</strong>")
 	}
-	return fmt.Sprintf(callbackDocument, p.light, p.dark, p.icon, p.title, p.body, chip, p.hint)
+	return fmt.Sprintf(callbackDocument, p.light, p.dark, p.icon, p.title, body, p.hint)
 }
