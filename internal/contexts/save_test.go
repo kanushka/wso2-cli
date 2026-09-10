@@ -277,8 +277,11 @@ func TestTheFrozenRefusalNamesTheVersionAndTheFile(t *testing.T) {
 	if !strings.Contains(typed.Message, contexts.Path(root)) {
 		t.Errorf("the message does not name the file: %q", typed.Message)
 	}
-	if !strings.Contains(typed.Message, "3") {
-		t.Errorf("the message does not name the version: %q", typed.Message)
+	// The whole phrase, not the bare digit: a digit alone is found in the
+	// temporary path the message also names often enough to pass on one
+	// machine and fail on another, which is how this check once went blind.
+	if want := fmt.Sprintf("schema version %d", contexts.SchemaVersion+1); !strings.Contains(typed.Message, want) {
+		t.Errorf("the message does not name the version (%q): %q", want, typed.Message)
 	}
 }
 
