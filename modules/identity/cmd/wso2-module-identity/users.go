@@ -77,7 +77,7 @@ func usersNext(listing userListing) string {
 	if listing.TotalResults == 0 {
 		return "This deployment records no users yet."
 	}
-	return "Run wso2 account resource-servers list to see what those users can be granted."
+	return "Run wso2 identity resource-servers list to see what those users can be granted."
 }
 
 // callFailed states a refused management call in terms an administrator can

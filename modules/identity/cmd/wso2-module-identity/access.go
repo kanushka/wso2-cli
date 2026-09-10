@@ -36,7 +36,7 @@ func clientFor(ctx context.Context, request module.Request) (thunder.Client, err
 		return thunder.Client{}, moduleProblem("identity.product_not_recorded",
 			"the selected context records no endpoint for the account product, so this command "+
 				"has nowhere to call",
-			"Run wso2 account add-product <account> account --endpoint <url> --audience <uri> "+
+			"Run wso2 account add-product <account> identity --endpoint <url> --audience <uri> "+
 				"--scopes "+ManagementScope+", then run wso2 login.")
 	}
 	access, err := request.Access.Acquire(ctx, module.AccessRequest{
@@ -61,7 +61,7 @@ func asFailure(err error, out *thunder.Failure) bool {
 // every other mistyped command rather than reading as a deployment failure.
 func usageProblem(message string) error {
 	return problem.New(problem.CategoryUsage, "identity.invalid_argument", message).
-		WithRecovery("Run wso2 account resource-servers create <name> --identifier <uri> " +
+		WithRecovery("Run wso2 identity resource-servers create <name> --identifier <uri> " +
 			"[--permission <handle>]... [--description <text>].")
 }
 

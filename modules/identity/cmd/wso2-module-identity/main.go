@@ -177,10 +177,10 @@ func commands() *cobratree.Tree {
 // request.Access.Acquire is how a handler obtains short-lived access to it.
 func status(ctx context.Context, request module.Request) (result.Result, error) {
 	next := "Record where this product runs on the account you log in with: " +
-		"wso2 account add-product <account> account --endpoint <url>, or " +
-		"wso2 account connect <url> once module.json declares a product descriptor."
+		"wso2 account add-product <account> identity --endpoint <url>, or " +
+		"wso2 identity connect <url> once module.json declares a product descriptor."
 	if request.Context.Endpoint != "" {
-		next = "Run wso2 account --help to see what this module can do at " + request.Context.Endpoint + "."
+		next = "Run wso2 identity --help to see what this module can do at " + request.Context.Endpoint + "."
 	}
 	return result.New(StatusSchema).
 		With("namespace", "Namespace", Namespace).
