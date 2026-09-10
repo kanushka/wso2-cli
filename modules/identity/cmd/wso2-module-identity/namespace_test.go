@@ -17,20 +17,10 @@
 package main
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"testing"
-)
 
-// ownCommands are the words that follow this module's namespace on its own
-// command line. A string naming one of them under any other namespace is
-// naming a command that does not exist.
-var ownCommands = []string{"users", "apps", "resource-servers", "status", "connect", "--help"}
+	"github.com/wso2/wso2-cli/sdk/testkit"
+)
 
 // TestEveryCommandThisModuleNamesIsItsOwn catches the mistake that shipped
 // once: a repository-wide rename of the word "identity" rewrote this module's
@@ -42,55 +32,20 @@ var ownCommands = []string{"users", "apps", "resource-servers", "status", "conne
 // other check: the module compiles, its handlers return the right fields, and
 // the shell renders them faithfully. Only a person following the instruction
 // finds out.
+//
+// The check itself lives in sdk/testkit, shared by every product module,
+// because the commands it protects come from this module's own declared
+// tree — commands().Declare(), the same declaration the shell parses a command
+// line against — rather than from a list kept here by hand. A hand list is
+// exactly what let the fault ship in the first place: nothing forced it to be
+// updated when a command was, so it drifted from what the module actually
+// serves.
 func TestEveryCommandThisModuleNamesIsItsOwn(t *testing.T) {
-	for _, path := range moduleSources(t) {
-		for _, literal := range literalsIn(t, path) {
-			for _, command := range ownCommands {
-				if strings.Contains(literal, "wso2 account "+command) {
-					t.Errorf("%s names %q under the account command, which owns no such subcommand: %q",
-						filepath.Base(path), command, literal)
-				}
-			}
-			// The namespace argument of add-product is this module's
-			// namespace, not the word account.
-			if strings.Contains(literal, "add-product <account> account") {
-				t.Errorf("%s tells the reader to record a product called \"account\": %q",
-					filepath.Base(path), literal)
-			}
-		}
-	}
-}
-
-func moduleSources(t *testing.T) []string {
-	t.Helper()
-	entries, err := os.ReadDir(".")
+	violations, err := testkit.OwnNamespaceViolations(Namespace, commands().Declare(), ".")
 	if err != nil {
-		t.Fatalf("reading the module directory: %v", err)
+		t.Fatalf("checking that %s names its own commands: %v", Namespace, err)
 	}
-	var paths []string
-	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), ".go") && !strings.HasSuffix(entry.Name(), "_test.go") {
-			paths = append(paths, entry.Name())
-		}
+	for _, violation := range violations {
+		t.Error(violation)
 	}
-	return paths
-}
-
-func literalsIn(t *testing.T, path string) []string {
-	t.Helper()
-	set := token.NewFileSet()
-	parsed, err := parser.ParseFile(set, path, nil, 0)
-	if err != nil {
-		t.Fatalf("cannot parse %s: %v", path, err)
-	}
-	var literals []string
-	ast.Inspect(parsed, func(node ast.Node) bool {
-		if lit, ok := node.(*ast.BasicLit); ok && lit.Kind == token.STRING {
-			if text, err := strconv.Unquote(lit.Value); err == nil {
-				literals = append(literals, text)
-			}
-		}
-		return true
-	})
-	return literals
 }
