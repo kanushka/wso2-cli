@@ -549,3 +549,41 @@ func TestADocumentChangedWhileSessionsAreEndedIsNotWritten(t *testing.T) {
 		t.Errorf("the other invocation's session was ended by a run that never planned it: %v", err)
 	}
 }
+
+// TestASessionRecreatedAfterItWasEndedIsNotStranded covers the narrower race.
+// A session is ended under its own lock and only then is the record dropped,
+// under the document's. Between the two, a wso2 login for the same product can
+// store a new session under the very reference this run just ended. Checking
+// only "did this run end that reference" would pass it, drop the record, and
+// strand the new session where nothing can find it again. So the command asks
+// the secure store instead: a session still present under a reference it ended
+// was put there since, and the record is not dropped.
+//
+// apim holds two sessions — its own at the product issuer and its gateway's at
+// the login issuer — so the second revocation is the moment to re-create the
+// first: that one has already been ended and deleted by then.
+func TestASessionRecreatedAfterItWasEndedIsNotStranded(t *testing.T) {
+	fixture := newRemovalFixture(t)
+	ownRef := productRef("apim")
+	fixture.login.OnRevoke(func() {
+		if err := fixture.store.Save(ownRef, session.Session{
+			Issuer: fixture.product.URL, RefreshToken: fixture.product.SeedSession([]string{"apim:api_view"}),
+		}); err != nil {
+			t.Errorf("the concurrent login's session could not be stored: %v", err)
+		}
+	})
+
+	code, _, errOut := fixture.run(t, "account", "remove-product", removalAccount, "apim")
+	if code == exit.OK {
+		t.Fatal("the record was dropped although a session had been stored under it since it was ended")
+	}
+	if !strings.Contains(errOut, "contexts.document_busy") {
+		t.Errorf("the refusal does not carry contexts.document_busy:\n%s", errOut)
+	}
+	if !slices.Contains(fixture.recordKeys(t), "apim") {
+		t.Error("the product was removed, stranding the re-created session")
+	}
+	if stored, err := fixture.store.Stored(ownRef); err != nil || !stored {
+		t.Errorf("the re-created session is gone: %v", err)
+	}
+}
