@@ -92,13 +92,13 @@ func TestConnectAProviderProductCreatesTheIdentityAndContext(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	document := loadDocument(t, shell)
-	if len(document.Accounts) != 1 || document.DefaultContext != "thunder" {
+	if len(document.Accounts) != 1 || document.DefaultContext != "account-1" {
 		t.Fatalf("document = %+v", document)
 	}
 	identity := document.Accounts[0]
-	if identity.Name != "thunder" || identity.Auth.Kind != contexts.KindOAuthBrowser ||
+	if identity.Name != "account-1" || identity.Auth.Kind != contexts.KindOAuthBrowser ||
 		identity.Auth.Issuer != thunderURL || identity.Auth.ClientID != "wso2-cli" ||
-		identity.Auth.Provider != contexts.ProviderThunder || identity.Auth.CredentialRef != "thunder" ||
+		identity.Auth.Provider != contexts.ProviderThunder || identity.Auth.CredentialRef != "account-1" ||
 		identity.LoginProduct != "iam" {
 		t.Errorf("identity = %+v", identity)
 	}
@@ -245,17 +245,13 @@ func TestConnectASecondProviderProductOnTheSameIssuerRecordsOnTheIdentity(t *tes
 func TestConnectAProviderProductOnAnotherIssuerCreatesASecondIdentity(t *testing.T) {
 	shell, _, _ := newConnectShell(t)
 	connect(t, shell, "iam", "connect", thunderURL)
-	code, _, errOut := connect(t, shell, "iam", "connect", "http://other.example")
-	if code != exit.Usage || !strings.Contains(errOut, "contexts.identity_exists") ||
-		!strings.Contains(errOut, "--account") {
-		t.Fatalf("a taken name: exit %d, stderr:\n%s", code, errOut)
-	}
-	code, _, errOut = connect(t, shell, "iam", "connect", "http://other.example", "--account", "other")
+	code, _, errOut := connect(t, shell, "iam", "connect", "http://other.example", "--account", "other")
 	if code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	document := loadDocument(t, shell)
-	if len(document.Accounts) != 2 || document.DefaultContext != "thunder" {
+	if len(document.Accounts) != 2 || document.Accounts[1].Name != "other" ||
+		document.DefaultContext != "account-1" {
 		t.Fatalf("document = %+v", document)
 	}
 }
@@ -349,7 +345,7 @@ func TestConnectRendersJSON(t *testing.T) {
 	if code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !strings.Contains(out, `"account": "thunder"`) || !strings.Contains(out, `"strategy": "direct"`) {
+	if !strings.Contains(out, `"account": "account-1"`) || !strings.Contains(out, `"strategy": "direct"`) {
 		t.Errorf("json:\n%s", out)
 	}
 }

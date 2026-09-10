@@ -213,27 +213,32 @@ you registered in section 1, and login creates what it authenticated:
 wso2 login --url https://idp.customer.example --client-id wso2-cli
 ```
 
-It reports the names it assigned. Without `--context` the account and the
-context are both named after the issuer host with each dot replaced by a hyphen
-— `idp.customer.example` becomes `idp-customer-example` — and `--context
-<name>` names them both directly. The context name is what you type on every
-`--context` and every `wso2 context use` afterwards, so pass a short one if the
-derived name is longer than you want to live with; `wso2 context create <name>
---account <account>` adds a shorter handle to the same account later.
+It reports the names it assigned. One name serves the account and the
+context, and `--context <name>` sets it. Without `--context`, login asks:
 
-An issuer with no host to name, such as one at a bare IP address, is refused
-rather than given a name you could not have predicted; `--context` is the way
-through. A `--url` that is not an absolute `http` or `https` URL is refused
-where you typed it, so a missing `https://` is reported as the typo it is.
+```text
+Account name [account-1]:
+```
+
+Enter accepts the next free `account-N`, and a name that is not legal or is
+already taken is asked again. When standard input is not a terminal the default
+is taken without asking. The context name is what you type on every
+`--context` and every `wso2 context use` afterwards, so pick a short one;
+`wso2 account rename <account> <new-name>` renames the account later, and
+`wso2 context create <name> --account <account>` adds another handle to it.
+
+A `--url` that is not an absolute `http` or `https` URL is refused where you
+typed it, so a missing `https://` is reported as the typo it is.
 
 Nothing is written unless the login succeeded, so an issuer you mistyped costs
 you the corrected command and nothing else. Nor is a session: a document this
 shell may not overwrite, such as a schema version 1 one, is refused before the
 browser opens rather than after a login it could not record.
 
-Running the same login again reuses the account it created; a login that would
-change the issuer or the client ID of an account already configured is refused
-rather than allowed to replace it.
+Running the same login again reuses the account it created, found by its
+issuer and client ID. A `--context` naming an account already configured
+against another issuer or client ID is refused rather than allowed to replace
+it.
 
 The created account reaches no product yet. A self-hosted deployment publishes
 no catalogue of what it serves, so `wso2 account add-product` records each
@@ -596,11 +601,6 @@ first-time user meets most often. None of them reaches a browser.
   for. Logging in never replaces an account, because the issuer and client it
   records are not written down anywhere else; log in under another name with
   `--context`, or correct the flag you mistyped.
-- **`contexts.account_name_underivable`.** `wso2 login --url` was given an
-  issuer with no host a name can be made from — a bare IP address, or a host
-  whose first label starts with a digit — and no `--context` to name the
-  account instead. A name is lower-case letters, digits and hyphens, starting
-  with a letter. Pass `--context <name>`; nothing was written.
 - **`contexts.context_exists`.** `wso2 context create` was given a name the
   document already declares. Creating a context never replaces one, because the
   organization, project and account it recorded are not written down anywhere

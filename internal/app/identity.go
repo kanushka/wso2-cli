@@ -81,7 +81,7 @@ func (s Shell) accountCommand() *cobra.Command {
 	// nothing asked.
 	declareOutputFlag(command.PersistentFlags())
 	command.AddCommand(s.identityCreateCommand(), s.identityAddProductCommand(),
-		s.identityRemoveProductCommand(), s.identityListCommand())
+		s.identityRemoveProductCommand(), s.identityRenameCommand(), s.identityListCommand())
 	return command
 }
 
