@@ -22,5 +22,7 @@ go 1.25.0
 use (
 	.
 	./modules/reference
+	./modules/api
+	./modules/identity
 	./sdk
 )
