@@ -214,11 +214,13 @@ func decodeAccountsSchema(data []byte) (Document, error) {
 		DefaultContext: shim.DefaultContext,
 		Accounts:       shim.Accounts,
 	}
+	// A conversion rather than a field-by-field copy: shimContext differs from
+	// Context only in the JSON tag of its account member, and Go converts
+	// between struct types whose fields agree in everything but their tags.
+	// The conversion is also what breaks the build if the two ever drift
+	// apart, where a copy would silently drop a field Context gained.
 	for _, c := range shim.Contexts {
-		document.Contexts = append(document.Contexts, Context{
-			Name: c.Name, Account: c.Account,
-			Organization: c.Organization, Project: c.Project,
-		})
+		document.Contexts = append(document.Contexts, Context(c))
 	}
 	if err := document.validate(); err != nil {
 		return Document{}, err
