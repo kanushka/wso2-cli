@@ -86,7 +86,7 @@ func (s Shell) connect(namespace string, receipt modules.Receipt, args []string)
 		return problem.New(problem.CategoryUsage, "shell.connect_unsupported",
 			fmt.Sprintf("the %s module declares no product descriptor, so the shell cannot write its "+
 				"record from a URL", namespace)).
-			WithRecovery(fmt.Sprintf("Record the product with wso2 account add-product <identity> %s "+
+			WithRecovery(fmt.Sprintf("Record the product with wso2 account add-product <account> %s "+
 				"--endpoint <url> [--audience <value>] [--scopes <list>], or install a version of the "+
 				"module that declares one.", namespace))
 	}
@@ -128,10 +128,10 @@ func (s Shell) connectCommand(namespace string, descriptor modules.ProductDescri
 	// text names the command by the first word of Use, which here is wso2.
 	f.BoolP("help", "h", false, "Show help for a command.")
 	f.StringVar(&flags.identity, "account", "",
-		"The identity to record the product on, or to create; defaults to the selected context's, "+
+		"The account to record the product on, or to create; defaults to the selected context's, "+
 			"or to the provider's name for a new one.")
 	f.StringVar(&flags.loginProvider, "login-provider", "",
-		"The issuer URL of the identity to record the product on, when several exist.")
+		"The issuer URL of the account to record the product on, when several exist.")
 	f.StringVar(&flags.clientID, "client-id", descriptor.ClientID,
 		"The OAuth client the shell presents at the product's issuer.")
 	f.StringVar(&flags.clientSecretVariable, "client-secret-variable", "",
@@ -144,7 +144,7 @@ func (s Shell) connectCommand(namespace string, descriptor modules.ProductDescri
 		"The permissions to record, comma-separated, when not the descriptor's.")
 	f.BoolVar(&flags.replace, "replace", false, "Replace the product's existing record instead of refusing.")
 	f.BoolVar(&flags.gateway, "gateway", false,
-		"Record the product's gateway at the URL, beside the product's own record on the identity: "+
+		"Record the product's gateway at the URL, beside the product's own record on the account: "+
 			"reached at the account's login provider for the API named by --audience.")
 	declareContextFlag(f)
 	declareOutputFlag(f)
@@ -272,7 +272,7 @@ func checkConnectFlags(namespace string, descriptor modules.ProductDescriptor, f
 			fmt.Sprintf("the %s product is a login provider, so its credential is the account's own: "+
 				"--client-id-variable belongs to a product reached through another provider", namespace)).
 			WithRecovery("Pass --client-id <id> --client-secret-variable <VAR> to create a " +
-				"client-credentials identity for it. " + usage)
+				"client-credentials account for it. " + usage)
 	}
 	if flags.clientID == "" && flags.clientIDVariable == "" {
 		return clientIDRequired(namespace, flags, usage)
@@ -283,7 +283,7 @@ func checkConnectFlags(namespace string, descriptor modules.ProductDescriptor, f
 			fmt.Sprintf("the %s product does not accept a machine client at its own issuer, so it "+
 				"cannot be a client-credentials account's login provider", namespace)).
 			WithRecovery("Connect a login provider that accepts one first, then record this product " +
-				"on that identity.")
+				"on that account.")
 	}
 	return nil
 }
@@ -352,7 +352,7 @@ func planConnect(document contexts.Document, namespace string, descriptor module
 			return connectPlan{}, problem.New(problem.CategoryUsage, "contexts.identity_exists",
 				fmt.Sprintf("an account named %q already exists and authenticates against another issuer", name)).
 				WithRecovery("Pass --account <name> to create this deployment's account under another " +
-					"name. Connecting never replaces an identity.")
+					"name. Connecting never replaces an account.")
 		}
 		if declaresContext(document, name) {
 			return connectPlan{}, contextExists(name)
@@ -382,7 +382,7 @@ func planConnect(document contexts.Document, namespace string, descriptor module
 		flags.clientSecretVariable != "" {
 		return connectPlan{}, problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
 			fmt.Sprintf("--client-secret-variable records a product credential, which belongs to a "+
-				"client-credentials identity; %q logs in through the browser", plan.identity.Name)).
+				"client-credentials account; %q logs in through the browser", plan.identity.Name)).
 			WithRecovery("Omit the secret variable, or connect the login provider with --client-id and " +
 				"--client-secret-variable first to create a client-credentials account.")
 	}
@@ -496,7 +496,7 @@ func connectProduct(namespace string, descriptor modules.ProductDescriptor, prod
 		return contexts.Product{}, problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
 			fmt.Sprintf("the %s product declares no grant, so it can only be reached from its own "+
 				"provider, and the %q account logs in elsewhere", namespace, identity.Name)).
-			WithRecovery("Select an identity whose login provider serves this product, or record the " +
+			WithRecovery("Select an account whose login provider serves this product, or record the " +
 				"product with wso2 account add-product.")
 	}
 	product.Grant = &contexts.Grant{Kind: descriptor.Grant, Issuer: issuer, ClientID: flags.clientID}
@@ -562,15 +562,15 @@ func clientIDRequired(namespace string, flags connectFlags, usage string) proble
 
 // loginProviderRequired refuses a product with no identity to attach to.
 func loginProviderRequired(namespace, loginProvider string) problem.Problem {
-	message := fmt.Sprintf("the %s product is reached through a login provider, and no identity exists "+
+	message := fmt.Sprintf("the %s product is reached through a login provider, and no account exists "+
 		"to record it on", namespace)
 	if loginProvider != "" {
-		message = fmt.Sprintf("no identity authenticates against the issuer --login-provider names, "+
+		message = fmt.Sprintf("no account authenticates against the issuer --login-provider names, "+
 			"so the %s product has nowhere to be recorded", namespace)
 	}
 	return problem.New(problem.CategoryUsage, "shell.login_provider_required", message).
 		WithRecovery("Connect the login provider's own product first, as in wso2 iam connect <url>, " +
-			"then this one; or pass --login-provider <issuer-url> naming an identity that exists. " +
+			"then this one; or pass --login-provider <issuer-url> naming an account that exists. " +
 			"wso2 account list shows them.")
 }
 

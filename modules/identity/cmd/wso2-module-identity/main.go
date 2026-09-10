@@ -79,7 +79,7 @@ func main() {
 	// shell as well, which is what lets the shell answer --help, name a
 	// mistyped command, and parse this module's flags before it is launched.
 	if err := commands().Serve(context.Background(), moduleOptions()); err != nil {
-		fmt.Fprintf(os.Stderr, "wso2-module-identity: %v\n", err)
+		fmt.Fprintf(os.Stderr, "wso2-module-account: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -109,7 +109,7 @@ func moduleOptions() module.Options {
 func commands() *cobratree.Tree {
 	root := &cobra.Command{
 		Use:   Namespace,
-		Short: "Identity commands for the WSO2 CLI.",
+		Short: "Account commands for the WSO2 CLI.",
 	}
 	statusCommand := &cobra.Command{
 		Use:   "status",
@@ -176,11 +176,11 @@ func commands() *cobratree.Tree {
 // your product from here: the invocation carries the selected context, and
 // request.Access.Acquire is how a handler obtains short-lived access to it.
 func status(ctx context.Context, request module.Request) (result.Result, error) {
-	next := "Record where this product runs on the identity you log in with: " +
-		"wso2 account add-product <account> identity --endpoint <url>, or " +
-		"wso2 identity connect <url> once module.json declares a product descriptor."
+	next := "Record where this product runs on the account you log in with: " +
+		"wso2 account add-product <account> account --endpoint <url>, or " +
+		"wso2 account connect <url> once module.json declares a product descriptor."
 	if request.Context.Endpoint != "" {
-		next = "Run wso2 identity --help to see what this module can do at " + request.Context.Endpoint + "."
+		next = "Run wso2 account --help to see what this module can do at " + request.Context.Endpoint + "."
 	}
 	return result.New(StatusSchema).
 		With("namespace", "Namespace", Namespace).

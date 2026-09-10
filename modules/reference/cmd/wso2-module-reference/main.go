@@ -78,7 +78,7 @@ func main() {
 	flags := flag.NewFlagSet("wso2-module-reference", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	describe := flags.Bool("module-info", false,
-		"Report this module's runtime identity as JSON on standard error and exit. Used by tests, not by the shell.")
+		"Report this module's runtime account as JSON on standard error and exit. Used by tests, not by the shell.")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		os.Exit(2)
 	}
@@ -311,7 +311,7 @@ func reportIdentity(descriptor module.Descriptor) {
 	encoder := json.NewEncoder(os.Stderr)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(descriptor); err != nil {
-		fmt.Fprintf(os.Stderr, "wso2-module-reference: cannot report module identity: %v\n", err)
+		fmt.Fprintf(os.Stderr, "wso2-module-reference: cannot report module account: %v\n", err)
 		os.Exit(1)
 	}
 }

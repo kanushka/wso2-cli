@@ -88,7 +88,7 @@ func TestContextCreateWritesASchemaVersionTwoContext(t *testing.T) {
 	}
 	created := contextNamed(t, document, "acme")
 	if created.Account != "acme-cloud" || created.Organization != "acme" || created.Project != "retail" {
-		t.Errorf("created context = %+v, want the identity, organization and project that were named", created)
+		t.Errorf("created context = %+v, want the account, organization and project that were named", created)
 	}
 }
 
@@ -128,7 +128,7 @@ func TestContextCreateIsRefusedWhenTheIdentityDoesNotExist(t *testing.T) {
 	// D3: login is the only thing that creates an identity, so it is the only
 	// answer a recovery can honestly give.
 	if !strings.Contains(errOut.String(), "wso2 login") {
-		t.Errorf("the recovery does not name wso2 login, which is what creates an identity:\n%s", errOut)
+		t.Errorf("the recovery does not name wso2 login, which is what creates an account:\n%s", errOut)
 	}
 	// An identity exists here, so the likeliest fault is a mistyped name, and
 	// the recovery names the command that shows what login recorded.
@@ -155,8 +155,8 @@ func TestContextCreateWithNoIdentitiesAtAllPointsAtLoginAlone(t *testing.T) {
 	if !strings.Contains(errOut.String(), "contexts.unknown_identity") {
 		t.Errorf("stderr does not carry contexts.unknown_identity:\n%s", errOut)
 	}
-	if !strings.Contains(errOut.String(), "no identities exist") {
-		t.Errorf("the refusal does not say no identities exist:\n%s", errOut)
+	if !strings.Contains(errOut.String(), "no accounts exist") {
+		t.Errorf("the refusal does not say no accounts exist:\n%s", errOut)
 	}
 	if !strings.Contains(errOut.String(), "wso2 login") {
 		t.Errorf("the recovery does not name wso2 login:\n%s", errOut)
@@ -174,7 +174,7 @@ func TestContextCreateNamesTheFlagWhenNoIdentityIsGiven(t *testing.T) {
 		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
 	}
 	if !strings.Contains(errOut.String(), "--account") {
-		t.Errorf("the refusal does not name --identity:\n%s", errOut)
+		t.Errorf("the refusal does not name --account:\n%s", errOut)
 	}
 }
 
@@ -306,7 +306,7 @@ func TestContextCurrentReportsTheSelectedContext(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	if !strings.Contains(out.String(), "acme-cloud") {
-		t.Errorf("the report does not name the identity the context authenticates as:\n%s", out)
+		t.Errorf("the report does not name the account the context authenticates as:\n%s", out)
 	}
 }
 
@@ -409,7 +409,7 @@ func TestNoContextSubcommandOpensANetworkConnection(t *testing.T) {
 		"list":                   {"context", "list"},
 		"current":                {"context", "current"},
 		"create, taken name":     {"context", "create", "acme", "--account", "acme-cloud"},
-		"create, no identity":    {"context", "create", "delta", "--account", "nosuch"},
+		"create, no account":     {"context", "create", "delta", "--account", "nosuch"},
 		"create, illegal name":   {"context", "create", "Delta", "--account", "acme-cloud"},
 		"create, no name":        {"context", "create"},
 		"use, unknown name":      {"context", "use", "nosuch"},
@@ -667,7 +667,7 @@ func TestTheFrozenDocumentRecoveryRoutesThroughLogin(t *testing.T) {
 	}
 	reported := errOut.String()
 	if !strings.Contains(reported, "wso2 login") {
-		t.Errorf("the recovery does not route through wso2 login, which is what creates an identity:\n%s",
+		t.Errorf("the recovery does not route through wso2 login, which is what creates an account:\n%s",
 			reported)
 	}
 	// The instruction that does not work: moving the file aside and re-running

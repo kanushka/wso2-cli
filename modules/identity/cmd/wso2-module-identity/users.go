@@ -77,7 +77,7 @@ func usersNext(listing userListing) string {
 	if listing.TotalResults == 0 {
 		return "This deployment records no users yet."
 	}
-	return "Run wso2 identity resource-servers list to see what those users can be granted."
+	return "Run wso2 account resource-servers list to see what those users can be granted."
 }
 
 // callFailed states a refused management call in terms an administrator can
@@ -87,7 +87,7 @@ func callFailed(err error, attempted, endpoint string) error {
 	var refusal thunder.Failure
 	if !asFailure(err, &refusal) {
 		return moduleProblem("identity.deployment_unreachable",
-			"the shell could not reach the identity deployment at "+endpoint+" to "+attempted,
+			"the shell could not reach the account deployment at "+endpoint+" to "+attempted,
 			"Check that this machine can reach that URL, then retry.")
 	}
 	if refusal.Status == 401 || refusal.Status == 403 {

@@ -94,7 +94,7 @@ func (d DeviceLogin) Run(ctx context.Context) (Result, error) {
 		return Result{}, discoveryFailed(
 			"the identity provider does not advertise the device authorization grant",
 			"Enable the device authorization grant on the registered OAuth application, or select a "+
-				"context whose identity logs in through the browser. Not every deployment offers this "+
+				"context whose account logs in through the browser. Not every deployment offers this "+
 				"grant.")
 	}
 	// A public client names itself in the request body, as RFC 6749 requires of

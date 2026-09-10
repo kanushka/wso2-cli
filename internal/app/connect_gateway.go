@@ -151,7 +151,7 @@ func planGateway(document contexts.Document, namespace string, descriptor module
 // record yet.
 func productRequired(namespace string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "shell.product_required",
-		fmt.Sprintf("the %s product is not recorded on the identity, and a gateway is a second record "+
+		fmt.Sprintf("the %s product is not recorded on the account, and a gateway is a second record "+
 			"of a product, not a product of its own", namespace)).
 		WithRecovery(fmt.Sprintf("Run wso2 %s connect <management-url> first, then this command; or pass "+
 			"--account <name> or --login-provider <issuer-url> naming an account that records the "+
@@ -161,7 +161,7 @@ func productRequired(namespace string) problem.Problem {
 // gatewayExists refuses a second gateway on a product without --replace.
 func gatewayExists(identity, namespace string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "contexts.product_exists",
-		fmt.Sprintf("the identity %q already records a gateway for the %q product", identity, namespace)).
+		fmt.Sprintf("the account %q already records a gateway for the %q product", identity, namespace)).
 		WithRecovery("Run wso2 account list to see what it records. " +
 			"Pass --replace to overwrite the gateway record, which replaces the whole of it.")
 }

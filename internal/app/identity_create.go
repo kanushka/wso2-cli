@@ -55,20 +55,20 @@ func (s Shell) identityCreateCommand() *cobra.Command {
 	var flags identityCreateFlags
 	command := &cobra.Command{
 		Use:   "create <name> --issuer <url> --client-id <id>",
-		Short: "Declare an identity and a same-named context without a login.",
+		Short: "Declare an account and a same-named context without a login.",
 		Args:  exactlyOneArgument("an account name", identityCreateUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.identityCreate(command, args[0], flags)
 		},
 	}
 	f := command.Flags()
-	f.StringVar(&flags.issuer, "issuer", "", "The token issuer this identity authenticates against.")
+	f.StringVar(&flags.issuer, "issuer", "", "The token issuer this account authenticates against.")
 	f.StringVar(&flags.clientID, "client-id", "", "The OAuth application the shell presents.")
 	f.StringVar(&flags.secretVariable, "client-secret-variable", "",
 		"The environment variable holding the client secret; makes this a client-credentials account.")
 	f.StringVar(&flags.provider, "provider", "",
 		"The identity provider: "+strings.Join(contexts.Providers(), ", ")+".")
-	f.StringVar(&flags.product, "product", "", "A product namespace this identity reaches.")
+	f.StringVar(&flags.product, "product", "", "A product namespace this account reaches.")
 	f.StringVar(&flags.endpoint, "endpoint", "", "The product service's base URL.")
 	f.StringVar(&flags.audience, "audience", "", "The token audience the product's services accept.")
 	f.StringArrayVar(&flags.scopes, "scope", nil,
@@ -93,7 +93,7 @@ func (s Shell) identityCreate(command *cobra.Command, name string, flags identit
 		return s.explainWriteRefusal(root, err)
 	}
 
-	s.log.Debug("writing an identity and context by declaration",
+	s.log.Debug("writing an account and context by declaration",
 		"identity", name, "kind", identity.Auth.Kind, "issuer", flags.issuer,
 		"client_id", flags.clientID, "provider", flags.provider, "product", flags.product,
 		"document", contexts.Path(root))
@@ -145,7 +145,7 @@ func plannedIdentity(name string, flags identityCreateFlags) (contexts.Account, 
 	}
 	if flags.issuer == "" {
 		return contexts.Account{}, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
-			"wso2 account create needs the issuer the identity authenticates against").
+			"wso2 account create needs the issuer the account authenticates against").
 			WithRecovery(identityCreateUsage)
 	}
 	if err := refuseNonIssuerURL(flags.issuer); err != nil {
@@ -194,7 +194,7 @@ func plannedIdentity(name string, flags identityCreateFlags) (contexts.Account, 
 	}
 	if flags.product != "" && flags.audience == "" && auth.Derivation() == contexts.DerivationTokenResource {
 		return contexts.Account{}, problem.New(problem.CategoryUsage, "shell.missing_required_flag",
-			fmt.Sprintf("a %q identity binds its login to one protected resource, so the product needs --audience",
+			fmt.Sprintf("a %q account binds its login to one protected resource, so the product needs --audience",
 				flags.provider)).
 			WithRecovery("Pass --audience with the resource server's identifier as the deployment registers it. " +
 				identityCreateUsage)

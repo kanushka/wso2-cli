@@ -199,8 +199,8 @@ func movedAccountVerb(namespace string, args []string) error {
 	}
 	return problem.New(problem.CategoryUsage, "shell.command_moved",
 		fmt.Sprintf("wso2 identity %s is now wso2 account %s", verb, verb)).
-		WithRecovery(fmt.Sprintf("Run wso2 account %s instead. The identity command became account, "+
-			"and identity is now a product namespace.", verb))
+		WithRecovery(fmt.Sprintf("Run wso2 account %s instead. The account command became account, "+
+			"and account is now a product namespace.", verb))
 }
 
 // isShellCommand reports whether a name is a command the shell owns. A built-in

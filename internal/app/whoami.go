@@ -91,8 +91,8 @@ const sessionExpiryNotStated = "not stated by the issuer"
 // whichever of "nothing is configured" or "a context is configured but has no
 // session" produced it. TestWhoamiOnAnUnconfiguredMachineReportsPlainly pins
 // this for the unconfigured case specifically.
-const unconfiguredRecovery = "Run wso2 login to create an identity and a context, " +
-	"or wso2 context create <name> --account <identity> if you already have one."
+const unconfiguredRecovery = "Run wso2 login to create an account and a context, " +
+	"or wso2 context create <name> --account <account> if you already have one."
 
 func (s Shell) whoamiCommand() *cobra.Command {
 	command := &cobra.Command{
@@ -221,8 +221,8 @@ func (s Shell) whoami(command *cobra.Command) error {
 	// must not invent two sentences for the one fact.
 	_, err = fmt.Fprintln(s.Streams.Out,
 		"No context is configured, so commands run against nothing.\n\n"+
-			"Run wso2 login to create an identity and a context, "+
-			"or wso2 context create <name> --account <identity> if you already have one.")
+			"Run wso2 login to create an account and a context, "+
+			"or wso2 context create <name> --account <account> if you already have one.")
 	return err
 }
 

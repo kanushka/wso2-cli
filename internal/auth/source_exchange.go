@@ -158,7 +158,7 @@ func (s exchangeSource) verifyBinding(issued tokenResponse) (bearerFacts, error)
 	if !slices.Contains(facts.Audiences, s.audience) {
 		return bearerFacts{}, denial("auth.exchange_unusable",
 			fmt.Sprintf("the identity provider exchanged the session for access that is not bound to "+
-				"the %q audience this identity registers for the %q product",
+				"the %q audience this account registers for the %q product",
 				s.audience, s.namespace),
 			s.registrationRecovery())
 	}
@@ -208,7 +208,7 @@ func (s exchangeSource) refusedExchange(err error) error {
 	}
 	if refusal.rejectedTarget() {
 		return denial("auth.exchange_unavailable",
-			fmt.Sprintf("the identity provider does not recognize the %q audience this identity "+
+			fmt.Sprintf("the identity provider does not recognize the %q audience this account "+
 				"registers for the %q product", s.audience, s.namespace),
 			s.registrationRecovery())
 	}

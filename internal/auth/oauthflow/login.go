@@ -401,7 +401,7 @@ func identityNotVerified(err error) problem.Problem {
 				"deployment that signed you in.")
 	default:
 		return notCompleted("the identity token this login returned did not verify",
-			"Retry wso2 login. The shell does not accept an identity it cannot verify against the issuer's keys.")
+			"Retry wso2 login. The shell does not accept an account it cannot verify against the issuer's keys.")
 	}
 }
 

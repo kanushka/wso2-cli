@@ -152,7 +152,7 @@ const narrowingRecovery = "Check the deployment's API resource registration and 
 // kind of deployment this is, so the shell asked in a shape this one does not
 // accept.
 const indicatorRecovery = "This deployment binds access to one named resource and will not issue " +
-	"any without being told which. Name the deployment's identity provider on this identity in " +
+	"any without being told which. Name the deployment's identity provider on this account in " +
 	"the context document (the cli/contexts.json file under the WSO2 CLI state directory), or " +
 	"set its derivation to " + contexts.DerivationTokenResource + " explicitly, then retry."
 
@@ -164,7 +164,7 @@ const indicatorRecovery = "This deployment binds access to one named resource an
 // wrong is the name it derives against, which is a registration on the
 // deployment or a value in the document, and never the derivation itself.
 const unknownResourceRecovery = "Register that resource server on the deployment, or correct the " +
-	"audience on this identity's product entry to one it knows, then retry."
+	"audience on this account's product entry to one it knows, then retry."
 
 // narrowing is what a verification refuses in terms of: the module asking, the
 // audience the identity registers for it, and the way back from a refusal.
@@ -250,7 +250,7 @@ func (r tokenResponse) verifyNarrowing(request Request, n narrowing) (bearerFact
 	if !slices.Contains(facts.Audiences, n.audience) {
 		return bearerFacts{}, denial("auth.narrowing_unavailable",
 			fmt.Sprintf("the deployment issued access for the %q module that is not bound to the %q "+
-				"audience this identity registers for it", namespace, n.audience),
+				"audience this account registers for it", namespace, n.audience),
 			n.recovery)
 	}
 	// Both sources of a lifetime silent at once leaves nothing to expire, and

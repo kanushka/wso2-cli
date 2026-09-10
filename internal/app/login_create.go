@@ -90,7 +90,7 @@ func (s Shell) loginCreating(flags loginFlags) error {
 	// document, so none of it is credential material: the client identifier is
 	// public by definition, and the record is written before the write it
 	// describes so that a failure has a line above it saying what was tried.
-	s.log.Debug("writing the identity and context a login created",
+	s.log.Debug("writing the account and context a login created",
 		"identity", name, "context", name,
 		"issuer", flags.issuer, "client_id", clientID,
 		"document", contexts.Path(root))
@@ -290,10 +290,10 @@ func planLogin(document contexts.Document, name, issuer, clientID string) (conte
 // one of them is looking at half the answer.
 func identityDiffers(name, field, declared, asked string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "contexts.identity_exists",
-		fmt.Sprintf("the identity %q already authenticates against the %s %q, not %q",
+		fmt.Sprintf("the account %q already authenticates against the %s %q, not %q",
 			name, field, declared, asked)).
 		WithRecovery("Log in under another name with --context <name>. " +
-			"Logging in never replaces an identity that is already configured.")
+			"Logging in never replaces an account that is already configured.")
 }
 
 // resolveClientID answers which OAuth application this login presents itself
@@ -351,7 +351,7 @@ func missingClientID(because string) problem.Problem {
 func (s Shell) reportLoginWrite(written loginWrite, identity contexts.Account) error {
 	switch {
 	case written.CreatedIdentity && written.CreatedContext:
-		if _, err := fmt.Fprintf(s.Streams.Out, "\nCreated identity %q and context %q.\n",
+		if _, err := fmt.Fprintf(s.Streams.Out, "\nCreated account %q and context %q.\n",
 			written.Identity, written.Context); err != nil {
 			return err
 		}
@@ -362,7 +362,7 @@ func (s Shell) reportLoginWrite(written loginWrite, identity contexts.Account) e
 	// context for it is legal, and this is what that user is told.
 	case written.CreatedContext:
 		if _, err := fmt.Fprintf(s.Streams.Out,
-			"\nCreated context %q for the existing identity %q.\n",
+			"\nCreated context %q for the existing account %q.\n",
 			written.Context, written.Identity); err != nil {
 			return err
 		}
@@ -384,7 +384,7 @@ func (s Shell) reportLoginWrite(written loginWrite, identity contexts.Account) e
 	// is the same either way — this login discovers no products for anyone.
 	if identity.Type == contexts.TypeOnprem {
 		_, err := fmt.Fprintf(s.Streams.Out,
-			"\nNo products are configured for this identity. A self-hosted deployment is not\n"+
+			"\nNo products are configured for this account. A self-hosted deployment is not\n"+
 				"discoverable, so each product's endpoint has to be recorded:\n\n"+
 				"  wso2 account add-product %s <namespace> \\\n"+
 				"      --endpoint <url> --audience <resource-id> --scopes <list>\n",
@@ -392,7 +392,7 @@ func (s Shell) reportLoginWrite(written loginWrite, identity contexts.Account) e
 		return err
 	}
 	_, err := fmt.Fprintf(s.Streams.Out,
-		"\nNo products are configured for this identity yet. Product endpoints are not\n"+
+		"\nNo products are configured for this account yet. Product endpoints are not\n"+
 			"discovered automatically, so each product's endpoint has to be recorded:\n\n"+
 			"  wso2 account add-product %s <namespace> \\\n"+
 			"      --endpoint <url> --audience <resource-id> --scopes <list>\n",
