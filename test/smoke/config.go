@@ -250,7 +250,7 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	if declared := read(IdentityTypeVar); declared != "" {
 		if declared != "cloud" && declared != "onprem" {
 			return Config{}, fmt.Errorf(
-				"%s: %q is not an identity type the context schema accepts; use cloud or onprem",
+				"%s: %q is not an account type the context schema accepts; use cloud or onprem",
 				IdentityTypeVar, declared)
 		}
 		config.IdentityType = declared
@@ -351,7 +351,7 @@ func (c Config) Document() contexts.Document {
 			},
 		}},
 		Contexts: []contexts.Context{{
-			Name:     ContextName,
+			Name:    ContextName,
 			Account: IdentityName,
 			// The context stays in the identity's home tenant. Naming any other
 			// organization would provoke auth.organization_switch_unsupported,
@@ -399,7 +399,7 @@ func (c Config) CIDocument() contexts.Document {
 		}},
 		Contexts: []contexts.Context{{
 			Name:         CIContextName,
-			Account:     CIIdentityName,
+			Account:      CIIdentityName,
 			Organization: c.Tenant,
 		}},
 	}

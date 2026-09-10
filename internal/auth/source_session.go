@@ -193,7 +193,7 @@ func (s sessionSource) orRenewalNeedsBrowser(request Request, err error) error {
 		"administrator has to grant one; logging in again will not change that.",
 		s.product, s.issuer, scopeList(request.Scopes))
 	refusal := denial("auth.reauthorization_required",
-		fmt.Sprintf("the %q product has a session under this identity, but the identity provider "+
+		fmt.Sprintf("the %q product has a session under this account, but the identity provider "+
 			"would not renew it to the permissions the module asked for (%s), and authorizing the "+
 			"product again is what needed a browser",
 			s.namespace, scopeList(request.Scopes)),

@@ -101,6 +101,6 @@ func sanitizedNamePart(part string) string {
 // have succeeded.
 func underivableIdentityName(from string) error {
 	return contextProblem("contexts.identity_name_underivable",
-		fmt.Sprintf("no identity name can be derived from %q", from),
-		fmt.Sprintf("Name the identity yourself with --context <name>. A name is %s.", NameRule))
+		fmt.Sprintf("no account name can be derived from %q", from),
+		fmt.Sprintf("Name the account yourself with --context <name>. A name is %s.", NameRule))
 }

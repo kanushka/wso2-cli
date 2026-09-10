@@ -265,9 +265,9 @@ func (s Shell) loginAccesses(selected contexts.Selection, flags loginFlags) ([]c
 		access, recorded := selected.Identity.Access(flags.only)
 		if !recorded {
 			return nil, problem.New(problem.CategoryUsage, "shell.invalid_argument",
-				fmt.Sprintf("the %q identity records no %q product to authorize",
+				fmt.Sprintf("the %q account records no %q product to authorize",
 					selected.Identity.Name, flags.only)).
-				WithRecovery("Name a product the identity records, or one record of it as " +
+				WithRecovery("Name a product the account records, or one record of it as " +
 					"<namespace>/gateway; wso2 account list shows them.")
 		}
 		accesses := []contexts.ProductAccess{access}
@@ -325,7 +325,7 @@ func checkLoginAccessBinds(identity contexts.Account) error {
 		return nil
 	}
 	return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
-		fmt.Sprintf("the %q identity records no product its login can bind to; every product it "+
+		fmt.Sprintf("the %q account records no product its login can bind to; every product it "+
 			"records is reached by a grant", identity.Name)).
 		WithRecovery("Record a direct product with wso2 account add-product, then run wso2 login.")
 }

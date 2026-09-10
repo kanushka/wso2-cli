@@ -31,7 +31,7 @@ import (
 
 // The way back from each subcommand's usage refusals.
 const (
-	contextCreateUsage = "Run wso2 context create <name> --account <identity> " +
+	contextCreateUsage = "Run wso2 context create <name> --account <account> " +
 		"[--organization <name>] [--project <name>]."
 	contextUseUsage     = "Run wso2 context use <name>."
 	contextListUsage    = "Run wso2 context list [--output table|json]."
@@ -221,8 +221,8 @@ func (s Shell) contextCreate(command *cobra.Command, name, identity, organizatio
 		// takes the route exactlyOneArgument's comment describes and would exit
 		// outside the documented classes.
 		return problem.New(problem.CategoryUsage, "shell.missing_required_flag",
-			"wso2 context create needs an identity to authenticate the context as").
-			WithRecovery(contextCreateUsage + " Run wso2 login to create an identity.")
+			"wso2 context create needs an account to authenticate the context as").
+			WithRecovery(contextCreateUsage + " Run wso2 login to create an account.")
 	}
 	// Checked before the document is opened, so that a name the user mistyped
 	// is refused as the argument it is. Left to the document, the same mistake
@@ -416,8 +416,8 @@ func (s Shell) contextCurrent(command *cobra.Command) error {
 	// it worse.
 	_, err = fmt.Fprintln(s.Streams.Out,
 		"No context is configured, so commands run against nothing.\n\n"+
-			"Run wso2 login to create an identity and a context, "+
-			"or wso2 context create <name> --account <identity> if you already have one.")
+			"Run wso2 login to create an account and a context, "+
+			"or wso2 context create <name> --account <account> if you already have one.")
 	return err
 }
 
@@ -566,7 +566,7 @@ func (s Shell) explainWriteRefusal(stateRoot string, err error) error {
 			"which this shell reads but does not write", contexts.Path(stateRoot))).
 		WithRecovery("wso2 context list and wso2 context current still read it as it is. " +
 			"To write, move the file aside; the shell then starts a fresh schema version 2 " +
-			"document. Nothing is converted, so run wso2 login to create an identity and " +
+			"document. Nothing is converted, so run wso2 login to create an account and " +
 			"wso2 context create to declare the contexts again.")
 }
 
@@ -613,15 +613,15 @@ func contextExists(name string) problem.Problem {
 func unknownIdentity(name string, anyDeclared bool) problem.Problem {
 	if !anyDeclared {
 		return problem.New(problem.CategoryUsage, "contexts.unknown_identity",
-			fmt.Sprintf("no identity named %q is configured, and no identities exist", name)).
+			fmt.Sprintf("no account named %q is configured, and no accounts exist", name)).
 			WithRecovery("Run wso2 login --url <issuer> --client-id <id> to log in and create " +
-				"one. Logging in is the only thing that creates an identity.")
+				"one. Logging in is the only thing that creates an account.")
 	}
 	return problem.New(problem.CategoryUsage, "contexts.unknown_identity",
-		fmt.Sprintf("no identity named %q is configured", name)).
-		WithRecovery("Run wso2 account list to see the identities login created, or wso2 login " +
+		fmt.Sprintf("no account named %q is configured", name)).
+		WithRecovery("Run wso2 account list to see the accounts login created, or wso2 login " +
 			"--url <issuer> --client-id <id> to create one. Logging in is the only thing that " +
-			"creates an identity.")
+			"creates an account.")
 }
 
 // selectionMark marks the row a command would run against.

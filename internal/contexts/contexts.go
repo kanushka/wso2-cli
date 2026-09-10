@@ -365,8 +365,8 @@ func unknownContext(name string) problem.Problem {
 func noContextConfigured(name string) problem.Problem {
 	return contextProblem("contexts.unknown_context",
 		fmt.Sprintf("no context named %q is configured, and no contexts exist", name),
-		"Run wso2 login --url <issuer> --client-id <id> to create an identity and a context, "+
-			"or wso2 context create <name> --account <identity> if you already have one.")
+		"Run wso2 login --url <issuer> --client-id <id> to create an account and a context, "+
+			"or wso2 context create <name> --account <account> if you already have one.")
 }
 
 // validate proves the document is internally consistent before any command
@@ -381,7 +381,7 @@ func (d Document) validate() error {
 	identities := make(map[string]struct{}, len(d.Accounts))
 	for _, identity := range d.Accounts {
 		if _, duplicate := identities[identity.Name]; duplicate {
-			return malformed(fmt.Sprintf("declares the identity %q more than once", identity.Name))
+			return malformed(fmt.Sprintf("declares the account %q more than once", identity.Name))
 		}
 		identities[identity.Name] = struct{}{}
 		if err := identity.validate(); err != nil {
@@ -399,7 +399,7 @@ func (d Document) validate() error {
 		}
 		seen[candidate.Name] = struct{}{}
 		if _, found := identities[candidate.Account]; !found {
-			return malformed(fmt.Sprintf("the context %q references the identity %q, which the document does not declare",
+			return malformed(fmt.Sprintf("the context %q references the account %q, which the document does not declare",
 				candidate.Name, candidate.Account))
 		}
 	}

@@ -32,7 +32,7 @@ import (
 
 // The way back from each subcommand's usage refusals.
 const (
-	identityAddProductUsage = "Run wso2 account add-product <identity> <namespace> " +
+	identityAddProductUsage = "Run wso2 account add-product <account> <namespace> " +
 		"--endpoint <url> [--audience <resource-id>] [--scopes <list>] [--replace]."
 	identityListUsage = "Run wso2 account list [--output table|json]."
 )
@@ -41,7 +41,7 @@ const (
 // rather than one of its subcommands, points a user at.
 const identityRecovery = "Run wso2 account list to see what login recorded, or " +
 	"wso2 account add-product to record what a self-hosted deployment reaches. " +
-	"Logging in is what creates an identity."
+	"Logging in is what creates an account."
 
 // accountCommand builds the wso2 account tree.
 //
@@ -86,9 +86,9 @@ func (s Shell) identityAddProductCommand() *cobra.Command {
 	var replace bool
 	var grant grantFlags
 	command := &cobra.Command{
-		Use:   "add-product <identity> <namespace>",
+		Use:   "add-product <account> <namespace>",
 		Short: "Record a product endpoint a self-hosted deployment cannot advertise.",
-		Args: exactlyTwoArguments("an identity and a product namespace",
+		Args: exactlyTwoArguments("an account and a product namespace",
 			identityAddProductUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			product := contexts.Product{Endpoint: endpoint, Audience: audience, Scopes: scopes}
@@ -111,7 +111,7 @@ func (s Shell) identityAddProductCommand() *cobra.Command {
 	command.Flags().BoolVar(&replace, "replace", false,
 		"Replace the namespace's existing record instead of refusing.")
 	command.Flags().StringVar(&grant.kind, "grant", "",
-		"How access for this product is derived when its issuer is not the identity's: "+
+		"How access for this product is derived when its issuer is not the account's: "+
 			contexts.GrantJWTBearer+" presents an identity token from the login session; "+
 			contexts.GrantFederated+" signs in at the product's own issuer as the named client; "+
 			contexts.GrantExchange+" exchanges the login session for the product's audience, with "+
@@ -206,7 +206,7 @@ func grantSummary(grant contexts.Grant) string {
 func (s Shell) identityListCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List the identities and the products each one reaches.",
+		Short: "List the accounts and the products each one reaches.",
 		Args:  noArguments(identityListUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.identityList(command)
@@ -265,7 +265,7 @@ func (s Shell) identityAddProduct(
 	// information and never echoes the value it refused — and output redaction
 	// is key-based, so it would not catch one here. The identity, namespace and
 	// scopes are names.
-	s.log.Debug("recording a product under an identity",
+	s.log.Debug("recording a product under an account",
 		"identity", identity, "namespace", namespace,
 		"scopes", strings.Join(product.Scopes, ","), "replace", replace,
 		"document", contexts.Path(root))
@@ -325,7 +325,7 @@ func (s Shell) identityAddProduct(
 	// there and the other overwrote something that was.
 	line := fmt.Sprintf("Added product %q to account %q.", namespace, identity)
 	if added.Replaced {
-		line = fmt.Sprintf("Replaced product %q on identity %q.", namespace, identity)
+		line = fmt.Sprintf("Replaced product %q on account %q.", namespace, identity)
 	}
 	if _, err := fmt.Fprintf(s.Streams.Out, "\n%s\n", line); err != nil {
 		return err
@@ -389,7 +389,7 @@ func (s Shell) identityList(command *cobra.Command) error {
 	// run rather than that nothing is there. Logging in is the only thing that
 	// creates an identity (#112 D3), so nothing else could be named here.
 	if len(listing.Identities) == 0 {
-		_, err := fmt.Fprintln(s.Streams.Out, "No identities are configured.\n\n"+
+		_, err := fmt.Fprintln(s.Streams.Out, "No accounts are configured.\n\n"+
 			"Run wso2 login --url <issuer> --client-id <id> to create one.")
 		return err
 	}
@@ -514,7 +514,7 @@ func (p productAdded) fields() [][2]string {
 // it.
 func productExists(identity, namespace string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "contexts.product_exists",
-		fmt.Sprintf("the identity %q already records a product in the %q namespace",
+		fmt.Sprintf("the account %q already records a product in the %q namespace",
 			identity, namespace)).
 		WithRecovery("Run wso2 account list to see what it records. " +
 			"Pass --replace to overwrite it, which replaces the whole record.")
@@ -563,6 +563,6 @@ func (s Shell) explainProductRefusal(stateRoot string, changed bool, err error) 
 // is advice about commands.
 func productRefusalRecovery() string {
 	return "The context document was not changed. Run wso2 account list to see what the " +
-		"identity records, then correct the command and run it again. " +
+		"account records, then correct the command and run it again. " +
 		identityAddProductUsage
 }
