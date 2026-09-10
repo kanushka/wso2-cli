@@ -46,6 +46,17 @@ const Namespace = "api"
 // can rely on the name to know what the fields mean.
 const StatusSchema = "api.status/v1"
 
+// ManagementAudience is the logical name the API Platform's control plane is
+// known by, the same against every deployment. The concrete value a deployment
+// binds tokens to is recorded by the operator on the account, and the shell
+// proves the token is bound to it before handing anything over.
+const ManagementAudience = "api-management"
+
+// GatewayAudience is the logical name of the product's gateway, held as a
+// second record on the same product because the gateway validates the same
+// login provider's tokens under its own audience.
+const GatewayAudience = "api-gateway"
+
 // NextField is the field name the shell renders as a trailing next-step line.
 // Every result this module returns ends with it, so a user is never left
 // wondering what to run.
@@ -81,8 +92,9 @@ func main() {
 // audience is refused rather than granted. modules/reference is the worked example.
 func moduleOptions() module.Options {
 	return module.Options{
-		Namespace: Namespace,
-		Version:   moduleVersion,
+		Namespace:     Namespace,
+		Version:       moduleVersion,
+		AuthAudiences: []string{ManagementAudience, GatewayAudience},
 	}
 }
 
@@ -101,10 +113,51 @@ func commands() *cobratree.Tree {
 		Use:   "status",
 		Short: "Report this module's own status and what to run first.",
 	}
-	root.AddCommand(statusCommand)
+	projectsCommand := &cobra.Command{
+		Use:   "projects",
+		Short: "Read the projects this organization holds.",
+	}
+	projectsListCommand := &cobra.Command{
+		Use:   "list",
+		Short: "List the projects the control plane records.",
+	}
+	projectsCommand.AddCommand(projectsListCommand)
+
+	apisCommand := &cobra.Command{
+		Use:   "apis",
+		Short: "Read the APIs a project designs.",
+	}
+	apisListCommand := &cobra.Command{
+		Use:   "list --project <id>",
+		Short: "List the APIs a project holds.",
+	}
+	var project string
+	apisListCommand.Flags().StringVar(&project, "project", "",
+		"The project whose APIs to list; wso2 api projects list shows the ids.")
+	apisCommand.AddCommand(apisListCommand)
+
+	gatewayCommand := &cobra.Command{
+		Use:   "gateway",
+		Short: "Read what a gateway is actually serving.",
+	}
+	gatewayApisCommand := &cobra.Command{
+		Use:   "apis",
+		Short: "Read the APIs deployed on the gateway.",
+	}
+	gatewayApisListCommand := &cobra.Command{
+		Use:   "list",
+		Short: "List the APIs the gateway is serving.",
+	}
+	gatewayApisCommand.AddCommand(gatewayApisListCommand)
+	gatewayCommand.AddCommand(gatewayApisCommand)
+
+	root.AddCommand(statusCommand, projectsCommand, apisCommand, gatewayCommand)
 
 	return cobratree.New(root).
-		Handle(statusCommand, status)
+		Handle(statusCommand, status).
+		Handle(projectsListCommand, projectsList).
+		Handle(apisListCommand, apisList(apisListCommand, &project)).
+		Handle(gatewayApisListCommand, gatewayApisList)
 }
 
 // status answers "wso2 api status".
