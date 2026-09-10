@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -930,5 +931,75 @@ func TestContextListNamesTheAccountColumnAccount(t *testing.T) {
 	}
 	if strings.Contains(out.String(), `"identity"`) {
 		t.Errorf("wso2 context list --output json still keys the account as identity:\n%s", out)
+	}
+}
+
+func TestContextShowTableShowsEveryProductRecordWhole(t *testing.T) {
+	// #170: "shows the document's contents whole, in table and JSON output."
+	// The table once named each account's products and nothing about them, so
+	// only JSON actually showed the document whole. A reader of the table has
+	// to see what a record reaches and how, including the gateway record and
+	// which product the account logs in through.
+	shell, out, errOut := newShell(t)
+	document := thunderDoc("http://login.example", "http://apim.example")
+	product := document.Accounts[0].Products["iam"]
+	product.Gateway = &contexts.Gateway{Endpoint: "https://gw.example", Audience: "https://gw.example/hello"}
+	document.Accounts[0].Products["iam"] = product
+	installLogin(t, shell, document)
+
+	if code := shell.Run([]string{"context", "show"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	rendered := out.String()
+	for _, want := range []string{
+		"Products",                   // the section exists
+		"https://localhost:8090/mcp", // iam's audience
+		"system",                     // iam's scopes
+		"iam/gateway",                // the gateway record, as its own row
+		"https://gw.example/hello",   // the gateway's audience
+		"federated",                  // apim's grant
+		"http://apim.example",        // apim's endpoint
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("wso2 context show does not show %q:\n%s", want, rendered)
+		}
+	}
+	// The login product is marked, the way the contexts table marks the
+	// default context: which product an account logs in through decides what
+	// every other product's session is obtained from.
+	login := document.Accounts[0].LoginAccess().Namespace
+	found := false
+	for _, line := range strings.Split(rendered, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == "*" && slices.Contains(fields, login) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the login product %q is not marked in the products table:\n%s", login, rendered)
+	}
+}
+
+func TestContextShowKeepsAVersionOneDocumentsCredentialSource(t *testing.T) {
+	// A version 1 document is read into the current shape, and its account's
+	// credential variable lives in a field that is never encoded, because the
+	// shell never writes a version 1 document back. Showing the document is not
+	// writing it: dropping the variable there loses the one fact that says
+	// where the account's credential comes from, in the table and in JSON.
+	shell, out, errOut := newShell(t)
+	installLegacy(t, shell)
+
+	if code := shell.Run([]string{"context", "show"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "WSO2_DEV_CREDENTIAL") {
+		t.Errorf("the table drops the version 1 credential variable:\n%s", out)
+	}
+	out.Reset()
+	if code := shell.Run([]string{"--output", "json", "context", "show"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "WSO2_DEV_CREDENTIAL") {
+		t.Errorf("the JSON drops the version 1 credential variable:\n%s", out)
 	}
 }

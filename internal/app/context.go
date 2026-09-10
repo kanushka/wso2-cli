@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -487,14 +488,14 @@ func (s Shell) contextShow(command *cobra.Command) error {
 		Written:        written,
 		SchemaVersion:  document.SchemaVersion,
 		DefaultContext: document.DefaultContext,
-		Accounts:       document.Accounts,
+		Accounts:       showAccounts(document.Accounts),
 		Contexts:       document.Contexts,
 	}
 	// Never nil in either rendering: a JSON caller iterating "accounts" or
 	// "contexts" on a fresh machine must see an empty list, not learn to
 	// special-case null first.
 	if report.Accounts == nil {
-		report.Accounts = []contexts.Account{}
+		report.Accounts = []shownAccount{}
 	}
 	if report.Contexts == nil {
 		report.Contexts = []contexts.Context{}
@@ -583,8 +584,20 @@ type (
 		Written        bool               `json:"written"`
 		SchemaVersion  int                `json:"schemaVersion"`
 		DefaultContext string             `json:"defaultContext"`
-		Accounts       []contexts.Account `json:"accounts"`
+		Accounts       []shownAccount     `json:"accounts"`
 		Contexts       []contexts.Context `json:"contexts"`
+	}
+
+	// shownAccount is one account as wso2 context show reports it: the account
+	// as the document records it, plus where its credential comes from.
+	//
+	// The source is derived rather than read from a member because no single
+	// member holds it for every kind of account, and one of them — a version
+	// 1 document's credential variable — is never encoded at all. It names a
+	// source and never a credential: the account has nowhere to hold one.
+	shownAccount struct {
+		contexts.Account
+		CredentialSource string `json:"credentialSource"`
 	}
 )
 
@@ -641,9 +654,16 @@ func (c contextDocumentReport) renderTable(w io.Writer) error {
 		table := output.NewTable("name", "type", "kind", "issuer", "credential source", "products")
 		for _, account := range c.Accounts {
 			table.Append(account.Name, account.Type, account.Auth.Kind, account.Auth.Issuer,
-				credentialSource(account.Auth), productNamespaces(account))
+				account.CredentialSource, productNamespaces(account.Account))
 		}
 		if err := table.Render(w); err != nil {
+			return err
+		}
+		accounts := make([]contexts.Account, 0, len(c.Accounts))
+		for _, account := range c.Accounts {
+			accounts = append(accounts, account.Account)
+		}
+		if err := renderProductRecords(w, accounts); err != nil {
 			return err
 		}
 	}
@@ -663,6 +683,59 @@ func (c contextDocumentReport) renderTable(w io.Writer) error {
 	return table.Render(w)
 }
 
+// renderProductRecords shows every record each account holds, whole: what it
+// reaches and how, one row per record.
+//
+// The accounts table can only name an account's products, and a reader
+// deciding why a command reaches a product the way it does needs the rest —
+// the endpoint it calls, the audience a token is bound to, the scopes it may
+// ask for, and the grant it is reached by. A gateway record is a row of its
+// own under its <namespace>/gateway key, because it is reached separately.
+//
+// The login product is marked, as the contexts table marks the default
+// context: every other product's session is obtained through the one an
+// account logs in through, so it is the record that explains the rest. A
+// client-credentials account logs in through nothing and marks nothing.
+func renderProductRecords(w io.Writer, accounts []contexts.Account) error {
+	table := output.NewTable("login", "account", "record", "endpoint", "audience", "scopes", "grant")
+	rows := 0
+	for _, account := range accounts {
+		login := ""
+		if account.Auth.Kind != contexts.KindClientCredentials {
+			login = account.LoginAccess().Namespace
+		}
+		for _, key := range account.RecordKeys() {
+			namespace, gateway := contexts.SplitGatewayKey(key)
+			product := account.Products[namespace]
+			endpoint, audience, scopes, grant := product.Endpoint, product.Audience, product.Scopes, ""
+			if gateway {
+				endpoint, audience, scopes = product.Gateway.Endpoint, product.Gateway.Audience, product.Gateway.Scopes
+			} else if product.Grant != nil {
+				grant = product.Grant.Kind
+			}
+			table.Append(selectionMark(key == login), account.Name, key, endpoint, audience,
+				strings.Join(scopes, ","), grant)
+			rows++
+		}
+	}
+	if rows == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintln(w, "\nProducts"); err != nil {
+		return err
+	}
+	return table.Render(w)
+}
+
+// showAccounts pairs each account with where its credential comes from.
+func showAccounts(accounts []contexts.Account) []shownAccount {
+	shown := make([]shownAccount, 0, len(accounts))
+	for _, account := range accounts {
+		shown = append(shown, shownAccount{Account: account, CredentialSource: credentialSource(account.Auth)})
+	}
+	return shown
+}
+
 // credentialSource names where an account's credential comes from — never the
 // credential itself, which AccountAuth has nowhere to hold. A browser account
 // names the secure-store entry its session lives under; a client-credentials
@@ -675,6 +748,11 @@ func credentialSource(auth contexts.AccountAuth) string {
 		return "secure store: " + auth.CredentialRef
 	case auth.ClientSecretVariable != "":
 		return "env: " + auth.ClientSecretVariable
+	case auth.CredentialVariable != "":
+		// A version 1 document's account: its credential is read from this
+		// variable, in a field the shell never encodes because it never writes
+		// a version 1 document back. Showing the document is not writing it.
+		return "env: " + auth.CredentialVariable
 	default:
 		return ""
 	}
