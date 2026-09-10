@@ -907,3 +907,28 @@ func TestContextShowNamesCredentialSourcesButNeverACredential(t *testing.T) {
 		t.Errorf("the table rendering does not name the environment-variable credential source:\n%s", tableOut)
 	}
 }
+
+func TestContextListNamesTheAccountColumnAccount(t *testing.T) {
+	// A column header is a single word, which the repository-wide guard skips
+	// on purpose — the bare word "identity" is also a product namespace — so
+	// the header has its own test.
+	shell, out, errOut := newShell(t)
+	installLogin(t, shell, selfHostedDocument())
+	if code := shell.Run([]string{"context", "list"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	header := strings.SplitN(out.String(), "\n", 2)[0]
+	if strings.Contains(header, "IDENTITY") {
+		t.Errorf("wso2 context list heads a column IDENTITY: %q", header)
+	}
+	if !strings.Contains(header, "ACCOUNT") {
+		t.Errorf("wso2 context list has no ACCOUNT column: %q", header)
+	}
+	out.Reset()
+	if code := shell.Run([]string{"--output", "json", "context", "list"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if strings.Contains(out.String(), `"identity"`) {
+		t.Errorf("wso2 context list --output json still keys the account as identity:\n%s", out)
+	}
+}

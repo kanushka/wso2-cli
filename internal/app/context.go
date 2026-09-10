@@ -383,7 +383,7 @@ func (s Shell) contextList(command *cobra.Command) error {
 		_, err := fmt.Fprintln(s.Streams.Out, "No contexts are configured.\n\n"+contextCreateUsage)
 		return err
 	}
-	table := output.NewTable("current", "context", "identity", "organization", "project")
+	table := output.NewTable("current", "context", "account", "organization", "project")
 	for _, entry := range listing.Contexts {
 		table.Append(selectionMark(entry.Selected), entry.Name, entry.Identity,
 			entry.Organization, entry.Project)
