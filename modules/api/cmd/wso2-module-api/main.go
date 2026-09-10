@@ -85,11 +85,11 @@ func main() {
 
 // moduleOptions describe this module to the SDK.
 //
-// AuthAudiences and AuthScopes are empty because this module asks the shell for
-// nothing yet. Declare an audience and a scope here, and the same values in
-// module.json, before a handler requests access: the shell intersects a runtime
-// request with what the module declared at installation, so an undeclared
-// audience is refused rather than granted. modules/reference is the worked example.
+// AuthAudiences names the control-plane and gateway audiences the handlers
+// request access for, and module.json declares the same values: the shell
+// intersects a runtime request with what the module declared at installation,
+// so an audience declared in only one place is refused rather than granted.
+// No scope is declared, because every request names an audience alone.
 func moduleOptions() module.Options {
 	return module.Options{
 		Namespace:     Namespace,
