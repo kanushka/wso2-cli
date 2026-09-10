@@ -17,6 +17,7 @@
 package oauthflow_test
 
 import (
+	"errors"
 	"net/url"
 	"slices"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"time"
 
 	"github.com/wso2/wso2-cli/internal/auth/fakeissuer"
+	"github.com/wso2/wso2-cli/internal/auth/oauthflow"
 )
 
 // theResource is the protected resource a resource-binding deployment mints
@@ -59,8 +61,9 @@ func TestLoginBindsTheSessionToTheResourceItWasGiven(t *testing.T) {
 	}
 }
 
-// The refusal belongs to the deployment, and the login reports it as a login
-// that did not complete rather than inventing a reason of its own.
+// The refusal belongs to the deployment, and a retry cannot get past it, so
+// the login reports it as the configuration it is: the account records no
+// product whose resource the login could have named.
 func TestALoginWithoutAResourceIsRefusedByADeploymentThatRequiresOne(t *testing.T) {
 	issuer := fakeissuer.New(t, fakeissuer.Options{
 		RequireResource:      true,
@@ -76,7 +79,38 @@ func TestALoginWithoutAResourceIsRefusedByADeploymentThatRequiresOne(t *testing.
 	if err == nil {
 		t.Fatal("a login carrying no resource indicator completed against a deployment that requires one")
 	}
-	_ = requireProblem(t, err, "auth.credential_unavailable")
+	reported := requireProblem(t, err, "auth.product_not_configured")
+	if !strings.Contains(reported.Message, "invalid_target") || !strings.Contains(reported.Message, "named none") {
+		t.Fatalf("the refusal does not say the login named no resource: %q", reported.Message)
+	}
+	var rejected oauthflow.TargetRejected
+	if !errors.As(err, &rejected) || rejected.Resource != "" {
+		t.Fatalf("the refusal is not a target rejection naming no resource: %#v", err)
+	}
+}
+
+// A resource the deployment never registered is the opposite cause, and the
+// way out is a registration, so the refusal names the resource to register.
+func TestALoginNamingAnUnregisteredResourceNamesIt(t *testing.T) {
+	issuer := fakeissuer.New(t, fakeissuer.Options{
+		RegisteredResource:   "https://deployment.example.test/some-other-api",
+		AllowAnyLoopbackPort: true,
+	})
+	login := browserLogin(issuer, &recorder{}, func(authURL string) error {
+		go visit(issuer, authURL)
+		return nil
+	})
+	login.Resource = theResource
+
+	_, err := login.Run(testContext(t, 30*time.Second))
+	reported := requireProblem(t, err, "auth.product_not_configured")
+	if !strings.Contains(reported.Message, theResource) || !strings.Contains(reported.Recovery, "Register") {
+		t.Fatalf("the refusal does not name the resource to register: %+v", reported)
+	}
+	var rejected oauthflow.TargetRejected
+	if !errors.As(err, &rejected) || rejected.Resource != theResource {
+		t.Fatalf("the refusal is not a target rejection naming the resource: %#v", err)
+	}
 }
 
 // A deployment that binds no audience at authorization time must be unaffected,
