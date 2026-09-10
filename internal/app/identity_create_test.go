@@ -56,6 +56,9 @@ func TestIdentityCreateWritesABrowserIdentityWithOneProduct(t *testing.T) {
 	if !strings.Contains(out.String(), "Next  Run wso2 login --context thunder-admin") {
 		t.Errorf("no next line:\n%s", out)
 	}
+	if !hasField(out.String(), "Account", "thunder-admin") || hasField(out.String(), "Identity", "thunder-admin") {
+		t.Errorf("the report does not name the account as an account:\n%s", out)
+	}
 }
 
 func TestIdentityCreateWithASecretVariableIsClientCredentials(t *testing.T) {

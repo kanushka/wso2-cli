@@ -120,7 +120,7 @@ func (s Shell) identityCreate(command *cobra.Command, name string, flags identit
 	}
 
 	created := result.New(identityCreateSchema).
-		With("identity", "Identity", name).
+		With("account", "Account", name).
 		With("context", "Context", name).
 		With("kind", "Kind", identity.Auth.Kind).
 		With("issuer", "Issuer", flags.issuer).
