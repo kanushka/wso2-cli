@@ -182,7 +182,7 @@ func (s Shell) whoami(command *cobra.Command) error {
 				report.Recovery = foreignSessionRecovery
 			default:
 				report.Subject = subjectOrUnknown(stored.Subject)
-				report.Name = nameOrFallback(stored.Name, report.Subject)
+				report.Name = stored.Name
 				report.Session, report.SessionExpiry, report.Recovery = sessionExpiryState(stored, time.Now())
 			}
 		}
@@ -254,23 +254,6 @@ func subjectOrUnknown(subject string) string {
 	return subject
 }
 
-// nameOrFallback reports a stored session's human-readable display name
-// (#168), or the already-resolved subject label when the session predates the
-// field, or was established through a flow that learned no name claim at all.
-//
-// It falls back to subject rather than to unknownSubject directly because
-// subject has already been through subjectOrUnknown by the time this runs: a
-// session old enough to carry neither member reports "unknown" for both,
-// through this one indirection, rather than this function repeating that
-// rule. Either way, nothing here is left blank and nothing here is invented —
-// the value reported is always one the shell already knows.
-func nameOrFallback(name, subject string) string {
-	if name != "" {
-		return name
-	}
-	return subject
-}
-
 // sessionExpiryState reports what a present session's stored expiry means:
 // whether it is not stated, still ahead of now, or already passed.
 //
@@ -315,11 +298,12 @@ type whoamiReport struct {
 	// no session at all — see whoamiSessionNone.
 	Subject string `json:"subject"`
 	// Name is the human-readable display name the login resolved and stored
-	// (#168) — see session.Session.Name — or the same value as Subject when
-	// the session carries no name of its own: a session predating this field,
-	// or one whose login learned no name claim at all. It is empty exactly
-	// when Subject is: there is nothing to fall back to without a session.
-	Name string `json:"name"`
+	// (#168) — see session.Session.Name. It is empty, and absent from JSON,
+	// when the session carries none: one stored before the field existed, or
+	// one whose login learned no name claim. Nothing is put in its place,
+	// because the subject is an identifier and not a name, and a reader of
+	// name would take whatever it holds for the person.
+	Name string `json:"name,omitempty"`
 	// Session is one of whoamiSessionNone, whoamiSessionPresent, or
 	// whoamiSessionExpired.
 	Session string `json:"session"`
@@ -364,12 +348,19 @@ func (w whoamiReport) fields() [][2]string {
 		{"Context", w.Context},
 		{"Account", w.Identity},
 		{"Organization", w.Organization},
-		{"Name", w.Name},
+	}
+	// The Name row is left out, rather than shown blank, when the session
+	// carries no name: the Subject row below already identifies who signed
+	// in, and a blank Name would read as a value the shell failed to load.
+	if w.Name != "" {
+		pairs = append(pairs, [2]string{"Name", w.Name})
+	}
+	pairs = append(pairs, [][2]string{
 		{"Subject", w.Subject},
 		{"Session", w.Session},
 		{"Session expiry", w.SessionExpiry},
 		{"Products", w.productsField()},
-	}
+	}...)
 	if w.Recovery != "" {
 		pairs = append(pairs, [2]string{"Recovery", w.Recovery})
 	}
