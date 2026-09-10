@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "namespace": "identity",
+  "title": "Identity",
+  "compatibility": {
+    "shell": ">=0.1.0 <2.0.0",
+    "protocolVersions": [2]
+  },
+  "capabilities": {
+    "authAudiences": ["identity-management"],
+    "authScopes": ["system"],
+    "product": {
+      "provider": "thunder",
+      "clientId": "wso2-cli",
+      "audience": "resource",
+      "defaultAudience": "https://localhost:8090/mcp",
+      "scopes": ["system"],
+      "machine": ["inline"]
+    }
+  }
+}

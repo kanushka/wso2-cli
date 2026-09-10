@@ -1,0 +1,53 @@
+# The identity product module
+
+This is a WSO2 CLI product module. It is a separate program: the `wso2` shell
+resolves it from the managed module store and launches it, and the two speak the
+module contract over the module's standard input and output.
+
+It lives in this repository and is released by its own tag, independently of the
+shell and of every other module:
+
+```sh
+git tag identity/v0.1.0-rc.1
+git push origin identity/v0.1.0-rc.1
+```
+
+That tag builds the module for every supported platform, publishes the archives,
+and regenerates the module catalog a user installs from. A release is refused if
+no shell that exists can launch it.
+
+## Working on it
+
+```sh
+# From the repository root.
+make build-module NAMESPACE=identity
+make test-module NAMESPACE=identity
+make install-module NAMESPACE=identity   # then ./bin/wso2 identity status
+```
+
+The workspace composes this module with the SDK from source, so a change to the
+SDK reaches it without a release. The `go.mod` here requires the published SDK
+at the version every other module in this repository requires, and carries no
+`replace` directive.
+
+## What to change first
+
+`cmd/wso2-module-identity/main.go` declares one `status` command that reports what it
+can know without asking the shell for anything. To call your product, a handler
+needs access, and access is something the shell brokers rather than something a
+module holds: declare an audience and a scope in `module.json` and in
+`moduleOptions`, then ask for them with `request.Access.Acquire`. A module never
+sees a credential and cannot obtain a second token.
+
+`modules/reference` is the worked example: a client on the product's REST
+API, two read-only commands, and tests that drive the module through the
+contract against a fake deployment. The guide at
+`docs/guides/building-product-modules.md` walks through it.
+
+## What this module must not do
+
+It must not import anything under the shell's `internal` tree, and it must not
+print to standard output: that stream carries protocol frames, and anything
+written there directly corrupts them. Diagnostics go to standard error. Both
+rules are asserted for every module under `modules/`, including this one, by the
+tests in `internal/boundaries`.
