@@ -147,6 +147,8 @@ main {
   margin: 0; font-size: 12px; font-weight: 640; letter-spacing: 0.14em;
   text-transform: uppercase; color: var(--muted);
 }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .head { display: flex; align-items: center; gap: 12px; }
 .head svg { flex-shrink: 0; stroke: var(--status); }
 h1 {
@@ -163,7 +165,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 </head>
 <body>
 <main>
-<p class="brand">WSO2 CLI</p>
+<p class="brand"><a href="https://wso2.github.io/wso2-cli/">WSO2 CLI</a></p>
 <div class="head">
 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">%s</svg>
 <h1>%s</h1>
