@@ -137,7 +137,7 @@ func createResourceServer(
 			return report.
 				With("permissions", "Permissions", strings.Join(granted, " ")).
 				With(NextField, "Next", "The resource server was created and the permission "+
-					handle+" was refused. Add it with wso2 account resource-servers create "+
+					handle+" was refused. Add it with wso2 identity resource-servers create "+
 					"--permission, or in the deployment's console."), nil
 		}
 		granted = append(granted, handle)
@@ -159,7 +159,7 @@ func createResourceServer(
 func resourceServerName(positional []string, flags resourceServerFlags) (string, error) {
 	switch {
 	case len(positional) == 0:
-		return "", usageProblem("wso2 account resource-servers create needs a name")
+		return "", usageProblem("wso2 identity resource-servers create needs a name")
 	case len(positional) > 1:
 		return "", usageProblem("this command takes one name, and was given " +
 			strconv.Itoa(len(positional)))
