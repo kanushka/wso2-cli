@@ -348,10 +348,10 @@ func (s Shell) identityList(command *cobra.Command) error {
 		return err
 	}
 
-	listing := identityListing{Identities: make([]identityEntry, 0, len(document.Accounts))}
+	listing := accountListing{Accounts: make([]accountEntry, 0, len(document.Accounts))}
 	withoutProducts := 0
 	for _, declared := range document.Accounts {
-		entry := identityEntry{
+		entry := accountEntry{
 			Name:   declared.Name,
 			Type:   declared.Type,
 			Kind:   declared.Auth.Kind,
@@ -379,7 +379,7 @@ func (s Shell) identityList(command *cobra.Command) error {
 		if len(entry.Products) == 0 {
 			withoutProducts++
 		}
-		listing.Identities = append(listing.Identities, entry)
+		listing.Accounts = append(listing.Accounts, entry)
 	}
 
 	if mode == output.ModeJSON {
@@ -388,13 +388,13 @@ func (s Shell) identityList(command *cobra.Command) error {
 	// An unconfigured machine is a state, not a breakage, so it reports what to
 	// run rather than that nothing is there. Logging in is the only thing that
 	// creates an identity (#112 D3), so nothing else could be named here.
-	if len(listing.Identities) == 0 {
+	if len(listing.Accounts) == 0 {
 		_, err := fmt.Fprintln(s.Streams.Out, "No accounts are configured.\n\n"+
 			"Run wso2 login --url <issuer> --client-id <id> to create one.")
 		return err
 	}
 	table := output.NewTable("account", "type", "issuer", "product", "endpoint", "scopes")
-	for _, entry := range listing.Identities {
+	for _, entry := range listing.Accounts {
 		if len(entry.Products) == 0 {
 			table.Append(entry.Name, entry.Type, entry.Issuer, "", "", "")
 			continue
@@ -475,8 +475,8 @@ type (
 		Gateway   *contexts.Gateway `json:"gateway,omitempty"`
 	}
 
-	// identityEntry is one row group of the listing.
-	identityEntry struct {
+	// accountEntry is one row group of the listing.
+	accountEntry struct {
 		Name     string         `json:"name"`
 		Type     string         `json:"type"`
 		Kind     string         `json:"kind"`
@@ -484,9 +484,9 @@ type (
 		Products []productEntry `json:"products"`
 	}
 
-	// identityListing is what wso2 account list reports.
-	identityListing struct {
-		Identities []identityEntry `json:"identities"`
+	// accountListing is what wso2 account list reports.
+	accountListing struct {
+		Accounts []accountEntry `json:"accounts"`
 	}
 )
 
