@@ -182,6 +182,7 @@ func (s Shell) whoami(command *cobra.Command) error {
 				report.Recovery = foreignSessionRecovery
 			default:
 				report.Subject = subjectOrUnknown(stored.Subject)
+				report.Name = nameOrFallback(stored.Name, report.Subject)
 				report.Session, report.SessionExpiry, report.Recovery = sessionExpiryState(stored, time.Now())
 			}
 		}
@@ -253,6 +254,23 @@ func subjectOrUnknown(subject string) string {
 	return subject
 }
 
+// nameOrFallback reports a stored session's human-readable display name
+// (#168), or the already-resolved subject label when the session predates the
+// field, or was established through a flow that learned no name claim at all.
+//
+// It falls back to subject rather than to unknownSubject directly because
+// subject has already been through subjectOrUnknown by the time this runs: a
+// session old enough to carry neither member reports "unknown" for both,
+// through this one indirection, rather than this function repeating that
+// rule. Either way, nothing here is left blank and nothing here is invented —
+// the value reported is always one the shell already knows.
+func nameOrFallback(name, subject string) string {
+	if name != "" {
+		return name
+	}
+	return subject
+}
+
 // sessionExpiryState reports what a present session's stored expiry means:
 // whether it is not stated, still ahead of now, or already passed.
 //
@@ -296,6 +314,12 @@ type whoamiReport struct {
 	// Subject is unknownSubject for a pre-R6 session, and empty when there is
 	// no session at all — see whoamiSessionNone.
 	Subject string `json:"subject"`
+	// Name is the human-readable display name the login resolved and stored
+	// (#168) — see session.Session.Name — or the same value as Subject when
+	// the session carries no name of its own: a session predating this field,
+	// or one whose login learned no name claim at all. It is empty exactly
+	// when Subject is: there is nothing to fall back to without a session.
+	Name string `json:"name"`
 	// Session is one of whoamiSessionNone, whoamiSessionPresent, or
 	// whoamiSessionExpired.
 	Session string `json:"session"`
@@ -340,6 +364,7 @@ func (w whoamiReport) fields() [][2]string {
 		{"Context", w.Context},
 		{"Account", w.Identity},
 		{"Organization", w.Organization},
+		{"Name", w.Name},
 		{"Subject", w.Subject},
 		{"Session", w.Session},
 		{"Session expiry", w.SessionExpiry},

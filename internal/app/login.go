@@ -419,6 +419,7 @@ func (s Shell) establishProduct(selected contexts.Selection, access contexts.Pro
 			AccessToken:      result.Token.AccessToken,
 			ExpiresAt:        result.Token.Expiry.UTC(),
 			Subject:          result.Subject,
+			Name:             result.Name,
 			IDToken:          result.IDToken,
 			SessionExpiresAt: sessionExpiresAt,
 			Strategy:         access.Strategy,
