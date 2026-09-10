@@ -95,6 +95,10 @@ func NamespacePath(namespace string) string {
 type Declaration struct {
 	SchemaVersion int    `json:"schemaVersion"`
 	Namespace     string `json:"namespace"`
+	// Title is the product's short name, which the shell's help page prints
+	// beside the namespace. It is optional: a namespace needs no title to be
+	// published or installed.
+	Title string `json:"title,omitempty"`
 	// Compatibility is what the module claims about the shells that can launch
 	// it: the shell range and the module-contract protocol versions it speaks.
 	// It is what the release gate decides over, and the conformance job is what
@@ -162,11 +166,25 @@ type Index struct {
 // IndexModule is one product namespace's line in the index.
 type IndexModule struct {
 	Namespace string `json:"namespace"`
+	// Title is the declared title, carried here so a shell holding only the
+	// index can name the product. Nothing attests to it, so a reader prints it
+	// through SanitizedTitle rather than as it arrived.
+	Title string `json:"title,omitempty"`
 	// Path is where this namespace's full version history is published, so a
 	// shell that must select a specific version knows what to fetch without
 	// reconstructing the convention.
 	Path     string         `json:"path"`
 	Channels []IndexChannel `json:"channels"`
+}
+
+// Publishes reports whether the namespace has a release on the named channel.
+func (m IndexModule) Publishes(channel string) bool {
+	for _, published := range m.Channels {
+		if published.Channel == channel {
+			return true
+		}
+	}
+	return false
 }
 
 // IndexChannel is the latest version on one channel.
@@ -245,6 +263,7 @@ func Channel(version semver.Version) string {
 // over an unchanged tag set produces byte-identical files.
 func Generate(input Input) (Catalog, error) {
 	declared := map[string]bool{}
+	titles := map[string]string{}
 	for _, declaration := range input.Modules {
 		if declaration.SchemaVersion != SchemaVersion {
 			return Catalog{}, fmt.Errorf("catalog: module declaration for %q uses unsupported schema version %d",
@@ -257,7 +276,13 @@ func Generate(input Input) (Catalog, error) {
 		if declared[declaration.Namespace] {
 			return Catalog{}, fmt.Errorf("catalog: two modules declare the namespace %q", declaration.Namespace)
 		}
+		if !ValidTitle(declaration.Title) {
+			return Catalog{}, fmt.Errorf("catalog: module declaration for %q has a title that is longer than "+
+				"%d characters, is not valid UTF-8, or carries a control or formatting character",
+				declaration.Namespace, MaxTitleLength)
+		}
 		declared[declaration.Namespace] = true
+		titles[declaration.Namespace] = declaration.Title
 	}
 
 	histories := map[string][]Version{}
@@ -302,6 +327,7 @@ func Generate(input Input) (Catalog, error) {
 		})
 		catalog.Index.Modules = append(catalog.Index.Modules, IndexModule{
 			Namespace: namespace,
+			Title:     titles[namespace],
 			Path:      NamespacePath(namespace),
 			Channels:  latestPerChannel(versions),
 		})

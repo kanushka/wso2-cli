@@ -47,6 +47,7 @@ A module declares the namespace it owns in a `module.json` beside its
 {
   "schemaVersion": 1,
   "namespace": "reference",
+  "title": "Reference Product",
   "compatibility": {
     "shell": ">=0.1.0 <2.0.0",
     "protocolVersions": [2]
@@ -101,6 +102,7 @@ cost of an update check does not grow as products accumulate releases.
   "modules": [
     {
       "namespace": "reference",
+      "title": "Reference Product",
       "path": "modules/reference.json",
       "channels": [
         { "channel": "prerelease", "version": "4.6.0-rc.1" },
@@ -110,6 +112,14 @@ cost of an update check does not grow as products accumulate releases.
   ]
 }
 ```
+
+`title` is the product's short name from its
+[`module.json`](module-manifest.md#title), absent when the module declares
+none. It is read from the checkout the catalog is generated from rather than
+per tag, because it names the product and not a version. A shell release
+carries a copy of this file and prints each title on its help page, so a title
+that is longer than 40 characters or carries a control or formatting character
+fails generation.
 
 `path` is where that namespace's history is published. A shell fetches it only
 when it must select a specific version, which is why a normal update check
@@ -240,6 +250,13 @@ latest version on it. What exists is therefore discoverable from the shell
 rather than from this document. `wso2 product available`, which listed the
 catalog on its own before ADR 0015 merged the two, is kept as a hidden,
 deprecated spelling of `wso2 product list`.
+
+`wso2 help` answers the same question offline. A shell release carries a copy of
+`index.json` taken when it was released, and its help page lists every product
+in that copy with a stable release by title, marking the ones this machine has
+not installed. A product released after the shell was is missing from that list
+until the next shell release; `wso2 product list` still finds it. A
+development build carries no copy and lists only what is installed.
 
 ## Update checks, channels, and pins
 
