@@ -17,6 +17,7 @@
 package app_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -25,9 +26,14 @@ import (
 	"strings"
 	"testing"
 
+	keyring "github.com/zalando/go-keyring"
+
 	"github.com/wso2/wso2-cli/internal/app"
+	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/exit"
+	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/internal/state"
 )
 
 // identityOnlyDocument is the state a machine is in after wso2 login has
@@ -674,5 +680,230 @@ func TestTheFrozenDocumentRecoveryRoutesThroughLogin(t *testing.T) {
 	// this command refuses again, because the identity went with the file.
 	if strings.Contains(reported, "run the command again") {
 		t.Errorf("the recovery still tells the user to re-run a command that would refuse:\n%s", reported)
+	}
+}
+
+// contextShowReport mirrors what wso2 context show --output json publishes,
+// so a test can decode it without depending on the command's own unexported
+// type.
+type contextShowReport struct {
+	Path           string `json:"path"`
+	Written        bool   `json:"written"`
+	SchemaVersion  int    `json:"schemaVersion"`
+	DefaultContext string `json:"defaultContext"`
+	Accounts       []struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+		Auth struct {
+			Kind                 string `json:"kind"`
+			Issuer               string `json:"issuer"`
+			CredentialRef        string `json:"credentialRef"`
+			ClientSecretVariable string `json:"clientSecretVariable"`
+		} `json:"auth"`
+	} `json:"accounts"`
+	Contexts []contexts.Context `json:"contexts"`
+}
+
+// decodeContextShowReport parses wso2 context show --output json.
+func decodeContextShowReport(t *testing.T, rendered []byte) contextShowReport {
+	t.Helper()
+	var report contextShowReport
+	if err := json.Unmarshal(rendered, &report); err != nil {
+		t.Fatalf("the output is not one JSON document: %v\n%s", err, rendered)
+	}
+	return report
+}
+
+// TestContextShowReportsThePathEvenWithNothingWritten is acceptance criterion
+// 1 and 3 of #170 together: the path is reported, and it is reported on a
+// fresh machine that has never written the document at all.
+func TestContextShowReportsThePathEvenWithNothingWritten(t *testing.T) {
+	shell, out, errOut := newShell(t)
+
+	if code := shell.Run([]string{"context", "show", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	report := decodeContextShowReport(t, out.Bytes())
+	want := contexts.Path(shell.StateRoot)
+	if report.Path != want {
+		t.Errorf("path = %q, want %q", report.Path, want)
+	}
+	if report.Written {
+		t.Errorf("written = true on a machine that has never written the document")
+	}
+	if report.Accounts == nil || len(report.Accounts) != 0 {
+		t.Errorf("accounts = %v, want an empty list rather than null", report.Accounts)
+	}
+	if report.Contexts == nil || len(report.Contexts) != 0 {
+		t.Errorf("contexts = %v, want an empty list rather than null", report.Contexts)
+	}
+
+	tableShell, tableOut, tableErrOut := newShell(t)
+	if code := tableShell.Run([]string{"context", "show"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, tableErrOut)
+	}
+	if !strings.Contains(tableOut.String(), contexts.Path(tableShell.StateRoot)) {
+		t.Errorf("table rendering does not name the document's path:\n%s", tableOut)
+	}
+	if !strings.Contains(tableOut.String(), "No context document has been written yet") {
+		t.Errorf("table rendering does not say that no document has been written:\n%s", tableOut)
+	}
+}
+
+// TestContextShowReflectsWSO2Home is acceptance criterion 1: the reported path
+// follows WSO2_HOME rather than a fixed location, proven the way state_test.go
+// proves state.Root itself — through the real environment variable, with no
+// shell.StateRoot override standing in for it.
+func TestContextShowReflectsWSO2Home(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(state.RootEnvVar, home)
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	shell := app.Shell{Streams: output.Streams{Out: out, Err: errOut}}
+
+	if code := shell.Run([]string{"context", "show", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	report := decodeContextShowReport(t, out.Bytes())
+	want := contexts.Path(home)
+	if report.Path != want {
+		t.Errorf("path = %q, want %q derived from WSO2_HOME=%s", report.Path, want, home)
+	}
+}
+
+// TestContextShowRendersTheWholeDocument proves the document is shown in
+// full, in both renderings: every account, every context, the schema version,
+// and the default context — not only the subset wso2 context list or
+// wso2 account list already report.
+func TestContextShowRendersTheWholeDocument(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	seeded := identityOnlyDocument()
+	seeded.Accounts = append(seeded.Accounts, contexts.Account{
+		Name: "beta-machine",
+		Type: "onprem",
+		Auth: contexts.AccountAuth{
+			Kind:                 contexts.KindClientCredentials,
+			Issuer:               "https://idp.beta.example",
+			ClientID:             "beta-client",
+			ClientSecretVariable: "WSO2_BETA_CLIENT_SECRET",
+		},
+	})
+	seeded.DefaultContext = "acme"
+	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "acme"}}
+	installLogin(t, shell, seeded)
+
+	if code := shell.Run([]string{"context", "show", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	report := decodeContextShowReport(t, out.Bytes())
+	if !report.Written {
+		t.Fatalf("written = false for a document this test installed")
+	}
+	if report.SchemaVersion != contexts.SchemaVersion {
+		t.Errorf("schemaVersion = %d, want %d", report.SchemaVersion, contexts.SchemaVersion)
+	}
+	if report.DefaultContext != "acme" {
+		t.Errorf("defaultContext = %q, want %q", report.DefaultContext, "acme")
+	}
+	if len(report.Accounts) != 2 {
+		t.Fatalf("accounts = %d, want 2 (browser and client-credentials): %+v", len(report.Accounts), report.Accounts)
+	}
+	if len(report.Contexts) != 1 || report.Contexts[0].Name != "acme" {
+		t.Errorf("contexts = %+v, want the one seeded context named acme", report.Contexts)
+	}
+
+	tableShell, tableOut, tableErrOut := newShell(t)
+	installLogin(t, tableShell, seeded)
+	if code := tableShell.Run([]string{"context", "show"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, tableErrOut)
+	}
+	for _, want := range []string{"acme-cloud", "beta-machine", "acme"} {
+		if !strings.Contains(tableOut.String(), want) {
+			t.Errorf("table rendering does not name %q:\n%s", want, tableOut)
+		}
+	}
+}
+
+// TestContextShowNamesCredentialSourcesButNeverACredential is acceptance
+// criterion 4: the document names credential sources — a secure-store
+// reference, an environment variable name — and this command shows them,
+// because that is the whole point of showing the document ("who has
+// hand-edited the document" needs to see where a credential is supposed to
+// come from). What it must never show is a credential value, proven here two
+// ways: structurally, that the source names decode out of the report at all,
+// and behaviorally, that a real secret sitting behind one of those sources
+// never reaches the rendered output.
+func TestContextShowNamesCredentialSourcesButNeverACredential(t *testing.T) {
+	keyring.MockInit()
+	shell, out, errOut := newShell(t)
+	seeded := identityOnlyDocument() // acme-cloud, credentialRef "acme-cloud"
+	seeded.Accounts = append(seeded.Accounts, contexts.Account{
+		Name: "beta-machine",
+		Type: "onprem",
+		Auth: contexts.AccountAuth{
+			Kind:                 contexts.KindClientCredentials,
+			Issuer:               "https://idp.beta.example",
+			ClientID:             "beta-client",
+			ClientSecretVariable: "WSO2_BETA_CLIENT_SECRET",
+		},
+	})
+	installLogin(t, shell, seeded)
+
+	// A real secret behind the browser account's credential reference: what
+	// this command must never let slip, whichever rendering asks for it.
+	const canarySecret = "canary-refresh-token-2f8c-do-not-disclose"
+	store := session.Store{StateRoot: shell.StateRoot}
+	if err := store.Save("acme-cloud", session.Session{
+		Issuer: "https://idp.example", RefreshToken: canarySecret,
+	}); err != nil {
+		t.Fatalf("seed a session: %v", err)
+	}
+
+	if code := shell.Run([]string{"context", "show", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	report := decodeContextShowReport(t, out.Bytes())
+	found := map[string]bool{}
+	for _, account := range report.Accounts {
+		switch account.Name {
+		case "acme-cloud":
+			if account.Auth.CredentialRef != "acme-cloud" {
+				t.Errorf("acme-cloud's credentialRef = %q, want the source named", account.Auth.CredentialRef)
+			}
+			found["acme-cloud"] = true
+		case "beta-machine":
+			if account.Auth.ClientSecretVariable != "WSO2_BETA_CLIENT_SECRET" {
+				t.Errorf("beta-machine's clientSecretVariable = %q, want the source named",
+					account.Auth.ClientSecretVariable)
+			}
+			found["beta-machine"] = true
+		}
+	}
+	if !found["acme-cloud"] || !found["beta-machine"] {
+		t.Fatalf("both accounts were not found in the report: %+v", report.Accounts)
+	}
+
+	tableShell, tableOut, tableErrOut := newShell(t)
+	installLogin(t, tableShell, seeded)
+	tableStore := session.Store{StateRoot: tableShell.StateRoot}
+	if err := tableStore.Save("acme-cloud", session.Session{
+		Issuer: "https://idp.example", RefreshToken: canarySecret,
+	}); err != nil {
+		t.Fatalf("seed a session: %v", err)
+	}
+	if code := tableShell.Run([]string{"context", "show"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, tableErrOut)
+	}
+	// Both renderings' sources are checked so a leak that only reaches one of
+	// them cannot slip past this test.
+	for _, written := range []string{out.String() + errOut.String(), tableOut.String() + tableErrOut.String()} {
+		if strings.Contains(written, canarySecret) {
+			t.Fatalf("the stored session's refresh token reached wso2 context show's output:\n%s", written)
+		}
+	}
+	if !strings.Contains(tableOut.String(), "secure store: acme-cloud") {
+		t.Errorf("the table rendering does not name the secure-store credential source:\n%s", tableOut)
+	}
+	if !strings.Contains(tableOut.String(), "env: WSO2_BETA_CLIENT_SECRET") {
+		t.Errorf("the table rendering does not name the environment-variable credential source:\n%s", tableOut)
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -36,13 +37,15 @@ const (
 	contextUseUsage     = "Run wso2 context use <name>."
 	contextListUsage    = "Run wso2 context list [--output table|json]."
 	contextCurrentUsage = "Run wso2 context current [--output table|json]."
+	contextShowUsage    = "Run wso2 context show [--output table|json]."
 )
 
 // contextRecovery is what every refusal from the context command itself,
 // rather than one of its subcommands, points a user at.
 const contextRecovery = "Run wso2 context list to see the contexts on this machine, " +
 	"wso2 context current to show the selected one, wso2 context use <name> to select " +
-	"another, or wso2 context create <name> to add one."
+	"another, wso2 context create <name> to add one, or wso2 context show to see the " +
+	"document whole and where it lives."
 
 // contextCommand builds the wso2 context tree.
 //
@@ -78,7 +81,7 @@ func (s Shell) contextCommand() *cobra.Command {
 	// alongside "wso2 context use beta" would be two answers to one question.
 	declareOutputFlag(command.PersistentFlags())
 	command.AddCommand(s.contextCreateCommand(), s.contextUseCommand(),
-		s.contextListCommand(), s.contextCurrentCommand())
+		s.contextListCommand(), s.contextCurrentCommand(), s.contextShowCommand())
 	return command
 }
 
@@ -135,6 +138,17 @@ func (s Shell) contextCurrentCommand() *cobra.Command {
 		Args:  noArguments(contextCurrentUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.contextCurrent(command)
+		},
+	}
+}
+
+func (s Shell) contextShowCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "show",
+		Short: "Show the context document whole: where it lives, and everything it declares.",
+		Args:  noArguments(contextShowUsage),
+		RunE: func(command *cobra.Command, args []string) error {
+			return s.contextShow(command)
 		},
 	}
 }
@@ -421,6 +435,77 @@ func (s Shell) contextCurrent(command *cobra.Command) error {
 	return err
 }
 
+// contextShow reports where the context document lives and shows it whole:
+// every account and every context it declares, alongside the schema version
+// and the selected default.
+//
+// It exists because the other subcommands each show a part — list shows
+// contexts, and wso2 account list (identity.go) shows accounts and their
+// products — and none of them names the file all of it lives in. A user
+// working out why a command reaches a product the way it does, or who has
+// hand-edited the document because no command could do what they needed, has
+// to know where the shell keeps it before they can go look, and that depends
+// on WSO2_HOME and the platform default (state.Root) rather than being fixed
+// (#170).
+//
+// The path is reported even when nothing has been written there yet: a user
+// who has never logged in still needs to know where a document would go, and
+// contexts.Load answers a missing file with the zero Document rather than an
+// error, so Written is the only thing that tells the two states apart.
+//
+// Nothing here needs redacting. contexts.Account and contexts.Context, which
+// this renders directly, are named and located values only — a credential
+// reference, an environment variable name, an issuer, never a token or a
+// secret — by the same guarantee internal/contexts documents at its own
+// package level. Showing the document whole is what proves that guarantee to
+// a reader instead of asking them to take it on faith.
+func (s Shell) contextShow(command *cobra.Command) error {
+	mode, err := s.shellOutputMode(command)
+	if err != nil {
+		return err
+	}
+	root, err := s.stateRoot()
+	if err != nil {
+		return err
+	}
+	path := contexts.Path(root)
+	// Load treats a missing file as the empty document, which is the right
+	// answer for every other reader but leaves this command with no way to
+	// tell "nothing written" from "written and empty" — the two states this
+	// report exists to tell apart. Stat is asked directly instead of guessing
+	// from what Load returns.
+	_, statErr := os.Stat(path)
+	written := statErr == nil
+
+	document, err := contexts.Load(root)
+	if err != nil {
+		return err
+	}
+
+	report := contextDocumentReport{
+		Path:           path,
+		Written:        written,
+		SchemaVersion:  document.SchemaVersion,
+		DefaultContext: document.DefaultContext,
+		Accounts:       document.Accounts,
+		Contexts:       document.Contexts,
+	}
+	// Never nil in either rendering: a JSON caller iterating "accounts" or
+	// "contexts" on a fresh machine must see an empty list, not learn to
+	// special-case null first.
+	if report.Accounts == nil {
+		report.Accounts = []contexts.Account{}
+	}
+	if report.Contexts == nil {
+		report.Contexts = []contexts.Context{}
+	}
+
+	if mode == output.ModeJSON {
+		return encodeContextJSON(s.Streams.Out, report)
+	}
+	return report.renderTable(s.Streams.Out)
+}
+
 // The results this family reports.
 //
 // They are rendered here rather than through output.Report, which the rest of
@@ -476,6 +561,31 @@ type (
 	contextListing struct {
 		Contexts []contextEntry `json:"contexts"`
 	}
+
+	// contextDocumentReport is what wso2 context show reports: the on-disk
+	// context document verbatim, plus where it lives and whether it has been
+	// written at all.
+	//
+	// Accounts and Contexts are contexts.Account and contexts.Context
+	// themselves, not a narrower view built for this command: the whole
+	// point of "show the document" is that nothing in it is trimmed the way
+	// wso2 account list trims the credential reference from its own rows.
+	// Neither type has anywhere to put a credential (internal/contexts's own
+	// package doc), so embedding them whole costs nothing that R8's design
+	// promises to withhold.
+	contextDocumentReport struct {
+		// Path is the context document's location inside the shell's state
+		// root, which WSO2_HOME (state.RootEnvVar) overrides. Reported
+		// whichever way Written comes out.
+		Path string `json:"path"`
+		// Written reports whether a document exists at Path. False on a
+		// fresh machine is a state, not a failure.
+		Written        bool               `json:"written"`
+		SchemaVersion  int                `json:"schemaVersion"`
+		DefaultContext string             `json:"defaultContext"`
+		Accounts       []contexts.Account `json:"accounts"`
+		Contexts       []contexts.Context `json:"contexts"`
+	}
 )
 
 func (c contextCreated) fields() [][2]string {
@@ -494,6 +604,79 @@ func (c contextCurrent) fields() [][2]string {
 		{"Account", c.Identity},
 		{"Organization", c.Organization},
 		{"Project", c.Project},
+	}
+}
+
+// renderTable writes the whole document as a person reads it: the path and
+// whether it exists, then one table per section the document declares.
+//
+// It does not go through the reportable interface renderContext uses: that
+// interface renders one row of labelled fields, and this report is a
+// document with two collections in it, which is not a shape fields() can
+// carry without flattening one of them into a single unreadable cell.
+func (c contextDocumentReport) renderTable(w io.Writer) error {
+	if err := output.Fields(w, [][2]string{
+		{"Path", c.Path},
+		{"Written", yesNo(c.Written)},
+	}); err != nil {
+		return err
+	}
+	if !c.Written {
+		_, err := fmt.Fprintln(w, "\nNo context document has been written yet.\n\n"+contextCreateUsage)
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "\nSchema version: %d\nDefault context: %s\n",
+		c.SchemaVersion, c.DefaultContext); err != nil {
+		return err
+	}
+
+	if len(c.Accounts) == 0 {
+		if _, err := fmt.Fprintln(w, "\nNo accounts are declared."); err != nil {
+			return err
+		}
+	} else {
+		if _, err := fmt.Fprintln(w, "\nAccounts"); err != nil {
+			return err
+		}
+		table := output.NewTable("name", "type", "kind", "issuer", "credential source", "products")
+		for _, account := range c.Accounts {
+			table.Append(account.Name, account.Type, account.Auth.Kind, account.Auth.Issuer,
+				credentialSource(account.Auth), productNamespaces(account))
+		}
+		if err := table.Render(w); err != nil {
+			return err
+		}
+	}
+
+	if len(c.Contexts) == 0 {
+		_, err := fmt.Fprintln(w, "\nNo contexts are declared.")
+		return err
+	}
+	if _, err := fmt.Fprintln(w, "\nContexts"); err != nil {
+		return err
+	}
+	table := output.NewTable("default", "name", "account", "organization", "project")
+	for _, entry := range c.Contexts {
+		table.Append(selectionMark(entry.Name == c.DefaultContext), entry.Name, entry.Account,
+			entry.Organization, entry.Project)
+	}
+	return table.Render(w)
+}
+
+// credentialSource names where an account's credential comes from — never the
+// credential itself, which AccountAuth has nowhere to hold. A browser account
+// names the secure-store entry its session lives under; a client-credentials
+// account names the environment variable its secret is read from at use. An
+// account with neither, which validate() never actually permits, renders
+// blank rather than guessing.
+func credentialSource(auth contexts.AccountAuth) string {
+	switch {
+	case auth.CredentialRef != "":
+		return "secure store: " + auth.CredentialRef
+	case auth.ClientSecretVariable != "":
+		return "env: " + auth.ClientSecretVariable
+	default:
+		return ""
 	}
 }
 
