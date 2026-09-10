@@ -271,11 +271,6 @@ func TestRemovingADirectProductLeavesTheLoginSessionIntact(t *testing.T) {
 	}
 }
 
-// Removing the login product itself keeps the login session too, and the
-// next direct product becomes what the account logs in as. That product's
-// own sibling session is then named by nothing — the login session answers
-// for it now — so it is ended rather than left behind, and the report says a
-// login is needed to authorize the login session for it.
 // TestRemovingTheLoginProductIsRefusedBeforeAnythingIsTouched pins the rule
 // that the product an account logs in through cannot be removed out from under
 // it. The login session was authorized for that product's resource and scope
@@ -504,4 +499,53 @@ func guardNetwork(t *testing.T) {
 	original := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = original })
 	http.DefaultTransport = failingTransport{t: t, family: "account"}
+}
+
+// TestADocumentChangedWhileSessionsAreEndedIsNotWritten covers the one race a
+// command that revokes and then writes has to survive. Revocation reaches the
+// network, so it runs outside the document lock, and another invocation may
+// change the account in between. Here it gives the product being removed a
+// gateway record with a session of its own. Removing the product now takes
+// that record too, which would strand a session this run never ended — and the
+// secure store cannot be listed, so nothing could ever find it again. The
+// command re-plans under the lock, sees it, and refuses rather than dropping
+// the record.
+func TestADocumentChangedWhileSessionsAreEndedIsNotWritten(t *testing.T) {
+	fixture := newRemovalFixture(t)
+	gatewayRef := productRef(contexts.GatewayKey("api"))
+	fixture.login.OnRevoke(func() {
+		if err := contexts.Update(fixture.shell.StateRoot, func(d contexts.Document) (contexts.Document, error) {
+			product := d.Accounts[0].Products["api"]
+			product.Gateway = &contexts.Gateway{Endpoint: "https://api-gw.example",
+				Audience: "https://api-gw.example/hello", Scopes: []string{"hello:read"}}
+			d.Accounts[0].Products["api"] = product
+			return d, nil
+		}); err != nil {
+			t.Errorf("the concurrent change could not be written: %v", err)
+		}
+		if err := fixture.store.Save(gatewayRef, session.Session{
+			Issuer: fixture.login.URL, RefreshToken: fixture.login.SeedSession([]string{"hello:read"}),
+		}); err != nil {
+			t.Errorf("the concurrent session could not be stored: %v", err)
+		}
+	})
+
+	code, _, errOut := fixture.run(t, "account", "remove-product", removalAccount, "api")
+	if code == exit.OK {
+		t.Fatal("the removal was written over a document that changed under it")
+	}
+	if !strings.Contains(errOut, "contexts.document_busy") {
+		t.Errorf("the refusal does not carry contexts.document_busy:\n%s", errOut)
+	}
+	// The record was not dropped, so the session the other invocation stored
+	// is still named by a record and can still be ended.
+	if !slices.Contains(fixture.recordKeys(t), "api") {
+		t.Error("the product was removed despite the refusal")
+	}
+	if !slices.Contains(fixture.recordKeys(t), contexts.GatewayKey("api")) {
+		t.Error("the gateway record the other invocation wrote was lost")
+	}
+	if stored, err := fixture.store.Stored(gatewayRef); err != nil || !stored {
+		t.Errorf("the other invocation's session was ended by a run that never planned it: %v", err)
+	}
 }
