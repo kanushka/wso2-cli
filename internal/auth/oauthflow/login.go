@@ -210,7 +210,7 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	callback := serveCallback(listener, state, l.Label)
+	callback := serveCallback(listener, state, l.Label, l.Resource)
 	defer callback.close()
 
 	// A public client has no secret to present, so it identifies itself in the
@@ -414,6 +414,43 @@ func notCompleted(message, recovery string) problem.Problem {
 	return problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable", message).WithRecovery(recovery)
 }
 
+// TargetRejected is RFC 8707's refusal of an authorization request's resource
+// indicator: the one refusal a retry cannot get past, because what is wrong is
+// the account's record or the deployment's registration. It is a type of its
+// own so a caller that knows more about the account can word the way out; it
+// unwraps to the problem every other caller reports.
+type TargetRejected struct {
+	// Resource is the indicator the request carried, empty when it carried
+	// none, which is what tells the two causes apart.
+	Resource string
+	problem  problem.Problem
+}
+
+func (t TargetRejected) Error() string { return t.problem.Error() }
+
+// Unwrap is the problem the refusal is reported as.
+func (t TargetRejected) Unwrap() error { return t.problem }
+
+// targetRejected words the refusal. The provider's description is not
+// repeated; the code is, because it is a registered value naming the cause
+// rather than text the provider chose.
+func targetRejected(resource string) TargetRejected {
+	if resource == "" {
+		return TargetRejected{problem: problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
+			"the identity provider binds every login to a resource server (invalid_target), and this "+
+				"login named none, because the account records no product its login binds to").
+			WithRecovery("Record the login provider's own product on the account, so the login names " +
+				"its resource server, then retry wso2 login.")}
+	}
+	return TargetRejected{Resource: resource, problem: problem.New(problem.CategoryAuthPolicy,
+		"auth.product_not_configured",
+		fmt.Sprintf("the identity provider does not recognize the resource server %q this login names "+
+			"(invalid_target)", resource)).
+		WithRecovery(fmt.Sprintf("Register %q as a resource server identifier at the identity provider, "+
+			"or record the product with the audience the deployment registered, then retry wso2 login.",
+			resource))}
+}
+
 // identityNotVerified reports an identity token the shell would not accept,
 // and says which kind of failure it was.
 //
@@ -474,8 +511,10 @@ const callbackReadHeaderTimeout = 10 * time.Second
 //
 // The state is captured here rather than checked by the caller so that no path
 // through this package can accept a code without it. The label names the
-// product this login is for, and appears on the accepted page alone.
-func serveCallback(listener net.Listener, state, label string) *callback {
+// product this login is for, and appears on the accepted page alone. The
+// resource is the indicator the authorization request carried, empty when it
+// carried none, and words a refusal of it.
+func serveCallback(listener net.Listener, state, label, resource string) *callback {
 	waiting := &callback{results: make(chan callbackResult, 1)}
 	mux := http.NewServeMux()
 	mux.HandleFunc(callbackPath, func(w http.ResponseWriter, r *http.Request) {
@@ -490,9 +529,14 @@ func serveCallback(listener net.Listener, state, label string) *callback {
 			respond(w, pageStrayTab, "")
 			return
 		}
+		if query.Get("error") == "invalid_target" {
+			respond(w, pageRefused, "")
+			waiting.finish(callbackResult{err: targetRejected(resource)})
+			return
+		}
 		if query.Get("error") != "" {
 			// The provider's error code is not echoed to the terminal; what the
-			// user must do is the same whichever refusal it was.
+			// user must do is the same whichever of these refusals it was.
 			respond(w, pageRefused, "")
 			waiting.finish(callbackResult{err: notCompleted(
 				"the identity provider refused this login",

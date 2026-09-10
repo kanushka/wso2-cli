@@ -814,6 +814,17 @@ hold is that the deployment binds the token to the `audience` recorded here,
 which is proved when the token arrives and reported as
 `auth.narrowing_unavailable` when it fails.
 
+The same code reports a login the identity provider refused with RFC 8707's
+`invalid_target`, which no retry gets past. When the login named no resource
+server, the account records no product its login binds to: ThunderID binds
+every login to one, so a `wso2 login --url` that creates its account is
+refused this way, and the recovery names the connect of the login provider's
+own product (`wso2 identity connect <issuer-url> --account <name>`), which
+creates the account with that product recorded. When the login named one, the
+deployment has not registered it: register it as a resource server identifier
+at the identity provider, or record the product with the audience the
+deployment did register.
+
 ### `auth.audience_not_declared` / `auth.scope_not_declared`
 
 The module asked for more than its own installation declared. This is not a

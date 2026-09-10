@@ -18,10 +18,12 @@ package app
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 
+	"github.com/wso2/wso2-cli/internal/auth/oauthflow"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
@@ -83,7 +85,7 @@ func (s Shell) loginCreating(flags loginFlags) error {
 
 	result, err := s.establishAndStore(selected, flags)
 	if err != nil {
-		return err
+		return s.explainUnboundLogin(err, selected.Identity, flags.issuer, name)
 	}
 
 	// Everything logged here came from a flag the user typed or from the
@@ -137,6 +139,35 @@ func (s Shell) loginCreating(flags loginFlags) error {
 		return err
 	}
 	return s.reportLoginWrite(written, selected.Identity)
+}
+
+// explainUnboundLogin words the way out of a creating login an issuer refused
+// for naming no resource server, and passes every other failure through.
+//
+// Such an issuer — ThunderID — binds each login to one resource server, and a
+// login that creates its account records no product whose resource it could
+// name, so no retry of this command can succeed. What can is the connect of
+// the login provider's own product, which records that product and creates
+// the account and context with it; the installed modules say whose.
+func (s Shell) explainUnboundLogin(err error, identity contexts.Account, issuer, name string) error {
+	var rejected oauthflow.TargetRejected
+	if !errors.As(err, &rejected) || rejected.Resource != "" || len(identity.Products) > 0 {
+		return err
+	}
+	create := fmt.Sprintf("wso2 account create %s --issuer %s --client-id <id> --product <namespace> "+
+		"--endpoint <url> --audience <resource-id> --scope <scope>", name, issuer)
+	if providers := s.loginProviderNamespaces(); len(providers) > 0 {
+		connects := make([]string, 0, len(providers))
+		for _, provider := range providers {
+			connects = append(connects, fmt.Sprintf("wso2 %s connect %s --account %s", provider, issuer, name))
+		}
+		create = strings.Join(connects, " or ")
+	}
+	return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
+		"the identity provider binds every login to a resource server (invalid_target), and a login "+
+			"that creates an account records no product whose resource server it could name").
+		WithRecovery(fmt.Sprintf("Create the account with the login provider's own product instead: %s, "+
+			"then run wso2 login --context %s.", create, name))
 }
 
 // loginWrite is what a creating login changed in the context document.
