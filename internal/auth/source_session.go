@@ -295,7 +295,15 @@ func (s sessionSource) orReauthorize(err error) error {
 // protocolScopes are the scopes the shell itself adds to every authorization
 // and that no product permission is spelled as. A stored access token carries
 // them beside the product's scopes, and they are not what a module asked for.
-var protocolScopes = map[string]bool{"openid": true, "offline_access": true}
+//
+// They must be exactly the scopes oauthflow's Login asks for beyond the
+// product's own. profile and email joined that list so a login learns who
+// signed in; left out of this one, every token a login stores would read as
+// minted for a different request, so a federated product would never be served
+// its own valid token and would fall through to a refresh the issuer refuses.
+var protocolScopes = map[string]bool{
+	"openid": true, "offline_access": true, "profile": true, "email": true,
+}
 
 // storedGrant serves the access token the session stored at authorization,
 // when it is still valid and carries exactly the request: the product's

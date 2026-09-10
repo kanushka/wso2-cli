@@ -578,3 +578,27 @@ func TestAResourceBoundSiblingRefusalPointsAtLoginOnly(t *testing.T) {
 		t.Errorf("recovery %q tells a sibling product to log the whole context out", refusal.Problem.Recovery)
 	}
 }
+
+// A login now asks for the profile and email scopes, so the access token it
+// stores carries them beside the product's own. They say who signed in, not
+// what the product may do, and must not make the stored token look like one
+// minted for some other request: if they did, every command would fall
+// through to a refresh, which an issuer that will not renew the management
+// scope (API Manager, measured) refuses — sending the user back to the browser
+// on every command, for a token that was valid all along.
+func TestAStoredTokenCarryingTheIdentityScopesIsStillServed(t *testing.T) {
+	product := fakeissuer.New(t, fakeissuer.Options{Audience: "apim-cli-client", RefreshScopeMode: "reject"})
+	minted := product.MintAccessToken(
+		[]string{"openid", "offline_access", "profile", "email", "apim:api_view"}, "")
+	_, broker := federatedDeployment(t, product, session.Session{
+		RefreshToken: product.SeedSession([]string{"apim:api_view"}),
+		AccessToken:  minted, ExpiresAt: time.Now().Add(time.Hour),
+	})
+	grant, err := broker.Acquire(auth.Request{Audience: "apim-cli-client", Scopes: []string{"apim:api_view"}})
+	if err != nil {
+		t.Fatalf("a valid stored token carrying the identity scopes was not served: %v", err)
+	}
+	if grant.Token != minted {
+		t.Fatal("the broker did not serve the stored access token")
+	}
+}
