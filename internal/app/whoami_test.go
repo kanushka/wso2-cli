@@ -279,11 +279,11 @@ func TestWhoamiRendersAPreR6SessionAsUnknownAndNotStated(t *testing.T) {
 	if report.Subject != "unknown" {
 		t.Errorf("subject = %q, want \"unknown\" for a pre-R6 session", report.Subject)
 	}
-	// A session this old carries no name member either, so the fallback chain
-	// (#168) runs all the way to the same "unknown" the subject itself falls
-	// back to: nothing here is blank, and nothing here is invented.
-	if report.Name != "unknown" {
-		t.Errorf("name = %q, want \"unknown\" for a pre-R6 session with no subject to fall back to", report.Name)
+	// A session this old carries no name member either, and whoami claims
+	// none (#168): the subject is reported under its own label as "unknown",
+	// and Name is left out rather than filled with it.
+	if report.Name != "" {
+		t.Errorf("name = %q, want none for a pre-R6 session that carries no name", report.Name)
 	}
 	if report.SessionExpiry != "not stated by the issuer" {
 		t.Errorf("sessionExpiry = %q, want the not-stated wording for a pre-R6 session", report.SessionExpiry)
@@ -357,7 +357,13 @@ func TestWhoamiReportsTheStoredDisplayName(t *testing.T) {
 // all, exactly what a shell before #168 wrote — is still reported sensibly:
 // whoami falls back to the subject it already knows rather than leaving the
 // field blank or inventing a name it was never told.
-func TestWhoamiFallsBackToTheSubjectWhenNoNameWasStored(t *testing.T) {
+// TestWhoamiClaimsNoNameWhenNoneWasStored holds both halves of #168's rule for
+// a session that carries no name: "without an empty field and without claiming a
+// name it does not have". Reporting the subject under Name met the first half
+// and broke the second — a script reading name got an opaque identifier
+// presented as a person — so the name is left out entirely. The subject is
+// still reported under its own label, so nothing a reader relies on is lost.
+func TestWhoamiClaimsNoNameWhenNoneWasStored(t *testing.T) {
 	keyring.MockInit()
 	const subject = "01900000-0000-7000-8000-000000000030"
 	shell, out, errOut := newShell(t)
@@ -374,9 +380,30 @@ func TestWhoamiFallsBackToTheSubjectWhenNoNameWasStored(t *testing.T) {
 	if code := shell.Run([]string{"whoami", "--output", "json"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	report := decodeWhoamiReport(t, out.Bytes())
-	if report.Name != subject {
-		t.Errorf("name = %q, want the stored subject %q as the fallback", report.Name, subject)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(out.Bytes(), &raw); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if _, present := raw["name"]; present {
+		t.Errorf("the JSON claims a name the session does not have: %s", out)
+	}
+	if report := decodeWhoamiReport(t, out.Bytes()); report.Subject != subject {
+		t.Errorf("subject = %q, want %q still reported", report.Subject, subject)
+	}
+
+	out.Reset()
+	if code := shell.Run([]string{"whoami"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	// No Name row at all rather than a blank one, and the subject is not
+	// passed off under it.
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "Name") {
+			t.Errorf("the table carries a Name row for a session with no name: %q", line)
+		}
+	}
+	if !strings.Contains(out.String(), subject) {
+		t.Errorf("the table no longer reports the subject:\n%s", out)
 	}
 }
 
