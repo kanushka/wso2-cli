@@ -1,12 +1,13 @@
 {
   "schemaVersion": 1,
   "namespace": "identity",
+  "title": "Identity",
   "compatibility": {
     "shell": ">=0.1.0 <2.0.0",
     "protocolVersions": [2]
   },
   "capabilities": {
-    "authAudiences": [],
-    "authScopes": []
+    "authAudiences": ["identity-management"],
+    "authScopes": ["system"]
   }
 }

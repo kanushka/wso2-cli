@@ -46,6 +46,18 @@ const Namespace = "identity"
 // can rely on the name to know what the fields mean.
 const StatusSchema = "identity.status/v1"
 
+// ManagementAudience is the logical name this module's API is known by, the
+// same against every deployment it will ever run against. The concrete value a
+// deployment stamps into aud — a resource-server URI on ThunderID, an API
+// resource identifier on Identity Server — is recorded by the operator on the
+// account, and the shell proves the token is bound to that before handing it
+// over. See docs/guides/building-product-modules.md.
+const ManagementAudience = "identity-management"
+
+// ManagementScope is the permission every command here needs: the deployment's
+// own management permission.
+const ManagementScope = "system"
+
 // NextField is the field name the shell renders as a trailing next-step line.
 // Every result this module returns ends with it, so a user is never left
 // wondering what to run.
@@ -81,8 +93,10 @@ func main() {
 // audience is refused rather than granted. modules/reference is the worked example.
 func moduleOptions() module.Options {
 	return module.Options{
-		Namespace: Namespace,
-		Version:   moduleVersion,
+		Namespace:     Namespace,
+		Version:       moduleVersion,
+		AuthAudiences: []string{ManagementAudience},
+		AuthScopes:    []string{ManagementScope},
 	}
 }
 
@@ -101,10 +115,58 @@ func commands() *cobratree.Tree {
 		Use:   "status",
 		Short: "Report this module's own status and what to run first.",
 	}
-	root.AddCommand(statusCommand)
+	usersCommand := &cobra.Command{
+		Use:   "users",
+		Short: "Read the people this deployment knows.",
+	}
+	usersListCommand := &cobra.Command{
+		Use:   "list",
+		Short: "List the users the deployment records.",
+	}
+	usersCommand.AddCommand(usersListCommand)
+
+	resourceServersCommand := &cobra.Command{
+		Use:   "resource-servers",
+		Short: "Read and create the resource servers products are known by.",
+	}
+	resourceServersListCommand := &cobra.Command{
+		Use:   "list",
+		Short: "List the resource servers the deployment records.",
+	}
+	resourceServersCreateCommand := &cobra.Command{
+		Use:   "create <name> --identifier <uri>",
+		Short: "Create a resource server a product's access is bound to.",
+	}
+	// Declared on the command rather than parsed by hand: the SDK parses a
+	// module's own arguments with this flag set before the handler runs, so a
+	// hand parser would never see a flag Cobra had already refused.
+	var createFlags resourceServerFlags
+	resourceServersCreateCommand.Flags().StringVar(&createFlags.identifier, "identifier", "",
+		"The absolute URI the deployment binds this resource server's tokens to.")
+	resourceServersCreateCommand.Flags().StringVar(&createFlags.description, "description", "",
+		"What this resource server is for.")
+	resourceServersCreateCommand.Flags().StringArrayVar(&createFlags.permissions, "permission", nil,
+		"A permission handle to create on it; repeat for each.")
+	resourceServersCommand.AddCommand(resourceServersListCommand, resourceServersCreateCommand)
+
+	appsCommand := &cobra.Command{
+		Use:   "apps",
+		Short: "Read the applications this deployment registers.",
+	}
+	appsListCommand := &cobra.Command{
+		Use:   "list",
+		Short: "List the applications the deployment records.",
+	}
+	appsCommand.AddCommand(appsListCommand)
+
+	root.AddCommand(statusCommand, usersCommand, appsCommand, resourceServersCommand)
 
 	return cobratree.New(root).
-		Handle(statusCommand, status)
+		Handle(statusCommand, status).
+		Handle(usersListCommand, usersList).
+		Handle(appsListCommand, appsList).
+		Handle(resourceServersListCommand, resourceServersList).
+		Handle(resourceServersCreateCommand, resourceServersCreate(resourceServersCreateCommand, &createFlags))
 }
 
 // status answers "wso2 identity status".
