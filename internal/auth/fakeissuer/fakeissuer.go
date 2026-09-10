@@ -297,6 +297,8 @@ type Issuer struct {
 	// refuseExchange makes the exchange grant answer unauthorized_client, as
 	// an issuer does for a client the grant is not registered on.
 	refuseExchange bool
+	// onRevoke runs once, the first time the revocation endpoint is reached.
+	onRevoke func()
 }
 
 type codeGrant struct {
@@ -645,6 +647,20 @@ func (i *Issuer) handleToken(w http.ResponseWriter, r *http.Request) {
 }
 
 const exchangeGrantType = "urn:ietf:params:oauth:grant-type:token-exchange"
+
+// OnRevoke runs fn the first time a client reaches the revocation endpoint,
+// before the endpoint answers.
+//
+// It exists for the one race a command that revokes and then writes has to
+// survive: another invocation changing the document while the network call is
+// in flight. Running fn inside the request places the change exactly between
+// the two, which no amount of scheduling from the test could do reliably. It
+// runs once, so a command revoking several sessions sees one change.
+func (i *Issuer) OnRevoke(fn func()) {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	i.onRevoke = fn
+}
 
 // RefuseExchange makes every later exchange answer unauthorized_client, the
 // way an issuer answers a client the grant is not registered on.
@@ -1182,6 +1198,13 @@ func scopeMode(t *testing.T, option, configured string) string {
 // deployment that lets its public client revoke. RefuseRevocation is how a test
 // asks for the other kind.
 func (i *Issuer) handleRevoke(w http.ResponseWriter, r *http.Request) {
+	i.mutex.Lock()
+	hook := i.onRevoke
+	i.onRevoke = nil
+	i.mutex.Unlock()
+	if hook != nil {
+		hook()
+	}
 	if err := r.ParseForm(); err != nil {
 		oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
