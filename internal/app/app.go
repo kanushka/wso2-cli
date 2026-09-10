@@ -69,7 +69,7 @@ type Shell struct {
 
 	// ReleasedIndex is the catalog index the help page names products from. It is
 	// nil in production, which is the copy this binary was released with
-	// (catalog.Released); a test sets it to stand in for what a release knew.
+	// (catalog.ReleasedIndex); a test sets it to stand in for what a release knew.
 	ReleasedIndex *catalog.Index
 
 	// log is this invocation's diagnostic log. It is a pointer because the

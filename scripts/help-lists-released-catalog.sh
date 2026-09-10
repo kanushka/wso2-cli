@@ -34,7 +34,9 @@ state="$(mktemp -d)"
 trap 'rm -rf "${state}"' EXIT
 
 help="$(WSO2_HOME="${state}" "${binary}" help)"
-namespaces="$(printf '%s' "${encoded}" | base64 -d |
+# jq decodes the copy, because base64 spells its decode flag differently on
+# GNU and BSD systems and this runs on both.
+namespaces="$(printf '%s' "${encoded}" | jq -Rr '@base64d' |
 	jq -r '.modules[] | select(any(.channels[]?; .channel == "stable")) | .namespace')"
 if [ -z "${namespaces}" ]; then
 	echo "the catalog copy names no product with a stable release, so there is nothing to check" >&2
