@@ -73,8 +73,9 @@ type ProductDescriptor struct {
 	// authorized for exactly these.
 	Scopes []string `json:"scopes"`
 	// Grant is the grant kind the product needs when it is not the login
-	// provider: federated or jwt-bearer. Empty for a product only its own
-	// provider serves.
+	// provider: federated, jwt-bearer or exchange. Empty for a product only
+	// its own provider serves. An exchanged product's audience defaults to
+	// the URL connect is given when DefaultAudience names none.
 	Grant string `json:"grant,omitempty"`
 	// Machine lists the strategies a client-credentials account may use:
 	// MachineInline, MachineCredential, or both.
@@ -125,6 +126,13 @@ func (d ProductDescriptor) AudienceFor(clientID string) string {
 
 // LoginProvider reports whether a login can run against this product.
 func (d ProductDescriptor) LoginProvider() bool { return d.Provider != "" }
+
+// Exchanged reports whether the product is reached by exchanging the
+// account's own login session: it validates the login provider's tokens
+// itself, so it has no issuer, client or session of its own to record.
+func (d ProductDescriptor) Exchanged() bool {
+	return !d.LoginProvider() && d.Grant == contexts.GrantExchange
+}
 
 // AllowsMachine reports whether a client-credentials account may reach
 // the product by the named strategy.
