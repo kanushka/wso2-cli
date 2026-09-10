@@ -103,19 +103,28 @@ func TestRemovingARecordTheAccountDoesNotHoldRemovesNothing(t *testing.T) {
 	}
 }
 
-func TestRemovingThePinnedLoginProductPinsTheOneTheNamespaceOrderNowChooses(t *testing.T) {
-	next, _ := removalIdentity().WithoutRecord("iam")
-	if next.LoginProduct != "api" || next.LoginAccess().Namespace != "api" {
-		t.Fatalf("pin = %q, login = %q, want api for both", next.LoginProduct, next.LoginAccess().Namespace)
+// TestRemovingThePinnedLoginProductLeavesADocumentTheShellRefuses holds the
+// layering: WithoutRecord drops a record and does not decide which product an
+// account logs in through. Moving the pin here once ended a working session for
+// whichever product happened to sort first, so the choice was taken out of this
+// function. What stops a caller from removing the login product regardless is
+// the document's own invariant: a pin naming a product the account no longer
+// reaches directly is a document this package refuses to write. The command
+// refuses first and explains; this is the backstop behind it.
+func TestRemovingThePinnedLoginProductLeavesADocumentTheShellRefuses(t *testing.T) {
+	next, removed := removalIdentity().WithoutRecord("iam")
+	if !removed {
+		t.Fatal("the pinned login product was not reported as held")
 	}
-	// With no direct product left there is nothing to pin, and a pin naming
-	// one would be a document the shell refuses to write.
-	lone := thunderIdentity()
-	lone.LoginProduct = "iam"
-	delete(lone.Products, "gateway")
-	next, _ = lone.WithoutRecord("iam")
-	if next.LoginProduct != "" {
-		t.Fatalf("pin = %q, want none", next.LoginProduct)
+	if next.LoginProduct != "iam" {
+		t.Fatalf("pin = %q, want it left on iam rather than moved", next.LoginProduct)
+	}
+	document := contexts.Document{
+		SchemaVersion: contexts.SchemaVersion,
+		Accounts:      []contexts.Account{next},
+	}
+	if _, err := document.Encode(); err == nil {
+		t.Fatal("a document pinning the login to a removed product was accepted for writing")
 	}
 }
 

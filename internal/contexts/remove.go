@@ -28,11 +28,14 @@ import "maps"
 // with the caller's copy, and editing that in place would change a document
 // the caller has not yet decided to write.
 //
-// Removing the pinned login product moves the pin to the product the
-// namespace order now chooses, rather than clearing it. A pin naming a
-// product that is gone is a document this package refuses to write, and no
-// pin at all would let a product recorded later with an earlier-sorting
-// namespace take the login over, which is the move the pin exists to prevent.
+// It does not decide which product the account logs in through, and leaves
+// the login pin exactly as it was. Moving the pin to whichever product the
+// namespace order chose once ended a working session for a product that merely
+// sorted first, so the choice does not belong here. A caller that removes the
+// pinned login product is left with a pin naming a product that is gone, which
+// is a document this package refuses to write: that invariant, not this
+// function, is what keeps the login from moving silently. wso2 account
+// remove-product refuses the login product before calling this.
 func (i Account) WithoutRecord(key string) (Account, bool) {
 	products := maps.Clone(i.Products)
 	if namespace, gateway := SplitGatewayKey(key); gateway {
@@ -53,11 +56,6 @@ func (i Account) WithoutRecord(key string) (Account, bool) {
 		products = nil
 	}
 	i.Products = products
-	if i.LoginProduct == key {
-		// LoginAccess ignores a pin naming a product that is not recorded,
-		// so with the product gone it answers with the namespace order.
-		i.LoginProduct = i.LoginAccess().Namespace
-	}
 	return i, true
 }
 
