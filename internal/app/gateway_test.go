@@ -428,7 +428,7 @@ func TestWhoamiShowsTheGatewayRecordBesideTheManagementOne(t *testing.T) {
 	if code := shell.Run([]string{"whoami"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !strings.Contains(out.String(), "apim/gateway: inline, inline") {
+	if !strings.Contains(out.String(), "apim/gateway: inline") || strings.Contains(out.String(), "inline, inline") {
 		t.Fatalf("report:\n%s", out)
 	}
 }

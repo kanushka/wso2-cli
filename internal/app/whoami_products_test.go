@@ -91,7 +91,7 @@ func TestWhoamiReportsAnExchangedProductAsServedByTheLoginSession(t *testing.T) 
 	if code := shell.Run([]string{"whoami"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !strings.Contains(out.String(), "apip: exchanged, exchanged") {
+	if !strings.Contains(out.String(), "apip: exchanged") || strings.Contains(out.String(), "exchanged, exchanged") {
 		t.Fatalf("an exchanged product was not reported as served by the login session:\n%s", out)
 	}
 }
