@@ -130,7 +130,7 @@ func run() error {
 	// --help" is exactly the one that does (#147). What is offered instead is
 	// the command that confirms the install, which this command does know the
 	// answer to.
-	fmt.Printf("\nConfirm it is installed:\n  %s version\nTake it off again:\n  %s module remove %s\n",
+	fmt.Printf("\nConfirm it is installed:\n  %s version\nTake it off again:\n  %s product remove %s\n",
 		*shellPath, *shellPath, result.Namespace)
 	return nil
 }

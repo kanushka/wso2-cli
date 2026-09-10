@@ -369,7 +369,7 @@ func (s Shell) reportLogout(mode output.Mode, selected contexts.Selection,
 	}
 	reported := result.New(logoutSchema).
 		With("context", "Context", selected.Context.Name).
-		With("identity", "Identity", selected.Context.Account).
+		With("account", "Account", selected.Context.Account).
 		With("session", "Session", state).
 		With("revocation", "Revocation", string(ended.revocation)).
 		With("productSessions", "Product sessions", productSessions).

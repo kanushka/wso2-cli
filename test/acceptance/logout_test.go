@@ -208,7 +208,7 @@ func TestLogoutRendersJSON(t *testing.T) {
 
 	var reported struct {
 		Context        string `json:"context"`
-		Identity       string `json:"identity"`
+		Account        string `json:"account"`
 		Session        string `json:"session"`
 		Revocation     string `json:"revocation"`
 		SharedContexts string `json:"sharedContexts"`
@@ -220,8 +220,8 @@ func TestLogoutRendersJSON(t *testing.T) {
 	if reported.Context != referenceContextName {
 		t.Errorf("context = %q, want %q", reported.Context, referenceContextName)
 	}
-	if reported.Identity != loginIdentityName {
-		t.Errorf("identity = %q, want %q", reported.Identity, loginIdentityName)
+	if reported.Account != loginIdentityName {
+		t.Errorf("account = %q, want %q", reported.Account, loginIdentityName)
 	}
 	if reported.Session != "ended" {
 		t.Errorf("session = %q, want ended", reported.Session)

@@ -347,7 +347,11 @@ func (w whoamiReport) fields() [][2]string {
 	pairs := [][2]string{
 		{"Context", w.Context},
 		{"Account", w.Identity},
-		{"Organization", w.Organization},
+	}
+	// Organization is left out when the context names none, for the reason
+	// the Name row is below: a blank row reads as a value that failed to load.
+	if w.Organization != "" {
+		pairs = append(pairs, [2]string{"Organization", w.Organization})
 	}
 	// The Name row is left out, rather than shown blank, when the session
 	// carries no name: the Subject row below already identifies who signed
@@ -369,12 +373,19 @@ func (w whoamiReport) fields() [][2]string {
 
 // productsField renders every record on one line, namespace order:
 // "apim: federated, none; apim/gateway: sibling, present; iam: direct, present".
+// A product that holds no session of its own, exchanged or inline, has no
+// session state to add to its strategy, and is rendered "api: exchanged"
+// rather than "api: exchanged, exchanged".
 func (w whoamiReport) productsField() string {
 	if len(w.Products) == 0 {
 		return "none configured"
 	}
 	parts := make([]string, 0, len(w.Products))
 	for _, product := range w.Products {
+		if product.Session == whoamiSessionExchanged || product.Session == whoamiSessionInline {
+			parts = append(parts, fmt.Sprintf("%s: %s", product.Namespace, product.Strategy))
+			continue
+		}
 		parts = append(parts, fmt.Sprintf("%s: %s, %s", product.Namespace, product.Strategy, product.Session))
 	}
 	return strings.Join(parts, "; ")
