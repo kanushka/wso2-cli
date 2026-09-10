@@ -200,11 +200,39 @@ If the document is malformed, the shell says so before opening any browser.
 wso2 login
 ```
 
-or, to name a context other than the default:
+In a terminal, without `--context`, login asks which context to log in to. It
+skips straight to a new one when none exist:
+
+```text
+Log in to:
+  1. An existing context
+  2. A new context
+Choose [1]: 2
+Deployment:
+  1. WSO2 Cloud (coming soon)
+  2. Local (Identity Server / Thunder)
+Choose [2]:
+Issuer URL: https://localhost:9443/oauth2/token
+Client ID of the registered OAuth application: wso2-cli
+Account name [account-1]: local-is
+```
+
+Picking an existing context lists them, with the selected one as the default,
+and logs in to the one you pick. WSO2 Cloud cannot be picked yet; choosing it
+says so and asks again. Under `--no-input`, `WSO2_NO_INPUT`, or a standard
+input that is not a terminal, nothing is asked and login uses the selected
+context, as it did before.
+
+To name a context other than the default:
 
 ```sh
 wso2 login --context acme-dev
 ```
+
+A `--context` naming no context yet asks for the deployment, issuer URL and
+client ID in a terminal. Under `--no-input` it is refused with
+`shell.missing_required_flag` unless `--url` and `--client-id` are given to
+create it.
 
 On a machine with nothing configured yet, name the issuer and the application
 you registered in section 1, and login creates what it authenticated:

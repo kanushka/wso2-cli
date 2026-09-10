@@ -99,6 +99,16 @@ func (s Shell) login(flags loginFlags) error {
 			WithRecovery("Pass --only <namespace> to authorize one product, " +
 				"or --no-products to authorize the login session alone, not both.")
 	}
+	if flags.issuer == "" && flags.clientID == "" {
+		// Which context this login is about, asked when the flags leave it
+		// open (#186). An answer that sets up a new context arrives as
+		// --url, so it takes the creating path below like the flag would.
+		resolved, err := s.resolveLoginTarget(flags)
+		if err != nil {
+			return err
+		}
+		flags = resolved
+	}
 	if flags.issuer != "" {
 		return s.loginCreating(flags)
 	}

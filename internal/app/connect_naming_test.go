@@ -216,19 +216,28 @@ type takenWhileTyping struct {
 	t      *testing.T
 	shell  app.Shell
 	answer string
-	done   bool
+	// pending is what is left of the answer once the account is written. A
+	// prompt may read a line a byte at a time, so it is handed out across as
+	// many reads as the caller's buffer needs.
+	pending []byte
+	started bool
 }
 
 func (r *takenWhileTyping) Read(buffer []byte) (int, error) {
-	if r.done {
+	if !r.started {
+		r.started = true
+		if code := r.shell.Run([]string{"account", "create", r.answer,
+			"--issuer", "http://third.example", "--client-id", "wso2-cli"}); code != exit.OK {
+			r.t.Fatalf("the concurrent account create failed: exit %d", code)
+		}
+		r.pending = []byte(r.answer + "\n")
+	}
+	if len(r.pending) == 0 {
 		return 0, io.EOF
 	}
-	r.done = true
-	if code := r.shell.Run([]string{"account", "create", r.answer,
-		"--issuer", "http://third.example", "--client-id", "wso2-cli"}); code != exit.OK {
-		r.t.Fatalf("the concurrent account create failed: exit %d", code)
-	}
-	return copy(buffer, r.answer+"\n"), nil
+	n := copy(buffer, r.pending)
+	r.pending = r.pending[n:]
+	return n, nil
 }
 
 func TestConnectRefusesATypedNameTakenBeforeTheWrite(t *testing.T) {

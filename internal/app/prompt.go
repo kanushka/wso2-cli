@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/wso2/wso2-cli/internal/output"
@@ -116,6 +117,83 @@ func (s Shell) confirm(prompt string) (bool, error) {
 		return false, nil
 	}
 	return isAffirmative(scanner.Text()), nil
+}
+
+// readLine reads one line from s.reader(), trimmed, and reports false at end
+// of input with nothing read.
+//
+// It reads a byte at a time rather than through a bufio.Scanner, because a
+// scanner reads ahead and a login asks several questions in a row: the
+// answers to the later ones would be swallowed by the first question's
+// buffer and lost when it is dropped.
+func (s Shell) readLine() (string, bool, error) {
+	var line []byte
+	var single [1]byte
+	reader := s.reader()
+	for {
+		n, err := reader.Read(single[:])
+		if n == 1 {
+			if single[0] == '\n' {
+				return strings.TrimSpace(string(line)), true, nil
+			}
+			line = append(line, single[0])
+			continue
+		}
+		if err == io.EOF {
+			return strings.TrimSpace(string(line)), len(line) > 0, nil
+		}
+		if err != nil {
+			return "", false, err
+		}
+	}
+}
+
+// promptOption is one numbered answer choose offers. An option with an
+// unavailable note is listed but cannot be chosen: picking it prints the note
+// and asks again.
+type promptOption struct {
+	label       string
+	unavailable string
+}
+
+// choose asks a numbered question on s.Streams.Err and returns the index of
+// the option picked. Pressing return, or end of input, takes fallback, which
+// must be an available option. An answer that is not an option's number, or
+// names an unavailable one, asks again.
+func (s Shell) choose(question string, options []promptOption, fallback int) (int, error) {
+	if _, err := fmt.Fprintln(s.Streams.Err, question); err != nil {
+		return 0, err
+	}
+	for index, option := range options {
+		if _, err := fmt.Fprintf(s.Streams.Err, "  %d. %s\n", index+1, option.label); err != nil {
+			return 0, err
+		}
+	}
+	for {
+		if _, err := fmt.Fprintf(s.Streams.Err, "Choose [%d]: ", fallback+1); err != nil {
+			return 0, err
+		}
+		answer, ok, err := s.readLine()
+		if err != nil {
+			return 0, err
+		}
+		if !ok || answer == "" {
+			return fallback, nil
+		}
+		picked, convErr := strconv.Atoi(answer)
+		var why string
+		switch {
+		case convErr != nil || picked < 1 || picked > len(options):
+			why = fmt.Sprintf("Enter a number from 1 to %d.", len(options))
+		case options[picked-1].unavailable != "":
+			why = options[picked-1].unavailable
+		default:
+			return picked - 1, nil
+		}
+		if _, err := fmt.Fprintln(s.Streams.Err, why); err != nil {
+			return 0, err
+		}
+	}
 }
 
 // isAffirmative is the whole of this shell's consent predicate: the one line

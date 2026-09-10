@@ -548,7 +548,10 @@ func TestLoginRefusesAContextTheDocumentDoesNotDeclare(t *testing.T) {
 	if code := shell.Run([]string{"login", "--context", "nonexistent"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
 	}
-	if !strings.Contains(errOut.String(), "contexts.unknown_context") {
+	// A login is the command that creates a context, so an undeclared one is
+	// refused with the flags that would create it (#186).
+	if !strings.Contains(errOut.String(), "shell.missing_required_flag") ||
+		!strings.Contains(errOut.String(), "wso2 login --context nonexistent --url") {
 		t.Fatalf("an undeclared context was not refused by name:\n%s", errOut)
 	}
 }

@@ -17,7 +17,6 @@
 package app
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"net/url"
@@ -373,11 +372,10 @@ func (s Shell) resolveClientID(flags loginFlags) (string, error) {
 	// s.reader() is this Shell's own input stream (#86, prompt.go): it
 	// defaults to the process's real standard input, and is what a test
 	// overrides to answer this prompt without a real terminal to hand it.
-	scanner := bufio.NewScanner(s.reader())
-	if !scanner.Scan() {
-		return "", missingClientID("nothing was entered at the prompt")
+	clientID, _, err := s.readLine()
+	if err != nil {
+		return "", err
 	}
-	clientID := strings.TrimSpace(scanner.Text())
 	if clientID == "" {
 		return "", missingClientID("nothing was entered at the prompt")
 	}
