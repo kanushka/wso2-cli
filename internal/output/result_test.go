@@ -181,7 +181,7 @@ func TestANextFieldRendersAsATrailingLine(t *testing.T) {
 	if strings.Contains(strings.SplitN(text, "\n", 2)[0], "NEXT") {
 		t.Errorf("next was rendered as a column:\n%s", text)
 	}
-	if !strings.HasSuffix(text, "\nNext  Run wso2 apim apis deploy MockAPI/1.0.0.\n") {
+	if !strings.HasSuffix(text, "\nNext  Run `wso2 apim apis deploy MockAPI/1.0.0`.\n") {
 		t.Errorf("next line missing:\n%s", text)
 	}
 	out.Reset()
@@ -196,7 +196,7 @@ func TestANextFieldRendersAsATrailingLine(t *testing.T) {
 	if err := output.Report(&out, output.ModeTable, produced); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out.String(), "Next  Run wso2 apim apis deploy MockAPI/1.0.0.") &&
+	if strings.Contains(out.String(), "Next  Run `wso2 apim apis deploy MockAPI/1.0.0`.") &&
 		strings.Count(out.String(), "Next") == 1 && strings.HasPrefix(out.String(), "Count") {
 		return
 	}

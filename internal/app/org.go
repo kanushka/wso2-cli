@@ -154,13 +154,13 @@ func (s Shell) orgCurrent(command *cobra.Command) error {
 		// has done nothing wrong, and the two commands must not invent two
 		// sentences for the one fact.
 		_, err = fmt.Fprintln(s.Streams.Out,
-			"No context is configured, so commands run against nothing.\n\n"+
+			output.Hint(s.Streams.Out, "No context is configured, so commands run against nothing.\n\n"+
 				"Run wso2 login to create an account and a context, "+
-				"or wso2 context create <name> --account <account> if you already have one.")
+				"or wso2 context create <name> --account <account> if you already have one."))
 	case report.Organization == "":
 		_, err = fmt.Fprintf(s.Streams.Out,
-			"The %q context is selected and names no organization.\n\n"+
-				"Run wso2 org use <organization> to set one.\n", report.Context)
+			output.Hint(s.Streams.Out, "The %q context is selected and names no organization.\n\n"+
+				"Run wso2 org use <organization> to set one.\n"), report.Context)
 	default:
 		err = renderContext(s.Streams.Out, mode, report)
 	}

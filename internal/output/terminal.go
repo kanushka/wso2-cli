@@ -66,16 +66,22 @@ func StdinIsTerminal() bool {
 // terminal: a piped or redirected stream gets no escape codes even without
 // the variable set, because there is nothing there to render them.
 //
+// FORCE_COLOR turns color on for a stream that is not a terminal but renders
+// ANSI anyway — a Jupyter cell or a CI log — when set to anything but empty
+// or "0". NO_COLOR still wins over it: the person who opted out is not
+// overruled by a tool that opted in.
+//
 // There is no configuration layer here (a "color" preference was in the
 // original wave 4 design and was cut before shipping — see
-// internal/preferences's package doc comment): this function has zero
-// production callers today, so a preference that claimed to govern it would
-// change nothing observable. This is what a future colour consumer calls;
-// that consumer, not this function, is where a "color" preference would earn
-// its place back into the closed key set.
+// internal/preferences's package doc comment). Hint is the one consumer, and
+// a "color" preference would earn its place back into the closed key set when
+// the environment variables stop being enough.
 func ColorEnabled(w io.Writer) bool {
 	if os.Getenv("NO_COLOR") != "" {
 		return false
+	}
+	if force := os.Getenv("FORCE_COLOR"); force != "" && force != "0" {
+		return true
 	}
 	return IsTerminal(w)
 }

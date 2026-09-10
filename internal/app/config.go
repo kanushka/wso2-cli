@@ -50,9 +50,8 @@ const configRecovery = "Run wso2 config list to show every preference, wso2 conf
 // (R8, #112): naming a key here means teaching internal/preferences about it
 // first, which is what stops this family from becoming a place arbitrary
 // state accumulates. A colour preference was cut from the closed set before
-// shipping (fix round 1, F3): output.ColorEnabled has zero production
-// callers today, so it is the obvious first key to add once something in
-// this shell actually renders in colour.
+// shipping (fix round 1, F3); output.ColorEnabled now colors next-step
+// commands, and NO_COLOR and FORCE_COLOR govern it until a key is needed.
 func (s Shell) configCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:                   "config <subcommand>",

@@ -129,7 +129,7 @@ func TestConnectAnExchangedProductSkipsTheLoginWhenTheSessionIsHeld(t *testing.T
 	connect(t, shell, "iam", "connect", thunderURL)
 	// Without the login session, the product is reached only after a login.
 	code, out, errOut := connect(t, shell, "platform", "connect", platformURL)
-	if code != exit.OK || !hasField(out, "Next", "Run wso2 login.") {
+	if code != exit.OK || !hasField(out, "Next", "Run `wso2 login`.") {
 		t.Fatalf("exit %d, stderr %s, out:\n%s", code, errOut, out)
 	}
 	if err := (session.Store{StateRoot: shell.StateRoot}).Save("account-1",
@@ -138,11 +138,11 @@ func TestConnectAnExchangedProductSkipsTheLoginWhenTheSessionIsHeld(t *testing.T
 	}
 	// With it, the exchange needs nothing more, for the product or its gateway.
 	code, out, errOut = connect(t, shell, "platform", "connect", platformURL, "--replace")
-	if code != exit.OK || !strings.Contains(out, "Run wso2 platform --help.") {
+	if code != exit.OK || !strings.Contains(out, "Run `wso2 platform --help`.") {
 		t.Errorf("product: exit %d, stderr %s, out:\n%s", code, errOut, out)
 	}
 	code, out, errOut = connect(t, shell, "platform", "connect", platformGatewayURL, "--gateway")
-	if code != exit.OK || !strings.Contains(out, "Run wso2 platform --help.") {
+	if code != exit.OK || !strings.Contains(out, "Run `wso2 platform --help`.") {
 		t.Errorf("gateway: exit %d, stderr %s, out:\n%s", code, errOut, out)
 	}
 }

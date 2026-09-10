@@ -47,9 +47,8 @@ type configListing struct {
 // TestConfigListShowsTheClosedKeySetUnset proves the closed set (R8) by
 // listing it: exactly two keys, none configured on a fresh machine. The set
 // was three at the brief's original writing; a colour preference was cut
-// before shipping (fix round 1, F3) because output.ColorEnabled has zero
-// production callers, so a key that claimed to govern it would change
-// nothing observable.
+// before shipping (fix round 1, F3); NO_COLOR and FORCE_COLOR govern
+// output.ColorEnabled instead.
 func TestConfigListShowsTheClosedKeySetUnset(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	if code := shell.Run([]string{"config", "list", "--output", "json"}); code != exit.OK {

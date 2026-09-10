@@ -122,7 +122,7 @@ func Problem(w io.Writer, p problem.Problem) {
 func writeProblem(w io.Writer, severity string, p problem.Problem) {
 	_, _ = fmt.Fprintf(w, "%s: %s (%s)\n", severity, p.Message, p.Code)
 	if p.Recovery != "" {
-		_, _ = fmt.Fprintf(w, "  %s\n", p.Recovery)
+		_, _ = fmt.Fprintf(w, "  %s\n", Hint(w, p.Recovery))
 	}
 }
 

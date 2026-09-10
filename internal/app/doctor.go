@@ -331,11 +331,31 @@ func renderDoctorReport(w io.Writer, mode output.Mode, findings []doctorFinding)
 	if mode == output.ModeJSON {
 		return encodeContextJSON(w, doctorReport{Checks: findings})
 	}
-	table := output.NewTable("check", "status", "detail", "recovery")
+	// A recovery is a sentence with a command in it; as a column it stretched
+	// every row past the terminal's width, so each is a line after the table.
+	table := output.NewTable("check", "status", "detail")
+	var recoveries []string
 	for _, finding := range findings {
-		table.Append(finding.Check, finding.Status, finding.Detail, finding.Recovery)
+		table.Append(finding.Check, finding.Status, finding.Detail)
+		if finding.Recovery != "" {
+			recoveries = append(recoveries, finding.Check+": "+finding.Recovery)
+		}
 	}
-	return table.Render(w)
+	if err := table.Render(w); err != nil {
+		return err
+	}
+	if len(recoveries) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintln(w, "\nNext"); err != nil {
+		return err
+	}
+	for _, recovery := range recoveries {
+		if _, err := fmt.Fprintf(w, "  %s\n", output.Hint(w, recovery)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // issuerCheck reads the OpenID configuration of every issuer the selected

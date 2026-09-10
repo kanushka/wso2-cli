@@ -53,7 +53,7 @@ func TestIdentityCreateWritesABrowserIdentityWithOneProduct(t *testing.T) {
 		document.Contexts[0].Account != "thunder-admin" {
 		t.Errorf("context not written or selected: %+v", document)
 	}
-	if !strings.Contains(out.String(), "Next  Run wso2 login --context thunder-admin") {
+	if !strings.Contains(out.String(), "Next  Run `wso2 login --context thunder-admin`") {
 		t.Errorf("no next line:\n%s", out)
 	}
 	if !hasField(out.String(), "Account", "thunder-admin") || hasField(out.String(), "Identity", "thunder-admin") {

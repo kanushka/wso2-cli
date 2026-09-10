@@ -29,6 +29,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/exit"
+	"github.com/wso2/wso2-cli/internal/output"
 )
 
 // whoamiReport mirrors what wso2 whoami --output json publishes, so a test can
@@ -578,7 +579,7 @@ func TestWhoamiBothRenderingsAgree(t *testing.T) {
 	// left this test green before this fix; it now fails that mutation.
 	for _, want := range []string{
 		report.Context, report.Identity, report.Organization, report.Name, report.Subject,
-		report.Session, report.SessionExpiry, report.Recovery,
+		report.Session, report.SessionExpiry, output.Hint(tableOut, report.Recovery),
 	} {
 		if !strings.Contains(tableOut.String(), want) {
 			t.Errorf("the table rendering is missing %q, present in JSON:\n%s", want, tableOut)

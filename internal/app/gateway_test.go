@@ -158,7 +158,7 @@ func TestConnectGatewayRecordsTheGatewayOnTheProductAndReportsItsStrategy(t *tes
 	}
 	for label, value := range map[string]string{"Record": "gateway", "Endpoint": gatewayURL,
 		"Audience": gatewayAudience, "Scopes": "hello:read,orders:read", "Strategy": "sibling",
-		"Next": "Run wso2 login."} {
+		"Next": "Run `wso2 login`."} {
 		if !hasField(out, label, value) {
 			t.Errorf("the report lacks %s %s:\n%s", label, value, out)
 		}
@@ -195,7 +195,7 @@ func TestConnectGatewayNamesLoginOnlyWhenTheIdentityAlreadyHoldsItsSessions(t *t
 	if code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !hasField(out, "Next", "Run wso2 login.") {
+	if !hasField(out, "Next", "Run `wso2 login`.") {
 		t.Errorf("with only the login session the next line should be the whole login:\n%s", out)
 	}
 	if err := store.Save(contexts.ProductSessionRef("account-1", "apim"),
@@ -206,7 +206,7 @@ func TestConnectGatewayNamesLoginOnlyWhenTheIdentityAlreadyHoldsItsSessions(t *t
 	if code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !hasField(out, "Next", "Run wso2 login --only apim.") {
+	if !hasField(out, "Next", "Run `wso2 login --only apim`.") {
 		t.Errorf("the next line does not narrow the login to the product:\n%s", out)
 	}
 }
@@ -286,7 +286,7 @@ func TestConnectGatewayOnAMachineIdentityFollowsTheDescriptorsMachineList(t *tes
 	if code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !hasField(out, "Strategy", "inline") || !hasField(out, "Next", "Run wso2 apim status --context account-1.") {
+	if !hasField(out, "Strategy", "inline") || !hasField(out, "Next", "Run `wso2 apim status --context account-1`.") {
 		t.Errorf("report:\n%s", out)
 	}
 	code, _, errOut = connect(t, shell, "closed", "connect", gatewayURL, "--gateway", "--audience", gatewayAudience)

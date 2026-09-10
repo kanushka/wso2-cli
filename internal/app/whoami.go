@@ -221,9 +221,9 @@ func (s Shell) whoami(command *cobra.Command) error {
 	// nobody has configured yet has done nothing wrong, and the two commands
 	// must not invent two sentences for the one fact.
 	_, err = fmt.Fprintln(s.Streams.Out,
-		"No context is configured, so commands run against nothing.\n\n"+
+		output.Hint(s.Streams.Out, "No context is configured, so commands run against nothing.\n\n"+
 			"Run wso2 login to create an account and a context, "+
-			"or wso2 context create <name> --account <account> if you already have one.")
+			"or wso2 context create <name> --account <account> if you already have one."))
 	return err
 }
 
@@ -365,10 +365,12 @@ func (w whoamiReport) fields() [][2]string {
 		{"Session expiry", w.SessionExpiry},
 		{"Products", w.productsField()},
 	}...)
-	if w.Recovery != "" {
-		pairs = append(pairs, [2]string{"Recovery", w.Recovery})
-	}
 	return pairs
+}
+
+// next is the recovery, which the table prints as its trailing next step.
+func (w whoamiReport) next() string {
+	return w.Recovery
 }
 
 // productsField renders every record on one line, namespace order:

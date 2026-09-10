@@ -305,8 +305,8 @@ func (s Shell) contextCreate(command *cobra.Command, name, identity, organizatio
 	// run wso2 context current to find out.
 	if created.Selected {
 		_, err = fmt.Fprint(s.Streams.Out,
-			"\nIt is the first context, so it is now the selected one. "+
-				"Run wso2 context use <name> to select another.\n")
+			output.Hint(s.Streams.Out, "\nIt is the first context, so it is now the selected one. "+
+				"Run wso2 context use <name> to select another.\n"))
 		return err
 	}
 	_, err = fmt.Fprintf(s.Streams.Out,
@@ -381,7 +381,7 @@ func (s Shell) contextList(command *cobra.Command) error {
 	// An unconfigured machine is a state, not a breakage, so it reports what to
 	// run rather than that nothing is there.
 	if len(listing.Contexts) == 0 {
-		_, err := fmt.Fprintln(s.Streams.Out, "No contexts are configured.\n\n"+contextCreateUsage)
+		_, err := fmt.Fprintln(s.Streams.Out, output.Hint(s.Streams.Out, "No contexts are configured.\n\n"+contextCreateUsage))
 		return err
 	}
 	table := output.NewTable("current", "context", "account", "organization", "project")
@@ -430,9 +430,9 @@ func (s Shell) contextCurrent(command *cobra.Command) error {
 	// in Configured; four blank rows above a "Configured: no" row would carry
 	// it worse.
 	_, err = fmt.Fprintln(s.Streams.Out,
-		"No context is configured, so commands run against nothing.\n\n"+
+		output.Hint(s.Streams.Out, "No context is configured, so commands run against nothing.\n\n"+
 			"Run wso2 login to create an account and a context, "+
-			"or wso2 context create <name> --account <account> if you already have one.")
+			"or wso2 context create <name> --account <account> if you already have one."))
 	return err
 }
 
@@ -777,7 +777,19 @@ func renderContext(w io.Writer, mode output.Mode, value reportable) error {
 	if mode == output.ModeJSON {
 		return encodeContextJSON(w, value)
 	}
-	return output.Fields(w, value.fields())
+	if err := output.Fields(w, value.fields()); err != nil {
+		return err
+	}
+	if stepper, ok := value.(nextStepper); ok {
+		return output.NextStep(w, stepper.next())
+	}
+	return nil
+}
+
+// nextStepper is a result that ends its table with what to run next, printed
+// apart from the fields so the command in it is not lost among the values.
+type nextStepper interface {
+	next() string
 }
 
 // encodeContextJSON writes one result as an indented JSON document.

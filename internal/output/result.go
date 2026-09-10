@@ -139,12 +139,18 @@ func listingTable(w io.Writer, produced result.Result) error {
 	return nextLine(w, next)
 }
 
+// NextStep writes the trailing next-step line a shell command ends with, or
+// nothing when there is none, the same way a module result's next field ends.
+func NextStep(w io.Writer, next string) error {
+	return nextLine(w, next)
+}
+
 // nextLine writes the trailing next-step line, or nothing when there is none.
 func nextLine(w io.Writer, next string) error {
 	if next == "" {
 		return nil
 	}
-	_, err := fmt.Fprintf(w, "\nNext  %s\n", next)
+	_, err := fmt.Fprintf(w, "\nNext  %s\n", Hint(w, next))
 	return err
 }
 

@@ -622,7 +622,7 @@ func TestAWrongArgumentCountIsAUsageRefusal(t *testing.T) {
 				t.Errorf("a miscounted argument is reported as an unexpected failure:\n%s", errOut)
 			}
 			// A refusal with no way back leaves the user to guess the shape.
-			if !strings.Contains(errOut.String(), "Run wso2 context") {
+			if !strings.Contains(errOut.String(), "Run `wso2 context") {
 				t.Errorf("the refusal names no way back:\n%s", errOut)
 			}
 		})
