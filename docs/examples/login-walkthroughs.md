@@ -417,36 +417,37 @@ must never assume a self-hosted deployment supports cloud SSO.
 ```console
 $ wso2 login --url https://idp.customer.example \               # decided
     --client-id wso2-cli
+Account name [account-1]: customer-idp
 Open this URL to log in:
 https://idp.customer.example/oauth2/authorize?response_type=code&...
 
-Logged in to the "idp-customer-example" context.
+Logged in to the "customer-idp" context.
 Subject    ops
 Email      ops@customer.example
 Products   none configured
 
-Created account "idp-customer-example" and context "idp-customer-example".
+Created account "customer-idp" and context "customer-idp".
 It is the first context, so it is now the selected one.
 
 No products are configured for this account. A self-hosted deployment is not
 discoverable, so each product's endpoint has to be recorded:
 
-  wso2 account add-product idp-customer-example <namespace> \
+  wso2 account add-product customer-idp <namespace> \
       --endpoint <url> --audience <resource-id> --scopes <list>
 ```
 
-The names are the issuer host with each dot replaced by a hyphen, which is the
-whole rule: the name is written into a document the operator later reads and
-types, and a rule they cannot predict is worse than a name they would not have
-chosen. `--context <name>` names the account and the context directly, and is
-the only way through for an issuer whose host cannot make a legal name — one
-at a bare IP address, or a host whose first label starts with a digit.
+The name is asked for, not guessed. An account is a saved login setup, and a
+name taken from the issuer host or the provider names the software rather than
+the deployment, so two deployments of it would collide. Enter accepts the
+offered `account-1`; a name that is not legal or is already taken is asked
+again; and when standard input is not a terminal the default is taken without
+asking, so a script never waits. `--context <name>` names the account and the
+context directly, and `wso2 account rename <account> <new-name>` changes the
+account's name later.
 
-The name is yours to shorten. The context name is what you type on every
-`--context` and every `wso2 context use`, so pass `--context <short-name>` at
-login if the derived one is longer than you want to live with, or add a shorter
-handle to the same account later with
-`wso2 context create <name> --account <account>`.
+The context name is what you type on every `--context` and every
+`wso2 context use`, so pick a short one, or add another handle to the same
+account later with `wso2 context create <name> --account <account>`.
 
 `--client-id` is required. No WSO2-published client exists for self-hosted
 deployments, so the operator registers an application and supplies its ID; the
@@ -459,26 +460,26 @@ leaves no half-written context to delete before the corrected command can run.
 ### B.2 Recording what the login reaches
 
 ```console
-$ wso2 account add-product idp-customer-example api \                  # decided
+$ wso2 account add-product customer-idp api \                          # decided
     --endpoint https://api.customer.example \
     --audience https://api.customer.example \
     --scopes api:read,api:write
 
-Added product "api" to account "idp-customer-example".
-Account   idp-customer-example
+Added product "api" to account "customer-idp".
+Account   customer-idp
 Product    api
 Endpoint   https://api.customer.example
 Audience   https://api.customer.example
 Scopes     api:read,api:write
 Replaced   no
 
-$ wso2 account add-product idp-customer-example integration \          # decided
+$ wso2 account add-product customer-idp integration \                  # decided
     --endpoint https://esb.customer.example \
     --audience https://esb.customer.example \
     --scopes integration:read
 
-Added product "integration" to account "idp-customer-example".
-Account   idp-customer-example
+Added product "integration" to account "customer-idp".
+Account   customer-idp
 Product    integration
 Endpoint   https://esb.customer.example
 Audience   https://esb.customer.example
@@ -487,8 +488,8 @@ Replaced   no
 
 $ wso2 account list                                            # decided
 IDENTITY               TYPE     ISSUER                         PRODUCT       ENDPOINT                       SCOPES
-idp-customer-example   onprem   https://idp.customer.example   api           https://api.customer.example   api:read,api:write
-idp-customer-example   onprem   https://idp.customer.example   integration   https://esb.customer.example   integration:read
+customer-idp           onprem   https://idp.customer.example   api           https://api.customer.example   api:read,api:write
+customer-idp           onprem   https://idp.customer.example   integration   https://esb.customer.example   integration:read
 
 $ wso2 api list                                                 # decided
 NAME                VERSION   STATUS
@@ -499,13 +500,13 @@ orders              3.1.0     published
 
 ```yaml
 accounts:
-  - name: idp-customer-example
+  - name: customer-idp
     type: onprem
     auth:
       kind: oauth-browser
       issuer: https://idp.customer.example      # from --url
       clientId: wso2-cli                        # from --client-id
-      credentialRef: idp-customer-example
+      credentialRef: customer-idp
     products:
       api:
         endpoint: https://api.customer.example
@@ -517,10 +518,10 @@ accounts:
         scopes: [integration:read]
 
 contexts:
-  - name: idp-customer-example
-    account: idp-customer-example
+  - name: customer-idp
+    account: customer-idp
 
-defaultContext: idp-customer-example
+defaultContext: customer-idp
 ```
 
 Recording a namespace the account already carries is refused rather than
@@ -546,7 +547,7 @@ $ wso2 integration deploy ./flow.xml                            # decided
 Error: authentication failed for product "integration"
 
   The integration service did not accept access derived from the
-  "idp-customer-example" login. It may validate a different issuer.
+  "customer-idp" login. It may validate a different issuer.
 
   If this product requires its own login, it belongs to a separate account
   and context. See: wso2 login --url <its issuer> --context <name>

@@ -55,6 +55,10 @@ type connectFlags struct {
 	// clientIDSet reports that --client-id was written on the line, as
 	// opposed to carrying the descriptor's default.
 	clientIDSet bool
+	// noInput is --no-input, taken off the product line before connect
+	// parses it (dispatchNamespace): it stops connect asking for the name of
+	// an account it creates.
+	noInput bool
 }
 
 // connectVariablePattern is the shape a credential variable name has, and
@@ -81,7 +85,7 @@ func connectUsage(namespace string) string {
 // It runs after the module was resolved and before it is launched, so the
 // receipt it reads is the verified one, and the module contributes exactly
 // the descriptor it was installed with.
-func (s Shell) connect(namespace string, receipt modules.Receipt, args []string) error {
+func (s Shell) connect(namespace string, receipt modules.Receipt, args []string, noInput bool) error {
 	descriptor := receipt.Capabilities.Product
 	if descriptor == nil {
 		return problem.New(problem.CategoryUsage, "shell.connect_unsupported",
@@ -91,7 +95,7 @@ func (s Shell) connect(namespace string, receipt modules.Receipt, args []string)
 				"--endpoint <url> [--audience <value>] [--scopes <list>], or install a version of the "+
 				"module that declares one.", namespace))
 	}
-	command := s.connectCommand(namespace, *descriptor)
+	command := s.connectCommand(namespace, *descriptor, noInput)
 	command.SetArgs(args)
 	return command.Execute()
 }
@@ -99,8 +103,9 @@ func (s Shell) connect(namespace string, receipt modules.Receipt, args []string)
 // connectCommand builds the one-off command connect parses its line with. It
 // is a Cobra command so that --help, --output and --context are read the way
 // every shell command reads them.
-func (s Shell) connectCommand(namespace string, descriptor modules.ProductDescriptor) *cobra.Command {
-	var flags connectFlags
+func (s Shell) connectCommand(namespace string, descriptor modules.ProductDescriptor,
+	noInput bool) *cobra.Command {
+	flags := connectFlags{noInput: noInput}
 	command := &cobra.Command{
 		Use:   fmt.Sprintf("wso2 %s connect <url>", namespace),
 		Short: fmt.Sprintf("Record the %s product at a URL, on the selected account or a new one.", namespace),
@@ -130,7 +135,7 @@ func (s Shell) connectCommand(namespace string, descriptor modules.ProductDescri
 	f.BoolP("help", "h", false, "Show help for a command.")
 	f.StringVar(&flags.identity, "account", "",
 		"The account to record the product on, or to create; defaults to the selected context's, "+
-			"or to the provider's name for a new one.")
+			"or to the next free account-N for a new one, asked for when a prompt is allowed.")
 	f.StringVar(&flags.loginProvider, "login-provider", "",
 		"The issuer URL of the account to record the product on, when several exist.")
 	f.StringVar(&flags.clientID, "client-id", descriptor.ClientID,
@@ -208,10 +213,16 @@ func (s Shell) connectRun(command *cobra.Command, namespace string, descriptor m
 		return s.reportGateway(mode, root, plan)
 	}
 
-	var plan connectPlan
 	providers := s.loginProviderNamespaces()
+	assigned, chosen, err := s.connectAccountName(root, namespace, descriptor, productURL, flags,
+		contextName, providers)
+	if err != nil {
+		return err
+	}
+	var plan connectPlan
 	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
-		planned, err := planConnect(document, namespace, descriptor, productURL, flags, contextName, providers)
+		planned, err := planConnect(document, namespace, descriptor, productURL, flags, contextName,
+			providers, assigned)
 		if err != nil {
 			return document, err
 		}
@@ -221,7 +232,36 @@ func (s Shell) connectRun(command *cobra.Command, namespace string, descriptor m
 	if err != nil {
 		return s.explainWriteRefusal(root, err)
 	}
+	// A typed name taken between the prompt and the write was replaced by the
+	// next free one, which the report must then call assigned, not chosen.
+	typed := chosen && plan.identity.Name == assigned
+	plan.assigned = plan.created && flags.identity == "" && !typed
 	return s.reportConnect(mode, root, namespace, plan)
+}
+
+// connectAccountName is the name a connect that creates an account gives it
+// when --account did not name one, and whether the user typed it at the
+// prompt rather than accepting the shell's.
+//
+// The document is read and the connect planned before the write takes its
+// lock, for the reason wso2 login plans twice: nothing waits on a person while
+// holding the lock, and a connect that creates nothing is asked nothing. A
+// refusal here is left to the plan the write makes, which is the one that
+// decides anything.
+func (s Shell) connectAccountName(root, namespace string, descriptor modules.ProductDescriptor,
+	productURL string, flags connectFlags, contextName string, providers []string) (string, bool, error) {
+	if flags.identity != "" {
+		return "", false, nil
+	}
+	document, err := contexts.Load(root)
+	if err != nil {
+		return "", false, err
+	}
+	planned, err := planConnect(document, namespace, descriptor, productURL, flags, contextName, providers, "")
+	if err != nil || !planned.created {
+		return "", false, nil
+	}
+	return s.askAccountName(document, flags.noInput)
 }
 
 // exchangedNext is the next line for a record reached by exchanging the
@@ -350,6 +390,9 @@ type connectPlan struct {
 	// sole reports that, once written, the identity's context is the only
 	// one in the document and is selected, so the login needs no --context.
 	sole bool
+	// assigned reports that the shell named the new account, because neither
+	// --account nor an answer at the prompt did.
+	assigned bool
 	// replaced reports that the product was recorded before.
 	replaced  bool
 	namespace string
@@ -360,8 +403,12 @@ type connectPlan struct {
 //
 // providers are the installed namespaces whose product a login can run
 // against, named by the refusal when there is no account to record on.
+// assigned is the name for an account connect creates when --account named
+// none; when it is empty, or was taken since it was chosen, the next free
+// account-N is used instead, so a name nobody typed is never refused.
 func planConnect(document contexts.Document, namespace string, descriptor modules.ProductDescriptor,
-	productURL string, flags connectFlags, contextName string, providers []string) (connectPlan, error) {
+	productURL string, flags connectFlags, contextName string, providers []string,
+	assigned string) (connectPlan, error) {
 	issuer := descriptor.Issuer(productURL)
 	plan := connectPlan{namespace: namespace}
 	target, found, err := connectTarget(document, flags, contextName)
@@ -383,16 +430,18 @@ func planConnect(document contexts.Document, namespace string, descriptor module
 			return connectPlan{}, loginProviderRequired(namespace, flags.loginProvider, providers)
 		}
 		name := flags.identity
-		if name == "" {
-			name = descriptor.Provider
-		}
-		if declaresIdentity(document, name) {
+		switch {
+		case name == "":
+			name = assigned
+			if name == "" || accountNameTaken(document, name) {
+				name = nextFreeAccountName(document)
+			}
+		case declaresIdentity(document, name):
 			return connectPlan{}, problem.New(problem.CategoryUsage, "contexts.identity_exists",
 				fmt.Sprintf("an account named %q already exists and authenticates against another issuer", name)).
 				WithRecovery("Pass --account <name> to create this deployment's account under another " +
 					"name. Connecting never replaces an account.")
-		}
-		if declaresContext(document, name) {
+		case declaresContext(document, name):
 			return connectPlan{}, contextExists(name)
 		}
 		plan.identity = newConnectIdentity(name, descriptor, issuer, flags)
@@ -733,8 +782,16 @@ func (s Shell) reportConnect(mode output.Mode, root, namespace string, plan conn
 	if mode == output.ModeJSON {
 		return output.Report(s.Streams.Out, mode, reported)
 	}
-	if _, err := fmt.Fprintf(s.Streams.Out, "\n%s the %q product on the %q account.\n\n",
+	if _, err := fmt.Fprintf(s.Streams.Out, "\n%s the %q product on the %q account.\n",
 		verb, namespace, identity.Name); err != nil {
+		return err
+	}
+	if plan.assigned {
+		if _, err := fmt.Fprintln(s.Streams.Out, assignedNameNote("--account", identity.Name)); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintln(s.Streams.Out); err != nil {
 		return err
 	}
 	return output.Report(s.Streams.Out, mode, reported)

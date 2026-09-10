@@ -186,7 +186,7 @@ func TestConnectGatewayNamesLoginOnlyWhenTheIdentityAlreadyHoldsItsSessions(t *t
 	shell, _, _ := newConnectShell(t)
 	connectBoth(t, shell)
 	store := session.Store{StateRoot: shell.StateRoot}
-	if err := store.Save("thunder", session.Session{Issuer: thunderURL, RefreshToken: "rt"}); err != nil {
+	if err := store.Save("account-1", session.Session{Issuer: thunderURL, RefreshToken: "rt"}); err != nil {
 		t.Fatal(err)
 	}
 	// The login session alone is not "the other sessions": the product's
@@ -198,7 +198,7 @@ func TestConnectGatewayNamesLoginOnlyWhenTheIdentityAlreadyHoldsItsSessions(t *t
 	if !hasField(out, "Next", "Run wso2 login.") {
 		t.Errorf("with only the login session the next line should be the whole login:\n%s", out)
 	}
-	if err := store.Save(contexts.ProductSessionRef("thunder", "apim"),
+	if err := store.Save(contexts.ProductSessionRef("account-1", "apim"),
 		session.Session{Issuer: apimURL + "/oauth2/token", RefreshToken: "rt"}); err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestConnectGatewayOnAMachineIdentityFollowsTheDescriptorsMachineList(t *tes
 	if code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !hasField(out, "Strategy", "inline") || !hasField(out, "Next", "Run wso2 apim status --context thunder.") {
+	if !hasField(out, "Strategy", "inline") || !hasField(out, "Next", "Run wso2 apim status --context account-1.") {
 		t.Errorf("report:\n%s", out)
 	}
 	code, _, errOut = connect(t, shell, "closed", "connect", gatewayURL, "--gateway", "--audience", gatewayAudience)

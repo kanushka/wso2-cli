@@ -232,8 +232,8 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 	if err != nil {
 		return err
 	}
-	// --no-input is taken the same way and for the same reason; connect
-	// never prompts, so for it the flag is accepted and means nothing.
+	// --no-input is taken the same way and for the same reason; for connect
+	// it stops the question naming an account connect creates.
 	args, noInput, err := takeNoInput(args)
 	if err != nil {
 		return err
@@ -281,7 +281,7 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 	// writes the product record from the descriptor the receipt carries,
 	// and the module never sees the word.
 	if len(args) > 0 && args[0] == connectSubcommand {
-		return s.connect(namespace, resolved.Receipt, args[1:])
+		return s.connect(namespace, resolved.Receipt, args[1:], noInput)
 	}
 	return s.invokeModule(namespace, resolved, args, noInput)
 }

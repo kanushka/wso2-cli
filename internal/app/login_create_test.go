@@ -34,9 +34,7 @@ import (
 )
 
 // newCreatingLogin is a shell whose browser hook follows the authorization URL,
-// against an issuer whose identifier carries a hostname. The hostname matters:
-// an issuer at 127.0.0.1 has no name to derive an account name from, which is
-// the refusal TestLoginRefusesAnIssuerNoNameCanBeDerivedFrom covers instead.
+// against an issuer whose identifier carries a hostname.
 func newCreatingLogin(t *testing.T) (app.Shell, *bytes.Buffer, *bytes.Buffer, *fakeissuer.Issuer) {
 	t.Helper()
 	keyring.MockInit()
@@ -108,35 +106,6 @@ func TestLoginCreatesAnIdentityAndAContextWhenNoneMatches(t *testing.T) {
 	// The session went where every other login puts one.
 	if _, err := (session.Store{StateRoot: shell.StateRoot}).Load("customer"); err != nil {
 		t.Fatalf("session not stored under the account's credentialRef: %v", err)
-	}
-}
-
-// TestWithoutTheContextFlagTheIdentityNameIsDerivedAndReported covers the D6
-// derivation end to end rather than only in contexts: the name in the document
-// and the name in the report both have to be the derived one.
-func TestWithoutTheContextFlagTheIdentityNameIsDerivedAndReported(t *testing.T) {
-	shell, out, errOut, issuer := newCreatingLogin(t)
-	derived, err := contexts.IdentityNameForIssuer(issuer.URL)
-	if err != nil {
-		t.Fatalf("the test issuer has no derivable name: %v", err)
-	}
-
-	if code := shell.Run([]string{"login", "--url", issuer.URL, "--client-id", "wso2-cli"}); code != exit.OK {
-		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
-	}
-
-	document, err := contexts.Load(shell.StateRoot)
-	if err != nil {
-		t.Fatalf("Load after login: %v", err)
-	}
-	if len(document.Accounts) != 1 || document.Accounts[0].Name != derived {
-		t.Fatalf("login wrote %+v, want one account named %q", document.Accounts, derived)
-	}
-	if len(document.Contexts) != 1 || document.Contexts[0].Name != derived {
-		t.Fatalf("login wrote %+v, want one context named %q", document.Contexts, derived)
-	}
-	if !strings.Contains(out.String(), derived) {
-		t.Errorf("the report does not name the derived account %q:\n%s", derived, out)
 	}
 }
 
@@ -297,28 +266,6 @@ func TestOmittingTheClientIdWithoutNoInputRefusesOnStandardInput(t *testing.T) {
 	requireRefusal(t, errOut.String(), "shell.missing_required_flag")
 	if !strings.Contains(errOut.String(), "standard input is not a terminal") {
 		t.Errorf("the refusal does not name standard input:\n%s", errOut)
-	}
-	if _, err := os.Stat(contexts.Path(shell.StateRoot)); !os.IsNotExist(err) {
-		t.Error("a refused login wrote a context document")
-	}
-	if out.String() != "" {
-		t.Errorf("a refused login wrote to standard output:\n%s", out)
-	}
-}
-
-// TestLoginRefusesAnIssuerNoNameCanBeDerivedFrom covers a plausible self-hosted
-// first run: an issuer at a bare IP address, whose host cannot make a legal
-// name.
-func TestLoginRefusesAnIssuerNoNameCanBeDerivedFrom(t *testing.T) {
-	shell, out, errOut := newLoginShell(t)
-
-	code := shell.Run([]string{"login", "--url", "https://10.0.0.5:9443", "--client-id", "wso2-cli"})
-	if code != exit.Usage {
-		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
-	}
-	requireRefusal(t, errOut.String(), "contexts.identity_name_underivable")
-	if !strings.Contains(errOut.String(), "--context") {
-		t.Errorf("the refusal does not name --context:\n%s", errOut)
 	}
 	if _, err := os.Stat(contexts.Path(shell.StateRoot)); !os.IsNotExist(err) {
 		t.Error("a refused login wrote a context document")

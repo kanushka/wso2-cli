@@ -132,7 +132,7 @@ func TestConnectAnExchangedProductSkipsTheLoginWhenTheSessionIsHeld(t *testing.T
 	if code != exit.OK || !hasField(out, "Next", "Run wso2 login.") {
 		t.Fatalf("exit %d, stderr %s, out:\n%s", code, errOut, out)
 	}
-	if err := (session.Store{StateRoot: shell.StateRoot}).Save("thunder",
+	if err := (session.Store{StateRoot: shell.StateRoot}).Save("account-1",
 		session.Session{Issuer: thunderURL, RefreshToken: "rt"}); err != nil {
 		t.Fatal(err)
 	}
