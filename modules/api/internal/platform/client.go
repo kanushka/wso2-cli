@@ -55,6 +55,20 @@ type Failure struct {
 	Code string
 	// Message is the deployment's own description, empty when it stated none.
 	Message string
+	// FieldErrors are the deployment's own per-field validation failures,
+	// present when the error is a validation failure. Empty when the
+	// deployment stated none.
+	FieldErrors []FieldError
+}
+
+// FieldError is one per-field validation failure a deployment stated,
+// platform-api's own shape.
+type FieldError struct {
+	// Field is the path of the offending field, in the deployment's own
+	// terms.
+	Field string `json:"field"`
+	// Message is why the field failed validation.
+	Message string `json:"message"`
 }
 
 func (f Failure) Error() string {
@@ -130,9 +144,15 @@ func failure(status int, body []byte) error {
 		Code        string          `json:"code"`
 		Message     json.RawMessage `json:"message"`
 		Description json.RawMessage `json:"description"`
+		Errors      []FieldError    `json:"errors"`
 	}
 	_ = json.Unmarshal(body, &stated)
-	return Failure{Status: status, Code: stated.Code, Message: readMessage(stated.Message)}
+	return Failure{
+		Status:      status,
+		Code:        stated.Code,
+		Message:     readMessage(stated.Message),
+		FieldErrors: stated.Errors,
+	}
 }
 
 // readMessage reads the message member, which is a plain string on the control

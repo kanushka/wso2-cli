@@ -19,6 +19,8 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/wso2/wso2-cli/modules/api/internal/platform"
 	"github.com/wso2/wso2-cli/sdk/module"
@@ -90,13 +92,61 @@ func callFailed(err error, attempted, endpoint string) error {
 			"Ask an administrator to map this user's group to a role carrying the permissions "+
 				"the operation needs, then run wso2 login again.")
 	}
+	return moduleProblem("api.call_failed",
+		"the deployment would not "+attempted+": "+refusalMessage(refusal),
+		"Check the deployment's own logs for the refusal, then retry.")
+}
+
+// createCallFailed refuses "wso2 api apis create"'s own call to POST
+// /rest-apis.
+//
+// A 400 there means the file this command built the request from was what the
+// deployment refused, never something the deployment did on its own, so the
+// recovery points at the file instead of callFailed's usual "check the
+// deployment's logs" — there are no deployment logs to check for a request
+// this command composed.
+func createCallFailed(err error, endpoint, file string) error {
+	var refusal platform.Failure
+	if errors.As(err, &refusal) && refusal.Status == 400 {
+		return moduleProblem("api.call_failed",
+			"the deployment refused the API built from "+file+": "+refusalMessage(refusal),
+			"Fix "+file+" and run wso2 api apis create again.")
+	}
+	return callFailed(err, "create the API", endpoint)
+}
+
+// refusalMessage states a refusal in the deployment's own words, with any
+// per-field validation failures it named appended as "field: message" so a
+// validation failure is never reported as an opaque generic message with the
+// detail that would explain it silently dropped.
+func refusalMessage(refusal platform.Failure) string {
 	message := refusal.Message
 	if message == "" {
 		message = refusal.Error()
 	}
-	return moduleProblem("api.call_failed",
-		"the deployment would not "+attempted+": "+message,
-		"Check the deployment's own logs for the refusal, then retry.")
+	if len(refusal.FieldErrors) == 0 {
+		return message
+	}
+	details := make([]string, len(refusal.FieldErrors))
+	for i, fieldError := range refusal.FieldErrors {
+		details[i] = fieldError.Field + ": " + fieldError.Message
+	}
+	return message + " (" + strings.Join(details, "; ") + ")"
+}
+
+// exactlyOneArgument proves a command line names exactly one positional
+// argument, refusing zero with message and recovery, and more than one by
+// naming how many were given.
+func exactlyOneArgument(positional []string, message, recovery string) (string, error) {
+	switch len(positional) {
+	case 0:
+		return "", usageProblem(message, recovery)
+	case 1:
+		return positional[0], nil
+	default:
+		return "", usageProblem(
+			"this command takes one argument, and was given "+fmt.Sprint(len(positional)), recovery)
+	}
 }
 
 // usageProblem refuses a command line this module cannot carry out.
