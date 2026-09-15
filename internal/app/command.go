@@ -165,7 +165,7 @@ func (s Shell) rootCommand() *cobra.Command {
 	declareContextFlag(root.Flags())
 	declareOutputFlag(root.Flags())
 
-	root.AddCommand(s.configCommand(), s.contextCommand(), s.doctorCommand(), s.accountCommand(),
+	root.AddCommand(s.configCommand(), s.contextCommand(), s.doctorCommand(),
 		s.loginCommand(), s.logoutCommand(), s.productCommand(), s.moduleAliasCommand(), s.orgCommand(), s.versionCommand(),
 		s.whoamiCommand())
 
@@ -600,7 +600,7 @@ func (s Shell) loginCommand() *cobra.Command {
 	var flags loginFlags
 	command := &cobra.Command{
 		Use:                   "login",
-		Short:                 "Log in, creating the account and context when an issuer is named.",
+		Short:                 "Log in to the selected context, or create one when an issuer is named.",
 		DisableFlagsInUseLine: true,
 		Args:                  noArguments(loginUsageRecovery),
 		RunE: func(command *cobra.Command, args []string) error {
@@ -616,7 +616,7 @@ func (s Shell) loginCommand() *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&flags.issuer, "url", "",
-		"Log in against this issuer, creating the account and context it authenticates.")
+		"Log in against this issuer, creating the context it authenticates.")
 	command.Flags().StringVar(&flags.clientID, "client-id", "",
 		"Present this registered OAuth application. Required with --url.")
 	command.Flags().BoolVar(&flags.noInput, "no-input", false,

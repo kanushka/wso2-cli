@@ -32,7 +32,7 @@ import (
 // page lists them first, then the products, then every other shell command, so
 // a command added without being named here is still listed, under Other.
 var coreCommands = map[string]bool{
-	"account": true, "context": true, "login": true, "logout": true,
+	"context": true, "login": true, "logout": true,
 	"org": true, "product": true, "whoami": true,
 }
 

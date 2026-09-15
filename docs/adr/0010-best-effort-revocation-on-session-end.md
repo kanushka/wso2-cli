@@ -87,3 +87,11 @@ concurrent `wso2 login` writes a fresh session that logout then deletes,
 ending a session the user just created. The network call is therefore bounded by
 a deadline strictly shorter than the 45-second lock deadline in
 [ADR 0007](0007-os-advisory-lock-for-session-rotation.md).
+
+## Amendment (ADR 0016)
+
+Revocation is no longer only logout's. `wso2 context delete`,
+`wso2 context product remove`, `wso2 context product add --replace`,
+`wso2 context apply` and `wso2 context edit` end every session their change
+leaves unreached or rebinds, the same best-effort way, before the document is
+written.

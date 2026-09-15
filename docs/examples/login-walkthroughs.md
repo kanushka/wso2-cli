@@ -2,6 +2,7 @@
 
 **Status:** Proposal, pending review. **Target user experience, not slice 1**
 **Date:** 2026-08-05
+**Superseded in part:** [ADR 0016](../adr/0016-a-context-owns-its-login-and-sessions.md) folds the account into the context and replaces `connect` with `wso2 context`; read "account" here as a context's login. The current shape is in [authentication context examples](authentication-contexts.md).
 **Authoritative constraints:** [Architecture](../architecture.md) §4.6, §4.7 ·
 [Product requirements](../product-requirements.md) §7.2, §7.3
 **Companion:** [Authentication context examples](authentication-contexts.md)

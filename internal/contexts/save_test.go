@@ -45,8 +45,8 @@ func TestSaveWritesADocumentTheShellReadsBack(t *testing.T) {
 	if loaded.DefaultContext != "acme-dev" || len(loaded.Contexts) != 1 {
 		t.Fatalf("the round trip lost content: %+v", loaded)
 	}
-	if len(loaded.Accounts) != 1 || loaded.Accounts[0].Name != "acme-cloud" {
-		t.Fatalf("the round trip lost the identity: %+v", loaded.Accounts)
+	if len(loaded.Contexts) != 1 || loaded.Contexts[0].CredentialRef != "acme-cloud-login" {
+		t.Fatalf("the round trip lost the login: %+v", loaded.Contexts)
 	}
 }
 
@@ -57,7 +57,7 @@ func TestSaveRefusesADocumentTheShellWouldNotRead(t *testing.T) {
 	invalid := contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: "acme-dev",
-		Contexts:       []contexts.Context{{Name: "acme-dev", Account: "missing"}},
+		Contexts:       []contexts.Context{{Name: "acme-dev", Type: "onprem", Login: contexts.Login{Kind: "password"}}},
 	}
 
 	err := contexts.Save(root, invalid)
@@ -121,9 +121,7 @@ func TestUpdateAppliesTheChange(t *testing.T) {
 	}
 
 	err := contexts.Update(root, func(d contexts.Document) (contexts.Document, error) {
-		d.Contexts = append(d.Contexts, contexts.Context{
-			Name: "acme-prod", Account: "acme-cloud", Organization: "acme",
-		})
+		d.Contexts = append(d.Contexts, namedLike(d.Contexts[0], "acme-prod"))
 		return d, nil
 	})
 	if err != nil {
@@ -176,7 +174,8 @@ func TestUpdateRefusesAChangeTheShellWouldNotRead(t *testing.T) {
 	}
 
 	err = contexts.Update(root, func(d contexts.Document) (contexts.Document, error) {
-		d.Contexts = append(d.Contexts, contexts.Context{Name: "acme-prod", Account: "missing"})
+		d.Contexts = append(d.Contexts, contexts.Context{Name: "acme-prod", Type: "onprem",
+			Login: contexts.Login{Kind: "password"}})
 		return d, nil
 	})
 	assertProblemCode(t, err, "contexts.document_malformed")
@@ -195,8 +194,8 @@ func TestUpdateOnAnAbsentDocumentStartsFromAnEmptyOne(t *testing.T) {
 	// case in every caller.
 	root := t.TempDir()
 	err := contexts.Update(root, func(d contexts.Document) (contexts.Document, error) {
-		if len(d.Contexts) != 0 || len(d.Accounts) != 0 {
-			t.Errorf("a fresh root produced %d contexts and %d identities", len(d.Contexts), len(d.Accounts))
+		if len(d.Contexts) != 0 {
+			t.Errorf("a fresh root produced %d contexts", len(d.Contexts))
 		}
 		return documentV2(), nil
 	})
@@ -413,9 +412,7 @@ func TestConcurrentUpdatesDoNotDiscardEachOther(t *testing.T) {
 		go func() {
 			defer group.Done()
 			errs <- contexts.Update(root, func(d contexts.Document) (contexts.Document, error) {
-				d.Contexts = append(d.Contexts, contexts.Context{
-					Name: name, Account: "acme-cloud", Organization: "acme",
-				})
+				d.Contexts = append(d.Contexts, namedLike(d.Contexts[0], name))
 				return d, nil
 			})
 		}()
@@ -469,8 +466,8 @@ func TestADocumentWrittenBeforeTheRenameIsUpgradedRatherThanFrozen(t *testing.T)
 	// The frozen refusal exists for a version this shell cannot understand.
 	// The schema before the rename it understands completely — one member name
 	// differs — so freezing it would make every document written by an earlier
-	// shell read-only, and the first wso2 account command after an upgrade
-	// would refuse rather than work.
+	// shell read-only, and the first command after an upgrade would refuse
+	// rather than work.
 	root := t.TempDir()
 	path := filepath.Join(root, "cli", "contexts.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -490,8 +487,16 @@ func TestADocumentWrittenBeforeTheRenameIsUpgradedRatherThanFrozen(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(written), `"accounts"`) ||
-		strings.Contains(string(written), `"identities"`) {
-		t.Fatalf("the upgraded document was not written under the accounts key:\n%s", written)
+	if !strings.Contains(string(written), `"schemaVersion": 4`) ||
+		strings.Contains(string(written), `"identities"`) || strings.Contains(string(written), `"accounts"`) {
+		t.Fatalf("the upgraded document was not written as schema version 4:\n%s", written)
 	}
+}
+
+// namedLike is a copy of a context under another name, holding sessions of its
+// own: no two contexts may share a credential reference.
+func namedLike(context contexts.Context, name string) contexts.Context {
+	context.Name = name
+	context.CredentialRef = name
+	return context
 }

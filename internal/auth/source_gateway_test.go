@@ -83,7 +83,8 @@ func seedGatewaySession(t *testing.T, deployment browserDeployment) {
 	seeded := deployment.issuer.SeedSessionFor([]string{gatewayScope}, gatewayResource)
 	store := session.Store{StateRoot: deployment.stateRoot}
 	if err := store.Save(contexts.ProductSessionRef(sessionRef, contexts.GatewayKey(gatewayNamespace)),
-		session.Session{Issuer: deployment.issuer.URL, RefreshToken: seeded}); err != nil {
+		session.Session{Issuer: deployment.issuer.URL, RefreshToken: seeded,
+			Bound: true, Resource: gatewayResource}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -112,7 +113,8 @@ func TestAMissingGatewaySessionIsEstablishedOnFirstUseUnderItsKey(t *testing.T) 
 		asked = access
 		seeded := deployment.issuer.SeedSessionFor(access.Scopes, access.Resource)
 		return session.Store{StateRoot: deployment.stateRoot}.Save(access.SessionRef,
-			session.Session{Issuer: access.Issuer, RefreshToken: seeded, Strategy: access.Strategy})
+			session.Session{Issuer: access.Issuer, RefreshToken: seeded, Strategy: access.Strategy,
+				Bound: true, Resource: access.Resource})
 	}
 	if _, err := broker.Acquire(gatewayRequest()); err != nil {
 		t.Fatalf("acquire: %v", err)
@@ -180,8 +182,8 @@ func TestAGatewayTheIdentityDoesNotRecordNamesTheConnectToRun(t *testing.T) {
 	_, err := broker.Acquire(gatewayRequest())
 	var denial auth.Denial
 	if !errors.As(err, &denial) || denial.Problem.Code != "auth.product_not_configured" ||
-		!strings.Contains(denial.Problem.Recovery, "wso2 "+gatewayNamespace+" connect <gateway-url> --gateway") {
-		t.Fatalf("got %v, want auth.product_not_configured naming the gateway connect", err)
+		!strings.Contains(denial.Problem.Recovery, "wso2 context product add "+gatewayNamespace+" --url <url> --gateway <gateway-url>") {
+		t.Fatalf("got %v, want auth.product_not_configured naming the product add", err)
 	}
 }
 

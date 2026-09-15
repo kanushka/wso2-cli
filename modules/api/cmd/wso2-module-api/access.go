@@ -34,14 +34,14 @@ import (
 // authorizes the call from the group the token carries, mapped to a role at
 // the product. Naming scopes here would ask the shell to prove a narrowing
 // this deployment never performs. Leaving them empty asks for exactly what the
-// account's product record consents to, which is the honest request.
+// context's product record consents to, which is the honest request.
 func controlPlane(ctx context.Context, request module.Request) (platform.Client, error) {
 	if request.Context.Endpoint == "" {
 		return platform.Client{}, moduleProblem("api.product_not_recorded",
 			"the selected context records no endpoint for the api product, so this command has "+
 				"nowhere to call",
-			"Run wso2 api connect <url> to record it on the account you log in with, then run this "+
-				"command again.")
+			"Run wso2 context product add api --url <url> to record it on the selected context, then "+
+				"run this command again.")
 	}
 	access, err := request.Access.Acquire(ctx, module.AccessRequest{Audience: ManagementAudience})
 	if err != nil {
@@ -62,8 +62,8 @@ func gateway(ctx context.Context, request module.Request) (platform.Client, erro
 		return platform.Client{}, moduleProblem("api.gateway_not_recorded",
 			"the selected context records no gateway for the api product, so this command has "+
 				"nowhere to call",
-			"Run wso2 api connect <gateway-url> --gateway --audience <uri>, or "+
-				"wso2 account add-product with the gateway record, then run wso2 login.")
+			"Run wso2 context product add api --url <url> --gateway <gateway-url> --replace, "+
+				"then run wso2 login.")
 	}
 	access, err := request.Access.Acquire(ctx, module.AccessRequest{
 		Audience: GatewayAudience,
@@ -86,7 +86,7 @@ func callFailed(err error, attempted, endpoint string) error {
 	}
 	if refusal.Status == 401 || refusal.Status == 403 {
 		return moduleProblem("api.not_authorized",
-			"the deployment refused this account's access when asked to "+attempted,
+			"the deployment refused this context's access when asked to "+attempted,
 			"Ask an administrator to map this user's group to a role carrying the permissions "+
 				"the operation needs, then run wso2 login again.")
 	}

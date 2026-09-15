@@ -2,6 +2,7 @@
 
 **Status:** Working draft  
 **Date:** 2026-07-24
+**Superseded in part:** [ADR 0016](adr/0016-a-context-owns-its-login-and-sessions.md) folds the account into the context; read "account" here as a context's login. The current shape is in [authentication context examples](examples/authentication-contexts.md).
 
 ## 1. Summary
 

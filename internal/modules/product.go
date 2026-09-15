@@ -192,7 +192,7 @@ func (d ProductDescriptor) validate() error {
 		for _, strategy := range d.Gateway.Machine {
 			if strategy != MachineInline {
 				return refuse(fmt.Sprintf("whose gateway block has a machine strategy %q this shell does not implement "+
-					"for a gateway, which is reached only from the account's own client (%s)", strategy, MachineInline))
+					"for a gateway, which is reached only from the context's own client (%s)", strategy, MachineInline))
 			}
 		}
 	}

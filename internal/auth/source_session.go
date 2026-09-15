@@ -62,6 +62,10 @@ type sessionSource struct {
 	// audience is the concrete audience the identity registers for this
 	// namespace, and the one an issued token is proved to be bound to.
 	audience string
+	// resource is the RFC 8707 resource indicator this access's session is
+	// authorized for, empty when the derivation asks for none. renew compares
+	// it with what the stored session recorded.
+	resource string
 	// scopes is the scope set this access was established for: what a
 	// direct or sibling session was authorized with, or the assertion
 	// scopes a derived one was. renew compares it against what the stored
@@ -193,7 +197,7 @@ func (s sessionSource) orRenewalNeedsBrowser(request Request, err error) error {
 		"administrator has to grant one; logging in again will not change that.",
 		s.product, s.issuer, scopeList(request.Scopes))
 	refusal := denial("auth.reauthorization_required",
-		fmt.Sprintf("the %q product has a session under this account, but the identity provider "+
+		fmt.Sprintf("the %q product has a session under this context, but the identity provider "+
 			"would not renew it to the permissions the module asked for (%s), and authorizing the "+
 			"product again is what needed a browser",
 			s.namespace, scopeList(request.Scopes)),
@@ -362,6 +366,15 @@ func (s sessionSource) renew(ctx context.Context, scopes []string, now time.Time
 			fmt.Sprintf("Run wso2 login --only %s to authorize this product against the issuer this "+
 				"context names, or wso2 login to authorize every product.", s.product))
 	}
+	if !stored.Bound && s.resource != "" {
+		// Written by a shell that did not record which resource a session is
+		// bound to. Presenting it for this resource-bound record could hand
+		// over a session authorized for another, so it is not guessed at.
+		return tokenResponse{}, denial("auth.login_required",
+			fmt.Sprintf("the stored session for the %q product was saved by an earlier WSO2 CLI that did "+
+				"not record which resource it is bound to", s.namespace),
+			fmt.Sprintf("Run wso2 login --context %s to establish it again.", s.contextName))
+	}
 	if driftedProduct := s.productDrifted(stored); driftedProduct {
 		// A product whose namespace sorts before the one this session was
 		// established for can become the login product without anyone
@@ -424,7 +437,8 @@ func (s sessionSource) renew(ctx context.Context, scopes []string, now time.Time
 }
 
 // productDrifted reports whether the stored session was established for a
-// different product than this access, judging by client ID and scope set.
+// different product than this access, judging by client ID, resource and
+// scope set.
 //
 // A legacy entry, written before session.Session recorded either field,
 // carries both empty; there is nothing to compare it against, so it is
@@ -435,6 +449,13 @@ func (s sessionSource) productDrifted(stored session.Session) bool {
 	if stored.ClientID != "" && stored.ClientID != s.clientID {
 		return true
 	}
+	// The resource is the binding a resource-bound deployment cares about
+	// most, and an entry written before it was recorded cannot say which one
+	// it holds: such an entry answers only a record that asks for none.
+	if stored.Bound && stored.Resource != s.resource {
+		return true
+	}
+
 	if len(stored.Scopes) == 0 {
 		return false
 	}

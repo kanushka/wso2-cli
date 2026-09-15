@@ -35,7 +35,7 @@ func TestLoginAsksForANewContextWhenNoneExist(t *testing.T) {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
 	for _, want := range []string{"No contexts yet.", "Deployment:", "WSO2 Cloud (coming soon)",
-		"Issuer URL: ", "Client ID of the registered OAuth application: ", "Account name [account-1]: "} {
+		"Issuer URL: ", "Client ID of the registered OAuth application: ", "Context name [context-1]: "} {
 		if !strings.Contains(errOut.String(), want) {
 			t.Errorf("stderr lacks %q:\n%s", want, errOut)
 		}
@@ -45,7 +45,7 @@ func TestLoginAsksForANewContextWhenNoneExist(t *testing.T) {
 	}
 	document := loadDocument(t, shell)
 	if len(document.Contexts) != 1 || document.Contexts[0].Name != "local-is" ||
-		document.Accounts[0].Auth.Issuer != issuer.URL || document.Accounts[0].Auth.ClientID != "wso2-cli" {
+		document.Contexts[0].Login.Issuer != issuer.URL || document.Contexts[0].Login.ClientID != "wso2-cli" {
 		t.Fatalf("document = %+v, want one local-is context on the issuer", document)
 	}
 	if !strings.Contains(out.String(), `Logged in to the "local-is" context.`) {
@@ -69,8 +69,8 @@ func TestLoginAsksAgainWhenCloudIsPicked(t *testing.T) {
 	if got := strings.Count(errOut.String(), "Choose [2]: "); got != 3 {
 		t.Errorf("deployment asked %d times, want 3:\n%s", got, errOut)
 	}
-	if name := loadDocument(t, shell).Contexts[0].Name; name != "account-1" {
-		t.Errorf("context = %q, want the default account-1", name)
+	if name := loadDocument(t, shell).Contexts[0].Name; name != "context-1" {
+		t.Errorf("context = %q, want the default context-1", name)
 	}
 }
 

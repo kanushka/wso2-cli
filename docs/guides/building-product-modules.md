@@ -99,7 +99,7 @@ are refused, and nothing is written when one is:
 ```console
 $ make new-module NAMESPACE=login
 go run ./cmd/wso2-module-new -namespace 'login'
-wso2-module-new: "login" is a shell command, so a module owning that namespace could never be reached; the shell owns config, context, doctor, help, account, login, logout, module, org, version, whoami
+wso2-module-new: "login" is a shell command, so a module owning that namespace could never be reached; the shell owns config, context, doctor, help, login, logout, module, org, product, version, whoami
 exit status 1
 make: *** [new-module] Error 1
 ```

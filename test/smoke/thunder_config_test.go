@@ -45,7 +45,7 @@ func TestADeploymentMayDeclareItsIdentityProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	identity := config.Document().Accounts[0]
+	identity := config.Document().Contexts[0].Account()
 	if identity.Auth.Provider != contexts.ProviderThunder {
 		t.Fatalf("the document names the provider %q, want %q",
 			identity.Auth.Provider, contexts.ProviderThunder)
@@ -102,7 +102,7 @@ func TestTheNonInteractiveDocumentIsReadableByTheShell(t *testing.T) {
 		t.Fatalf("the shell refused the document a CI run installs: %v", err)
 	}
 
-	identity := document.Accounts[0]
+	identity := document.Contexts[0].Account()
 	if identity.Auth.Kind != contexts.KindClientCredentials {
 		t.Fatalf("the CI identity is of kind %q, want %q",
 			identity.Auth.Kind, contexts.KindClientCredentials)
@@ -134,7 +134,7 @@ func TestTheNonInteractiveDocumentDerivesLikeTheDeployment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if got := config.CIDocument().Accounts[0].Auth.Derivation(); got != contexts.DerivationTokenResource {
+	if got := config.CIDocument().Contexts[0].Account().Auth.Derivation(); got != contexts.DerivationTokenResource {
 		t.Fatalf("the CI identity derives by %q, want %q", got, contexts.DerivationTokenResource)
 	}
 }

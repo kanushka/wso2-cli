@@ -52,7 +52,8 @@ func thunderLikeDeployment(t *testing.T, seedSibling bool) browserDeployment {
 		seeded := deployment.issuer.SeedSessionFor([]string{siblingScope}, siblingAudience)
 		store := session.Store{StateRoot: deployment.stateRoot}
 		if err := store.Save(contexts.ProductSessionRef(sessionRef, siblingNamespace),
-			session.Session{Issuer: deployment.issuer.URL, RefreshToken: seeded}); err != nil {
+			session.Session{Issuer: deployment.issuer.URL, RefreshToken: seeded,
+				Bound: true, Resource: siblingAudience}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -98,7 +99,8 @@ func TestAMissingSiblingSessionIsEstablishedOnFirstUse(t *testing.T) {
 		asked = access
 		seeded := deployment.issuer.SeedSessionFor(access.Scopes, access.Resource)
 		return session.Store{StateRoot: deployment.stateRoot}.Save(access.SessionRef,
-			session.Session{Issuer: access.Issuer, RefreshToken: seeded, Strategy: access.Strategy})
+			session.Session{Issuer: access.Issuer, RefreshToken: seeded, Strategy: access.Strategy,
+				Bound: true, Resource: access.Resource})
 	}
 	if _, err := broker.Acquire(auth.Request{Audience: siblingAudience, Scopes: []string{siblingScope}}); err != nil {
 		t.Fatalf("acquire: %v", err)
@@ -458,7 +460,8 @@ func thunderBroker(t *testing.T, options fakeissuer.Options, scopes []string) (b
 	root := t.TempDir()
 	store := session.Store{StateRoot: root}
 	seeded := issuer.SeedSessionFor(scopes, audience)
-	if err := store.Save(sessionRef, session.Session{Issuer: issuer.URL, RefreshToken: seeded}); err != nil {
+	if err := store.Save(sessionRef, session.Session{Issuer: issuer.URL, RefreshToken: seeded,
+		Bound: true, Resource: audience}); err != nil {
 		t.Fatal(err)
 	}
 	deployment := browserDeployment{issuer: issuer, stateRoot: root, seeded: seeded}
@@ -554,6 +557,7 @@ func TestAResourceBoundSiblingRefusalPointsAtLoginOnly(t *testing.T) {
 	seedSibling := func() error {
 		return store.Save(ref, session.Session{
 			Issuer: deployment.issuer.URL, RefreshToken: deployment.issuer.SeedSessionFor(nil, siblingAudience),
+			Bound: true, Resource: siblingAudience,
 		})
 	}
 	if err := seedSibling(); err != nil {

@@ -36,8 +36,8 @@ func clientFor(ctx context.Context, request module.Request) (thunder.Client, err
 		return thunder.Client{}, moduleProblem("identity.product_not_recorded",
 			"the selected context records no endpoint for the identity product, so this command "+
 				"has nowhere to call",
-			"Run wso2 identity connect <url>, which creates the account and context it logs in with "+
-				"when none exists, then run wso2 login.")
+			"Run wso2 context create <name> --login-product identity --url <url> --use to create a "+
+				"context that logs in through it, then run wso2 login.")
 	}
 	access, err := request.Access.Acquire(ctx, module.AccessRequest{
 		Audience: ManagementAudience,

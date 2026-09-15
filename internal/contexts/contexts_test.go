@@ -66,26 +66,14 @@ func documentV2() contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: "acme-dev",
-		Accounts: []contexts.Account{{
-			Name: "acme-cloud",
-			Type: "cloud",
-			Auth: contexts.AccountAuth{
-				Kind:          contexts.KindOAuthBrowser,
-				Issuer:        "https://issuer.example.test/t/acme/oauth2/token",
-				ClientID:      "client-123",
-				Tenant:        "acme",
-				CredentialRef: "acme-cloud-login",
-			},
-			Products: map[string]contexts.Product{
-				"reference": {
-					Endpoint: "https://api.example.test",
-					Audience: "reference-status",
-					Scopes:   []string{"reference:status:read"},
-				},
+
+		Contexts: []contexts.Context{{Name: "acme-dev", Type: "cloud", CredentialRef: "acme-cloud-login", Login: contexts.Login{Kind: contexts.KindOAuthBrowser, Issuer: "https://issuer.example.test/t/acme/oauth2/token", ClientID: "client-123", Tenant: "acme"}, Organization: "acme", Products: map[string]contexts.Product{
+			"reference": {
+				Endpoint: "https://api.example.test",
+				Audience: "reference-status",
+				Scopes:   []string{"reference:status:read"},
 			},
 		}},
-		Contexts: []contexts.Context{
-			{Name: "acme-dev", Account: "acme-cloud", Organization: "acme"},
 		},
 	}
 }
@@ -95,11 +83,11 @@ func TestDecodeV2(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(document.Accounts) != 1 || document.Accounts[0].Auth.Kind != contexts.KindOAuthBrowser {
-		t.Fatalf("identity not decoded: %+v", document.Accounts)
+	if len(document.Contexts) != 1 || document.Contexts[0].Login.Kind != contexts.KindOAuthBrowser {
+		t.Fatalf("login not decoded: %+v", document.Contexts)
 	}
-	if document.Contexts[0].Account != "acme-cloud" {
-		t.Fatalf("context does not reference its identity: %+v", document.Contexts[0])
+	if document.Contexts[0].CredentialRef != "acme-cloud-login" {
+		t.Fatalf("the context did not take its account's credential reference: %+v", document.Contexts[0])
 	}
 }
 
@@ -188,7 +176,8 @@ func TestTheSelectedContextIsTheDefaultOne(t *testing.T) {
 	if selection.Context.Name != "acme-dev" || selection.Context.Organization != "acme" {
 		t.Fatalf("Select(%q) = %+v, want the default context", "", selection.Context)
 	}
-	if selection.Identity.Name != "acme-cloud" || selection.Identity.Auth.Kind != contexts.KindOAuthBrowser {
+	if selection.Identity.Name != "acme-dev" || selection.Identity.Auth.Kind != contexts.KindOAuthBrowser ||
+		selection.Identity.Auth.CredentialRef != "acme-cloud-login" {
 		t.Fatalf("the selection does not carry its identity: %+v", selection.Identity)
 	}
 	// The endpoint a module is launched against is read off the selected
@@ -212,31 +201,25 @@ func TestAContextRecordsNoCredentialValue(t *testing.T) {
 	// The document names where credentials come from. It must have nowhere to
 	// put a credential itself, so a reviewer can prove the absence from the
 	// types rather than from every writer of them.
-	allowedContext := []string{"name", "account", "organization", "project"}
-	// loginProduct names which product the login is run for: a namespace,
-	// not a secret.
-	allowedIdentity := []string{"name", "type", "auth", "products", "loginProduct"}
+	allowedContext := []string{"name", "type", "credentialRef", "login", "organization", "project", "products"}
 	// provider and narrowing say which deployment this is and how access is
-	// derived from it. Both are names of behaviour, not locations of secrets.
-	allowedAuth := []string{
-		"kind", "issuer", "clientId", "tenant", "credentialRef", "clientSecretVariable",
-		"provider", "narrowing",
+	// derived from it, and product names which product the login is run for.
+	// All are names of behaviour, not locations of secrets.
+	allowedLogin := []string{
+		"kind", "issuer", "clientId", "tenant", "provider", "narrowing", "clientSecretVariable", "product",
 	}
 	// grant says where a product's access is derived and which public client
 	// asks for it: an issuer, a client identifier and scope names, no secret.
 	// gateway is a second location with its own audience and scope names.
-	allowedProduct := []string{"endpoint", "audience", "scopes", "grant", "clientIdVariable", "clientSecretVariable", "gateway"}
+	allowedProduct := []string{"url", "audience", "scopes", "grant", "clientIdVariable", "clientSecretVariable", "gateway"}
 	allowedGrant := []string{"kind", "issuer", "clientId", "scopes", "resource"}
-	allowedGateway := []string{"endpoint", "audience", "scopes"}
+	allowedGateway := []string{"url", "audience", "scopes"}
 
 	if got := jsonMembers(t, contexts.Context{}); !slices.Equal(got, allowedContext) {
 		t.Errorf("a context records %v; it may record only %v", got, allowedContext)
 	}
-	if got := jsonMembers(t, contexts.Account{}); !slices.Equal(got, allowedIdentity) {
-		t.Errorf("an identity records %v; it may record only %v", got, allowedIdentity)
-	}
-	if got := jsonMembers(t, contexts.AccountAuth{}); !slices.Equal(got, allowedAuth) {
-		t.Errorf("an identity's authentication records %v; it may record only %v", got, allowedAuth)
+	if got := jsonMembers(t, contexts.Login{}); !slices.Equal(got, allowedLogin) {
+		t.Errorf("a context's login records %v; it may record only %v", got, allowedLogin)
 	}
 	if got := jsonMembers(t, contexts.Product{}); !slices.Equal(got, allowedProduct) {
 		t.Errorf("a product records %v; it may record only %v", got, allowedProduct)
@@ -253,7 +236,8 @@ func TestAWrittenDocumentCarriesNoCredentialValue(t *testing.T) {
 	const secret = "canary-client-secret-2f8c"
 	t.Setenv("WSO2_ACME_SECRET", secret)
 	document := documentV2()
-	document.Accounts[0].Auth = contexts.AccountAuth{
+	document.Contexts[0].CredentialRef = ""
+	document.Contexts[0].Login = contexts.Login{
 		Kind:                 contexts.KindClientCredentials,
 		Issuer:               "https://issuer.example.test/t/acme/oauth2/token",
 		ClientID:             "client-123",
@@ -398,9 +382,9 @@ func TestAnEndpointThatEmbedsCredentialsIsRefused(t *testing.T) {
 	// hand one over through the member nobody thinks of as carrying
 	// credentials, so the document is refused and the endpoint is not echoed.
 	document := documentV2()
-	product := document.Accounts[0].Products["reference"]
+	product := document.Contexts[0].Products["reference"]
 	product.Endpoint = "http://operator:s3cr3t@127.0.0.1:8080"
-	document.Accounts[0].Products["reference"] = product
+	document.Contexts[0].Products["reference"] = product
 
 	_, err := document.Encode()
 
@@ -418,9 +402,9 @@ func TestAnEndpointThatEmbedsCredentialsIsRefused(t *testing.T) {
 
 func TestARejectedEndpointIsNeverEchoed(t *testing.T) {
 	document := documentV2()
-	product := document.Accounts[0].Products["reference"]
+	product := document.Contexts[0].Products["reference"]
 	product.Endpoint = "not an endpoint with s3cr3t in it"
-	document.Accounts[0].Products["reference"] = product
+	document.Contexts[0].Products["reference"] = product
 
 	_, err := document.Encode()
 
@@ -576,7 +560,7 @@ func TestAProductWithoutAGatewayDecodesAsBefore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	for namespace, product := range document.Accounts[0].Products {
+	for namespace, product := range document.Contexts[0].Products {
 		if product.Gateway != nil {
 			t.Fatalf("product %q decoded a gateway nothing wrote: %+v", namespace, product.Gateway)
 		}
@@ -588,7 +572,7 @@ func TestAProductWithoutAGatewayDecodesAsBefore(t *testing.T) {
 		t.Fatalf("decode with gateway: %v", err)
 	}
 	var found *contexts.Gateway
-	for _, product := range document.Accounts[0].Products {
+	for _, product := range document.Contexts[0].Products {
 		if product.Gateway != nil {
 			found = product.Gateway
 		}
@@ -599,50 +583,34 @@ func TestAProductWithoutAGatewayDecodesAsBefore(t *testing.T) {
 	}
 }
 
-func TestAV2DocumentIsReadAsAccountsAndWrittenBackAsV3(t *testing.T) {
-	// The rename bumps the schema, so every document written before it has to
-	// keep opening. A v2 document names the key "identities"; a v3 one names
-	// it "accounts", and the shell reads both and writes only the latter.
+func TestAV2DocumentIsMigratedAndWrittenBackAsV4(t *testing.T) {
+	// Every document an earlier shell wrote has to keep opening. A v2 document
+	// names its accounts "identities"; the shell folds each into the contexts
+	// that named it and writes only the current schema back.
 	document, err := contexts.Decode([]byte(validV2()))
 	if err != nil {
 		t.Fatalf("a v2 document no longer decodes: %v", err)
 	}
-	if len(document.Accounts) != 1 || document.Accounts[0].Name != "acme-cloud" {
-		t.Fatalf("the v2 identities were not read as accounts: %+v", document.Accounts)
+	if len(document.Contexts) != 1 || document.Contexts[0].Name != "acme-dev" ||
+		document.Contexts[0].Login.Issuer != "https://issuer.example.test/t/acme/oauth2/token" {
+		t.Fatalf("the v2 identity was not folded into its context: %+v", document.Contexts)
+	}
+	if migration, migrated := document.Migrated(); !migrated || migration.From != 2 {
+		t.Fatalf("the migration was not recorded: %+v %v", migration, migrated)
 	}
 	encoded, err := document.Encode()
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	if !strings.Contains(string(encoded), `"schemaVersion": 3`) {
-		t.Fatalf("a re-encoded document is not v3:\n%s", encoded)
+	if !strings.Contains(string(encoded), `"schemaVersion": 4`) {
+		t.Fatalf("a re-encoded document is not v4:\n%s", encoded)
 	}
-	if !strings.Contains(string(encoded), `"accounts"`) ||
-		strings.Contains(string(encoded), `"identities"`) {
-		t.Fatalf("the document was not written back under the accounts key:\n%s", encoded)
+	for _, gone := range []string{`"accounts"`, `"identities"`, `"account":`, `"endpoint"`} {
+		if strings.Contains(string(encoded), gone) {
+			t.Fatalf("the written document still carries %s:\n%s", gone, encoded)
+		}
 	}
-}
-
-func TestAContextNamesItsAccountUnderTheAccountKey(t *testing.T) {
-	// The schema bump renames the concept, not one key of it. A v3 document
-	// that listed "accounts" at the top and still said "identity" inside every
-	// context would spell the same concept two ways in one file, which is the
-	// ambiguity ADR 0015 exists to remove.
-	document, err := contexts.Decode([]byte(validV2()))
-	if err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if document.Contexts[0].Account != "acme-cloud" {
-		t.Fatalf("a v2 context's account reference was not read: %+v", document.Contexts[0])
-	}
-	encoded, err := document.Encode()
-	if err != nil {
-		t.Fatalf("encode: %v", err)
-	}
-	if !strings.Contains(string(encoded), `"account": "acme-cloud"`) {
-		t.Fatalf("the context does not name its account under the account key:\n%s", encoded)
-	}
-	if strings.Contains(string(encoded), `"identity":`) {
-		t.Fatalf("the written document still spells the concept as identity:\n%s", encoded)
+	if !strings.Contains(string(encoded), `"url": "https://api.example.test"`) {
+		t.Fatalf("the product endpoint was not written as url:\n%s", encoded)
 	}
 }

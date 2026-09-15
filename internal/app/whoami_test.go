@@ -69,7 +69,7 @@ func decodeWhoamiReport(t *testing.T, rendered []byte) whoamiReport {
 func whoamiSeededDocument() contexts.Document {
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "acme-org"}}
+	seeded.Contexts = []contexts.Context{acmeCloud("acme", "acme-org")}
 	return seeded
 }
 
@@ -465,17 +465,9 @@ func TestWhoamiRefusesAnUnknownContextAsUsage(t *testing.T) {
 func TestWhoamiHonorsContextPrecedence(t *testing.T) {
 	keyring.MockInit()
 	seeded := whoamiSeededDocument()
-	seeded.Accounts = append(seeded.Accounts, contexts.Account{
-		Name: "beta-cloud",
-		Type: "cloud",
-		Auth: contexts.AccountAuth{
-			Kind:          contexts.KindOAuthBrowser,
-			Issuer:        "https://idp.example",
-			ClientID:      "wso2-cli",
-			CredentialRef: "beta-cloud",
-		},
-	})
-	seeded.Contexts = append(seeded.Contexts, contexts.Context{Name: "beta", Account: "beta-cloud"})
+	beta := acmeCloud("beta")
+	beta.CredentialRef = "beta-cloud"
+	seeded.Contexts = append(seeded.Contexts, beta)
 	seedBetaSession := func(t *testing.T, shell app.Shell) {
 		t.Helper()
 		installLogin(t, shell, seeded)

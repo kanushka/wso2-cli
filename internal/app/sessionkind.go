@@ -71,7 +71,7 @@ func (g kindGate) check(selected contexts.Selection) error {
 		return problem.New(problem.CategoryAuthPolicy, "auth.kind_not_implemented",
 			fmt.Sprintf("the %q context uses an authentication kind this release does not implement",
 				selected.Context.Name)).
-			WithRecovery("Use a browser, device-code, or client-credentials account. Personal " +
+			WithRecovery("Use a browser, device-code, or client-credentials context. Personal " +
 				"access token login is planned.")
 	case contexts.KindOAuthBrowser, contexts.KindOAuthDevice:
 		// The two kinds this release establishes and ends sessions for.
@@ -87,9 +87,9 @@ func (g kindGate) check(selected contexts.Selection) error {
 // loginKindGate refuses an identity wso2 login cannot establish a session for.
 var loginKindGate = kindGate{
 	command: "login",
-	unselected: "Run wso2 login --url <issuer> --client-id <id> to log in and create the " +
-		"account and context it authenticates, or wso2 context use <name> to select a " +
-		"context that is already configured. wso2 context list shows what is configured.",
+	unselected: "Run wso2 context use <name> to select a context that is already configured " +
+		"(wso2 context list shows them), wso2 context apply -f <file> to set one up from a shared " +
+		"file, or wso2 login --url <issuer> --client-id <id> to create one as you log in.",
 	purpose: "to log in to",
 	inline: func(contextName string) problem.Problem {
 		return problem.New(problem.CategoryAuthPolicy, "auth.login_not_required",

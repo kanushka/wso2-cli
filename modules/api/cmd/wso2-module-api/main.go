@@ -167,7 +167,7 @@ func commands() *cobratree.Tree {
 // your product from here: the invocation carries the selected context, and
 // request.Access.Acquire is how a handler obtains short-lived access to it.
 func status(ctx context.Context, request module.Request) (result.Result, error) {
-	next := "Record where this product runs on the account you log in with: wso2 api connect <url>."
+	next := "Record where this product runs on the selected context: wso2 context product add api --url <url>."
 	if request.Context.Endpoint != "" {
 		next = "Run wso2 api --help to see what this module can do at " + request.Context.Endpoint + "."
 	}

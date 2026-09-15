@@ -438,8 +438,8 @@ func targetRejected(resource string) TargetRejected {
 	if resource == "" {
 		return TargetRejected{problem: problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
 			"the identity provider binds every login to a resource server (invalid_target), and this "+
-				"login named none, because the account records no product its login binds to").
-			WithRecovery("Record the login provider's own product on the account, so the login names " +
+				"login named none, because the context records no product its login binds to").
+			WithRecovery("Record the login provider's own product on the context, so the login names " +
 				"its resource server, then retry wso2 login.")}
 	}
 	return TargetRejected{Resource: resource, problem: problem.New(problem.CategoryAuthPolicy,
@@ -487,7 +487,7 @@ func identityNotVerified(err error) problem.Problem {
 				"deployment that signed you in.")
 	default:
 		return notCompleted("the identity token this login returned did not verify",
-			"Retry wso2 login. The shell does not accept an account it cannot verify against the issuer's keys.")
+			"Retry wso2 login. The shell does not accept a sign-in it cannot verify against the issuer's keys.")
 	}
 }
 

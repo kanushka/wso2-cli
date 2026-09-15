@@ -43,8 +43,8 @@ The manifest and the executable disagree about what the module may request, or
 a handler named a scope nobody recorded.
 
 A scope has two legal sources: the receipt, written from `module.json`, and the
-account's product entry for the namespace, written by the user or by
-`connect`. A request naming no scopes asks for the entry's scopes and cannot
+context's product entry for the namespace, written by the user or by
+`wso2 context product add`. A request naming no scopes asks for the entry's scopes and cannot
 fail this way. So the ordinary fix for `scope_not_declared` is to stop naming
 scopes in the request and declare in `module.json` every scope a command can
 need; name scopes only when one command should hold fewer than the entry allows.
@@ -155,22 +155,33 @@ category, the code, and the recovery text.
 validation: no schema, no fields, a field with no name, or the same field name
 twice.
 
-## `shell.connect_unsupported`
+## A product without a descriptor
 
-> the <namespace> module declares no product descriptor, so the shell cannot write its record from a URL
-
-`wso2 <namespace> connect <url>` is the shell's, and it writes the account's
-product record from `capabilities.product` in the module's receipt. A module
-that declares none has `connect` refused, and the recovery names
-`wso2 account add-product`, which writes the same record by hand.
+`wso2 context product add <namespace> --url <url>` and `wso2 context apply`
+fill a product's record in from `capabilities.product` in the module's
+receipt. A module that declares none gets its record exactly as the user
+states it: `--audience` and `--scopes` on the line, or the members of the
+input file. Nothing is guessed, and a record missing what the context's
+deployment needs is refused as the document it would make.
 
 For an author this is a choice rather than a defect. Declare a descriptor when
 the product's issuer can be named from the product's URL, and make the module's
-`status` point at `connect`; when it cannot, as for a product whose issuer has to
-be discovered from the product itself, declare none and make `status` point at
-`add-product`. Adding a descriptor to an installed module
-changes nothing until the module is released and reinstalled, because `connect`
-reads the receipt.
+`status` point at `wso2 context product add <namespace> --url <url>`; when it
+cannot, declare none and have `status` name the audience and scopes to pass.
+Adding a descriptor to an installed module changes nothing until the module is
+released and reinstalled, because the setup commands read the receipt, and
+records already written keep their frozen values until the context is applied
+again (`wso2 doctor` names the ones that differ).
+
+## `shell.command_moved`
+
+> wso2 <namespace> connect was removed: products are recorded on a context
+
+The shell used to answer `connect` under every namespace. It now answers with
+the `wso2 context create` or `wso2 context product add` line that records the
+same thing, built from what was typed. A module that declares a `connect`
+command of its own is reached as usual; the redirect fires only when the
+module does not.
 
 ## `modules.receipt_malformed` naming a product descriptor
 

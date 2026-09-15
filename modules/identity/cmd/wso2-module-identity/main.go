@@ -176,8 +176,8 @@ func commands() *cobratree.Tree {
 // your product from here: the invocation carries the selected context, and
 // request.Access.Acquire is how a handler obtains short-lived access to it.
 func status(ctx context.Context, request module.Request) (result.Result, error) {
-	next := "Record where this product runs with wso2 identity connect <url>, which creates the " +
-		"account and context it logs in with when none exists, then run wso2 login."
+	next := "Create a context that logs in through this product with wso2 context create <name> " +
+		"--login-product identity --url <url> --use, then run wso2 login."
 	if request.Context.Endpoint != "" {
 		next = "Run wso2 identity --help to see what this module can do at " + request.Context.Endpoint + "."
 	}

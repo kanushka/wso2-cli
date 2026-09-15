@@ -87,12 +87,12 @@ func callFailed(err error, attempted, endpoint string) error {
 	var refusal thunder.Failure
 	if !asFailure(err, &refusal) {
 		return moduleProblem("identity.deployment_unreachable",
-			"the shell could not reach the account deployment at "+endpoint+" to "+attempted,
+			"the shell could not reach the deployment at "+endpoint+" to "+attempted,
 			"Check that this machine can reach that URL, then retry.")
 	}
 	if refusal.Status == 401 || refusal.Status == 403 {
 		return moduleProblem("identity.not_authorized",
-			"the deployment refused this account's access when asked to "+attempted,
+			"the deployment refused this context's access when asked to "+attempted,
 			"Ask an administrator to grant this user a role carrying the system permission on "+
 				"the deployment's own resource server, then run wso2 login again.")
 	}

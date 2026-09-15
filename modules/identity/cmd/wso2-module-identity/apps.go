@@ -55,10 +55,10 @@ func appsList(ctx context.Context, request module.Request) (result.Result, error
 		WithColumn("clientId", "Client ID").
 		WithColumn("type", "Type")
 	for _, app := range listing.Applications {
-		// The client identifier is what an operator records as the account's
+		// The client identifier is what an operator records as the context's
 		// client, and what a deployment names in a refusal.
 		report = report.WithRow(app.Name, app.ClientID, app.Type)
 	}
 	return report.With(NextField, "Next",
-		"The shell logs in as one of these; wso2 account list shows which."), nil
+		"The shell logs in as one of these; wso2 context show shows which."), nil
 }

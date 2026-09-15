@@ -33,7 +33,7 @@ import (
 )
 
 func TestCommandNamesAreDerivedFromTheShellCommandTree(t *testing.T) {
-	if got, want := app.CommandNames(), []string{"account", "config", "context", "doctor", "help", "login", "logout", "module", "org", "product", "version", "whoami"}; !slices.Equal(got, want) {
+	if got, want := app.CommandNames(), []string{"config", "context", "doctor", "help", "login", "logout", "module", "org", "product", "version", "whoami"}; !slices.Equal(got, want) {
 		t.Errorf("CommandNames() = %v, want %v", got, want)
 	}
 }
@@ -51,7 +51,7 @@ func TestHelpListsEveryShellCommand(t *testing.T) {
 	// product, and a help page that advertised it would teach the word the
 	// deprecation exists to retire. It still resolves, which
 	// TestTheProductCommandReplacesModuleAndModuleStaysAsAnAlias proves.
-	for _, command := range []string{"account", "config", "context", "doctor", "help", "login", "logout", "org", "product", "version", "whoami"} {
+	for _, command := range []string{"config", "context", "doctor", "help", "login", "logout", "org", "product", "version", "whoami"} {
 		if !strings.Contains(out.String(), command) {
 			t.Errorf("help does not list the %q command:\n%s", command, out)
 		}
@@ -368,7 +368,6 @@ func TestEveryCommandFamilyAnswersABareNameWithHelp(t *testing.T) {
 	// Each family and one subcommand its help has to name.
 	families := map[string]string{
 		"context": "create",
-		"account": "add-product",
 		"module":  "list",
 		"org":     "current",
 		"config":  "set",
@@ -413,7 +412,7 @@ func TestEveryCommandFamilyAnswersABareNameWithHelp(t *testing.T) {
 // families refuse instead, and giving the bare form back to help must not take
 // that with it.
 func TestEveryCommandFamilyRefusesAnUnknownSubcommand(t *testing.T) {
-	for _, family := range []string{"context", "account", "product", "org", "config"} {
+	for _, family := range []string{"context", "product", "org", "config"} {
 		t.Run(family, func(t *testing.T) {
 			shell, _, errOut := newShell(t)
 
@@ -554,13 +553,12 @@ func TestHelpGroupsCoreProductAndOtherCommands(t *testing.T) {
 	const want = `Usage: wso2 <command> [arguments]
 
 Core commands
-   account       Record and inspect what an account reaches.
-   context       Create, select, and list the targets commands run against.
-   login         Log in, creating the account and context when an issuer is named.
+   context       Set up, select, and inspect the contexts commands run against.
+   login         Log in to the selected context, or create one when an issuer is named.
    logout        End the selected context's session.
    org           Show and change the organization the selected context runs within.
    product       Install, list, and update products from the catalog.
-   whoami        Show who is signed in, and to what context, account, and session.
+   whoami        Show who is signed in, to which context, and with what session.
 
 Product commands
    api           API Platform (not installed)

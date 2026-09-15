@@ -266,7 +266,7 @@ session.
 
 ## 10. A confidential client for CI, if you need one
 
-A CI job has no browser and no secure store, so it uses a separate account that
+A CI job has no browser and no secure store, so it uses a separate context that
 carries its own credential. Register a second application for it:
 
 1. A standard-based application with the **Client Credentials** grant and **no**
@@ -306,37 +306,40 @@ the context document and the job wiring.
 ## 12. Log in, and check what it wrote
 
 With the issuer and client ID from the section above, one command creates
-the account and the context and signs you in:
+the context and signs you in:
 
 ```console
 $ wso2 login --url https://is.example.com/oauth2/token \
     --client-id <client-id> --context is-local
 ```
 
-It reports the names it assigned, and `wso2 context list` shows them.
-What it writes is deliberately spare: the issuer and client ID you passed,
-`"type": "onprem"`, a `credentialRef` equal to the account name, and no
+It reports the name it assigned, and `wso2 context list` shows it. What it
+writes is deliberately spare: the issuer and client ID you passed,
+`"type": "onprem"`, a `credentialRef` equal to the context name, and no
 products. Everything from here is [the main login guide](login.md), from
 section 2.
 
-The record below is the fuller shape, not what login leaves: add products with
-`wso2 account add-product`. An Identity Server account is `"type": "onprem"`,
-which is what login already writes, and its `audience` is the API resource
-identifier:
+With the identity product installed, `wso2 context create is-local
+--login-product identity --url https://localhost:9443 --provider
+identity-server --use` writes the same context with the identity product
+recorded, before any login. Either way, add products with
+`wso2 context product add <product> --url <url>`. An Identity Server context's
+`audience` is the API resource identifier:
 
 ```json
 {
   "name": "is-local",
   "type": "onprem",
-  "auth": {
+  "credentialRef": "is-local",
+  "login": {
     "kind": "oauth-browser",
     "issuer": "https://localhost:9443/oauth2/token",
     "clientId": "REPLACE_WITH_YOUR_CLIENT_ID",
-    "credentialRef": "is-local-login"
+    "product": "reference"
   },
   "products": {
     "reference": {
-      "endpoint": "https://localhost:9443",
+      "url": "https://localhost:9443",
       "audience": "reference-status",
       "scopes": ["reference:status:read"]
     }
