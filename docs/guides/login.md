@@ -441,7 +441,7 @@ expires, usually after ten to fifteen minutes and never later than fifteen.
 Nothing is opened on this machine.
 
 **One difference from browser login worth knowing.** A browser login always
-reports a `Subject`. A device login reports one only if the deployment returned
+reports a `User ID`. A device login reports one only if the deployment returned
 an identity token from this grant, which not every deployment does; RFC 8628
 does not require it. The session is established either way, and every product
 command afterwards behaves identically.

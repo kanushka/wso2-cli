@@ -223,7 +223,7 @@ $ wso2 whoami
 Context          cloud-us
 Issuer           https://api.asgardeo.io/t/acme/oauth2/token
 Organization     acme
-Subject          jane@example.com
+User ID          jane@example.com
 Session          present
 Session expiry   2026-11-15T09:00:00Z
 ```
@@ -242,7 +242,7 @@ $ wso2 login --url https://idp.customer.example --client-id wso2-cli \
     --context customer
 
 Logged in to the "customer" context.
-Subject    ops
+User ID    ops
 Email      ops@customer.example
 Products   none configured
 

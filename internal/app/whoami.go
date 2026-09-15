@@ -354,13 +354,13 @@ func (w whoamiReport) fields() [][2]string {
 		pairs = append(pairs, [2]string{"Organization", w.Organization})
 	}
 	// The Name row is left out, rather than shown blank, when the session
-	// carries no name: the Subject row below already identifies who signed
+	// carries no name: the User ID row below already identifies who signed
 	// in, and a blank Name would read as a value the shell failed to load.
 	if w.Name != "" {
 		pairs = append(pairs, [2]string{"Name", w.Name})
 	}
 	pairs = append(pairs, [][2]string{
-		{"Subject", w.Subject},
+		{"User ID", w.Subject},
 		{"Session", w.Session},
 		{"Session expiry", w.SessionExpiry},
 		{"Products", w.productsField()},

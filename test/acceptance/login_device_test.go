@@ -468,7 +468,7 @@ func TestADeviceLoginNamesTheSubjectItVerified(t *testing.T) {
 		t.Fatalf("wso2 login exited %d\nstderr:\n%s", code, deployment.errOut)
 	}
 	report := deployment.out.String()
-	if !strings.Contains(report, "Subject") || !strings.Contains(report, "user-1") {
+	if !strings.Contains(report, "User ID") || !strings.Contains(report, "user-1") {
 		t.Errorf("the report does not name the subject the login verified:\n%s", report)
 	}
 }
@@ -519,7 +519,7 @@ func TestADeviceLoginWithoutAnIdentityTokenStillEstablishesASession(t *testing.T
 		t.Fatal("no session was stored, so an unmeasured issuer behaviour decided the login")
 	}
 	report := deployment.out.String()
-	if strings.Contains(report, "Subject") {
+	if strings.Contains(report, "User ID") {
 		t.Errorf("the report claims a subject no identity token proved:\n%s", report)
 	}
 	if !strings.Contains(report, "Logged in") {

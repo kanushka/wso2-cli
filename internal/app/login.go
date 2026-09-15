@@ -510,7 +510,7 @@ func (s Shell) reportLogin(selected contexts.Selection, outcome loginOutcome) er
 	// defined to carry one and the session does not depend on it. An empty
 	// label would claim the shell knows something it does not.
 	if outcome.first.Subject != "" {
-		fields = append(fields, [2]string{"Subject", outcome.first.Subject})
+		fields = append(fields, [2]string{"User ID", outcome.first.Subject})
 	}
 	if outcome.first.Email != "" {
 		fields = append(fields, [2]string{"Email", outcome.first.Email})
