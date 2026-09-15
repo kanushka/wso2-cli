@@ -20,7 +20,6 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/wso2/wso2-cli/modules/identity/internal/thunder"
 	"github.com/wso2/wso2-cli/sdk/module"
 	"github.com/wso2/wso2-cli/sdk/result"
 )
@@ -78,29 +77,4 @@ func usersNext(listing userListing) string {
 		return "This deployment records no users yet."
 	}
 	return "Run wso2 identity resource-servers list to see what those users can be granted."
-}
-
-// callFailed states a refused management call in terms an administrator can
-// act on, keeping the deployment's own words rather than inventing a second
-// account of them.
-func callFailed(err error, attempted, endpoint string) error {
-	var refusal thunder.Failure
-	if !asFailure(err, &refusal) {
-		return moduleProblem("identity.deployment_unreachable",
-			"the shell could not reach the deployment at "+endpoint+" to "+attempted,
-			"Check that this machine can reach that URL, then retry.")
-	}
-	if refusal.Status == 401 || refusal.Status == 403 {
-		return moduleProblem("identity.not_authorized",
-			"the deployment refused this context's access when asked to "+attempted,
-			"Ask an administrator to grant this user a role carrying the system permission on "+
-				"the deployment's own resource server, then run wso2 login again.")
-	}
-	message := refusal.Message
-	if message == "" {
-		message = refusal.Error()
-	}
-	return moduleProblem("identity.call_failed",
-		"the deployment would not "+attempted+": "+message,
-		"Check the deployment's own logs for the refusal, then retry.")
 }

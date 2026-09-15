@@ -86,6 +86,7 @@ type resourceServerFlags struct {
 	identifier  string
 	description string
 	permissions []string
+	ou          string
 }
 
 // resourceServersCreate answers "wso2 identity resource-servers create".
@@ -113,7 +114,11 @@ func createResourceServer(
 	if err != nil {
 		return result.Result{}, err
 	}
-	body := map[string]any{"name": name, "identifier": flags.identifier}
+	ouID, err := resolveOrganizationUnitID(ctx, client, flags.ou, request.Context.Endpoint)
+	if err != nil {
+		return result.Result{}, err
+	}
+	body := map[string]any{"name": name, "identifier": flags.identifier, "ouId": ouID}
 	if flags.description != "" {
 		body["description"] = flags.description
 	}

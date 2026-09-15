@@ -19,6 +19,8 @@ package main
 import (
 	"context"
 	"errors"
+	"sort"
+	"strings"
 
 	"github.com/wso2/wso2-cli/modules/identity/internal/thunder"
 	"github.com/wso2/wso2-cli/sdk/module"
@@ -56,13 +58,73 @@ func asFailure(err error, out *thunder.Failure) bool {
 	return errors.As(err, out)
 }
 
+// callFailed states a refused management call in terms an administrator can
+// act on, keeping the deployment's own words rather than inventing a second
+// account of them.
+//
+// A 400 is treated differently from every other refusal: it means the request
+// this command built was what the deployment refused, not something the
+// deployment did on its own, so the recovery points at the command's own
+// input and flags rather than at logs the deployment holds and this refusal
+// already explains.
+func callFailed(err error, attempted, endpoint string) error {
+	var refusal thunder.Failure
+	if !asFailure(err, &refusal) {
+		return moduleProblem("identity.deployment_unreachable",
+			"the shell could not reach the deployment at "+endpoint+" to "+attempted,
+			"Check that this machine can reach that URL, then retry.")
+	}
+	if refusal.Status == 401 || refusal.Status == 403 {
+		return moduleProblem("identity.not_authorized",
+			"the deployment refused this context's access when asked to "+attempted,
+			"Ask an administrator to grant this user a role carrying the system permission on "+
+				"the deployment's own resource server, then run wso2 login again.")
+	}
+	if refusal.Status == 400 {
+		return moduleProblem("identity.call_failed",
+			"the deployment would not "+attempted+": "+refusalMessage(refusal),
+			"Check the command's input and flags, then retry.")
+	}
+	return moduleProblem("identity.call_failed",
+		"the deployment would not "+attempted+": "+refusalMessage(refusal),
+		"Check the deployment's own logs for the refusal, then retry.")
+}
+
+// refusalMessage states a refusal in the deployment's own words. ThunderID
+// answers a validation failure with a generic Message ("Validation Failed"),
+// its own longer Description, and per-field Errors; all three are folded in
+// here so the detail that actually explains the refusal is never silently
+// dropped in favor of the generic headline.
+func refusalMessage(refusal thunder.Failure) string {
+	message := refusal.Message
+	if message == "" {
+		message = refusal.Error()
+	}
+	if refusal.Description != "" && refusal.Description != message {
+		message += ": " + refusal.Description
+	}
+	if len(refusal.FieldErrors) == 0 {
+		return message
+	}
+	fields := make([]string, 0, len(refusal.FieldErrors))
+	for field := range refusal.FieldErrors {
+		fields = append(fields, field)
+	}
+	sort.Strings(fields)
+	details := make([]string, len(fields))
+	for i, field := range fields {
+		details[i] = field + ": " + refusal.FieldErrors[field]
+	}
+	return message + " (" + strings.Join(details, "; ") + ")"
+}
+
 // usageProblem refuses a command line this module cannot carry out. The
 // category is what puts it in the shell's usage class, so it exits 64 like
 // every other mistyped command rather than reading as a deployment failure.
 func usageProblem(message string) error {
 	return problem.New(problem.CategoryUsage, "identity.invalid_argument", message).
 		WithRecovery("Run wso2 identity resource-servers create <name> --identifier <uri> " +
-			"[--permission <handle>]... [--description <text>].")
+			"[--ou <id-or-handle>] [--permission <handle>]... [--description <text>].")
 }
 
 // moduleProblem builds this module's typed failure. The shell renders it; the

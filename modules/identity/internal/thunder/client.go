@@ -55,6 +55,14 @@ type Failure struct {
 	Code string
 	// Message is the deployment's own description, empty when it stated none.
 	Message string
+	// Description is ThunderID's own longer account of the refusal, empty
+	// when it stated none. A validation failure states a generic Message
+	// ("Validation Failed") and puts what actually failed here.
+	Description string
+	// FieldErrors is ThunderID's own per-field validation failures, keyed by
+	// field name, present when the error is a validation failure. Empty when
+	// the deployment stated none.
+	FieldErrors map[string]string
 }
 
 func (f Failure) Error() string {
@@ -127,12 +135,19 @@ func (c Client) do(ctx context.Context, method, path string, body, out any) erro
 // Failure, because the status alone is worth reporting.
 func failure(status int, body []byte) error {
 	var stated struct {
-		Code        string          `json:"code"`
-		Message     json.RawMessage `json:"message"`
-		Description json.RawMessage `json:"description"`
+		Code        string            `json:"code"`
+		Message     json.RawMessage   `json:"message"`
+		Description json.RawMessage   `json:"description"`
+		Errors      map[string]string `json:"errors"`
 	}
 	_ = json.Unmarshal(body, &stated)
-	return Failure{Status: status, Code: stated.Code, Message: readMessage(stated.Message)}
+	return Failure{
+		Status:      status,
+		Code:        stated.Code,
+		Message:     readMessage(stated.Message),
+		Description: readMessage(stated.Description),
+		FieldErrors: stated.Errors,
+	}
 }
 
 // readMessage reads Thunder's message member, which is a plain string on some

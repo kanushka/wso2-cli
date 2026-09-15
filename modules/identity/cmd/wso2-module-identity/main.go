@@ -147,6 +147,9 @@ func commands() *cobratree.Tree {
 		"What this resource server is for.")
 	resourceServersCreateCommand.Flags().StringArrayVar(&createFlags.permissions, "permission", nil,
 		"A permission handle to create on it; repeat for each.")
+	resourceServersCreateCommand.Flags().StringVar(&createFlags.ou, "ou", "",
+		"The organization unit that owns it, by id or handle. Defaults to the "+
+			"deployment's only organization unit; required when it records more than one.")
 	resourceServersCommand.AddCommand(resourceServersListCommand, resourceServersCreateCommand)
 
 	appsCommand := &cobra.Command{
