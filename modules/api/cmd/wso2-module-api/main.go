@@ -107,7 +107,7 @@ func moduleOptions() module.Options {
 func commands() *cobratree.Tree {
 	root := &cobra.Command{
 		Use:   Namespace,
-		Short: "Api commands for the WSO2 CLI.",
+		Short: "Work with WSO2 API Platform: projects, APIs, and gateways.",
 	}
 	statusCommand := &cobra.Command{
 		Use:   "status",

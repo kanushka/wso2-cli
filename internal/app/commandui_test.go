@@ -557,7 +557,7 @@ Core commands
    login         Log in to the selected context, or create one when an issuer is named.
    logout        End the selected context's session.
    org           Show and change the organization the selected context runs within.
-   product       Install, list, and update products from the catalog.
+   product       Install, list, and update the WSO2 product CLIs from the catalog.
    whoami        Show who is signed in, to which context, and with what session.
 
 Product commands

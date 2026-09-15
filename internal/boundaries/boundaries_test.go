@@ -801,6 +801,8 @@ var protectedIdentityTerms = []string{
 	// The product the identity namespace reaches, named in its own prose. The
 	// rename turned it into "the account product", which names nothing.
 	"identity product",
+	// The Identity Platform is the proper name of the product.
+	"Identity Platform",
 }
 
 // TestNoUserVisibleStringCallsAnAccountAnIdentity holds the rename ADR 0015

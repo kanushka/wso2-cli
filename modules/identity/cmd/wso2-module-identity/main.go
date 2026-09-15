@@ -109,7 +109,7 @@ func moduleOptions() module.Options {
 func commands() *cobratree.Tree {
 	root := &cobra.Command{
 		Use:   Namespace,
-		Short: "Commands for the identity product.",
+		Short: "Work with WSO2 Identity Platform: users, apps, and resource servers.",
 	}
 	statusCommand := &cobra.Command{
 		Use:   "status",
