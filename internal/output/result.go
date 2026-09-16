@@ -85,7 +85,7 @@ func resultTable(w io.Writer, produced result.Result) error {
 			continue
 		}
 		headers = append(headers, field.DisplayLabel())
-		values = append(values, field.Value)
+		values = append(values, fieldText(w, field))
 	}
 	if len(headers) > 0 {
 		table := NewTable(headers...)
@@ -115,7 +115,7 @@ func listingTable(w io.Writer, produced result.Result) error {
 			next = field.Value
 			continue
 		}
-		summary = append(summary, [2]string{field.DisplayLabel(), field.Value})
+		summary = append(summary, [2]string{field.DisplayLabel(), fieldText(w, field)})
 	}
 	if len(summary) > 0 {
 		if err := Fields(w, summary); err != nil {
@@ -189,7 +189,7 @@ func resultJSON(w io.Writer, produced result.Result) error {
 		if err != nil {
 			return fmt.Errorf("output: cannot encode the field name %q: %w", field.Name, err)
 		}
-		value, err := json.Marshal(field.Value)
+		value, err := json.Marshal(fieldText(w, field))
 		if err != nil {
 			return fmt.Errorf("output: cannot encode the value of %q: %w", field.Name, err)
 		}

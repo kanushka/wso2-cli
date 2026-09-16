@@ -17,8 +17,10 @@
 package app
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
@@ -73,9 +75,30 @@ const (
 // lookup and a command set discovered at runtime. The store is read for help
 // exactly once, when a page that names the installed modules is rendered, and
 // never to build the tree.
+// renderPage renders one help or usage page through Cobra, naming shell
+// commands after the name the shell was invoked as. Cobra writes the page
+// itself, so it is captured and renamed as a whole: a help page is all prose.
+func (s Shell) renderPage(root *cobra.Command, render func() error) error {
+	name := output.NameOf(s.Streams.Out)
+	if name == output.DefaultName {
+		return render()
+	}
+	var out, errOut bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&errOut)
+	defer func() {
+		root.SetOut(s.Streams.Out)
+		root.SetErr(s.Streams.Err)
+	}()
+	err := render()
+	_, _ = io.WriteString(s.Streams.Out, output.RenameLines(out.String(), name))
+	_, _ = io.WriteString(s.Streams.Err, output.RenameLines(errOut.String(), name))
+	return err
+}
+
 func (s Shell) rootCommand() *cobra.Command {
 	root := &cobra.Command{
-		Use:  "wso2 <command> [arguments]",
+		Use:  output.NameOf(s.Streams.Out) + " <command> [arguments]",
 		Args: cobra.ArbitraryArgs,
 		// The shell reports every failure as a typed problem through one exit
 		// path, so Cobra must not write errors or usage itself.
@@ -134,11 +157,11 @@ func (s Shell) rootCommand() *cobra.Command {
 	renderHelp, renderUsage := root.HelpFunc(), root.UsageFunc()
 	root.SetHelpFunc(func(command *cobra.Command, args []string) {
 		fillRootPage(command)
-		renderHelp(command, args)
+		_ = s.renderPage(root, func() error { renderHelp(command, args); return nil })
 	})
 	root.SetUsageFunc(func(command *cobra.Command) error {
 		fillRootPage(command)
-		return renderUsage(command)
+		return s.renderPage(root, func() error { return renderUsage(command) })
 	})
 	root.SetOut(s.Streams.Out)
 	root.SetErr(s.Streams.Err)

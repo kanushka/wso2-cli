@@ -530,6 +530,7 @@ func (s Shell) moduleList() error {
 		return err
 	}
 	for _, line := range listSummary(statuses) {
+		line = output.Rename(line, output.NameOf(s.Streams.Out))
 		if _, err := fmt.Fprintln(s.Streams.Out, line); err != nil {
 			return err
 		}

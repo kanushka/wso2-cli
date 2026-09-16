@@ -373,6 +373,6 @@ func encodeConfigJSON(w io.Writer, value any) error {
 	if err != nil {
 		return fmt.Errorf("app: cannot encode the config result: %w", err)
 	}
-	_, err = fmt.Fprintf(w, "%s\n", encoded)
+	_, err = fmt.Fprintf(w, "%s\n", output.RenameJSON(encoded, output.NameOf(w)))
 	return err
 }

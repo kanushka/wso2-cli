@@ -23,6 +23,8 @@ package main
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/wso2/wso2-cli/internal/app"
 	"github.com/wso2/wso2-cli/internal/output"
@@ -32,6 +34,8 @@ func main() {
 	shell := app.Shell{
 		Streams: output.Streams{Out: os.Stdout, Err: os.Stderr},
 		Reader:  os.Stdin,
+		// Named after how it was invoked, so a ws symlink suggests ws commands.
+		Name: strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe"),
 	}
 	os.Exit(int(shell.Run(os.Args[1:])))
 }

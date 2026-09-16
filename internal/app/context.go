@@ -497,7 +497,8 @@ func (c contextDocumentReport) renderTable(w io.Writer) error {
 		return err
 	}
 	if !c.Written {
-		_, err := fmt.Fprintln(w, "\nNo context document has been written yet.\n\n"+contextSetupHint)
+		_, err := fmt.Fprintln(w, "\nNo context document has been written yet.\n\n"+
+			output.Rename(contextSetupHint, output.NameOf(w)))
 		return err
 	}
 	selected := c.DefaultContext
@@ -631,7 +632,7 @@ func encodeContextJSON(w io.Writer, value any) error {
 	if err != nil {
 		return fmt.Errorf("app: cannot encode the context result: %w", err)
 	}
-	_, err = fmt.Fprintf(w, "%s\n", encoded)
+	_, err = fmt.Fprintf(w, "%s\n", output.RenameJSON(encoded, output.NameOf(w)))
 	return err
 }
 

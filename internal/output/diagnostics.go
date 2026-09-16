@@ -33,7 +33,7 @@ import (
 // succeeded into a failure.
 func ModuleDiagnostics(w io.Writer, namespace string, lines []string, truncated bool) {
 	for _, line := range lines {
-		_, _ = fmt.Fprintf(w, "%s: %s\n", namespace, line)
+		_, _ = fmt.Fprintf(w, "%s: %s\n", namespace, Rename(line, NameOf(w)))
 	}
 	if truncated {
 		_, _ = fmt.Fprintf(w, "%s: further diagnostics were discarded because the module exceeded the shell's limit\n",

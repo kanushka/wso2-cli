@@ -52,6 +52,10 @@ type Shell struct {
 	StateRoot string
 	// Streams are the user-facing output destinations.
 	Streams output.Streams
+	// Name is the name the shell was invoked as, which every command the
+	// shell suggests is phrased with. cmd/wso2/main.go sets it from the
+	// process arguments; empty means output.DefaultName.
+	Name string
 	// OpenBrowser overrides how an interactive login opens the authorization
 	// URL. It is nil in production, which is the OS browser opener; a test uses
 	// it to drive a login without a display. It can only change how the URL is
@@ -110,6 +114,8 @@ func CommandNames() []string {
 
 // Run executes one invocation and returns the process exit code.
 func (s Shell) Run(args []string) exit.Code {
+	s.Streams.Out = output.Named(s.Streams.Out, s.Name)
+	s.Streams.Err = output.Named(s.Streams.Err, s.Name)
 	err := s.dispatch(args)
 	if err == nil {
 		return exit.OK
