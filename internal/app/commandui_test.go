@@ -93,6 +93,94 @@ func TestAMisspelledCommandSuggestsTheClosestOne(t *testing.T) {
 	}
 }
 
+// TestAMisspelledProductNamespaceSuggestsTheInstalledOne proves suggestions
+// reach across the boundary between shell commands and product namespaces,
+// which never enter Cobra's tree.
+func TestAMisspelledProductNamespaceSuggestsTheInstalledOne(t *testing.T) {
+	for _, test := range []struct{ typed, want string }{
+		{"refrence", "Did you mean `wso2 reference`?"},
+		{"ref", "Did you mean `wso2 reference`?"},
+		{"idenity", "Did you mean `wso2 identity`?"},
+		{"contxt", "Did you mean `wso2 context`?"},
+	} {
+		t.Run(test.typed, func(t *testing.T) {
+			shell, _, errOut := newShell(t)
+			installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+			installFixture(t, shell, fixture.Module{Namespace: "identity", Version: "0.1.0"})
+			// A namespace a built-in shadows is never offered.
+			installFixture(t, shell, fixture.Module{Namespace: "version", Version: "0.1.0"})
+
+			if code := shell.Run([]string{test.typed}); code != exit.Usage {
+				t.Fatalf("exit code = %d, want the usage class %d", code, exit.Usage)
+			}
+			if !strings.Contains(errOut.String(), test.want) {
+				t.Fatalf("stderr does not say %q:\n%s", test.want, errOut)
+			}
+		})
+	}
+}
+
+// TestAProductCommandTypedWithoutItsNamespaceSuggestsTheNamespace proves a
+// product's own command is found among every installed product's declared
+// tree, so a user who left out the namespace is told which one it belongs to.
+func TestAProductCommandTypedWithoutItsNamespaceSuggestsTheNamespace(t *testing.T) {
+	for _, test := range []struct{ typed, want, not string }{
+		{"status", "Did you mean `wso2 reference status`?", ""},
+		{"stauts", "Did you mean `wso2 reference status`?", ""},
+		// A close product command is not offered beside a close shell command.
+		{"vesion", "Did you mean `wso2 version`?", "wso2 reference versions"},
+	} {
+		t.Run(test.typed, func(t *testing.T) {
+			shell, _, errOut := newShell(t)
+			installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0",
+				CommandTree: commandtree.New([]commandtree.Command{
+					{Path: nil, Short: "Explore the reference product."},
+					{Path: []string{"status"}, Runnable: true},
+					{Path: []string{"versions"}, Runnable: true},
+					{Path: []string{"hidden"}, Runnable: true, Hidden: true},
+				})})
+
+			if code := shell.Run([]string{test.typed}); code != exit.Usage {
+				t.Fatalf("exit code = %d, want the usage class %d", code, exit.Usage)
+			}
+			if !strings.Contains(errOut.String(), test.want) {
+				t.Fatalf("stderr does not say %q:\n%s", test.want, errOut)
+			}
+			if test.not != "" && strings.Contains(errOut.String(), test.not) {
+				t.Fatalf("stderr offers %q:\n%s", test.not, errOut)
+			}
+		})
+	}
+}
+
+func TestAHiddenProductCommandIsNeverSuggested(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0",
+		CommandTree: commandtree.New([]commandtree.Command{
+			{Path: nil},
+			{Path: []string{"secret"}, Runnable: true, Hidden: true},
+		})})
+
+	if code := shell.Run([]string{"secret"}); code != exit.Usage {
+		t.Fatalf("exit code = %d, want the usage class %d", code, exit.Usage)
+	}
+	if strings.Contains(errOut.String(), "reference secret") {
+		t.Fatalf("stderr offers a hidden command:\n%s", errOut)
+	}
+}
+
+func TestANameFarFromEverythingSuggestsNothing(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+
+	if code := shell.Run([]string{"zzzzzz"}); code != exit.Usage {
+		t.Fatalf("exit code = %d, want the usage class %d", code, exit.Usage)
+	}
+	if strings.Contains(errOut.String(), "Did you mean") {
+		t.Fatalf("stderr suggests something for an unrelated name:\n%s", errOut)
+	}
+}
+
 // TestTheOutputFlagIsAcceptedInEverySpelling proves pflag's POSIX conventions
 // reach the user: the spelling a user habitually types is accepted rather than
 // mistaken for a command.

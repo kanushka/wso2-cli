@@ -255,7 +255,7 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 		if moved := movedCommand(namespace, args, nil); moved != nil {
 			return moved
 		}
-		return unknownNamespace(root, namespace)
+		return s.unknownNamespace(root, namespace, namespaces)
 	}
 
 	identity, err := s.identity()
@@ -331,14 +331,37 @@ func (s Shell) help(root *cobra.Command) error {
 // unknownNamespace reports a name that neither the shell nor any installed
 // module answers to. Dispatch and the help command refuse with it alike, so a
 // typo costs the same message whichever way it was asked about.
-func unknownNamespace(root *cobra.Command, namespace string) error {
+func (s Shell) unknownNamespace(root *cobra.Command, namespace string, namespaces []string) error {
 	recovery := "Run wso2 help to see the shell commands, or wso2 version to see the installed products."
-	if suggestion := suggestionFor(root, namespace); suggestion != "" {
+	if suggestion := suggestionFor(root, namespace, s.installedProducts(namespaces)); suggestion != "" {
 		recovery = suggestion + " " + recovery
 	}
 	return problem.New(problem.CategoryUsage, "shell.unknown_command",
 		fmt.Sprintf("%q is not a shell command and no installed product owns that namespace", namespace)).
 		WithRecovery(recovery)
+}
+
+// installedProducts reports every installed namespace with the commands its
+// verified receipt declares beneath it. A namespace whose receipt cannot be
+// read is still offered by name: a suggestion is not where that is diagnosed.
+func (s Shell) installedProducts(namespaces []string) []installedProduct {
+	declared := map[string][]string{}
+	if store, err := s.store(); err == nil {
+		if installed, _, err := store.Inventory(); err == nil {
+			for _, module := range installed {
+				for _, command := range parsetree.FromReceipt(module.Receipt).Commands() {
+					if len(command.Path) == 1 {
+						declared[module.Namespace] = append(declared[module.Namespace], command.Path[0])
+					}
+				}
+			}
+		}
+	}
+	products := make([]installedProduct, 0, len(namespaces))
+	for _, namespace := range namespaces {
+		products = append(products, installedProduct{namespace: namespace, commands: declared[namespace]})
+	}
+	return products
 }
 
 // helpTopic answers wso2 help and wso2 help <topic>, where a topic is a shell
@@ -383,7 +406,7 @@ func (s Shell) helpTopic(root *cobra.Command, args []string) error {
 		return err
 	}
 	if !slices.Contains(namespaces, namespace) {
-		return unknownNamespace(root, namespace)
+		return s.unknownNamespace(root, namespace, namespaces)
 	}
 	identity, err := s.identity()
 	if err != nil {

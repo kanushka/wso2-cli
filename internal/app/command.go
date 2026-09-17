@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -107,8 +108,8 @@ func (s Shell) rootCommand() *cobra.Command {
 		// A shell flag is accepted on either side of a command name.
 		TraverseChildren:      true,
 		DisableFlagsInUseLine: true,
-		// The shell offers its own suggestions, so that they can later cover
-		// resolved namespaces as well as built-in commands.
+		// The shell offers its own suggestions, so that they cover installed
+		// product namespaces as well as built-in commands (suggestionFor).
 		DisableSuggestions: true,
 		// SuggestionsFor is used directly, so the distance Cobra would default
 		// during Execute has to be set here.
@@ -745,10 +746,55 @@ func usageProblemWithRecovery(err error, recovery string) error {
 	return wrapped
 }
 
-// suggestionFor reports the shell command closest to an unrecognized name, so a
-// typo costs a keystroke rather than a search through the documentation.
-func suggestionFor(root *cobra.Command, name string) string {
+// installedProduct is what a suggestion can offer from one installed product:
+// its namespace and the commands its declared tree names directly beneath it.
+type installedProduct struct {
+	namespace string
+	commands  []string
+}
+
+// suggestionFor reports the shell commands, installed product namespaces, and
+// product commands closest to an unrecognized name, so a typo costs a
+// keystroke rather than a search through the documentation.
+//
+// Cobra suggests only the commands in its tree, and a namespace never enters
+// it, so installed namespaces are offered on the same terms beside them: within
+// the same distance, or starting with what was typed. A namespace a built-in
+// shadows is left out, because dispatch would never reach it.
+//
+// A product's own command is offered with its namespace in front, for the user
+// who typed it without one. One that matches exactly is always offered; one
+// that is only close is offered when nothing else is, because every product
+// has short command names and a near miss on each of them is noise.
+func suggestionFor(root *cobra.Command, name string, installed []installedProduct) string {
 	candidates := root.SuggestionsFor(name)
+	typed := strings.ToLower(name)
+	for _, product := range installed {
+		if isShellCommand(root, product.namespace) || slices.Contains(candidates, product.namespace) {
+			continue
+		}
+		if editDistance(typed, product.namespace) <= suggestionDistance || strings.HasPrefix(product.namespace, typed) {
+			candidates = append(candidates, product.namespace)
+		}
+	}
+	var exact, near []string
+	for _, product := range installed {
+		if isShellCommand(root, product.namespace) {
+			continue
+		}
+		for _, command := range product.commands {
+			switch distance := editDistance(typed, command); {
+			case distance == 0:
+				exact = append(exact, product.namespace+" "+command)
+			case distance <= suggestionDistance:
+				near = append(near, product.namespace+" "+command)
+			}
+		}
+	}
+	candidates = append(candidates, exact...)
+	if len(candidates) == 0 {
+		candidates = near
+	}
 	if len(candidates) == 0 {
 		return ""
 	}
