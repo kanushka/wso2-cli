@@ -36,7 +36,7 @@ func TestValidTitleRefusesWhatIsTooLongOrUnsafe(t *testing.T) {
 		"longer than MaxTitleLength": tooLong,
 		"invalid UTF-8":              "abc\xff",
 		"a control character":        "abc\x1b[31m",
-		"a bidi override":            "abc‮def",
+		"a bidi override":            "abc\u202edef",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if catalog.ValidTitle(title) {
@@ -57,8 +57,8 @@ func TestValidTitleAcceptsAnOrdinaryTitle(t *testing.T) {
 // generator refuses an unsafe title, but the shell prints what it was given,
 // and a copy that did not come from the generator reaches this path.
 func TestSanitizedTitleDropsWhatMakesATitleUnsafe(t *testing.T) {
-	got := catalog.SanitizedTitle("abc\x1bdef‮ghi")
-	if strings.ContainsAny(got, "\x1b‮") {
+	got := catalog.SanitizedTitle("abc\x1bdef\u202eghi")
+	if strings.ContainsAny(got, "\x1b\u202e") {
 		t.Errorf("SanitizedTitle(...) = %q, still carries an unsafe character", got)
 	}
 	if got != "abcdefghi" {

@@ -105,8 +105,10 @@ func TestAPipeReportsAFdButIsNotDrawable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("os.Pipe: %v", err)
 	}
-	defer r.Close()
-	defer w.Close()
+	t.Cleanup(func() {
+		_ = r.Close()
+		_ = w.Close()
+	})
 	out := fdWriter{Writer: w, fd: w.Fd()}
 	if Drawable(out) {
 		t.Error("a plain pipe is drawable")
@@ -118,8 +120,10 @@ func TestWidthFallsBackWhenTheDescriptorIsNotATerminal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("os.Pipe: %v", err)
 	}
-	defer r.Close()
-	defer w.Close()
+	t.Cleanup(func() {
+		_ = r.Close()
+		_ = w.Close()
+	})
 	p := formPrompter{out: fdWriter{Writer: w, fd: w.Fd()}}
 	if got := p.width(); got != defaultWidth {
 		t.Errorf("width() = %d, want the default %d", got, defaultWidth)

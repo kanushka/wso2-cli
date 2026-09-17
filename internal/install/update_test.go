@@ -525,7 +525,7 @@ func TestListReportsAnInstalledModuleAndAPublishedOne(t *testing.T) {
 	artifact := fmt.Sprintf(`{"os": "linux", "arch": "amd64",
 		"url": "https://origin.example/demo.tar.gz",
 		"size": %d, "sha256": %q}`, len(archive), hex.EncodeToString(digest[:]))
-	index := []byte(fmt.Sprintf(`{
+	index := []byte(`{
 		"schemaVersion": 1,
 		"modules": [
 			{"namespace": "demo", "path": "demo.json",
@@ -533,7 +533,7 @@ func TestListReportsAnInstalledModuleAndAPublishedOne(t *testing.T) {
 			{"namespace": "reference", "path": "reference.json",
 			 "channels": [{"channel": "stable", "version": "2.0.0"}]}
 		]
-	}`))
+	}`)
 	namespace := []byte(fmt.Sprintf(`{
 		"schemaVersion": 1,
 		"namespace": "demo",

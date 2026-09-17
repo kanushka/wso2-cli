@@ -23,6 +23,7 @@ import (
 
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/sdk/problem"
+	keyring "github.com/zalando/go-keyring"
 )
 
 // TestDocumentChangedDuringChangeCarriesTheBusyCode pins the code and
@@ -77,6 +78,7 @@ func TestExplainChangeRefusalRewritesOnlyTheGenericDocumentRecovery(t *testing.T
 // must refuse rather than clobber it, exactly the way two overlapping
 // invocations of the same command would collide in production.
 func TestWriteChangeRefusesWhenTheDocumentMovedBetweenEndingSessionsAndWriting(t *testing.T) {
+	keyring.MockInit()
 	root := t.TempDir()
 	document := contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
