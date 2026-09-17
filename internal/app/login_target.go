@@ -30,6 +30,13 @@ import (
 // WSO2-published public client that lets a cloud login ask nothing (#186).
 const cloudComingSoon = "WSO2 Cloud login is coming soon. Choose another product for now."
 
+// identityServerComingSoon is what picking WSO2 Identity Server says. The
+// login itself works — it is an issuer like any other, and --issuer reaches
+// it — but no module serves an Identity Server deployment, so a context
+// created through the wizard would have nothing to reach. The wizard offers
+// what a person can finish, and says why for what it does not.
+const identityServerComingSoon = "WSO2 Identity Server login is coming soon. Choose another product for now."
+
 // resolveLoginTarget decides which context a login without --url is about,
 // asking when the flags leave it open and something may ask (#186).
 //

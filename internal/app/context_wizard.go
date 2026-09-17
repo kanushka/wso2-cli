@@ -150,11 +150,13 @@ func (s Shell) askContextCreate(document contexts.Document, name string, flags c
 }
 
 // The identity products a context can sign in with, in the order the
-// wizard lists them.
+// wizard lists them: the two a login can be finished with first, then the
+// two that are coming soon, so the list a person reads down is the list of
+// answers before it is the list of products.
 const (
 	identityThunder = iota
-	identityServer
 	identityAsgardeo
+	identityServer
 	identityCloud
 )
 
@@ -169,8 +171,8 @@ func (s Shell) askLogin(flags *contextCreateFlags, installed []string,
 	lookup descriptorLookup) (*modules.ProductDescriptor, string, error) {
 	options := []wizard.Option{
 		identityThunder:  {Label: "Thunder"},
-		identityServer:   {Label: "WSO2 Identity Server"},
 		identityAsgardeo: {Label: "Asgardeo"},
+		identityServer:   {Label: "WSO2 Identity Server (coming soon)", Unavailable: identityServerComingSoon},
 		identityCloud:    {Label: "WSO2 Cloud (coming soon)", Unavailable: cloudComingSoon},
 	}
 	picked, err := s.choose("Sign in with:", options, identityThunder)

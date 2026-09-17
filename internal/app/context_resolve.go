@@ -292,11 +292,7 @@ func resolveProduct(namespace string, descriptor *modules.ProductDescriptor, spe
 		// context that logs in elsewhere, it would be reached as if that
 		// issuer were its own, which it is not.
 		if issuer := descriptor.Issuer(spec.URL); issuer != target.Login.Issuer {
-			return contexts.Product{}, problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
-				fmt.Sprintf("the %s product is a login provider with its own issuer, and the %q context "+
-					"logs in elsewhere", namespace, target.Name)).
-				WithRecovery(fmt.Sprintf("Create a context that logs in through it: wso2 context create "+
-					"<name> --login-product %s --url %s.", namespace, spec.URL))
+			return contexts.Product{}, loginProviderElsewhere(namespace, *descriptor, spec, target)
 		}
 		if product.Audience == "" {
 			product.Audience = descriptor.AudienceFor(target.Login.ClientID)
@@ -420,6 +416,56 @@ func productURL(flag, raw string) (string, error) {
 				"credential in the URL is never used. The value is not repeated here.")
 	}
 	return strings.TrimRight(raw, "/"), nil
+}
+
+// providerLabels is how each identity provider is named to a person, as its
+// own product names itself. A provider with no label here is shown by its
+// recorded name, which is the next best thing and never wrong.
+var providerLabels = map[string]string{
+	contexts.ProviderThunder:        "Thunder",
+	contexts.ProviderAsgardeo:       "Asgardeo",
+	contexts.ProviderIdentityServer: "WSO2 Identity Server",
+}
+
+// providerLabel names a provider to a person.
+func providerLabel(provider string) string {
+	if label := providerLabels[provider]; label != "" {
+		return label
+	}
+	if provider == "" {
+		return "another provider"
+	}
+	return provider
+}
+
+// providerServed reports whether any login-provider module this shell knows
+// of signs in at the named provider. Only Thunder does today, so a context
+// that signs in at Asgardeo or an Identity Server logs in and then finds no
+// product of that provider to reach. A product reached by its own grant is
+// a separate question, and this does not answer it. Extend this when a
+// module ships that fronts another provider, and the refusal below stops
+// naming it.
+func providerServed(provider string) bool {
+	return provider == contexts.ProviderThunder
+}
+
+// loginProviderElsewhere refuses a login provider recorded on a context that
+// signs in somewhere else. Naming both providers is what separates the two
+// ways to arrive here: a URL typed wrong, which the recovery's create line
+// fixes, and a context whose provider has no module at all, where there is no
+// URL to correct and the search should stop.
+func loginProviderElsewhere(namespace string, descriptor modules.ProductDescriptor, spec productSpec,
+	target contexts.Context) problem.Problem {
+	recovery := fmt.Sprintf("Create a context that signs in through %s: wso2 context create <name> "+
+		"--login-product %s --url %s.", providerLabel(descriptor.Provider), namespace, spec.URL)
+	if !providerServed(target.Login.Provider) {
+		recovery = fmt.Sprintf("No module serves %s yet. ", providerLabel(target.Login.Provider)) + recovery
+	}
+	return problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
+		fmt.Sprintf("the %s product signs in at its own %s issuer, and the %q context signs in at %s",
+			namespace, providerLabel(descriptor.Provider), target.Name,
+			providerLabel(target.Login.Provider))).
+		WithRecovery(recovery)
 }
 
 // machineNotAccepted refuses a product a client-credentials context cannot

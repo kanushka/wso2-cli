@@ -64,7 +64,7 @@ func TestContextCreateWizardWritesWhatTheCommandLinesWrite(t *testing.T) {
 		gotJSON, _ := json.MarshalIndent(got, "", "  ")
 		t.Fatalf("the wizard wrote\n%s\nthe command lines wrote\n%s", gotJSON, wantJSON)
 	}
-	for _, question := range []string{"Sign in with:", "1. Thunder", "2. WSO2 Identity Server", "3. Asgardeo",
+	for _, question := range []string{"Sign in with:", "1. Thunder", "2. Asgardeo", "3. WSO2 Identity Server (coming soon)",
 		"4. WSO2 Cloud (coming soon)", "Thunder URL: ", "Sign in using:",
 		"2. A code approved on another device (no browser here) (coming soon)",
 		"Device sign-in with Thunder is coming soon.", "Add a product this context reaches:",
@@ -108,12 +108,17 @@ func TestContextCreateWizardAsksOnlyWhatTheFlagsLeaveOut(t *testing.T) {
 	}
 }
 
-func TestContextCreateWizardThroughIdentityServer(t *testing.T) {
+// The two identity products the wizard lists but cannot sign in with yet are
+// refused where they are picked, so the question comes back rather than the
+// wizard walking a path that has nowhere to end. What the person then picks
+// is Asgardeo, which is a login this shell does serve.
+func TestContextCreateWizardRefusesTheProductsThatAreComingSoon(t *testing.T) {
 	shell, _, _ := newContextShell(t)
 	shell.Reader = strings.NewReader("" +
 		"4\n" + // Sign in with: WSO2 Cloud, refused
-		"2\n" + // Sign in with: Identity Server
-		"https://idp.corp.example/\n" + // its URL; the issuer path is added
+		"3\n" + // Sign in with: WSO2 Identity Server, refused
+		"2\n" + // Sign in with: Asgardeo
+		"acme\n" + // its organization
 		"cli\n" + // client ID
 		"3\n" + // Sign in using: client credentials
 		"not a name\n" + // refused
@@ -124,18 +129,22 @@ func TestContextCreateWizardThroughIdentityServer(t *testing.T) {
 	if code != exit.OK {
 		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, errOut)
 	}
-	for _, want := range []string{"WSO2 Cloud login is coming soon.", "Identity Server URL (e.g. https://localhost:9443): ", "not the secret"} {
+	for _, want := range []string{"3. WSO2 Identity Server (coming soon)", "WSO2 Cloud login is coming soon.",
+		"WSO2 Identity Server login is coming soon.", "Asgardeo organization name: ", "not the secret"} {
 		if !strings.Contains(errOut, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, errOut)
 		}
+	}
+	if strings.Contains(errOut, "Identity Server URL") {
+		t.Errorf("asked for an Identity Server URL after refusing it:\n%s", errOut)
 	}
 	if strings.Contains(errOut, "Log in now?") {
 		t.Errorf("offered a login to a client-credentials context:\n%s", errOut)
 	}
 	document := loadDocument(t, shell)
 	corp := contextNamed(t, document, "corp")
-	want := contexts.Login{Kind: contexts.KindClientCredentials, Issuer: "https://idp.corp.example/oauth2/token",
-		ClientID: "cli", Provider: contexts.ProviderIdentityServer, ClientSecretVariable: "CI_SECRET"}
+	want := contexts.Login{Kind: contexts.KindClientCredentials, Issuer: "https://api.asgardeo.io/t/acme/oauth2/token",
+		ClientID: "cli", Tenant: "acme", Provider: contexts.ProviderAsgardeo, ClientSecretVariable: "CI_SECRET"}
 	if corp.Login != want || len(corp.Products) != 0 || document.DefaultContext != "" {
 		t.Errorf("context = %+v, selected %q", corp, document.DefaultContext)
 	}
@@ -283,7 +292,7 @@ func TestContextCreateWizardThroughAsgardeo(t *testing.T) {
 	shell, _, _ := newContextShell(t)
 	// Asgardeo, a refused organization name, its name, the client, a browser,
 	// skip products, the name, create, select, and no login now.
-	shell.Reader = strings.NewReader("3\nacme corp\nacme\ncli\n\n3\nacme\n\n\nn\n")
+	shell.Reader = strings.NewReader("2\nacme corp\nacme\ncli\n\n3\nacme\n\n\nn\n")
 	code, out, errOut := run(t, shell, "context", "create")
 	if code != exit.OK {
 		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, errOut)

@@ -80,10 +80,11 @@ assign the user to it. Console changes apply at the next login.
 
 ## 6. Create the context
 
-Run `wso2 context create` with no flags to answer prompts: choose
-**WSO2 Identity Server**, then enter the server URL and client ID.
-
-Or pass flags:
+The `wso2 context create` wizard lists **WSO2 Identity Server (coming soon)**
+and refuses it: no WSO2 product the CLI installs signs in at an Identity
+Server, so the wizard offers no path that ends anywhere. The `reference`
+product here is reached by its own grant rather than by being an Identity
+Server product, which is why the flags still work:
 
 ```sh
 wso2 context create is-local \
