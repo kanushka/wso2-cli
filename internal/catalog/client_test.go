@@ -297,3 +297,149 @@ func TestShortCauseNamesADNSFailure(t *testing.T) {
 		t.Errorf("shortCause(lookup failure) = %q, want %q", got, want)
 	}
 }
+
+// TestModuleReportsTheIndexEntryForANamespace and
+// TestModuleRefusesAnUnknownNamespace pin Index.Module: the lookup Select's
+// caller uses to turn a namespace into the entry it needs.
+func TestModuleReportsTheIndexEntryForANamespace(t *testing.T) {
+	index := Index{Modules: []IndexModule{{Namespace: "reference", Path: "modules/reference.json"}}}
+	entry, err := index.Module("reference")
+	if err != nil {
+		t.Fatalf("Module returned %v", err)
+	}
+	if entry.Path != "modules/reference.json" {
+		t.Errorf("Module returned %+v, want the reference entry", entry)
+	}
+}
+
+func TestModuleRefusesAnUnknownNamespace(t *testing.T) {
+	index := Index{Modules: []IndexModule{{Namespace: "reference"}}}
+	_, err := index.Module("nosuch")
+	var typed problem.Problem
+	if !errors.As(err, &typed) || typed.Code != "catalog.unknown_module" {
+		t.Fatalf("err = %v, want a catalog.unknown_module problem", err)
+	}
+}
+
+// TestNamespaceReadsTheHistoryFileTheIndexPointsAt pins the happy path of
+// Client.Namespace: it reads the path the index entry names and checks the
+// document agrees with the entry about which namespace it is.
+func TestNamespaceReadsTheHistoryFileTheIndexPointsAt(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/modules/reference.json" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"schemaVersion":1,"namespace":"reference","versions":[]}`))
+	}))
+	defer server.Close()
+
+	client := Client{Origin: server.URL, HTTP: server.Client()}
+	file, err := client.Namespace(context.Background(),
+		IndexModule{Namespace: "reference", Path: "modules/reference.json"})
+	if err != nil {
+		t.Fatalf("Namespace returned %v", err)
+	}
+	if file.Namespace != "reference" {
+		t.Errorf("Namespace = %q, want reference", file.Namespace)
+	}
+}
+
+// TestNamespaceRefusesADisagreeingDocument pins the trust check: a namespace
+// file that names a different namespace than the index entry pointed at it
+// is refused rather than trusted.
+func TestNamespaceRefusesADisagreeingDocument(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"schemaVersion":1,"namespace":"other","versions":[]}`))
+	}))
+	defer server.Close()
+
+	client := Client{Origin: server.URL, HTTP: server.Client()}
+	_, err := client.Namespace(context.Background(),
+		IndexModule{Namespace: "reference", Path: "modules/reference.json"})
+	var typed problem.Problem
+	if !errors.As(err, &typed) || typed.Code != "catalog.namespace_mismatch" {
+		t.Fatalf("err = %v, want a catalog.namespace_mismatch problem", err)
+	}
+}
+
+// TestNamespaceRefusesAnEscapingPath pins that Namespace checks the entry's
+// path before ever making a request, so an index that named a path outside
+// the origin cannot make the shell fetch it.
+func TestNamespaceRefusesAnEscapingPath(t *testing.T) {
+	client := Client{Origin: "https://origin.example"}
+	_, err := client.Namespace(context.Background(),
+		IndexModule{Namespace: "reference", Path: "../escaping.json"})
+	var typed problem.Problem
+	if !errors.As(err, &typed) || typed.Code != "catalog.malformed_path" {
+		t.Fatalf("err = %v, want a catalog.malformed_path problem", err)
+	}
+}
+
+// TestValidPublishedPathRefusesEveryWayOutOfTheOrigin pins validPublishedPath
+// directly: an absolute path, a URL, a Windows-style separator and a
+// traversal element are all refused, and an ordinary relative path is not.
+func TestValidPublishedPathRefusesEveryWayOutOfTheOrigin(t *testing.T) {
+	for _, published := range []string{
+		"", "/absolute.json", "https://elsewhere.example/x.json",
+		"modules\\reference.json", "../escaping.json", "modules/../escaping.json", "modules/./x.json",
+	} {
+		if err := validPublishedPath(published); err == nil {
+			t.Errorf("validPublishedPath(%q) succeeded, want a refusal", published)
+		}
+	}
+	if err := validPublishedPath("modules/reference.json"); err != nil {
+		t.Errorf("validPublishedPath on an ordinary path returned %v", err)
+	}
+}
+
+// TestUnreadableNamesTheDocumentAndTheCause and
+// TestSchemaUnsupportedNamesBothVersions pin the two typed problems Index and
+// Namespace construct once a document has actually been read.
+func TestUnreadableNamesTheDocumentAndTheCause(t *testing.T) {
+	typed := unreadable("index.json", errors.New("unexpected end of JSON input"))
+	if typed.Code != "catalog.unreadable" {
+		t.Errorf("code = %q, want catalog.unreadable", typed.Code)
+	}
+	if !strings.Contains(typed.Message, "index.json") {
+		t.Errorf("message does not name the document: %q", typed.Message)
+	}
+}
+
+func TestSchemaUnsupportedNamesBothVersions(t *testing.T) {
+	typed := schemaUnsupported("index.json", 7)
+	if typed.Code != "catalog.schema_unsupported" {
+		t.Errorf("code = %q, want catalog.schema_unsupported", typed.Code)
+	}
+	if !strings.Contains(typed.Message, "7") {
+		t.Errorf("message does not name the unsupported schema version: %q", typed.Message)
+	}
+}
+
+// TestOriginConfiguredReportsWhetherThePreferenceChoseIt pins
+// OriginConfigured against the same three-layer precedence Origin itself
+// resolves, so a caller deciding what a request failure should blame can ask
+// this without re-deriving the origin.
+func TestOriginConfiguredReportsWhetherThePreferenceChoseIt(t *testing.T) {
+	root := t.TempDir()
+	if OriginConfigured(root) {
+		t.Error("OriginConfigured on an empty state root = true, want false")
+	}
+	setCatalogOrigin(t, root, "https://configured.example")
+	if !OriginConfigured(root) {
+		t.Error("OriginConfigured after setting the preference = false, want true")
+	}
+}
+
+// TestValidArtifactURLRefusesANonHTTPScheme pins the branch
+// TestDownloadRefusesAnArchiveOverTheByteLimit and friends do not reach: a
+// URL naming a local file or an unknown scheme.
+func TestValidArtifactURLRefusesANonHTTPScheme(t *testing.T) {
+	for _, artifactURL := range []string{"file:///etc/passwd", "not-a-url", "ftp://example/a.tar.gz", ""} {
+		if err := validArtifactURL(artifactURL); err == nil {
+			t.Errorf("validArtifactURL(%q) succeeded, want a refusal", artifactURL)
+		}
+	}
+}

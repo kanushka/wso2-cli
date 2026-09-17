@@ -17,9 +17,16 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
+
+	"github.com/wso2/wso2-cli/internal/contexts"
+	"github.com/wso2/wso2-cli/internal/state"
 )
 
 // TestProductWordsStepOverTheRootFlags pins where completion finds the product
@@ -45,6 +52,10 @@ func TestProductWordsStepOverTheRootFlags(t *testing.T) {
 		{"--output", "", ""},
 		{"-x api", "api", ""},
 		{"-- api", "", ""},
+		// An unknown root flag is not stepped over as though it took a value
+		// (rootFlagTakesValue finding no candidate flag at all), so the word
+		// after it is read as the namespace instead of api.
+		{"--nosuch x api", "x", "api"},
 	} {
 		t.Run(test.words, func(t *testing.T) {
 			namespace, rest, found := productWords(root, strings.Fields(test.words))
@@ -55,5 +66,61 @@ func TestProductWordsStepOverTheRootFlags(t *testing.T) {
 				t.Fatalf("rest = %q, want %q", rest, want)
 			}
 		})
+	}
+}
+
+// TestCompleteFirstContextNameOffersNothingForASecondArgument proves the
+// completion registered for a command whose first argument names a context
+// (and takes nothing after it) stops offering context names once that
+// argument is already there.
+func TestCompleteFirstContextNameOffersNothingForASecondArgument(t *testing.T) {
+	completions, directive := Shell{}.completeFirstContextName(nil, []string{"already"}, "")
+	if completions != nil {
+		t.Errorf("completions = %v, want none for a second argument", completions)
+	}
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("directive = %v, want ShellCompDirectiveNoFileComp", directive)
+	}
+}
+
+// TestCompletionOffersNothingWithAnUnresolvableStateRoot proves that
+// completeNamespaces and completeContextNames degrade to no completions,
+// rather than failing, when the state root cannot even be resolved:
+// completion is not where a broken environment gets reported.
+func TestCompletionOffersNothingWithAnUnresolvableStateRoot(t *testing.T) {
+	t.Setenv(state.RootEnvVar, "relative/not-absolute")
+	shell := Shell{}
+	root := shell.rootCommand()
+
+	if got := shell.completeNamespaces(root, ""); got != nil {
+		t.Errorf("completeNamespaces = %v, want none", got)
+	}
+	completions, directive := shell.completeContextNames(nil, nil, "")
+	if completions != nil {
+		t.Errorf("completeContextNames = %v, want none", completions)
+	}
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("directive = %v, want ShellCompDirectiveNoFileComp", directive)
+	}
+}
+
+// TestCompleteContextNamesOffersNothingForAMalformedDocument proves that a
+// context document this shell cannot decode offers no completions, the same
+// way an unresolvable state root does, rather than failing the completion.
+func TestCompleteContextNamesOffersNothingForAMalformedDocument(t *testing.T) {
+	shell := Shell{StateRoot: t.TempDir()}
+	path := contexts.Path(shell.StateRoot)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{not valid json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	completions, directive := shell.completeContextNames(nil, nil, "")
+	if completions != nil {
+		t.Errorf("completions = %v, want none for a malformed document", completions)
+	}
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("directive = %v, want ShellCompDirectiveNoFileComp", directive)
 	}
 }

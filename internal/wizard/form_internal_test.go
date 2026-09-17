@@ -19,6 +19,7 @@ package wizard
 import (
 	"bytes"
 	"io"
+	"os"
 	"testing"
 )
 
@@ -84,5 +85,47 @@ func TestOnlyASizedTerminalIsDrawable(t *testing.T) {
 	var out bytes.Buffer
 	if Drawable(&out) {
 		t.Error("a buffer is drawable")
+	}
+}
+
+// fdWriter is an io.Writer that also reports a file descriptor, the way
+// *os.File does, without being a terminal. It exercises the branch of
+// Drawable and width that gets as far as asking the descriptor's size,
+// which term.GetSize refuses for a plain pipe the way it would for
+// anything that is not a terminal device.
+type fdWriter struct {
+	io.Writer
+	fd uintptr
+}
+
+func (f fdWriter) Fd() uintptr { return f.fd }
+
+func TestAPipeReportsAFdButIsNotDrawable(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = r.Close()
+		_ = w.Close()
+	})
+	out := fdWriter{Writer: w, fd: w.Fd()}
+	if Drawable(out) {
+		t.Error("a plain pipe is drawable")
+	}
+}
+
+func TestWidthFallsBackWhenTheDescriptorIsNotATerminal(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = r.Close()
+		_ = w.Close()
+	})
+	p := formPrompter{out: fdWriter{Writer: w, fd: w.Fd()}}
+	if got := p.width(); got != defaultWidth {
+		t.Errorf("width() = %d, want the default %d", got, defaultWidth)
 	}
 }

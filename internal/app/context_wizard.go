@@ -69,10 +69,10 @@ type productAnswer struct {
 	namespace, url, gateway, clientID string
 }
 
-// installedProducts is every installed product that declares a descriptor,
+// wizardProducts is every installed product that declares a descriptor,
 // by namespace, with the lookup that reads them. It is best effort, like the
 // lookup: a store that cannot be read offers nothing.
-func (s Shell) installedProducts() ([]string, descriptorLookup) {
+func (s Shell) wizardProducts() ([]string, descriptorLookup) {
 	lookup := s.installedDescriptors()
 	store, err := s.store()
 	if err != nil {
@@ -100,7 +100,7 @@ func (s Shell) installedProducts() ([]string, descriptorLookup) {
 func (s Shell) askContextCreate(document contexts.Document, name string, flags contextCreateFlags,
 	offerMore, offerLogin bool) (contextAnswers, error) {
 	answers := contextAnswers{name: name, flags: flags}
-	installed, lookup := s.installedProducts()
+	installed, lookup := s.wizardProducts()
 	descriptor, provider, err := s.askLogin(&answers.flags, installed, lookup)
 	answers.provider = provider
 	if err != nil {
@@ -111,7 +111,7 @@ func (s Shell) askContextCreate(document contexts.Document, name string, flags c
 	}
 	if offerMore {
 		// The login product may have been installed just now.
-		installed, lookup = s.installedProducts()
+		installed, lookup = s.wizardProducts()
 		answers.products, err = s.askProducts(installed, lookup, answers.flags.loginProduct)
 		if err != nil {
 			return answers, err
@@ -599,7 +599,7 @@ func (s Shell) setUpContext(command *cobra.Command, name string, flags contextCr
 // askProductAdd asks which product to add, and where it runs, for a
 // wso2 context product add that named neither.
 func (s Shell) askProductAdd(namespace string, recorded map[string]contexts.Product) (productAnswer, error) {
-	installed, lookup := s.installedProducts()
+	installed, lookup := s.wizardProducts()
 	if namespace == "" {
 		installed = reachable(installed, lookup, recorded)
 		if len(installed) == 0 {

@@ -17,6 +17,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -221,6 +222,53 @@ func TestAnUnreachableServiceBecomesAProductServiceProblem(t *testing.T) {
 	}
 }
 
+func TestANotServedEndpointBecomesADistinctProblem(t *testing.T) {
+	// The host answered and does not serve the path: retrying cannot change
+	// that, so this must be reported apart from a service that merely failed.
+	service, _ := statusService(t, http.StatusNotFound, "")
+
+	outcome := runCall(t, service.URL, granted())
+
+	failure := terminalProblem(t, outcome)
+	if failure.Category != problem.CategoryProductService {
+		t.Errorf("category is %q, want %q", failure.Category, problem.CategoryProductService)
+	}
+	if failure.Code != "reference.status_not_served" {
+		t.Errorf("code is %q, want reference.status_not_served", failure.Code)
+	}
+	if !strings.Contains(failure.Recovery, "Retrying will not change this answer.") {
+		t.Errorf("recovery %q does not say retrying is futile", failure.Recovery)
+	}
+}
+
+func TestAServiceThatAnswersWithSomethingUnreadableBecomesAProductServiceProblem(t *testing.T) {
+	service, _ := statusService(t, http.StatusOK, "not json")
+
+	outcome := runCall(t, service.URL, granted())
+
+	failure := terminalProblem(t, outcome)
+	if failure.Category != problem.CategoryProductService {
+		t.Errorf("category is %q, want %q", failure.Category, problem.CategoryProductService)
+	}
+	if failure.Code != "reference.status_unavailable" {
+		t.Errorf("code is %q, want reference.status_unavailable", failure.Code)
+	}
+	if strings.Contains(failure.Recovery, "Retry the command.") {
+		t.Errorf("an unreadable answer offers retry as recovery: %q", failure.Recovery)
+	}
+}
+
+func TestAServiceThatAnswersWithoutAStatusBecomesAProductServiceProblem(t *testing.T) {
+	service, _ := statusService(t, http.StatusOK, `{"organization":"reference-org","service":"reference"}`)
+
+	outcome := runCall(t, service.URL, granted())
+
+	failure := terminalProblem(t, outcome)
+	if failure.Code != "reference.status_unavailable" {
+		t.Errorf("code is %q, want reference.status_unavailable", failure.Code)
+	}
+}
+
 func TestAContextWithNoEndpointCannotBeCalled(t *testing.T) {
 	outcome := runCall(t, "", granted())
 
@@ -328,6 +376,34 @@ func TestStatusReportsARefusalAsAResultRatherThanAFailure(t *testing.T) {
 	}
 	if fields["audience"] != "" || fields["scopes"] != "" {
 		t.Errorf("a refusal claims granted access: %+v", fields)
+	}
+}
+
+func TestStatusReportsARefusalWhoseErrorIsNotTheShellsTypedProblem(t *testing.T) {
+	// Access.Acquire returns a plain error, not a problem.Problem, when the
+	// context is already done: this is the one path that exercises status's
+	// fallback branch, which reports err.Error() verbatim because there is no
+	// typed problem to relay.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	outcome := testkit.Run(ctx, moduleOptions(), commandTree().Commands(),
+		testkit.Invocation{
+			Command:      []string{"status"},
+			InvocationID: invocationID,
+			Context: module.Context{
+				Name:           "reference-local",
+				OrganizationID: "reference-org",
+			},
+			Access: granted(),
+		})
+
+	fields := fieldsOf(t, outcome)
+	if fields["access"] != "refused" {
+		t.Errorf("access = %q, want %q", fields["access"], "refused")
+	}
+	if fields["reason"] == "" {
+		t.Error("a refusal carries no reason")
 	}
 }
 

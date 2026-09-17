@@ -64,6 +64,14 @@ func TestLabelFallsBackToTheFieldName(t *testing.T) {
 	}
 }
 
+func TestLabelIsUsedWhenTheFieldDeclaresOne(t *testing.T) {
+	built := result.New("reference.status/v1").With("checkedAt", "Checked at", "2026-07-27T00:00:00Z")
+
+	if got := built.Fields[0].DisplayLabel(); got != "Checked at" {
+		t.Errorf("a field with a label displays as %q, want %q", got, "Checked at")
+	}
+}
+
 func TestValidateRejectsResultsTheShellCouldNotRender(t *testing.T) {
 	tests := map[string]result.Result{
 		"no schema": {Fields: []result.Field{{Name: "status", Value: "operational"}}},
@@ -94,5 +102,108 @@ func TestValidateAcceptsAWellFormedResult(t *testing.T) {
 
 	if err := built.Validate(); err != nil {
 		t.Errorf("Validate rejected a well-formed result: %v", err)
+	}
+}
+
+func TestColumnDisplayLabelFallsBackToTheColumnName(t *testing.T) {
+	unlabeled := result.Column{Name: "status"}
+	if got := unlabeled.DisplayLabel(); got != "status" {
+		t.Errorf("a column with no label displays as %q, want its name", got)
+	}
+
+	labeled := result.Column{Name: "status", Label: "Status"}
+	if got := labeled.DisplayLabel(); got != "Status" {
+		t.Errorf("a labeled column displays as %q, want %q", got, "Status")
+	}
+}
+
+func TestWithColumnAppendsInDeclaredOrder(t *testing.T) {
+	built := result.New("reference.services/v1").
+		WithColumn("name", "Name").
+		WithColumn("status", "Status")
+
+	if len(built.Columns) != 2 {
+		t.Fatalf("built %d columns, want 2", len(built.Columns))
+	}
+	if built.Columns[0].Name != "name" || built.Columns[1].Name != "status" {
+		t.Errorf("columns are %v, want name then status", built.Columns)
+	}
+}
+
+func TestWithColumnDoesNotMutateTheReceiver(t *testing.T) {
+	base := result.New("reference.services/v1").WithColumn("name", "Name")
+
+	derived := base.WithColumn("status", "Status")
+
+	if len(base.Columns) != 1 {
+		t.Fatalf("the base result grew to %d columns; WithColumn must copy", len(base.Columns))
+	}
+	if len(derived.Columns) != 2 {
+		t.Fatalf("derived result has %d columns, want 2", len(derived.Columns))
+	}
+}
+
+func TestWithRowAppendsAndCopiesItsValues(t *testing.T) {
+	base := result.New("reference.services/v1").
+		WithColumn("name", "Name").
+		WithColumn("status", "Status").
+		WithRow("reference", "operational")
+
+	derived := base.WithRow("gateway", "degraded")
+
+	if len(base.Rows) != 1 {
+		t.Fatalf("the base result grew to %d rows; WithRow must copy", len(base.Rows))
+	}
+	if len(derived.Rows) != 2 {
+		t.Fatalf("derived result has %d rows, want 2", len(derived.Rows))
+	}
+	if got := derived.Rows[1].Values; len(got) != 2 || got[0] != "gateway" || got[1] != "degraded" {
+		t.Errorf("second row is %v, want [gateway degraded]", got)
+	}
+}
+
+func TestValidateAcceptsAWellFormedListing(t *testing.T) {
+	built := result.New("reference.services/v1").
+		With("organization", "Organization", "acme").
+		WithColumn("name", "Name").
+		WithColumn("status", "Status").
+		WithRow("reference", "operational").
+		WithRow("gateway", "degraded")
+
+	if err := built.Validate(); err != nil {
+		t.Errorf("Validate rejected a well-formed listing: %v", err)
+	}
+}
+
+func TestValidateRejectsListingsTheShellCouldNotRenderAsATable(t *testing.T) {
+	base := func() result.Result {
+		return result.New("reference.services/v1").With("organization", "Organization", "acme")
+	}
+
+	tests := map[string]result.Result{
+		"rows with no declared columns": func() result.Result {
+			built := base()
+			built.Rows = []result.Row{{Values: []string{"reference"}}}
+			return built
+		}(),
+		"unnamed column": base().WithColumn("", "Name"),
+		"duplicate column name": base().
+			WithColumn("name", "Name").
+			WithColumn("name", "Name again"),
+		"row with too few values": base().
+			WithColumn("name", "Name").
+			WithColumn("status", "Status").
+			WithRow("reference"),
+		"row with too many values": base().
+			WithColumn("name", "Name").
+			WithRow("reference", "operational"),
+	}
+
+	for name, invalid := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := invalid.Validate(); err == nil {
+				t.Error("Validate accepted a listing the shell could not render as a table")
+			}
+		})
 	}
 }

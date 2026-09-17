@@ -320,3 +320,67 @@ func TestWriteIsRepeatable(t *testing.T) {
 		}
 	}
 }
+
+// TestPublishesReportsWhetherAChannelHasARelease pins IndexModule.Publishes,
+// which a command asks before offering --channel as a choice: a channel with
+// no release is not worth offering.
+func TestPublishesReportsWhetherAChannelHasARelease(t *testing.T) {
+	module := catalog.IndexModule{
+		Namespace: "reference",
+		Channels:  []catalog.IndexChannel{{Channel: catalog.ChannelStable, Version: "1.0.0"}},
+	}
+	if !module.Publishes(catalog.ChannelStable) {
+		t.Error("Publishes(stable) = false, want true")
+	}
+	if module.Publishes(catalog.ChannelPrerelease) {
+		t.Error("Publishes(prerelease) = true, want false: nothing was published there")
+	}
+}
+
+// TestWriteOverAnAbsentModulesDirectoryCreatesIt pins the other side of
+// pruneNamespaceFiles: a site directory with no modules subdirectory yet is
+// not an error, since a first generation has nothing stale to prune.
+func TestWriteOverAnAbsentModulesDirectoryCreatesIt(t *testing.T) {
+	generated := catalog.Catalog{Index: catalog.Index{SchemaVersion: catalog.SchemaVersion, Modules: []catalog.IndexModule{}}}
+	directory := t.TempDir()
+	if err := catalog.Write(directory, generated); err != nil {
+		t.Fatalf("writing an empty catalog into a fresh directory returned %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, "index.json")); err != nil {
+		t.Errorf("the index was not written: %v", err)
+	}
+}
+
+// TestDiscoverRefusesAModuleDeclarationThatIsNotReadableJSON pins
+// readDeclaration's failure path through Discover: a module directory whose
+// declaration is not valid JSON must fail generation rather than being
+// silently skipped, which would publish a catalog with a namespace missing
+// from it for a reason nobody could see.
+func TestDiscoverRefusesAModuleDeclarationThatIsNotReadableJSON(t *testing.T) {
+	root := t.TempDir()
+	moduleDir := filepath.Join(root, "modules", "broken")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatalf("creating the module directory returned %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(moduleDir, catalog.DeclarationFileName),
+		[]byte("{not json"), 0o644); err != nil {
+		t.Fatalf("writing the malformed declaration returned %v", err)
+	}
+
+	if _, err := catalog.Discover(root); err == nil {
+		t.Fatal("Discover over a malformed declaration succeeded, want a refusal")
+	}
+}
+
+// TestDiscoverOverARepositoryWithNoModulesDirectoryReportsNone pins that a
+// repository with no modules/ directory at all is a catalog with no product
+// namespaces, not an error.
+func TestDiscoverOverARepositoryWithNoModulesDirectoryReportsNone(t *testing.T) {
+	declarations, err := catalog.Discover(t.TempDir())
+	if err != nil {
+		t.Fatalf("Discover returned %v", err)
+	}
+	if len(declarations) != 0 {
+		t.Errorf("Discover = %v, want none", declarations)
+	}
+}
