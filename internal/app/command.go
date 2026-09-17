@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -107,8 +108,8 @@ func (s Shell) rootCommand() *cobra.Command {
 		// A shell flag is accepted on either side of a command name.
 		TraverseChildren:      true,
 		DisableFlagsInUseLine: true,
-		// The shell offers its own suggestions, so that they can later cover
-		// resolved namespaces as well as built-in commands.
+		// The shell offers its own suggestions, so that they cover installed
+		// product namespaces as well as built-in commands (suggestionFor).
 		DisableSuggestions: true,
 		// SuggestionsFor is used directly, so the distance Cobra would default
 		// during Execute has to be set here.
@@ -127,11 +128,6 @@ func (s Shell) rootCommand() *cobra.Command {
 				forwardToNamespace(command, args[1:]))
 		},
 	}
-	// Completion is deliberately absent. Until a module declares its command
-	// tree, a generated completion would know every built-in and no product
-	// command, which reads as "that command does not exist" rather than as
-	// missing information.
-	root.CompletionOptions.DisableDefaultCmd = true
 	// Only a flag-parsing failure becomes a usage problem. Cobra reports one
 	// through this hook, so wrapping here keeps every other error a command
 	// returns — an unwritable stream, a failed lookup — classified as what it
@@ -200,7 +196,16 @@ func (s Shell) rootCommand() *cobra.Command {
 	// answers a product namespace from its declaration and refuses an unknown
 	// name the way dispatch does.
 	root.InitDefaultHelpCmd()
+
+	// Completion covers product commands as well as built-ins, because every
+	// module declares its command tree in its receipt (completion.go). The
+	// command is added here rather than by Execute so that dispatch finds it
+	// among the shell's own commands.
+	root.InitDefaultCompletionCmd()
 	for _, command := range root.Commands() {
+		if command.Name() == "completion" {
+			command.Short = "Write the tab completion script for a shell."
+		}
 		if command.Name() == "help" {
 			command.Short = "Show the shell command tree."
 			command.Run = nil
@@ -742,10 +747,55 @@ func usageProblemWithRecovery(err error, recovery string) error {
 	return wrapped
 }
 
-// suggestionFor reports the shell command closest to an unrecognized name, so a
-// typo costs a keystroke rather than a search through the documentation.
-func suggestionFor(root *cobra.Command, name string) string {
+// installedProduct is what a suggestion can offer from one installed product:
+// its namespace and the commands its declared tree names directly beneath it.
+type installedProduct struct {
+	namespace string
+	commands  []string
+}
+
+// suggestionFor reports the shell commands, installed product namespaces, and
+// product commands closest to an unrecognized name, so a typo costs a
+// keystroke rather than a search through the documentation.
+//
+// Cobra suggests only the commands in its tree, and a namespace never enters
+// it, so installed namespaces are offered on the same terms beside them: within
+// the same distance, or starting with what was typed. A namespace a built-in
+// shadows is left out, because dispatch would never reach it.
+//
+// A product's own command is offered with its namespace in front, for the user
+// who typed it without one. One that matches exactly is always offered; one
+// that is only close is offered when nothing else is, because every product
+// has short command names and a near miss on each of them is noise.
+func suggestionFor(root *cobra.Command, name string, installed []installedProduct) string {
 	candidates := root.SuggestionsFor(name)
+	typed := strings.ToLower(name)
+	for _, product := range installed {
+		if isShellCommand(root, product.namespace) || slices.Contains(candidates, product.namespace) {
+			continue
+		}
+		if editDistance(typed, product.namespace) <= suggestionDistance || strings.HasPrefix(product.namespace, typed) {
+			candidates = append(candidates, product.namespace)
+		}
+	}
+	var exact, near []string
+	for _, product := range installed {
+		if isShellCommand(root, product.namespace) {
+			continue
+		}
+		for _, command := range product.commands {
+			switch distance := editDistance(typed, command); {
+			case distance == 0:
+				exact = append(exact, product.namespace+" "+command)
+			case distance <= suggestionDistance:
+				near = append(near, product.namespace+" "+command)
+			}
+		}
+	}
+	candidates = append(candidates, exact...)
+	if len(candidates) == 0 {
+		candidates = near
+	}
 	if len(candidates) == 0 {
 		return ""
 	}

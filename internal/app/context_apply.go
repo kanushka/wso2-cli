@@ -110,9 +110,10 @@ func (s Shell) contextApplyCommand() *cobra.Command {
 
 func (s Shell) contextExportCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "export [<name>]",
-		Short: "Print contexts as a shareable file: complete records, with nothing machine-specific.",
-		Args:  atMostOneArgument(contextExportUsage),
+		Use:               "export [<name>]",
+		ValidArgsFunction: s.completeFirstContextName,
+		Short:             "Print contexts as a shareable file: complete records, with nothing machine-specific.",
+		Args:              atMostOneArgument(contextExportUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			name := ""
 			if len(args) == 1 {

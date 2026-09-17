@@ -33,7 +33,7 @@ import (
 )
 
 func TestCommandNamesAreDerivedFromTheShellCommandTree(t *testing.T) {
-	if got, want := app.CommandNames(), []string{"config", "context", "doctor", "help", "login", "logout", "module", "org", "product", "version", "whoami"}; !slices.Equal(got, want) {
+	if got, want := app.CommandNames(), []string{"completion", "config", "context", "doctor", "help", "login", "logout", "module", "org", "product", "version", "whoami"}; !slices.Equal(got, want) {
 		t.Errorf("CommandNames() = %v, want %v", got, want)
 	}
 }
@@ -51,7 +51,7 @@ func TestHelpListsEveryShellCommand(t *testing.T) {
 	// product, and a help page that advertised it would teach the word the
 	// deprecation exists to retire. It still resolves, which
 	// TestTheProductCommandReplacesModuleAndModuleStaysAsAnAlias proves.
-	for _, command := range []string{"config", "context", "doctor", "help", "login", "logout", "org", "product", "version", "whoami"} {
+	for _, command := range []string{"completion", "config", "context", "doctor", "help", "login", "logout", "org", "product", "version", "whoami"} {
 		if !strings.Contains(out.String(), command) {
 			t.Errorf("help does not list the %q command:\n%s", command, out)
 		}
@@ -90,6 +90,94 @@ func TestAMisspelledCommandSuggestsTheClosestOne(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "wso2 version") {
 		t.Fatalf("stderr does not suggest the version command:\n%s", errOut)
+	}
+}
+
+// TestAMisspelledProductNamespaceSuggestsTheInstalledOne proves suggestions
+// reach across the boundary between shell commands and product namespaces,
+// which never enter Cobra's tree.
+func TestAMisspelledProductNamespaceSuggestsTheInstalledOne(t *testing.T) {
+	for _, test := range []struct{ typed, want string }{
+		{"refrence", "Did you mean `wso2 reference`?"},
+		{"ref", "Did you mean `wso2 reference`?"},
+		{"idenity", "Did you mean `wso2 identity`?"},
+		{"contxt", "Did you mean `wso2 context`?"},
+	} {
+		t.Run(test.typed, func(t *testing.T) {
+			shell, _, errOut := newShell(t)
+			installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+			installFixture(t, shell, fixture.Module{Namespace: "identity", Version: "0.1.0"})
+			// A namespace a built-in shadows is never offered.
+			installFixture(t, shell, fixture.Module{Namespace: "version", Version: "0.1.0"})
+
+			if code := shell.Run([]string{test.typed}); code != exit.Usage {
+				t.Fatalf("exit code = %d, want the usage class %d", code, exit.Usage)
+			}
+			if !strings.Contains(errOut.String(), test.want) {
+				t.Fatalf("stderr does not say %q:\n%s", test.want, errOut)
+			}
+		})
+	}
+}
+
+// TestAProductCommandTypedWithoutItsNamespaceSuggestsTheNamespace proves a
+// product's own command is found among every installed product's declared
+// tree, so a user who left out the namespace is told which one it belongs to.
+func TestAProductCommandTypedWithoutItsNamespaceSuggestsTheNamespace(t *testing.T) {
+	for _, test := range []struct{ typed, want, not string }{
+		{"status", "Did you mean `wso2 reference status`?", ""},
+		{"stauts", "Did you mean `wso2 reference status`?", ""},
+		// A close product command is not offered beside a close shell command.
+		{"vesion", "Did you mean `wso2 version`?", "wso2 reference versions"},
+	} {
+		t.Run(test.typed, func(t *testing.T) {
+			shell, _, errOut := newShell(t)
+			installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0",
+				CommandTree: commandtree.New([]commandtree.Command{
+					{Path: nil, Short: "Explore the reference product."},
+					{Path: []string{"status"}, Runnable: true},
+					{Path: []string{"versions"}, Runnable: true},
+					{Path: []string{"hidden"}, Runnable: true, Hidden: true},
+				})})
+
+			if code := shell.Run([]string{test.typed}); code != exit.Usage {
+				t.Fatalf("exit code = %d, want the usage class %d", code, exit.Usage)
+			}
+			if !strings.Contains(errOut.String(), test.want) {
+				t.Fatalf("stderr does not say %q:\n%s", test.want, errOut)
+			}
+			if test.not != "" && strings.Contains(errOut.String(), test.not) {
+				t.Fatalf("stderr offers %q:\n%s", test.not, errOut)
+			}
+		})
+	}
+}
+
+func TestAHiddenProductCommandIsNeverSuggested(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0",
+		CommandTree: commandtree.New([]commandtree.Command{
+			{Path: nil},
+			{Path: []string{"secret"}, Runnable: true, Hidden: true},
+		})})
+
+	if code := shell.Run([]string{"secret"}); code != exit.Usage {
+		t.Fatalf("exit code = %d, want the usage class %d", code, exit.Usage)
+	}
+	if strings.Contains(errOut.String(), "reference secret") {
+		t.Fatalf("stderr offers a hidden command:\n%s", errOut)
+	}
+}
+
+func TestANameFarFromEverythingSuggestsNothing(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+
+	if code := shell.Run([]string{"zzzzzz"}); code != exit.Usage {
+		t.Fatalf("exit code = %d, want the usage class %d", code, exit.Usage)
+	}
+	if strings.Contains(errOut.String(), "Did you mean") {
+		t.Fatalf("stderr suggests something for an unrelated name:\n%s", errOut)
 	}
 }
 
@@ -200,21 +288,6 @@ func TestAProductFlagStillReachesTheModule(t *testing.T) {
 				t.Fatalf("the shell rejected a flag that belongs to the module:\n%s", errOut)
 			}
 		})
-	}
-}
-
-// TestCompletionIsNotOffered proves the framework's generated completion command
-// is absent. Until a module declares its command tree, completion would know
-// every built-in and no product command, which a user reads as absence of the
-// command rather than absence of information.
-func TestCompletionIsNotOffered(t *testing.T) {
-	shell, out, _ := newShell(t)
-
-	if code := shell.Run([]string{"help"}); code != exit.OK {
-		t.Fatalf("exit code = %d, want %d", code, exit.OK)
-	}
-	if strings.Contains(out.String(), "completion") {
-		t.Fatalf("help offers a completion command:\n%s", out)
 	}
 }
 
@@ -566,6 +639,7 @@ Product commands
    reference     Explore the reference product.
 
 Other commands
+   completion    Write the tab completion script for a shell.
    config        Show and change shell preferences.
    doctor        Check the shell's context, secure-store, and session health.
    help          Show the shell command tree.
