@@ -100,17 +100,40 @@ func productWords(root *cobra.Command, words []string) (string, []string, bool) 
 			if !attached && rootFlagTakesValue(root.Flags().Lookup(name), root.PersistentFlags().Lookup(name)) {
 				index++
 			}
-		case len(word) == 2 && word[0] == '-':
-			letter := word[1:]
-			if rootFlagTakesValue(root.Flags().ShorthandLookup(letter), root.PersistentFlags().ShorthandLookup(letter)) {
+		case len(word) > 1 && word[0] == '-':
+			if rootShorthandRunEndsInAValue(root, word[1:]) {
 				index++
 			}
-		case strings.HasPrefix(word, "-"):
 		default:
 			return word, words[index+1:], true
 		}
 	}
 	return "", nil, false
+}
+
+// rootShorthandRunEndsInAValue reports whether a run of the root's single-letter
+// flags takes the next word as its value, the way pflag reads one: "-ho json"
+// is -h and then -o with json, while "-ojson" and "-oh" carry their value
+// attached. A letter the root does not declare ends the run, because dispatch
+// would refuse the line.
+func rootShorthandRunEndsInAValue(root *cobra.Command, letters string) bool {
+	if strings.Contains(letters, "=") {
+		return false
+	}
+	for index := range len(letters) {
+		letter := letters[index : index+1]
+		flag := root.Flags().ShorthandLookup(letter)
+		if flag == nil {
+			flag = root.PersistentFlags().ShorthandLookup(letter)
+		}
+		if flag == nil {
+			return false
+		}
+		if flag.NoOptDefVal == "" {
+			return index == len(letters)-1
+		}
+	}
+	return false
 }
 
 // rootFlagTakesValue reports whether the first flag found consumes the word
