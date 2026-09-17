@@ -18,16 +18,44 @@ package output
 
 import (
 	"io"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/wso2/wso2-cli/sdk/result"
 )
 
-// DefaultName is the name the shell's own text uses for itself. Every message
+// SourceName is the name the shell's own text uses for itself. Every message
 // in the shell and in product modules is written with it; a shell invoked
-// under another name renames it only as the text is rendered.
-const DefaultName = "wso2"
+// under another name renames it only as the text is rendered. It never
+// changes, so module text keeps working whatever the binary is called.
+const SourceName = "wso2"
+
+// commandName is the name the shell is published as. A release build sets it
+// with -ldflags "-X github.com/wso2/wso2-cli/internal/output.commandName=<name>",
+// so the command can be renamed at build time without touching any message.
+var commandName = SourceName
+
+// CommandName reports the name the shell was built to be published as.
+func CommandName() string {
+	if commandName == "" {
+		return SourceName
+	}
+	return commandName
+}
+
+// InvokedName reports the name to phrase commands with, given the path the
+// process was started as. A binary renamed or symlinked by its user keeps the
+// name it was run as; a path that names no usable command, such as a test
+// binary, falls back to CommandName.
+func InvokedName(argv0 string) string {
+	name := strings.TrimSuffix(filepath.Base(argv0), ".exe")
+	switch {
+	case argv0 == "", name == ".", name == string(filepath.Separator), strings.HasSuffix(name, ".test"):
+		return CommandName()
+	}
+	return name
+}
 
 // namedWriter is a stream that knows the name the shell was invoked as. It
 // never changes the bytes written through it: renaming is the renderers' job,
@@ -47,9 +75,13 @@ type namedFile struct {
 func (w namedFile) Fd() uintptr { return w.fd() }
 
 // Named returns w carrying name, so the renderers that write to it name shell
-// commands after it. With the default name, w itself is returned.
+// commands after it. An empty name means CommandName. With SourceName, w
+// itself is returned.
 func Named(w io.Writer, name string) io.Writer {
-	if name == "" || name == DefaultName {
+	if name == "" {
+		name = CommandName()
+	}
+	if name == SourceName {
 		return w
 	}
 	named := namedWriter{Writer: w, name: name}
@@ -72,7 +104,7 @@ func Unnamed(w io.Writer) io.Writer {
 	return w
 }
 
-// NameOf reports the name w carries, or DefaultName for a plain writer.
+// NameOf reports the name w carries, or SourceName for a plain writer.
 func NameOf(w io.Writer) string {
 	switch named := w.(type) {
 	case namedWriter:
@@ -80,27 +112,27 @@ func NameOf(w io.Writer) string {
 	case namedFile:
 		return named.name
 	}
-	return DefaultName
+	return SourceName
 }
 
-// Rename rewrites every shell command in text from DefaultName to name. A
+// Rename rewrites every shell command in text from SourceName to name. A
 // command is the same span Hint marks: a bare "wso2" followed by a command
 // word, so wso2-cli, WSO2_HOME, paths, and "wso2" used as an ordinary word
 // are left alone. A leading quote or bracket stays attached to the command.
 func Rename(text, name string) string {
-	if name == "" || name == DefaultName || !strings.Contains(text, DefaultName) {
+	if name == "" || name == SourceName || !strings.Contains(text, SourceName) {
 		return text
 	}
 	tokens := strings.Split(text, " ")
 	for index, token := range tokens {
 		prefix, bare := splitLeading(token)
-		if bare != DefaultName || index+1 >= len(tokens) {
+		if bare != SourceName || index+1 >= len(tokens) {
 			continue
 		}
 		// A command quoted in a sentence ends at its closing quote, which is
 		// not part of the word that follows the name.
 		next := strings.TrimRight(tokens[index+1], "\"'`.,;:?!)")
-		if startsCommand([]string{bare, next}, 0, DefaultName) {
+		if startsCommand([]string{bare, next}, 0, SourceName) {
 			tokens[index] = prefix + name
 		}
 	}
@@ -116,7 +148,7 @@ func splitLeading(word string) (punctuation, body string) {
 // RenameLines applies Rename to each line of a multi-line page, such as a
 // help page, whose text is all prose.
 func RenameLines(text, name string) string {
-	if name == "" || name == DefaultName {
+	if name == "" || name == SourceName {
 		return text
 	}
 	lines := strings.Split(text, "\n")
@@ -147,7 +179,7 @@ func fieldText(w io.Writer, field result.Field) string {
 // document, which the encoder always writes one member per line. Every other
 // member is data and is left as it is.
 func RenameJSON(document []byte, name string) []byte {
-	if name == "" || name == DefaultName {
+	if name == "" || name == SourceName {
 		return document
 	}
 	lines := strings.Split(string(document), "\n")

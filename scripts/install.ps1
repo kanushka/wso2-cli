@@ -227,7 +227,7 @@ function Write-ManualPathInstructions {
     param([string] $StateRoot, [string] $BinDir, [string] $Reason)
     Write-Output ''
     Write-Output $Reason
-    Write-Output 'Set these for yourself to run wso2 by name:'
+    Write-Output 'Set these for yourself to run the WSO2 CLI by name:'
     Write-Output ''
     Write-Output "    `$env:WSO2_HOME = '$StateRoot'"
     Write-Output "    `$env:Path += ';$BinDir'"
@@ -272,10 +272,14 @@ function Invoke-Install {
 
         $unpacked = Join-Path $tempDir 'unpacked'
         Expand-Archive -LiteralPath $archivePath -DestinationPath $unpacked -Force
-        $extracted = Join-Path $unpacked 'wso2.exe'
-        if (-not (Test-Path -LiteralPath $extracted)) {
-            Stop-WithError 'the archive did not contain the expected wso2.exe binary.'
+        # The command's name is chosen when a release is built, so it is read
+        # from the archive rather than assumed: the binary is its one .exe.
+        $binaries = @(Get-ChildItem -LiteralPath $unpacked -Filter '*.exe' -File)
+        if ($binaries.Count -ne 1) {
+            Stop-WithError "the archive did not contain exactly one binary; found $($binaries.Count)."
         }
+        $extracted = $binaries[0].FullName
+        $cliName = $binaries[0].BaseName
 
         New-Item -ItemType Directory -Path $binDir -Force | Out-Null
         # Replacing the binary through a staged copy beside its final path keeps a
@@ -284,14 +288,33 @@ function Invoke-Install {
         # cannot stage onto each other.
         $staged = Join-Path $binDir (".wso2.install.$PID.exe")
         Move-Item -LiteralPath $extracted -Destination $staged -Force
-        $installed = Join-Path $binDir 'wso2.exe'
+        $installed = Join-Path $binDir "$cliName.exe"
         try {
             Move-Item -LiteralPath $staged -Destination $installed -Force
         } catch {
             Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue
-            Stop-WithError "could not replace ${installed}: $($_.Exception.Message). Close any running wso2 and try again."
+            Stop-WithError "could not replace ${installed}: $($_.Exception.Message). Close any running $cliName and try again."
         }
         Write-Output "Installed $installed"
+
+        # An earlier install under another name would otherwise stay on PATH and
+        # never be updated again. The name installed is recorded so the
+        # uninstaller knows what to remove; an install from before the record
+        # was named wso2.
+        $nameRecord = Join-Path $binDir '.cli-name'
+        $previousName = 'wso2'
+        if (Test-Path -LiteralPath $nameRecord) {
+            $recorded = (Get-Content -LiteralPath $nameRecord -TotalCount 1)
+            if ($recorded -and $recorded -notmatch '[\\/]' -and $recorded -notin @('.', '..')) {
+                $previousName = $recorded.Trim()
+            }
+        }
+        $previous = Join-Path $binDir "$previousName.exe"
+        if ($previousName -ne $cliName -and (Test-Path -LiteralPath $previous)) {
+            Remove-Item -LiteralPath $previous -Force -ErrorAction SilentlyContinue
+            Write-Output "Removed ${previous}: the command is now $cliName."
+        }
+        Set-Content -LiteralPath $nameRecord -Value $cliName -Encoding ascii
 
         if ($env:WSO2_CLI_NO_PROFILE) {
             Write-ManualPathInstructions -StateRoot $stateRoot -BinDir $binDir `
@@ -306,7 +329,7 @@ function Invoke-Install {
         }
 
         Write-Output ''
-        Write-Output "The WSO2 CLI $tag is installed. Run: wso2 --help"
+        Write-Output "The WSO2 CLI $tag is installed. Run: $cliName --help"
     } finally {
         Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     }

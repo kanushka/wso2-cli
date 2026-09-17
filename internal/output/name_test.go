@@ -21,6 +21,8 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wso2/wso2-cli/sdk/result"
@@ -47,9 +49,9 @@ func TestRenameNamesCommandsAfterTheInvokedShell(t *testing.T) {
 	}
 }
 
-func TestRenameLeavesTextAloneForTheDefaultName(t *testing.T) {
+func TestRenameLeavesTextAloneForTheSourceName(t *testing.T) {
 	const text = "Run wso2 login."
-	for _, name := range []string{"", DefaultName} {
+	for _, name := range []string{"", SourceName} {
 		if got := Rename(text, name); got != text {
 			t.Errorf("Rename(%q, %q) = %q, want it unchanged", text, name, got)
 		}
@@ -62,8 +64,8 @@ func TestNamedWriterCarriesTheNameAndPassesWritesThrough(t *testing.T) {
 	if got := NameOf(w); got != "ws" {
 		t.Errorf("NameOf(Named(w, ws)) = %q, want ws", got)
 	}
-	if got := NameOf(&buffer); got != DefaultName {
-		t.Errorf("NameOf(plain writer) = %q, want %q", got, DefaultName)
+	if got := NameOf(&buffer); got != SourceName {
+		t.Errorf("NameOf(plain writer) = %q, want %q", got, SourceName)
 	}
 	if _, err := w.Write([]byte("wso2 login")); err != nil {
 		t.Fatal(err)
@@ -72,8 +74,55 @@ func TestNamedWriterCarriesTheNameAndPassesWritesThrough(t *testing.T) {
 	if buffer.String() != "wso2 login" {
 		t.Errorf("wrote %q, want the bytes unchanged", buffer.String())
 	}
-	if Named(&buffer, DefaultName) != any(&buffer) {
+	if Named(&buffer, SourceName) != any(&buffer) {
 		t.Error("Named with the default name should return the writer itself")
+	}
+}
+
+// setCommandName stands in for the -X flag a release build sets.
+func setCommandName(t *testing.T, name string) {
+	t.Helper()
+	previous := commandName
+	commandName = name
+	t.Cleanup(func() { commandName = previous })
+}
+
+func TestNamedWithoutANameUsesTheBuiltCommandName(t *testing.T) {
+	setCommandName(t, "ws")
+	var buffer bytes.Buffer
+	if got := NameOf(Named(&buffer, "")); got != "ws" {
+		t.Errorf("NameOf(Named(w, \"\")) = %q, want the built name ws", got)
+	}
+	// A binary run as wso2 in a ws build is a user's own rename, and wins.
+	if Named(&buffer, SourceName) != any(&buffer) {
+		t.Error("Named with the source name should return the writer itself")
+	}
+}
+
+func TestInvokedName(t *testing.T) {
+	setCommandName(t, "ws")
+	cases := map[string]string{
+		"/usr/local/bin/ws":       "ws",
+		"/home/me/.wso2/bin/foo":  "foo",
+		"wso2":                    "wso2",
+		`C:\bin\ws.exe`:           "ws",
+		"":                        "ws",
+		"/tmp/go-build1/app.test": "ws",
+	}
+	for argv0, want := range cases {
+		if filepath.Separator != '\\' && strings.Contains(argv0, `\`) {
+			continue
+		}
+		if got := InvokedName(argv0); got != want {
+			t.Errorf("InvokedName(%q) = %q, want %q", argv0, got, want)
+		}
+	}
+}
+
+func TestCommandNameDefaultsToTheSourceName(t *testing.T) {
+	setCommandName(t, "")
+	if got := CommandName(); got != SourceName {
+		t.Errorf("CommandName() = %q, want %q", got, SourceName)
 	}
 }
 

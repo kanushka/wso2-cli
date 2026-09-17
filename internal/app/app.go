@@ -54,7 +54,7 @@ type Shell struct {
 	Streams output.Streams
 	// Name is the name the shell was invoked as, which every command the
 	// shell suggests is phrased with. cmd/wso2/main.go sets it from the
-	// process arguments; empty means output.DefaultName.
+	// process arguments; empty means output.CommandName.
 	Name string
 	// OpenBrowser overrides how an interactive login opens the authorization
 	// URL. It is nil in production, which is the OS browser opener; a test uses

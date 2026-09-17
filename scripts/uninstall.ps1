@@ -44,19 +44,30 @@ $stateRoot = if ($env:WSO2_HOME) { $env:WSO2_HOME } else { Join-Path $HOME '.wso
 $binDir = Join-Path $stateRoot 'bin'
 $removed = $false
 
-$installed = Join-Path $binDir 'wso2.exe'
+# The binary, under the name the installer recorded; an install from before
+# the record was named wso2.
+$nameRecord = Join-Path $binDir '.cli-name'
+$cliName = 'wso2'
+if (Test-Path -LiteralPath $nameRecord) {
+    $recorded = (Get-Content -LiteralPath $nameRecord -TotalCount 1)
+    if ($recorded -and $recorded -notmatch '[\\/]' -and $recorded -notin @('.', '..')) {
+        $cliName = $recorded.Trim()
+    }
+}
+$installed = Join-Path $binDir "$cliName.exe"
 if (Test-Path -LiteralPath $installed) {
     try {
         Remove-Item -LiteralPath $installed -Force
     } catch {
-        [Console]::Error.WriteLine("error: could not remove ${installed}: $($_.Exception.Message). Close any running wso2 and try again.")
+        [Console]::Error.WriteLine("error: could not remove ${installed}: $($_.Exception.Message). Close any running $cliName and try again.")
         exit 1
     }
     Write-Output "Removed $installed"
     $removed = $true
 }
 
-# Any staging file an interrupted install left beside the binary.
+# The name record, and any staging file an interrupted install left beside the binary.
+Remove-Item -LiteralPath $nameRecord -Force -ErrorAction SilentlyContinue
 Get-ChildItem -LiteralPath $binDir -Filter '.wso2.install.*' -Force -ErrorAction SilentlyContinue |
     ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
 
@@ -118,7 +129,7 @@ if ($Purge) {
 }
 
 if (-not $removed) {
-    Write-Output "Nothing to remove: no wso2 installation was found under $stateRoot."
+    Write-Output "Nothing to remove: no WSO2 CLI installation was found under $stateRoot."
 } else {
     Write-Output ''
     Write-Output 'Open a new terminal so the PATH change takes effect.'
