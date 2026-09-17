@@ -25,6 +25,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/wso2/wso2-cli/internal/auth"
 	"github.com/wso2/wso2-cli/internal/auth/oauthflow"
 	"github.com/wso2/wso2-cli/internal/auth/session"
@@ -58,6 +60,9 @@ var deviceLoginDeadline = 15 * time.Minute
 // loginFlags are the flags wso2 login acts on. --context is the shell's own,
 // read off the root's flag set; the other three are declared by loginCommand.
 type loginFlags struct {
+	// command is the running wso2 login, which the setup wizard renders the
+	// context it creates through.
+	command *cobra.Command
 	// contextName selects the context to log in to, and on the creating path
 	// names both the identity and the context that login creates. One flag
 	// answers both because it answers one question — which context this login
@@ -104,6 +109,9 @@ func (s Shell) login(flags loginFlags) error {
 		// open (#186). An answer that sets up a new context arrives as
 		// --url, so it takes the creating path below like the flag would.
 		resolved, err := s.resolveLoginTarget(flags)
+		if errors.Is(err, errNoLoginNeeded) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}

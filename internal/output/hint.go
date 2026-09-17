@@ -23,7 +23,10 @@ import (
 
 const (
 	commandStyle = "\x1b[1;36m"
-	resetStyle   = "\x1b[0m"
+	// subtleStyle is the terminal's dim gray (ANSI 8, bright black), the
+	// color the setup wizard frames its questions in.
+	subtleStyle = "\x1b[90m"
+	resetStyle  = "\x1b[0m"
 )
 
 // Hint marks the wso2 commands inside a next step or a recovery, so a command
@@ -43,6 +46,17 @@ func Hint(w io.Writer, text string) string {
 	}
 	name := NameOf(w)
 	return markCommands(Rename(text, name), name, open, close)
+}
+
+// Subtle returns text drawn in the terminal's dim gray when w shows color, and
+// unchanged otherwise. It is for text a person needs but should not dwell on,
+// such as a long authorization URL: the color changes nothing about the text,
+// so it stays whole to copy or click.
+func Subtle(w io.Writer, text string) string {
+	if !ColorEnabled(w) {
+		return text
+	}
+	return subtleStyle + text + resetStyle
 }
 
 func markCommands(text, name, open, close string) string {

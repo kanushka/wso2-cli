@@ -286,7 +286,7 @@ func (s Shell) moduleRemove(opts removeOptions) error {
 				fmt.Sprintf("removing the %s module", opts.namespace), reason)
 		}
 		confirmed, err := s.confirm(fmt.Sprintf(
-			"Remove the %s product? This deletes it from this machine and cannot be undone. [y/N]: ",
+			"Remove the %s product? This deletes it from this machine and cannot be undone.",
 			opts.namespace))
 		if err != nil {
 			return err
@@ -851,7 +851,7 @@ func (s Shell) moduleUpdate(opts updateOptions) error {
 				return nonInteractiveConfirmation("updating every installed product", reason)
 			}
 			confirmed, err := s.confirm(
-				"This updates every installed product that has a newer version on its channel. Continue? [y/N]: ")
+				"This updates every installed product that has a newer version on its channel. Continue?")
 			if err != nil {
 				return err
 			}

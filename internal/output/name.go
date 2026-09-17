@@ -59,6 +59,19 @@ func Named(w io.Writer, name string) io.Writer {
 	return named
 }
 
+// Unnamed returns the stream Named wrapped, or w itself. A terminal form
+// library needs the real file to find the terminal it draws on, and a
+// question names no shell command to rename.
+func Unnamed(w io.Writer) io.Writer {
+	switch named := w.(type) {
+	case namedWriter:
+		return named.Writer
+	case namedFile:
+		return named.Writer
+	}
+	return w
+}
+
 // NameOf reports the name w carries, or DefaultName for a plain writer.
 func NameOf(w io.Writer) string {
 	switch named := w.(type) {

@@ -36,10 +36,10 @@ import (
 func clientFor(ctx context.Context, request module.Request) (thunder.Client, error) {
 	if request.Context.Endpoint == "" {
 		return thunder.Client{}, moduleProblem("identity.product_not_recorded",
-			"the selected context records no endpoint for the identity product, so this command "+
-				"has nowhere to call",
-			"Run wso2 context create <name> --login-product identity --url <url> --use to create a "+
-				"context that logs in through it, then run wso2 login.")
+			"the identity product manages Thunder, not Identity Server or Asgardeo, and the "+
+				"selected context records no Thunder endpoint for it, so this command has nowhere to call",
+			"Run wso2 context create <name> --login-product identity --url <thunder-url> --use to "+
+				"create a context that logs in through Thunder, then run wso2 login.")
 	}
 	access, err := request.Access.Acquire(ctx, module.AccessRequest{
 		Audience: ManagementAudience,

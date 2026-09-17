@@ -58,6 +58,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
+	"github.com/wso2/wso2-cli/internal/output"
 
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
@@ -237,7 +238,7 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 		authOptions = append(authOptions, oauth2.SetAuthURLParam("resource", l.Resource))
 	}
 	authURL := config.AuthCodeURL(state, authOptions...)
-	if _, err := fmt.Fprintf(l.out(), "%s\n%s\n", l.prompt(), authURL); err != nil {
+	if _, err := fmt.Fprintf(l.out(), "%s\n%s\n", l.prompt(), output.Subtle(l.out(), authURL)); err != nil {
 		return Result{}, notCompleted("the shell could not print the authorization URL this login needs",
 			"Run wso2 login with standard output attached to your terminal.")
 	}

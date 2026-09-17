@@ -48,6 +48,10 @@ type contextProductFlags struct {
 	clientID                                string
 	clientIDVariable, clientSecretVariable  string
 	replace, dryRun, noInstall              bool
+	noInput                                 bool
+	// context names the context to add to, when the caller already knows it
+	// rather than reading --context: the create wizard's new context.
+	context string
 }
 
 func (s Shell) contextProductCommand() *cobra.Command {
@@ -72,17 +76,33 @@ func (s Shell) contextProductCommand() *cobra.Command {
 func (s Shell) contextProductAddCommand() *cobra.Command {
 	var flags contextProductFlags
 	command := &cobra.Command{
-		Use:   "add <product> --url <url>",
+		Use:   "add [<product>] [--url <url>]",
 		Short: "Record where a product runs on the selected context, with its defaults filled in.",
 		Long: "Records the product on the selected context (or the one --context names). The installed " +
 			"product's descriptor supplies the audience, scopes and grant, and the complete record is " +
 			"written to the context file, so a later product update changes nothing until the context " +
-			"is applied again. A product that is not installed is installed first.",
-		Args: exactlyOneArgument("the product to add", contextProductAddUsage),
+			"is applied again. A product that is not installed is installed first.\n\n" +
+			"Run without --url on a terminal, and it asks which product and where it runs, shows what\n" +
+			"would change, and asks before writing.",
+		Args: atMostOneArgument(contextProductAddUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			flags.scopesSet = command.Flags().Changed("scopes")
 			flags.gatewayScopesSet = command.Flags().Changed("gateway-scopes")
-			return s.contextProductAdd(command, args[0], flags)
+			namespace := ""
+			if len(args) == 1 {
+				namespace = args[0]
+			}
+			if flags.url == "" {
+				if may, _ := s.mayPrompt(flags.noInput); may {
+					return s.contextProductAddWizard(command, namespace, flags)
+				}
+			}
+			if namespace == "" {
+				return problem.New(problem.CategoryUsage, "shell.missing_argument",
+					fmt.Sprintf("%s needs the product to add", command.CommandPath())).
+					WithRecovery(contextProductAddUsage)
+			}
+			return s.contextProductAdd(command, namespace, flags)
 		},
 	}
 	f := command.Flags()
@@ -103,6 +123,7 @@ func (s Shell) contextProductAddCommand() *cobra.Command {
 		"Replace the product's existing record, ending the sessions it no longer matches.")
 	f.BoolVar(&flags.dryRun, "dry-run", false, "Show the record and what would change, and write nothing.")
 	f.BoolVar(&flags.noInstall, "no-install", false, "Refuse rather than install a product that is not installed.")
+	f.BoolVar(&flags.noInput, "no-input", false, "Refuse rather than ask for what the flags leave out.")
 	declareContextFlag(f)
 	return command
 }
@@ -172,9 +193,11 @@ func (s Shell) contextProductAdd(command *cobra.Command, namespace string, flags
 	if err != nil {
 		return err
 	}
-	name, err := targetContextName(command, document)
-	if err != nil {
-		return err
+	name := flags.context
+	if name == "" {
+		if name, err = targetContextName(command, document); err != nil {
+			return err
+		}
 	}
 
 	installed := ""

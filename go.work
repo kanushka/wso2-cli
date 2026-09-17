@@ -1,4 +1,4 @@
-go 1.25.0
+go 1.25.8
 
 // The workspace composes the SDK and the product modules from source during
 // local development, so a change to the SDK is testable before it is tagged.

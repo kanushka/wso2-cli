@@ -635,6 +635,7 @@ func (s Shell) loginCommand() *cobra.Command {
 			if flag := shellFlag(command, contextFlag); flag != nil {
 				flags.contextName = flag.Value.String()
 			}
+			flags.command = command
 			return s.login(flags)
 		},
 	}
