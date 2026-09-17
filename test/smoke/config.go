@@ -25,8 +25,8 @@
 // the two ways a live run wastes a human's attention, and both are decided
 // before any browser opens.
 //
-// See test/smoke/RUNNING.md for what to export and docs/guides/login-*.md for how
-// to register the application the variables describe.
+// See test/smoke/RUNNING.md for what to export and docs/guides/setup-*.md for
+// how to register the application the variables describe.
 package smoke
 
 import (

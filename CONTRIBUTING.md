@@ -128,7 +128,7 @@ commands first — when it is the reference module's reserved namespace, or when
 it is not something a user could type. Nothing is written when a namespace is
 refused.
 
-`docs/guides/building-product-modules.md` carries the rest: what to change
+`docs/guides/build-module-quickstart.md` carries the rest: what to change
 first, how a handler asks the shell for access, and how the module is released.
 
 ## Documentation standards

@@ -30,8 +30,8 @@ discards the flag together with its value, with no error and no diagnostic, so
 `wso2 api gateway list --env prod` would reach the module as `[gateway list]`
 and the command would run against the wrong environment. Flag parsing is
 disabled on the passthrough path instead, and the shell interprets its own flags
-there itself. The evidence is recorded in
-[shell command framework research](../research/shell-command-framework.md).
+there itself. The evidence was recorded in a shell command framework research
+note, removed from the tree and kept in git history.
 
 **When modules declare their command trees, parsing reads the declaration from
 the module receipt and never from the catalog.** The receipt is local, written

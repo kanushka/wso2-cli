@@ -1,11 +1,13 @@
 # Running the live smoke and the empirical experiments
 
 **Status:** Working draft
-**Related:** [Login guide](../../docs/guides/login.md) and its per-product
-walkthroughs — [Asgardeo](../../docs/guides/login-asgardeo.md),
-[Identity Server](../../docs/guides/login-identity-server.md),
-[ThunderID](../../docs/guides/login-thunder.md),
-[Asgardeo redirect URIs and scope narrowing](../../docs/research/asgardeo-redirect-uri-and-scope-narrowing.md)
+**Related:** the per-product setup guides —
+[Asgardeo](../../docs/guides/setup-asgardeo.md),
+[Identity Server 7.x](../../docs/guides/setup-identity-server-7.x.md),
+[ThunderID](../../docs/guides/setup-thunder.md) — and
+[the login errors table](../../docs/reference/commands.md). The empirical
+verdicts this file used to point at a research document for now live in
+"Measured product verdicts" below.
 
 Everything in this directory except `config.go` is behind the `smoke` build tag.
 The default gate never builds it, so nothing here can open a browser, contact a
@@ -17,9 +19,9 @@ These runs need a human. They open a real browser and wait for a real sign-in.
 ## What to export
 
 Register the application first — there is a walkthrough per product:
-[Asgardeo](../../docs/guides/login-asgardeo.md),
-[Identity Server 7.x](../../docs/guides/login-identity-server.md),
-[ThunderID](../../docs/guides/login-thunder.md) — then describe it with these
+[Asgardeo](../../docs/guides/setup-asgardeo.md),
+[Identity Server 7.x](../../docs/guides/setup-identity-server-7.x.md),
+[ThunderID](../../docs/guides/setup-thunder.md) — then describe it with these
 variables.
 
 Describing it once in a file beats re-exporting it into every shell. Copy
@@ -74,7 +76,7 @@ its own half:
   attempt where one is.
 
 Run it once per product and record the lines against that product in
-[the authentication landscape](../../docs/research/wso2-authentication-landscape.md):
+"Measured product verdicts" below:
 
 ```sh
 make smoke-logout SMOKE_ENV=test/smoke/asgardeo.env
@@ -195,11 +197,11 @@ The other is the audience. On Asgardeo it has to be the **client ID**, because
 that is the only value Asgardeo ever puts in an access token's `aud`. On
 Identity Server it is the **API resource identifier**, which reaches `aud` once
 the identifier is in the application's audience list. Section 1 of
-[each](../../docs/guides/login-asgardeo.md)
-[product's](../../docs/guides/login-identity-server.md)
-[walkthrough](../../docs/guides/login-thunder.md) states its own answer and the
-measurement behind it. This is the main reason to keep a file per deployment
-rather than editing one in place.
+[the Asgardeo](../../docs/guides/setup-asgardeo.md),
+[Identity Server](../../docs/guides/setup-identity-server-7.x.md), and
+[ThunderID](../../docs/guides/setup-thunder.md) walkthroughs each state their
+own answer and the measurement behind it. This is the main reason to keep a
+file per deployment rather than editing one in place.
 
 A local Identity Server or Thunder deployment also has to be trusted by the
 operating system before any of this can reach it — see section 3 of its
@@ -239,8 +241,8 @@ one-permission request with both. The other four read:
 | did not state which permissions it issued | neither the response nor the token named a scope |
 | not bound to the *audience* | the token is real but carries a different `aud` — on Asgardeo, almost always because the audience is set to the API resource rather than the client ID |
 
-Section 6 of [the login guide](../../docs/guides/login.md) tabulates the same
-five against what to change in the registration.
+The login errors table in [`docs/reference/commands.md`](../../docs/reference/commands.md)
+tabulates the same five against what to change in the registration.
 
 Read which acquisition refused, too. On the **narrowed** one it is a statement
 about the deployment: it would not issue a token carrying strictly less than the
@@ -250,8 +252,10 @@ rather than repeating one finding twice.
 
 ## The experiments
 
-Run once per deployment, ever. They answer the two questions the research
-document could not settle from public sources.
+Run once per deployment, ever. They answer the two questions no public source
+could settle: whether any-port loopback redirect URIs work, and whether the
+refresh grant honors a narrower scope. "Measured product verdicts" below
+records what they found.
 
 ```sh
 make empirical-asgardeo
@@ -305,8 +309,8 @@ only verdicts whose deployment line names the deployment you mean to record.
   a product permission that was not asked for, or one that was asked for and is
   missing. Protocol scopes are already excluded before this verdict is reached,
   so `ignored` means the deployment really did disregard the request. The line
-  above the verdict prints both permission sets; copy them into the research
-  document with the verdict.
+  above the verdict prints both permission sets; copy them into "Measured
+  product verdicts" below along with the verdict.
 - `rejected` — the token endpoint answered `invalid_scope`.
   **Corroborate this one before recording it.** `invalid_scope` is also exactly
   what the token endpoint answers when the application's API resource
@@ -320,9 +324,9 @@ only verdicts whose deployment line names the deployment you mean to record.
   signing-in user holds a role granting every scope the resource lists. Only
   once that is confirmed does `invalid_scope` say something about the
   deployment rather than about who was signed in when the experiment ran.
-  Recording it without checking puts a false claim about Asgardeo into a
-  research document whose whole purpose is being trustworthy about exactly
-  that.
+  Recording it without checking puts a false claim about Asgardeo into
+  "Measured product verdicts" below, whose whole purpose is being
+  trustworthy about exactly that.
 - `inconclusive (opaque access token)` — the deployment issues opaque access
   tokens, so nothing can be proven about what they carry. Configure the
   application to issue JWT access tokens and run it again; until then this
@@ -335,8 +339,9 @@ only verdicts whose deployment line names the deployment you mean to record.
 - `inconclusive (unrecognized narrowing refusal)` — the deployment refused and
   the refusal did not name permissions, so which of the narrowing causes it was
   cannot be read off it. Record nothing from this one. The run's own output
-  carries the underlying message; section 6 of
-  [the login guide](../../docs/guides/login.md) maps it to what to change.
+  carries the underlying message; the login errors table in
+  [`docs/reference/commands.md`](../../docs/reference/commands.md) maps it to
+  what to change.
 - `inconclusive (audience not bound)` — a token came back that is not bound to
   the configured audience. On Asgardeo this is not a registration defect to
   fix: Asgardeo binds a JWT access token's `aud` claim to the **client ID**,
@@ -344,9 +349,9 @@ only verdicts whose deployment line names the deployment you mean to record.
   is not configurable — the application's Protocol tab exposes an Audience
   field only under **ID Token**, and the Access Token section has no audience
   control at all. See section 1 of
-  [the Asgardeo walkthrough](../../docs/guides/login-asgardeo.md), and
-  [the research document](../../docs/research/asgardeo-redirect-uri-and-scope-narrowing.md)
-  this file already links above. The remedy is to set `WSO2_SMOKE_AUDIENCE`
+  [the Asgardeo walkthrough](../../docs/guides/setup-asgardeo.md), and
+  "Measured product verdicts" below for the finding this experiment
+  established. The remedy is to set `WSO2_SMOKE_AUDIENCE`
   here, and `products.<namespace>.audience` in a real context document, to the
   **client ID** — that is the only value Asgardeo ever puts in `aud`. On a
   deployment that does bind tokens to API resources, the resource identifier is
@@ -356,11 +361,77 @@ only verdicts whose deployment line names the deployment you mean to record.
 
 ### Recording the verdicts
 
-Both verdicts belong in section 3 of
-[`docs/research/asgardeo-redirect-uri-and-scope-narrowing.md`](../../docs/research/asgardeo-redirect-uri-and-scope-narrowing.md),
-in the "Empirical verdict" column, replacing the pending cell. Record the date,
-the verdict, and the deployment line the run printed. The document's section 3
-says the same thing at the point a reader meets the cells.
+A new measurement goes in a GitHub issue with the date, the verdict, and the
+deployment line the run printed. The table below carries only what the smoke
+tests assert; a verdict that changes a decision is summarised in the ADR that
+rests on it (ADR 0001).
+
+## Measured product verdicts
+
+Moved here from the now-deleted research record, which asked these questions
+of Asgardeo, Identity Server 7.3.0, and ThunderID and described how a live run
+should produce and record an answer — the how is the rest of this file.
+
+Background fact behind the rotation handling above: refresh token rotation is
+opt-in on the shared Asgardeo/Identity Server platform (off by default, so the
+same refresh token is normally reused across renewals; enabling "Renew refresh
+token" invalidates the old one on each exchange, with a short graceful-reuse
+window when that is also turned on).
+
+### Asgardeo (`https://api.asgardeo.io/t/<org>/oauth2/token`, measured 2026-08-06)
+
+| Question | Verdict |
+| --- | --- |
+| Fixed-port loopback (`127.0.0.1:<port>`) registrable | Registrable — all four callback ports were registered literally and a login bound and returned to `127.0.0.1:10425`. |
+| Any-port loopback (RFC 8252 §7.3) | **Supported** — a login through `127.0.0.1:16000`, a port the application never registered, completed. |
+| Redirect URI validation rules | Exact match by default; a `regexp=(url1\|url2)` prefix ORs several exact URLs. Not otherwise measured — a true single-URL wildcard syntax is a documentation question an experiment cannot disprove. |
+| Refresh-grant scope narrowing | **Honored** — a session for `reference:status:read reference:status:write`, refreshed for `reference:status:read` alone, received exactly that (no protocol scopes retained either). |
+| Access token `aud` | The **client ID**, never the API resource identifier, and not configurable — the Protocol tab's Audience field applies to the ID token only. |
+
+### Identity Server 7.3.0 (`https://localhost:9443/oauth2/token`, measured 2026-08-06)
+
+| Question | Verdict |
+| --- | --- |
+| Any-port loopback (RFC 8252 §7.3) | **Supported** — even though the application's callbacks were registered as `regexp=(...)` enumerating all four ports explicitly, the port was still waived: loopback flexibility applies ahead of the registered pattern, not as a fallback. |
+| Refresh-grant scope narrowing | **Honored** — same pattern as Asgardeo, protocol scopes dropped too. |
+| Access token `aud` | The **API resource identifier**, once it is added to the application's audience list (an empty list falls back to the client ID alone, as on Asgardeo). |
+
+### ThunderID 1.0.0-beta (`https://localhost:8490`, measured 2026-08-06)
+
+Thunder decides the audience per request, by an RFC 8707 resource indicator,
+rather than from the application's registration — a question the other two
+products never raise.
+
+| Question | Verdict |
+| --- | --- |
+| Refresh-grant scope narrowing | **Honoured** — same pattern as the other two products. |
+| Access token `aud` | The resource server's identifier, exactly and alone — no client ID beside it. |
+| Resource indicator on the authorization request | **Required**, refused with `invalid_target` ("No resource parameter supplied and no default resource server is configured") otherwise — unless a resource server is set as the tenant's **default**, in which case it is used when none is supplied. |
+| Resource indicator on the refresh grant | Not required — inherited from the authorization that established the session. |
+| Resource indicator on client credentials | Required, same default-resource exception as authorization. |
+| Multiple resource indicators | Rejected — "Only a single resource parameter is supported." |
+| Resource server identifier format | Must be an absolute URI; a bare name like `reference-status` is refused. |
+| Unauthorised scopes on client credentials | Silently dropped — the grant still succeeds with a narrower token, so the shell then refuses because it cannot prove the token carries what was asked for. |
+| Device authorization grant | Absent — no `device_authorization_endpoint` in discovery. |
+
+Any-port loopback was not measured against Thunder: the walkthrough registers
+all four callback ports explicitly there too, so nothing in the shell depends
+on the answer.
+
+### What each verdict means for the shell
+
+- **Any-port `supported`:** the deployment is at RFC 8252 §7.3 / Identity
+  Server 6.0.0+ parity. The four-port callback registration is not strictly
+  required there but stays, since older Identity Server deployments remain in
+  scope.
+- **Any-port `rejected`:** exact-match only — the four registered ports are
+  load-bearing, and the shell's refusal to fall back to an unregistered port
+  is what keeps the failure legible.
+- **Narrowing `honored`:** the broker's scoped refresh works as designed and a
+  module receives exactly what it asked for.
+- **Narrowing `ignored` or `rejected`:** brokered acquisition refuses with
+  `auth.narrowing_unavailable`. Login and session persistence are unaffected —
+  that refusal is the designed outcome, not a fallback to relax.
 
 ## What these runs leave behind
 

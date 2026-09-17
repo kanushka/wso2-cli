@@ -612,8 +612,9 @@ func TestALegacyEntryUnderTheBareReferenceIsNotServed(t *testing.T) {
 	}
 }
 
-// TestEntryNameIsTheReferenceScopedToTheRoot pins the shape of the key, which
-// docs/guides/login.md describes: the reference, then a digest of the root.
+// TestEntryNameIsTheReferenceScopedToTheRoot pins the shape of the key: the
+// credentialRef, then a digest of the state root, so two state roots naming
+// the same reference never collide in the operating system's secure store.
 func TestEntryNameIsTheReferenceScopedToTheRoot(t *testing.T) {
 	store := session.Store{StateRoot: t.TempDir()}
 	name := store.EntryName("thunder")

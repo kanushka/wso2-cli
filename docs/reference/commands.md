@@ -1,35 +1,16 @@
 # WSO2 CLI shell commands
 
-**Status:** Proposed reference
+**Status:** Reference
 **Related:** [Product requirements](../product-requirements.md),
 [architecture](../architecture.md)
 
-This reference describes the proposed shared `wso2` shell commands. It does not
-represent an available production interface. Product operations belong to
-product modules, such as `wso2 api`, `wso2 identity`, `wso2 integration`, and
-`wso2 agent`.
-
-The distinction between catalog refresh and module binary update remains an
-open decision. The lifecycle command names below are therefore provisional.
-
-These are built: `wso2 context create <name>`, `wso2 context use <context>`,
-`wso2 context list`, `wso2 context current`, `wso2 context show`,
-`wso2 context product add <product>`, `wso2 context product remove <product>`,
-`wso2 context apply -f <file>`, `wso2 context edit`, `wso2 context export`,
-`wso2 context rename <name> <new-name>`, `wso2 context delete <name>`,
-`wso2 login`,
-`wso2 login --url <issuer> --client-id <id>`, `wso2 login --only <namespace>`,
-`wso2 login --no-products`, `wso2 logout`, `wso2 whoami`, `wso2 doctor`,
-`wso2 product list`,
-`wso2 product install <product>`, `wso2 product install <product>@<version>`,
-`wso2 product install <product> --channel <channel>`,
-`wso2 product update <product>`, `wso2 product update --all`,
-`wso2 product remove <product>`, `wso2 config list`, `wso2 config get <key>`,
-`wso2 config set <key> <value>`, `wso2 org current`, and `wso2 org use
-<organization>`. The
-[module catalog](module-catalog.md) reference describes what they select, what
-they verify, how a channel and a pin are recorded per module, and how each
-refusal is reported.
+This reference describes the shared `wso2` shell commands: `context`, `login`,
+`logout`, `whoami`, `org`, `doctor`, `config`, `product`, `version` and
+`help`. Product operations belong to product modules, such as `wso2 api`,
+`wso2 identity`, `wso2 integration`, and `wso2 agent`; the
+[module catalog](module-catalog.md) reference describes what a product install
+selects, what it verifies, how a channel and a pin are recorded per module,
+and how each refusal is reported.
 
 ## Commands
 
@@ -37,6 +18,7 @@ refusal is reported.
 | --- | --- |
 | `wso2 help` | Shows the root command tree and help for a command. |
 | `wso2 version` | Shows the shell, protocol, and installed module versions. |
+| `wso2 completion <shell>` | Writes the tab-completion script for `bash`, `zsh`, `fish` or `powershell` to standard output. |
 | `wso2 login` | Establishes the login session, then one session per further product the context records, each through the same browser sign-on. `--only <namespace>` authorizes just that product — both of its records when it holds a gateway record, or one record alone as `--only <namespace>/gateway` — refused with `shell.invalid_argument` when the context records no such namespace; `--no-products` authorizes the login session alone, leaving product and gateway sessions unestablished; the two together are refused with `shell.conflicting_arguments`. The report lists every session this run established, naming the strategy that reached it (`direct`, `sibling`, `derived`, or `federated`) as `<strategy>, established`; a gateway record is its own line under its key, as `apim/gateway  sibling, established`. When a later product fails after earlier ones already succeeded, the failure names what was established and points at `wso2 login --only <namespace>` (or `--only <namespace>/gateway`) to retry only the one that was not, keeping the sessions already stored. Without `--context` and `--url`, in a terminal, login asks `Log in to:` an existing context (listed, the selected one as the default) or a new one; a new one runs the `wso2 context create` wizard (below), without its closing offer to log in, and then logs in to the context it wrote; a client-credentials context ends there, reporting that it needs no login. With no contexts it goes straight to a new one. A `--context` naming no context runs the same wizard, taking that name, in a terminal and is refused with `shell.missing_required_flag` otherwise, naming `--url` and `--client-id`. Under `--no-input`, `WSO2_NO_INPUT`, `WSO2_CONTEXT`, or a standard input that is not a terminal, nothing is asked and the selected context is used. |
 | `wso2 login --url <issuer> --client-id <id>` | Logs in against a named issuer and creates the context it authenticated, reporting its name. `--context <name>` names it. Without it, a context that already logs in against that issuer with that client ID is reused; otherwise login asks `Context name [context-1]:`, offering the next free `context-N`, where Enter accepts the default and a name that is not legal or is already taken is asked again. When standard input is not a terminal the default is taken without asking, and the report says the name was assigned, naming `--context <name>` and `wso2 context rename`. A context named by `--context` whose issuer and client ID both match is reused; one that differs in either is refused with `contexts.context_exists` and never replaced. The first context created becomes the selected one. Nothing is written unless the login succeeded. Omitting `--client-id` prompts in an interactive terminal and is refused with `shell.missing_required_flag` under `--no-input`. A ThunderID issuer binds every login to a product, so there a login that creates its context is refused with `auth.product_not_configured`, naming `wso2 context create <name> --login-product identity --url <url>`. |
 | `wso2 logout` | Ends every session the selected context holds — the login session and each product's own — asking the identity provider to revoke each refresh token and removing each shell-owned entry. A context's sessions are its own (ADR 0016), so no other context is affected. `Product sessions` in the report names what happened to each session beyond the login one, `<namespace> ended` or `<namespace> none`. A client-credentials context holds no session to end and reports that plainly, exiting 0. Ending the shell's sessions leaves each identity provider's own browser session in place, and a later login would then be silent; so logout also opens each provider's end-session page, once per provider and client, naming the client and the identity token the session recorded, and reports `Browser session` as `sign-out opened`, `sign-out printed` (no browser could be opened; the URLs are on standard error), `kept` (`--keep-browser-session`, `--no-input` or `WSO2_NO_INPUT`), or `unaffected` (nothing was stored). Ending the browser session is best effort like revocation, and some providers end the user's other refresh tokens with it; the report says so rather than claiming either way. |
@@ -62,37 +44,51 @@ refusal is reported.
 | `wso2 context edit` | Opens the complete document in `$VISUAL` or `$EDITOR`, validates the result as a whole, refuses an invalid one (asking whether to edit again at a terminal) and leaves the file as it was, and ends the sessions a changed record no longer matches before writing. It takes complete records only; `wso2 context apply` is the way to write short ones. Refused with `shell.not_interactive` under `--no-input` or without a terminal, naming the file to edit directly. |
 | `wso2 context export [<name>]` | Prints contexts in the input-file form: complete records, so the file applies the same whatever product versions another machine has installed, with every `credentialRef` and the selection removed. |
 | Removed commands | `wso2 <product> connect …` and the `wso2 account` family were removed (ADR 0016). Typing one prints the exact replacement, built from the line typed, and exits in the usage class with `shell.command_moved`: `wso2 identity connect <url> --account demo` names `wso2 context create demo --login-product identity --url <url> --use`; `wso2 api connect <url> --gateway --account demo` names `wso2 context product add api --url <api-url> --gateway <url> --replace --context demo`, with the product's own URL left as a placeholder because the old line never named it; `wso2 account add-product <a> <p> --endpoint <u>` names `wso2 context product add <p> --url <u> --context <a>`; `wso2 account list` names `wso2 context show`. A redirect fires only after normal dispatch has declined the words, so a module that declares a `connect` command of its own is reached as usual. |
-| `wso2 config` | With no subcommand, prints this family's help on standard output and exits 0: naming a family without a subcommand is an incomplete command, not a failed one, and every subcommand it names works. The help names `list`, `get` and `set`. A subcommand the family does not have is a different case and is still refused with `shell.unknown_command` and the usage exit class (#133), so a typo is never reported to a script as success. |
+| `wso2 config` | With no subcommand, prints this family's help on standard output and exits 0: naming a family without a subcommand is an incomplete command, not a failed one, and every subcommand it names works. The help names `list`, `get`, `set` and `unset`. A subcommand the family does not have is a different case and is still refused with `shell.unknown_command` and the usage exit class (#133), so a typo is never reported to a script as success. |
 | `wso2 config list` | Built today: shows every key in the closed set of shell preferences — the default output mode and the catalog origin override — and whether each is currently configured. |
 | `wso2 config get <key>` | Built today: shows one shell preference. `key` must be one of `output`, `catalog-origin`; any other value is refused with `config.unknown_key`, naming the valid keys. |
 | `wso2 config set <key> <value>` | Built today: changes one shell preference. An unknown key is refused the same way `config get` refuses one; a value a key does not accept is refused with `config.invalid_value`, naming what is acceptable (`table` or `json` for `output`; an absolute http or https URL for `catalog-origin`). Each preference is the lowest-precedence source for what it governs: `--output` wins over a configured output mode, and `WSO2_CLI_CATALOG_ORIGIN` wins over a configured catalog origin — a saved preference can never override either. `output` governs exactly the commands that accept `--output`: `wso2 whoami`, `wso2 doctor`, `wso2 logout`, and the `context`, `config` and `org` families. It does not reach `wso2 version` or the `product` family, which render fixed prose and refuse `--output` with `shell.unsupported_flag`; a preference that silently did nothing for them would be a worse contract than a flag refused out loud. A colour preference is not in this set: `output.ColorEnabled` has no production caller yet, so a key that claimed to govern colour would change nothing observable; it is the obvious first key to add once something renders in colour. |
-| `wso2 update` | Applies the approved installation-channel policy for root shell updates. |
-| `wso2 module` | With no subcommand, prints this family's help on standard output and exits 0: naming a family without a subcommand is an incomplete command, not a failed one, and every subcommand it names works. The help names `install`, `list`, `remove` and `update`. A subcommand the family does not have is a different case and is still refused with `shell.unknown_command` and the usage exit class (#133), so a typo is never reported to a script as success. |
+| `wso2 config unset <key>` | Built today: removes one preference, so its built-in default governs again. Unsetting a key that was never set succeeds and reports the default that governs, since the config family already treats "unset" as a fact rather than an error. |
 | `wso2 product available` | Deprecated spelling of `wso2 product list`, which ADR 0015 merged it into. It is hidden from help, runs the merged list, and names `wso2 product list` on standard error. |
 | `wso2 product install <product>` | Installs the latest compatible stable release of a module. |
 | `wso2 product install <product>@<version>` | Installs an exact compatible module version. |
 | `wso2 product list` | Lists every product the module catalog publishes or this machine has installed, in one table: the installed version or `—`, the channel, and the update available or the version an install would take. When the catalog cannot be reached, it lists the installed products with update `unknown`, warns on standard error that the updates and the installable products are unknown, and exits 0. |
-| `wso2 product info <module>` | Shows catalog, compatibility, and installation information. |
 | `wso2 product update <product>` | Updates one product module. Naming a module is already an explicit target, so this does not prompt; `--dry-run` still reports what it would do without changing anything. A module the catalog publishes no version of on its followed channel — withdrawn, renamed, or moved to a channel this install no longer follows — is reported by name rather than called current, since the catalog cannot say whether the installed version is current when it does not publish the module at all; this does not change the exit status. |
 | `wso2 product update --all` | Built today: updates every installed product module that has a newer version on its followed channel, skipping a pinned one. Being unbounded, it prompts for confirmation before moving anything; `--yes` skips the prompt, `--dry-run` reports what it would do without changing anything, and `--no-input` (or `WSO2_NO_INPUT`) refuses rather than prompt. Refuses `shell.non_interactive` when it may not prompt and `--yes` was not given — either because `--no-input` or `WSO2_NO_INPUT` asked that nothing prompt, or because standard input is not a terminal; the refusal names the control that fired and offers the one way out that applies to it, and `shell.conflicting_arguments` for `--yes` with `--dry-run`. A module the catalog publishes no version of on its followed channel — withdrawn, renamed, or moved to a channel this install no longer follows — is reported by name rather than called current, since the catalog cannot say whether the installed version is current when it does not publish the module at all; this does not change the exit status, so a scheduled `--all` run does not start failing the moment one module goes unpublished upstream. |
-| `wso2 product verify <module>` | Verifies an installed module and its receipt. |
-| `wso2 product rollback <module>` | Reactivates a retained compatible version. |
 | `wso2 product remove <product>` | Built today: removes one installed module, leaving configuration and credentials alone. Prompts for confirmation after confirming the module is installed; `--yes` skips the prompt, `--dry-run` reports what it would remove without removing anything, and `--no-input` (or `WSO2_NO_INPUT`) refuses rather than prompt. Refuses `shell.module_not_installed` before any prompt when the module is not installed, `shell.non_interactive` when it may not prompt and `--yes` was not given — either because `--no-input` or `WSO2_NO_INPUT` asked that nothing prompt, or because standard input is not a terminal; the refusal names the control that fired and offers the one way out that applies to it, and `shell.conflicting_arguments` for `--yes` with `--dry-run`. |
-| `wso2 product install --file <module.wso2module>` | Installs one module from an offline file. |
-| `wso2 bundle create` | Creates a platform-specific, self-installing offline bundle from catalog releases. |
-| `wso2 bundle inspect <file>` | Shows bundle contents without installing it. |
-| `wso2 bundle install <file>` | Imports a bundle when the WSO2 CLI is already installed. |
-| `wso2 doctor` | Built today: checks that the context document is valid, that the OS secure store is reachable, and that the selected context has a stored session, and (the `defaults` check) whether any product record differs from what its installed product's descriptor would write now, reported `differs` without failing, since a product update changes nothing until a context is applied again. The context check's own detail names the document it checked — its path inside the shell's state root, which `WSO2_HOME` overrides — whichever way the check comes out; `wso2 context show` shows that same document whole. The session check covers the login record and every product record the context holds, a product's gateway record among them under its key (`apim/gateway`). It reports none, with the `wso2 login` pointer in its recovery column, when a record has no stored session at all and names the ones without one, because being logged out is the state a completed `wso2 logout` leaves behind, not a health fault; a session that is stored but cannot be read still fails. `--online` adds two more checks: that the OpenID configuration of every issuer the selected context names can be read — the check that finds a certificate this machine does not trust, refused as `auth.certificate_untrusted` with the same recovery a product command gives, or `auth.discovery_failed` for any other reason — and module catalog reachability; without it, `wso2 doctor` makes no network call. On an unconfigured machine, the secure-store and session checks report not-applicable rather than failure; on a context document that fails to decode or validate, the session check reports not-applicable too, because no credential reference can be resolved from it, while the secure-store check still runs since it never reads the document. The session check is also not-applicable for a client-credentials context, and when no context is selected; a client-credentials context acquires access inline and holds no session to check. Exits 0 when every check passes, is not-applicable, or reports none, otherwise the exit class of the most severe failing check, in this rank: secure-store, then the document, then the session, then (only under `--online`) the issuer, then the catalog — a rank this command defines and not the numeric order of the exit classes those checks carry. Receipt, module integrity, compatibility, and protocol status are not built yet; see [architecture](../architecture.md#14-operational-behavior-and-recovery). |
+| `wso2 doctor` | Built today: checks that the context document is valid, that the OS secure store is reachable, and that the selected context has a stored session, and (the `defaults` check) whether any product record differs from what its installed product's descriptor would write now, reported `differs` without failing, since a product update changes nothing until a context is applied again. The context check's own detail names the document it checked — its path inside the shell's state root, which `WSO2_HOME` overrides — whichever way the check comes out; `wso2 context show` shows that same document whole. The session check covers the login record and every product record the context holds, a product's gateway record among them under its key (`apim/gateway`). It reports none, with the `wso2 login` pointer in its recovery column, when a record has no stored session at all and names the ones without one, because being logged out is the state a completed `wso2 logout` leaves behind, not a health fault; a session that is stored but cannot be read still fails. `--online` adds two more checks: that the OpenID configuration of every issuer the selected context names can be read — the check that finds a certificate this machine does not trust, refused as `auth.certificate_untrusted` with the same recovery a product command gives, or `auth.discovery_failed` for any other reason — and module catalog reachability; without it, `wso2 doctor` makes no network call. On an unconfigured machine, the secure-store and session checks report not-applicable rather than failure; on a context document that fails to decode or validate, the session check reports not-applicable too, because no credential reference can be resolved from it, while the secure-store check still runs since it never reads the document. The session check is also not-applicable for a client-credentials context, and when no context is selected; a client-credentials context acquires access inline and holds no session to check. Exits 0 when every check passes, is not-applicable, or reports none, otherwise the exit class of the most severe failing check, in this rank: secure-store, then the document, then the session, then (only under `--online`) the issuer, then the catalog — a rank this command defines and not the numeric order of the exit classes those checks carry. Receipt, module integrity, compatibility, and protocol status are not built yet; see [architecture](../architecture.md#14-operational-behavior). |
 
 `project` commands are intentionally not included yet. Product-specific
 projects, deployment, and runtime operations remain within their product
 modules.
 
-On a fresh air-gapped machine, the user runs the transferred platform-specific
-offline bundle directly; no `wso2` command exists yet. `wso2 bundle install`
-is only for a machine where the shell is already installed. The administrator
-must establish trust in the bootstrap before execution through platform signing
-on Windows or macOS, or detached-signature verification on Linux.
+**Not built yet:** a root-shell self-update command, `product info`/`verify`/
+`rollback`, installing a module from an offline `.wso2module` file, and the
+offline bundle family (`create`, `inspect`, `install`) for air-gapped
+machines.
+
+## Login errors
+
+Every refusal `wso2 login` and a brokered command make carries a typed code.
+
+| Code | Meaning | Fix |
+| --- | --- | --- |
+| `auth.context_not_selected` | No context document exists, or none is selected. | `wso2 context use <name>`, `wso2 context apply -f <file>`, or `wso2 login --url <issuer> --client-id <id>`. |
+| `auth.discovery_failed` | The issuer's OpenID configuration could not be read or is unusable: an inexact `issuer`, no network path, no `S256` support, or no loopback port free. | Compare `issuer` to `<issuer>/.well-known/openid-configuration` character for character; check connectivity; enable PKCE `S256`; free a port in 10425-10428. |
+| `auth.certificate_untrusted` | The issuer's TLS certificate is not trusted by this machine — the usual first failure against a fresh self-hosted install. | Trust the certificate, or set `WSO2_CA_FILE`; see [Trusting a deployment's certificate](#trusting-a-deployments-certificate). |
+| `auth.login_required` | No usable session for this `credentialRef`: never logged in, or the deployment stopped accepting the stored refresh token. | Run `wso2 login` again. |
+| `auth.keyring_unavailable` | The OS secure store could not be used (commonly no Secret Service on headless Linux). | Start a keyring daemon, or use a `client-credentials` context. |
+| `auth.credential_unavailable` | A `client-credentials` context's secret variable is unset or rejected, or a browser/device login ended without tokens. | Name the variable correctly and export it; for a browser login, retry and complete consent. |
+| `auth.narrowing_unavailable` | A token was obtained but the shell could not prove it was narrowed to what the module asked for, so it refused to hand it over — by design. | The message names which of five causes applied: opaque token, no scope claimed, deployment ignored the narrower request, wrong `audience`, or `invalid_scope`. Fix the named cause in the context document or the deployment's application config. |
+| `auth.organization_switch_unsupported` | The context's `organization` names something other than its `login.tenant`. | Make them match, or use a context whose home tenant is the target organization. |
+| `auth.product_not_configured` | A module asked for an audience or scope this context does not register for it, or a login named no resource server a ThunderID deployment requires. | `wso2 context product add <product> --url <url> [--replace]`, or `wso2 context create <name> --login-product <product> --url <url>`. |
+| `auth.audience_not_declared` / `auth.scope_not_declared` | The module asked for more than its own installation declares. | Reinstall the module; this is not a context problem. |
+| `auth.login_not_required` | `wso2 login` was run against a context that carries its own credential. | Just run the command; there is no session to establish. |
+| `auth.non_interactive` | A browser or device login was attempted under `--no-input` or `WSO2_NO_INPUT`. | Use a `client-credentials` context for automation, or drop the flag/variable to run interactively. |
+| `auth.kind_not_implemented` | The context's `login.kind` is `pat`, which the schema names but this release does not implement. | Use `oauth-browser`, `oauth-device`, or `client-credentials`. |
+| `auth.session_issuer_mismatch` | The stored session was established against a different issuer than the context now names. | Run `wso2 login` again. |
+| `auth.session_required` | Nothing is stored for a product and `--no-input`/`WSO2_NO_INPUT` forbids the browser that would authorize it. | `wso2 login --only <namespace>` where a browser can open. |
+| `auth.reauthorization_required` | A session for the product is stored, but the deployment would not renew it to the permissions the module needs. | Log in again where a browser can open; if it still refuses, an administrator has to grant the role. |
 
 ## Exit classes
 
@@ -179,9 +175,8 @@ The variable must be exported in the shell that runs `wso2`. It never narrows
 trust. A file that cannot be read, or holds no certificate, is refused with
 `shell.ca_file_unreadable` and exit class `64` before anything reaches the
 network. A product module is a separate process; it is handed the variable and
-applies the same trust on its own. The troubleshooting entry in the
-[login guide](../guides/login.md#authcertificate_untrusted) has the same
-commands.
+applies the same trust on its own. See [Login errors](#login-errors) above for
+the same commands beside the rest of the login refusals.
 
 ## What a module may ask the broker for
 
@@ -392,7 +387,7 @@ module installed at an exact version with no channel chosen, such as
 `integration` above. A pin overrides the channel — it is what makes a pinned
 prerelease installable without putting the module on that channel — so there
 is no channel to name while the pin holds, and the blank cell is not a
-prediction that the module would move to stable once unpinned: `wso2 module
+prediction that the module would move to stable once unpinned: `wso2 product
 install integration` without `@<version>` records whatever channel that
 command names, stable by default, which need not be the channel the pinned
 version actually came from.

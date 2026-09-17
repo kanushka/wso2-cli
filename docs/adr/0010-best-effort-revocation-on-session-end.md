@@ -48,8 +48,8 @@ than what the command name implies.
 
 ## Consequences
 
-**The provider facts were unmeasured when this was decided.** Nothing in
-`docs/research/` records whether Asgardeo, Identity Server or ThunderID
+**The provider facts were unmeasured when this was decided.** No measurement
+recorded whether Asgardeo, Identity Server or ThunderID
 advertises `revocation_endpoint`, whether their revocation endpoints accept a
 public client — ours are public, authorization code with PKCE and no stored
 secret — or whether revoking a refresh token cascades to already-issued access
@@ -59,8 +59,8 @@ art is apictl revoking at `oauth2/revoke`, and apictl is a confidential client
 using the password grant, so it is not evidence that we can. This design is the
 one that survives that ignorance: each provider's branch is discovered at
 runtime and reported for what it is. The first live run against each deployment
-should be recorded in the research corpus with a date and a URL, matching how
-those documents already distinguish measurement from inference.
+should be recorded in a GitHub issue with a date and a URL, separating
+measurement from inference.
 
 **The browser SSO session survives all three outcomes.** Revoking a refresh
 token does not end the single-sign-on session the identity provider holds in the

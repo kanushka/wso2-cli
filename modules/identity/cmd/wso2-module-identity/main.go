@@ -51,7 +51,7 @@ const StatusSchema = "identity.status/v1"
 // deployment stamps into aud — a resource-server URI on ThunderID, an API
 // resource identifier on Identity Server — is recorded by the operator on the
 // account, and the shell proves the token is bound to that before handing it
-// over. See docs/guides/building-product-modules.md.
+// over. See docs/guides/build-module-quickstart.md.
 const ManagementAudience = "identity-management"
 
 // ManagementScope is the permission every command here needs: the deployment's

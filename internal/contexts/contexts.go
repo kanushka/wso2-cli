@@ -21,7 +21,7 @@
 // entries hold its sessions (its credential reference), and optionally which
 // organization and project commands run within. Nothing in it is a credential:
 // it names where one comes from, and the types have nowhere to put a value
-// even if a writer tried. See docs/examples/authentication-contexts.md and
+// even if a writer tried. See docs/reference/context-file.md and
 // docs/adr/0016-a-context-owns-its-login-and-sessions.md.
 //
 // The shell both reads and writes this document; Save and Update in save.go are

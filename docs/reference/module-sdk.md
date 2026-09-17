@@ -1,9 +1,9 @@
 # Module SDK
 
-**Status:** Proposed reference
-**Related:** [Building a product module](../guides/building-product-modules.md),
+**Status:** Reference
+**Related:** [Building a product module](../guides/build-module-quickstart.md),
 [module manifest](module-manifest.md),
-[troubleshooting a module](../guides/troubleshooting-modules.md)
+[troubleshooting a module](../guides/troubleshoot-module.md)
 **Last reviewed:** 2026-09-10
 
 What a command handler receives, and what it may return. A module imports the
@@ -261,7 +261,7 @@ report := result.New("identity.resourceServers/v1").
 for _, server := range found {
 	report = report.WithRow(server.Name, server.Identifier)
 }
-return report.With("next", "Next", "Record one with wso2 account add-product."), nil
+return report.With("next", "Next", "Record one with wso2 context product add."), nil
 ```
 
 The columns are declared once rather than restated by every row, which is what
@@ -387,7 +387,7 @@ capabilities the way the broker does, so a handler asking for an audience that
 `module.json` does not declare passes its tests and is refused on a user's
 machine with `auth.audience_not_declared`. Install the module and run it under
 a real shell before tagging: see the guide's
-[Run it under the real shell](../guides/building-product-modules.md#run-it-under-the-real-shell-before-you-tag).
+[Install it into a local shell](../guides/build-module-quickstart.md#3-install-it-into-a-local-shell).
 
 ## Naming your own commands
 

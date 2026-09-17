@@ -430,8 +430,8 @@ func TestAFailureInsideACommandIsNotReportedAsAUsageProblem(t *testing.T) {
 // A bare family name is an incomplete command, not a failed one. It used to be
 // refused as shell.missing_argument at exit 64, which said "this command is
 // broken" about five families whose every subcommand works — clearly enough
-// that a reader of docs/examples/user-flow-review.md proposed hiding config and
-// org from the tree until their subcommands were "implemented" (F8).
+// that a design reviewer proposed hiding config and org from the tree until
+// their subcommands were "implemented" (F8).
 //
 // The refusal that matters is pinned by
 // TestEveryCommandFamilyRefusesAnUnknownSubcommand below, and the two must not

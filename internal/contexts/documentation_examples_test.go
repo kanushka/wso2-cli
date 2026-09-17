@@ -29,22 +29,18 @@ import (
 
 // docCredentialRefFiles are the published examples that show credentialRef
 // values to a reader who is expected to copy them.
-// The login guides are here beside the examples because they are the first-run
-// path: a reader who never opens docs/examples still copies a credentialRef out
-// of the guide for their own product.
+// The setup guides are here beside the context file reference because they
+// are the first-run path: a reader who never opens the reference still
+// copies a credentialRef out of the setup guide for their own product.
 var docCredentialRefFiles = []string{
-	"../../docs/examples/authentication-contexts.md",
-	"../../docs/examples/login-walkthroughs.md",
-	"../../docs/guides/login.md",
-	"../../docs/guides/login-asgardeo.md",
-	"../../docs/guides/login-identity-server.md",
-	"../../docs/guides/login-thunder.md",
+	"../../docs/reference/context-file.md",
+	"../../docs/guides/setup-asgardeo.md",
+	"../../docs/guides/setup-identity-server-7.x.md",
+	"../../docs/guides/setup-thunder.md",
 }
 
-// docCredentialRefAssignment matches a credentialRef field's value as either
-// file shows it: `credentialRef: acme-cloud` in the illustrative YAML, or
-// `"credentialRef": "acme-cloud"` in the one fenced block
-// (authentication-contexts.md §11 is JSON; the identity examples are YAML).
+// docCredentialRefAssignment matches a credentialRef field's value as every
+// file shows it: `"credentialRef": "acme-cloud"` in a fenced JSON block.
 //
 // This extracts only the one field this task is about, rather than parsing
 // the surrounding YAML structurally: the shell reads JSON, has no YAML
