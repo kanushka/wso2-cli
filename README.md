@@ -44,6 +44,7 @@ The principal documents are:
 - [Product requirements](docs/product-requirements.md)
 - [Architecture](docs/architecture.md)
 - [wso2 cli commands](docs/reference/commands.md)
+- [Module quickstart](docs/guides/module-quickstart.md)
 - [Building a product module](docs/guides/building-product-modules.md)
 - [Authentication context examples](docs/examples/authentication-contexts.md)
 
