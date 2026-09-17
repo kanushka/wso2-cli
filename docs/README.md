@@ -52,6 +52,9 @@ requirements or architecture.
   and what it may return: the options a module serves, the request a handler is
   given, results, the five problem categories and the exit codes they map to,
   and the test kit.
+- [Context file](reference/context-file.md) states the short, shareable file
+  `wso2 context apply` reads: every member it may carry, what apply fills in
+  from the installed products, and what it refuses.
 - [Authentication context examples](examples/authentication-contexts.md)
 
 These documents illustrate proposed interfaces. They are not evidence that the

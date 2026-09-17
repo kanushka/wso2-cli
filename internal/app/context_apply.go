@@ -247,7 +247,7 @@ func (c inputContext) validate() error {
 func inputProblem(detail string) problem.Problem {
 	return problem.New(problem.CategoryUsage, "shell.input_malformed", "the context file "+detail).
 		WithRecovery("Correct the file and run the command again. Nothing was installed or written. " +
-			"docs/examples/authentication-contexts.md describes the format.")
+			"docs/reference/context-file.md states every member the file may carry.")
 }
 
 // wanted is every product the input needs installed, with its pin.

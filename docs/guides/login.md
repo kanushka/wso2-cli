@@ -199,6 +199,9 @@ If the document is malformed, the shell says so before opening any browser.
 
 ### 2.5 A shared context file
 
+> Every member the file may carry, and every way it is refused, is in the
+> [context file reference](../reference/context-file.md).
+
 A platform team that runs the deployment writes the short form once, and every
 developer applies it. The **input file** leaves out everything an installed
 product's descriptor already knows, and never names a `credentialRef` or a
