@@ -26,7 +26,7 @@ const (
 	// subtleStyle is the terminal's dim gray (ANSI 8, bright black), the
 	// color the setup wizard frames its questions in.
 	subtleStyle = "\x1b[90m"
-	resetStyle   = "\x1b[0m"
+	resetStyle  = "\x1b[0m"
 )
 
 // Hint marks the wso2 commands inside a next step or a recovery, so a command
