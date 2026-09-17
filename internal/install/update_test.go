@@ -198,6 +198,21 @@ func updateFixtureClient(index, namespace, archive []byte) catalog.Client {
 	}
 }
 
+// offlineClient is a catalog client whose every request fails, for a test
+// asserting that a step never reaches the catalog.
+func offlineClient() catalog.Client {
+	return catalog.Client{
+		Origin: "https://origin.example",
+		HTTP: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			return nil, fmt.Errorf("unexpected catalog request: %s", r.URL)
+		})},
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
 // TestCheckWithNothingInstalledReportsNothing pins that Check never contacts
 // the catalog when there is nothing installed to report on: the zero Client
 // below would panic any request it received.
@@ -335,6 +350,7 @@ func TestNothingWouldMoveIsFalseForAnUnpinnedModule(t *testing.T) {
 		t.Fatalf("the install returned %v", err)
 	}
 
+	installer.Client = offlineClient()
 	move, err := installer.NothingWouldMove([]string{fixtureNamespace})
 	if err != nil {
 		t.Fatalf("NothingWouldMove returned %v", err)
@@ -357,6 +373,7 @@ func TestNothingWouldMoveIsTrueForAPinnedModule(t *testing.T) {
 		t.Fatalf("the pinning install returned %v", err)
 	}
 
+	installer.Client = offlineClient()
 	move, err := installer.NothingWouldMove([]string{fixtureNamespace})
 	if err != nil {
 		t.Fatalf("NothingWouldMove returned %v", err)
@@ -408,6 +425,13 @@ func TestUpdateSkipsAPinnedModule(t *testing.T) {
 	}
 	if outcomes[0].Action != ActionPinned || outcomes[0].To != "1.0.0" {
 		t.Errorf("outcome = %+v, want ActionPinned holding 1.0.0", outcomes[0])
+	}
+	active, err := installer.Store.ReadActive(fixtureNamespace)
+	if err != nil {
+		t.Fatalf("ReadActive returned %v", err)
+	}
+	if active.Version != "1.0.0" {
+		t.Errorf("active version = %q after updating a pinned module, want 1.0.0", active.Version)
 	}
 }
 

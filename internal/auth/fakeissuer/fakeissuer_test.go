@@ -27,7 +27,9 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	oidc "github.com/coreos/go-oidc/v3/oidc"
 
@@ -636,19 +638,47 @@ func TestNegativeSerialCertificatePublishesAnUnparseableChain(t *testing.T) {
 }
 
 // TestOnRevokeRunsOnceBeforeTheRevocationAnswers pins the one race this hook
-// exists for: it fires inside the revocation request, and only the first
-// time.
+// exists for: it fires inside the revocation request, holding back the answer
+// until it returns, and only the first time.
 func TestOnRevokeRunsOnceBeforeTheRevocationAnswers(t *testing.T) {
 	issuer := fakeissuer.New(t, fakeissuer.Options{})
 	seeded := issuer.SeedSession(nil)
-	calls := 0
-	issuer.OnRevoke(func() { calls++ })
+	var calls atomic.Int32
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	issuer.OnRevoke(func() {
+		calls.Add(1)
+		close(entered)
+		<-release
+	})
 
-	revoke(t, issuer, seeded, "client-123")
+	// The first request runs apart from the test goroutine, so it reports
+	// its failure on the channel rather than through t.
+	answered := make(chan error, 1)
+	go func() {
+		response, err := http.PostForm(issuer.URL+"/revoke",
+			url.Values{"token": {seeded}, "client_id": {"client-123"}})
+		if err == nil {
+			err = response.Body.Close()
+		}
+		answered <- err
+	}()
+
+	<-entered
+	select {
+	case <-answered:
+		t.Fatal("the revocation answered while OnRevoke was still running")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	if err := <-answered; err != nil {
+		t.Fatalf("revoke request: %v", err)
+	}
+
 	revoke(t, issuer, "some-other-token", "client-123")
 
-	if calls != 1 {
-		t.Errorf("OnRevoke fired %d times, want exactly 1", calls)
+	if got := calls.Load(); got != 1 {
+		t.Errorf("OnRevoke fired %d times, want exactly 1", got)
 	}
 }
 
@@ -799,12 +829,26 @@ func TestDevicePollsRecordsEveryPollInOrder(t *testing.T) {
 	}
 
 	if _, status := pollDevice(t, issuer, deviceCode); status != http.StatusOK {
-		t.Fatalf("the poll did not succeed")
+		t.Fatalf("the first poll did not succeed")
+	}
+
+	second := text(deviceAuthorize(t, issuer), "device_code")
+	if second == deviceCode {
+		t.Fatal("the second authorization reused the first device code")
+	}
+	if got := issuer.LastDeviceCode(); got != second {
+		t.Fatalf("LastDeviceCode = %q, want the newer %q", got, second)
+	}
+	if _, status := pollDevice(t, issuer, second); status != http.StatusOK {
+		t.Fatalf("the second poll did not succeed")
 	}
 
 	polls := issuer.DevicePolls()
-	if len(polls) != 1 {
-		t.Fatalf("DevicePolls = %v, want exactly one recorded poll", polls)
+	if len(polls) != 2 {
+		t.Fatalf("DevicePolls = %v, want both polls recorded", polls)
+	}
+	if polls[1].Before(polls[0]) {
+		t.Errorf("DevicePolls = %v, want them in request order", polls)
 	}
 }
 

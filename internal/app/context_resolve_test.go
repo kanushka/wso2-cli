@@ -50,6 +50,7 @@ func TestContextProductAddResolutionRefusals(t *testing.T) {
 		setup setup
 		args  []string
 		code  string
+		exit  exit.Code
 	}{
 		"a login provider recorded on a context that logs in elsewhere": {
 			setup: func(t *testing.T, shell app.Shell) {
@@ -58,6 +59,7 @@ func TestContextProductAddResolutionRefusals(t *testing.T) {
 			},
 			args: []string{"iam", "--url", thunderURL},
 			code: "shell.conflicting_arguments",
+			exit: exit.Usage,
 		},
 		"a client-secret-variable on a browser context": {
 			setup: func(t *testing.T, shell app.Shell) {
@@ -65,16 +67,19 @@ func TestContextProductAddResolutionRefusals(t *testing.T) {
 			},
 			args: []string{"api", "--url", apiURL, "--client-secret-variable", "API_SECRET"},
 			code: "shell.conflicting_arguments",
+			exit: exit.Usage,
 		},
 		"a grant needing a client the descriptor names none for": {
 			setup: func(t *testing.T, shell app.Shell) { localSetup(t, shell) },
 			args:  []string{"apim", "--url", apimURL},
 			code:  "shell.missing_required_flag",
+			exit:  exit.Usage,
 		},
 		"a gateway on a product declaring none": {
 			setup: func(t *testing.T, shell app.Shell) { localSetup(t, shell) },
 			args:  []string{"reference", "--url", "https://ref.example", "--gateway", "https://ref.example/gw"},
 			code:  "shell.invalid_argument",
+			exit:  exit.Usage,
 		},
 		"a machine client the product declares no way to reach": {
 			setup: func(t *testing.T, shell app.Shell) {
@@ -83,6 +88,7 @@ func TestContextProductAddResolutionRefusals(t *testing.T) {
 			},
 			args: []string{"api", "--url", apiURL},
 			code: "auth.product_not_configured",
+			exit: exit.AuthPolicy,
 		},
 		"a client-secret-variable the product accepts only inline": {
 			setup: func(t *testing.T, shell app.Shell) {
@@ -92,6 +98,7 @@ func TestContextProductAddResolutionRefusals(t *testing.T) {
 			},
 			args: []string{"gwm", "--url", gwmURL, "--client-secret-variable", "GWM_SECRET"},
 			code: "auth.product_not_configured",
+			exit: exit.AuthPolicy,
 		},
 		"a gateway the product's own machine client is not accepted at": {
 			setup: func(t *testing.T, shell app.Shell) {
@@ -101,6 +108,7 @@ func TestContextProductAddResolutionRefusals(t *testing.T) {
 			},
 			args: []string{"gwm", "--url", gwmURL, "--gateway", gwmGatewayURL},
 			code: "auth.product_not_configured",
+			exit: exit.AuthPolicy,
 		},
 	}
 	for name, testCase := range cases {
@@ -108,8 +116,8 @@ func TestContextProductAddResolutionRefusals(t *testing.T) {
 			shell, _, _ := newContextShell(t)
 			testCase.setup(t, shell)
 			code, _, errOut := run(t, shell, append([]string{"context", "product", "add"}, testCase.args...)...)
-			if code != exit.Usage && code != exit.AuthPolicy {
-				t.Fatalf("exit %d, want a refusal: %s", code, errOut)
+			if code != testCase.exit {
+				t.Fatalf("exit %d, want %d: %s", code, testCase.exit, errOut)
 			}
 			if !strings.Contains(errOut, testCase.code) {
 				t.Errorf("stderr does not carry %s:\n%s", testCase.code, errOut)
