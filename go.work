@@ -17,8 +17,9 @@ go 1.25.8
 // built against yet".
 //
 // Committed replace directives remain prohibited in every go.mod; the workspace
-// is the sanctioned place for one. See docs/plans/first-cli-vertical-slice.md
-// section 4 and docs/adr/0009-sdk-versioning-and-publication.md.
+// is the sanctioned place for one, so a module's own go.mod always resolves
+// against a real, tagged SDK release even though this workspace builds
+// against source. See docs/adr/0009-sdk-versioning-and-publication.md.
 use (
 	.
 	./modules/reference

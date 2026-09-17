@@ -117,7 +117,7 @@ func Providers() []string {
 // TypeOnprem, because a host WSO2 does not operate can only be self-hosted.
 //
 // The answer is descriptive today: the type member selects defaults and
-// wording, never structure (docs/examples/authentication-contexts.md), and no
+// wording, never structure (docs/reference/context-file.md), and no
 // logic in this repository branches on it beyond how the login report phrases
 // itself. The derivation exists so the document tells the truth about the
 // deployment kind — a login against Asgardeo must not record WSO2's own cloud

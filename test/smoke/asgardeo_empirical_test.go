@@ -36,8 +36,8 @@ import (
 //
 // Both are one-time experiments. Their output is the deliverable — each prints
 // a single greppable verdict line that a human copies into
-// docs/research/asgardeo-redirect-uri-and-scope-narrowing.md section 3, in
-// place of the cell that currently says the answer is unknown. The test itself
+// test/smoke/RUNNING.md's "Measured product verdicts" section, in place of the
+// cell that currently says the answer is unknown. The test itself
 // passes whatever the deployment answers: a rejection is a finding, not a
 // defect, and a run that failed on one would be reporting the deployment's
 // behavior as the shell's bug.
@@ -190,6 +190,6 @@ func report(t *testing.T, question, verdict string, config smoke.Config) {
 	t.Helper()
 	_, _ = fmt.Fprintf(os.Stdout, "\n%s: %s\n  deployment: %s\n  recorded in: %s\n\n",
 		question, verdict, config.Issuer,
-		"docs/research/asgardeo-redirect-uri-and-scope-narrowing.md section 3")
+		"test/smoke/RUNNING.md, Measured product verdicts (Asgardeo)")
 	t.Logf("%s: %s", question, verdict)
 }

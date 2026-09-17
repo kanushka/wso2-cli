@@ -32,7 +32,7 @@ Released binaries are checksum-verified but not code signed or notarized.
 Supported platforms are Linux on `amd64`, `arm64`, `arm`, and `386`, and macOS and
 Windows on `amd64` and `arm64`.
 
-The [installation guide](docs/guides/installing.md) covers installing from the
+The [installation guide](docs/guides/install.md) covers installing from the
 release page without running a remote script, pinning a version, release
 candidates, where files go, and how to uninstall.
 
@@ -41,17 +41,17 @@ candidates, where files go, and how to uninstall.
 The [documentation index](docs/README.md) provides the complete reading order.
 The principal documents are:
 
-- [Product requirements](docs/product-requirements.md)
 - [Architecture](docs/architecture.md)
 - [wso2 cli commands](docs/reference/commands.md)
-- [Module quickstart](docs/guides/module-quickstart.md)
-- [Building a product module](docs/guides/building-product-modules.md)
-- [Authentication context examples](docs/examples/authentication-contexts.md)
+- [Install](docs/guides/install.md)
+- [Build a module quickstart](docs/guides/build-module-quickstart.md)
+- [Context file reference](docs/reference/context-file.md)
+- Setup guides: [Asgardeo](docs/guides/setup-asgardeo.md),
+  [Identity Server 7.x](docs/guides/setup-identity-server-7.x.md),
+  [ThunderID](docs/guides/setup-thunder.md)
 
 Product requirements and architecture decisions are authoritative within their
-respective scopes. Reference material and examples illustrate proposed
-interfaces. Research records evidence and alternatives but does not override
-the requirements or architecture.
+respective scopes. Reference material illustrates proposed interfaces.
 
 ## Project status
 

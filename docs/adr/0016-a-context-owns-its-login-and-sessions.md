@@ -102,5 +102,6 @@ file, and neither needs the file to be edited.
   point of the file.
 - Discovering a deployment's products from a well-known document served by the
   login product would make a bare URL enough. It depends on other products'
-  teams and is left to `docs/plans/deployment-discovery-handoff.md`; it
+  teams and is tracked in
+  [#196](https://github.com/wso2/wso2-cli/issues/196); it
   produces an input file, so it goes through `apply` unchanged.

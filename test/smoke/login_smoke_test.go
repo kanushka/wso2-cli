@@ -184,12 +184,12 @@ func acquire(t *testing.T, broker *auth.Broker, request auth.Request, verdict, a
 		return true
 	case refusalCode(err) == codeNarrowingUnavailable:
 		// Documented, correct behavior. See this test's own doc comment and
-		// docs/guides/login.md's troubleshooting section.
+		// the login errors table in docs/reference/commands.md.
 		//
 		// auth.narrowing_unavailable covers five distinct causes — see
-		// internal/auth/narrowing.go's verify() and the table under
-		// auth.narrowing_unavailable in docs/guides/login.md section 6 — so this
-		// summary must not name one of them (a "narrowed grant" specifically).
+		// internal/auth/narrowing.go's verify() and the login errors table in
+		// docs/reference/commands.md — so this summary must not name one of
+		// them (a "narrowed grant" specifically).
 		// The interpolated error text below is what actually says which of the
 		// five happened; this sentence only states what is true regardless: the
 		// shell declined to hand the module more authority than it asked for.

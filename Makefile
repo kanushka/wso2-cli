@@ -22,7 +22,9 @@
 # default `go test ./...` by accident.
 #
 # See test/smoke/RUNNING.md for the variables the live targets read, and
-# docs/guides/login.md for how to register the application they read them from.
+# docs/guides/setup-asgardeo.md, docs/guides/setup-identity-server-7.x.md, or
+# docs/guides/setup-thunder.md for how to register the application they read
+# them from, per product.
 
 GO ?= go
 
@@ -119,7 +121,7 @@ help:
 # The namespace is the first word of every command the module will answer, so it
 # is refused when it is already taken, when a shell command owns it, when it is
 # the reference module's reserved namespace, or when it is not something a user
-# could type. See docs/guides/building-product-modules.md.
+# could type. See docs/guides/build-module-quickstart.md.
 .PHONY: new-module
 new-module:
 ifndef NAMESPACE
@@ -229,7 +231,7 @@ endif
 #
 #   make gate-module NAMESPACE=reference VERSION=v4.5.0-rc.1
 #
-# See docs/guides/building-product-modules.md section 6.
+# See docs/reference/module-manifest.md (compatibility.protocolVersions).
 .PHONY: gate-module
 gate-module:
 ifndef NAMESPACE

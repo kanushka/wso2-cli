@@ -1,11 +1,11 @@
 # Module manifest
 
-**Status:** Proposed reference
-**Related:** [Building a product module](../guides/building-product-modules.md),
+**Status:** Reference
+**Related:** [Building a product module](../guides/build-module-quickstart.md),
 [module catalog](module-catalog.md),
 [release artifacts](release-artifacts.md),
-[troubleshooting a module](../guides/troubleshooting-modules.md)
-**Last reviewed:** 2026-09-07
+[troubleshooting a module](../guides/troubleshoot-module.md)
+**Last reviewed:** 2026-09-17
 
 `module.json` is what a product module declares about itself. It sits at
 `modules/<namespace>/module.json`, `make new-module` writes it, and a module
@@ -108,7 +108,7 @@ with `modules.incompatible_shell` when it does not hold. Catalog selection does
 not check it, so a module can install successfully and then refuse to launch.
 That gap is why a shell built from a checkout, which reports `0.0.0-dev`, cannot
 launch a module declaring `>=0.1.0`: a prerelease sorts below its own release.
-See [troubleshooting](../guides/troubleshooting-modules.md).
+See [troubleshooting](../guides/troubleshoot-module.md).
 
 The release gate refuses a range it cannot parse, naming the module, rather than
 letting the failure surface later as an unreadable catalog document.
@@ -206,6 +206,7 @@ public configuration, and it names no credential.
 | `scopes` | The scopes the product's commands need. The setup commands record them on the product entry, and they become the ceiling for every request. | It is empty. |
 | `grant` | How the product is reached when it is not the login provider: `exchange` (the login session's token exchanged per command; the product's audience defaults to its URL), `federated` (a public client at the product's own issuer, through the same browser sign-on) or `jwt-bearer`. Empty for a product only its own provider serves. | It names a grant this shell does not implement. |
 | `machine` | The strategies a client-credentials context may use: `inline` (the context's own machine client, minted per product) and/or `credential` (a credential of the product's own, given as variable names). | It names a strategy this shell does not implement. |
+| `gateway` | The defaults for the product's gateway record, when it has one: its own `audience` (`resource` or `client`), `scopes`, and `machine` strategies. `wso2 context product add --gateway <url>` writes the URL; these three come from here. Absent for a product with no gateway, which has `--gateway` refused. | It names an `audience` or `machine` value this shell does not implement. |
 
 The refusals above are made when the receipt is read, as `modules.receipt_malformed`,
 naming the field. A manifest carrying them builds and tests clean, so read the

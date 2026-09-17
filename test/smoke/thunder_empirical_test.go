@@ -35,8 +35,9 @@ import (
 // TestThunderEmpirical answers the questions that decided how the shell derives
 // access on a deployment which binds tokens to a named resource.
 //
-// They are the same two questions sections 3 and 3.1 of the research document
-// ask of Asgardeo and Identity Server — does the refresh grant honour a
+// They are the same two questions asked of Asgardeo and Identity Server in
+// test/smoke/RUNNING.md's "Measured product verdicts" section — does the
+// refresh grant honour a
 // narrower scope, and what lands in aud — plus the one those products never
 // raise, which is whether the audience can be chosen at all. Keeping the first
 // two makes Thunder's column comparable with the other two rather than a
@@ -193,6 +194,6 @@ func reportThunder(t *testing.T, question, verdict string, config smoke.Config) 
 	t.Helper()
 	_, _ = fmt.Fprintf(os.Stdout, "\n%s: %s\n  deployment: %s\n  recorded in: %s\n\n",
 		question, verdict, config.Issuer,
-		"docs/research/asgardeo-redirect-uri-and-scope-narrowing.md section 3.2")
+		"test/smoke/RUNNING.md, Measured product verdicts (ThunderID)")
 	t.Logf("%s: %s", question, verdict)
 }

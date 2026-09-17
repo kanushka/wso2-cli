@@ -1,8 +1,7 @@
 # Release artifacts
 
 **Status:** Accepted
-**Related:** [Distribution research](../research/root-cli-installation-distribution.md),
-[module catalog](module-catalog.md), [architecture](../architecture.md)
+**Related:** [module catalog](module-catalog.md), [architecture](../architecture.md)
 **Last reviewed:** 2026-08-20
 
 This document is the naming contract between a published release and the
@@ -19,9 +18,8 @@ that publishes it is `.github/workflows/release.yml`.
 GitHub Releases on `wso2/wso2-cli`. A pushed tag matching `v*` publishes one
 release named for that tag.
 
-This is the interim distribution channel. The signed, per-platform channels in
-[the distribution research](../research/root-cli-installation-distribution.md)
-remain the destination, and the archives described here are the inputs those
+This is the interim distribution channel. Signed, per-platform channels remain
+the destination, and the archives described here are the inputs those
 channels package.
 
 ## Archive names

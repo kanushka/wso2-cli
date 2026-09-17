@@ -1,12 +1,11 @@
 # WSO2 CLI product requirements
 
 **Status:** Working draft  
-**Date:** 2026-07-24
-**Superseded in part:** [ADR 0016](adr/0016-a-context-owns-its-login-and-sessions.md) folds the account into the context; read "account" here as a context's login. The current shape is in [authentication context examples](examples/authentication-contexts.md).
+**Related:** [Architecture](architecture.md), [decision records](adr/)
 
 ## 1. Summary
 
-WSO2 will provide one command, `wso2`, as the common shell for WSO2 product
+WSO2 provides one command, `wso2`, as the common shell for WSO2 product
 CLIs. Product teams will continue to own their product-specific commands and
 release them independently as WSO2-published modules.
 
@@ -47,7 +46,7 @@ For example:
 
 ```shell
 wso2 api gateway list
-wso2 account apps list
+wso2 identity apps list
 wso2 integration component deploy --file integration.yaml
 wso2 agent projects list
 ```
@@ -77,7 +76,7 @@ wso2 doctor
 - Centralize authentication and secure credential storage.
 - Centralize cloud, on-premises, organization, project, region, and endpoint
   context.
-- Provide consistent JSON, YAML, and table output.
+- Provide consistent table and JSON output.
 - Provide stable machine-readable errors and documented exit codes.
 - Provide a coherent help tree across the shell and installed modules.
 
@@ -93,7 +92,7 @@ wso2 doctor
 - Discover, install, update, verify, roll back, list, and remove official
   WSO2 product modules.
 - Allow modules to be pinned for reproducible CI environments.
-- Support pre-installation and signed offline bundles for restricted networks.
+- Support pre-installation, and later offline bundles, for restricted networks.
 - Report the root CLI and module versions without executing arbitrary binaries
   merely to discover their versions.
 
@@ -150,54 +149,49 @@ Requirements are classified as:
 
 ### 7.1 Root command and namespaces
 
-- **P0:** The installed root command is `wso2`.
+- **P0:** One installed root command. Its name is set at build time (release
+  default `ws`); this document writes it as `wso2`.
 - **P0:** Built-in root commands always take precedence over module namespaces.
 - **P0:** Each module owns exactly one registered top-level product namespace.
-- **P0:** Namespace ownership is validated by the official registry.
+- **P0:** Namespaces are assigned in this repository and published through the
+  module catalog.
 - **P0:** The shell resolves modules only from its managed store, never by
   searching arbitrary `PATH` entries.
 - **P1:** The shell can suggest installation when a known official namespace is
   not installed.
 
-Initial namespace candidates are `agent`, `api`, `identity`, and `integration`.
-The final names will be agreed with the product owners before the public
-contract is frozen.
+The product namespaces are `identity`, `api`, `agent`, and `integration`
+([ADR 0015](adr/0015-one-word-per-concept-in-the-command-surface.md)).
 
 ### 7.2 Authentication and credentials
 
-> **What ships today.** These are requirements on the product, not a description
-> of the current build. The shell implements browser Authorization Code with
+> **What ships today.** The shell implements browser Authorization Code with
 > PKCE, the Device Authorization Grant, and inline client credentials. Personal
-> access tokens are accepted as legal configuration and refuse at use with the
-> stable code `auth.kind_not_implemented`. Device authorization is selected by
-> an account's `oauth-device` kind; there is no `--device-code` flag yet, so
-> the requirement below that it be a login-time mode for a browser account is
-> not yet met. See [the login first slice](plans/login-first-slice.md).
+> access tokens are legal configuration and refuse at use with
+> `auth.kind_not_implemented`.
 
 - **P0:** The root shell owns authentication sessions and credential storage.
-- **P0:** An **account** is one login session together with every product for
-  which the shell can derive valid access from that session without another
-  login or an independently supplied credential.
+- **P0:** A context's **login** serves every product for which the shell can
+  obtain valid access from that login's sign-on without another credential.
 - **P0:** Where a product requires another login or an independently supplied
-  credential, it belongs to another account and another context.
+  credential, it belongs to another context.
 - **P0:** Sharing an identity provider or issuer URL does not by itself make
-  products share an account. The shared session must be able to produce access
-  each product accepts.
-- **P0:** Product access derived from a shared account is restricted by
+  products share a login. The sign-on must be able to produce access each
+  product accepts.
+- **P0:** Product access obtained through a shared login is restricted by
   audience/resource and by scope wherever the deployment supports it. Where a
   requested narrowing is unavailable, the shell refuses rather than silently
   issuing broader or incorrectly targeted access.
-- **P0:** An interactive OIDC account uses browser Authorization Code with
-  PKCE by default. `wso2 login --device-code` selects device authorization as a
-  login mode for the same account, available only where the backend advertises
+- **P0:** An interactive OIDC context logs in with browser Authorization Code
+  with PKCE by default. `wso2 context create --device` makes it log in with
+  device authorization instead, available only where the backend advertises
   the grant.
 - **P0:** Device authorization remains an interactive developer login mode; it
   is not a CI authentication method.
-- **P0:** An on-premises context explicitly identifies its account's product
-  endpoints and authentication method. Login uses only mechanisms supported by
+- **P0:** An on-premises context explicitly identifies its product URLs and authentication method. Login uses only mechanisms supported by
   that deployment.
 - **P0:** The CLI does not assume that an on-premises deployment has WSO2 Cloud
-  SSO, WSO2 Identity Server, or any other shared account service.
+  SSO, WSO2 Identity Server, or any other shared login service.
 - **P0:** CI authentication is non-interactive and uses client credentials, a
   personal access token where the product issues one, or a future
   workload-account mechanism. CI must never start browser login or device
@@ -222,15 +216,15 @@ contract is frozen.
   credentials, a personal access token, or a compatibility adapter.
 - **P0:** Secret values are never placed in command-line arguments, context
   files, logs, receipts, or module configuration, and are never forwarded to a
-  module through its environment. CI may identify a secret-provided environment
-  variable or stdin source; the shell reads the value directly into memory.
+  module through its environment. CI names the environment variable that holds
+  a secret; the shell reads the value directly into memory.
 
 #### User-facing login decision tree
 
 ```mermaid
 flowchart TD
     L["wso2 login"] --> S["Selected context"]
-    S --> I["Its account"]
+    S --> I["Its login block"]
     I --> K{"Authentication kind"}
 
     K -->|Interactive OIDC| M{"Login mode"}
@@ -248,59 +242,64 @@ flowchart TD
 
     P --> A["Compatibility adapter:<br/>no derived short-lived access"]
 
-    R["Product the session cannot reach"] --> Y["Another account,<br/>another context"]
+    R["Product the login cannot reach"] --> Y["Another context"]
 ```
 
-Accounts and contexts contain only the selected authentication kind and
-non-secret references, such as an opaque secure-store reference or CI variable
-name. Credentials and secret values are never stored in either.
+A context contains only its authentication kind and non-secret references,
+such as an opaque secure-store reference or CI variable name, never a
+credential.
 
-Shared-login success means separate audience- and scope-bound product tokens
-derived from one session. It does not mean one token reused across products.
+Shared-login success means one credential entry and a separate audience- and
+scope-bound session per product
+([ADR 0014](adr/0014-one-login-one-session-per-product.md)). It does not mean
+one token reused across products.
 
 ### 7.3 Contexts
 
-> **What ships today.** Context selection resolves the `--context` flag, then
-> `WSO2_CONTEXT`, then the configured default. The recorded namespace binding
-> named below is deferred to the workspace design: no document field carries
-> one, so it takes no part in resolution yet.
+A context owns its login, its products, and its sessions
+([ADR 0016](adr/0016-a-context-owns-its-login-and-sessions.md)). There is no
+separate account record.
 
-- **P0:** Every context references exactly one account.
-- **P0:** One account may back several contexts, such as several projects or
-  organizations reached through the same login.
-- **P0:** An account may list several product endpoints only where one login
-  can provide access to those products.
-- **P0:** Where a product needs separate authentication, it is reached through a
-  separate account and context.
-- **P0:** Organization and project targeting belongs to the context. The
-  authentication kind, issuer, client identifier, and credential reference
-  belong to the account, and endpoint plus audience/resource metadata belongs
-  to its product entries.
-- **P0:** Accounts and contexts store only non-secret identifiers, an opaque
-  secure-store reference, or the name of a CI-provided variable. Neither ever
-  contains a credential value.
+- **P0:** A context holds one login block (authentication kind, issuer,
+  client, optional tenant and provider, CI variable name, login product), its
+  product entries (URL, audience/resource, scopes, grant), its organization
+  and project, and one credential reference.
+- **P0:** No two contexts share a credential reference, so changing, logging
+  out of, or deleting one context never touches another's sessions.
+- **P0:** Several organizations reached through one login are one context,
+  switched with `wso2 org use`. Two targets that must be selectable by name are
+  two contexts, each logging in on its own.
+- **P0:** A context lists several products only where its login can reach
+  them. A product that needs separate authentication belongs to another
+  context.
+- **P0:** A context stores only non-secret identifiers, an opaque secure-store
+  reference, or the name of a CI-provided variable.
+- **P0:** The context document is complete: product-descriptor defaults are
+  written into it when a context is created or applied, and nothing is derived
+  at command time.
+- **P0:** A platform team can share a short input file; `wso2 context apply`
+  turns it into complete records. An input file never names a credential
+  reference or a selection.
 - **P0:** Users can select a default context or override it for one command.
-- **P0:** A context may be bound to a product namespace, so that a deployment
-  requiring separate logins per product does not force an explicit override on
-  every command. The binding is a recorded decision, never an inference.
-- **P0:** Context selection is deterministic: explicit flag, environment
-  variable, recorded namespace binding, configured default, then none.
-- **P0:** Context switching does not implicitly authenticate.
-- **P0:** Creating or importing a context or account grants no access by
-  itself.
-- **P1:** Login may create the context it authenticates, naming it explicitly
-  and reporting what it created.
-- **P1:** Accounts and contexts can be imported and exported without
-  credentials.
+  Selection is deterministic: `--context`, then `WSO2_CONTEXT`, then the
+  selected context, then none.
+- **P0:** Selecting a context never authenticates.
+- **P0:** Creating, applying, or editing a context grants no access by itself.
+- **P1:** Login may create the context it authenticates, naming it and
+  reporting what it created.
+- **P1:** Contexts can be exported without credentials.
+- **P2:** A context may be bound to a product namespace, so a deployment that
+  needs separate logins per product does not force `--context` on every
+  command. Not built.
 
 ### 7.4 Output, errors, and help
 
-- **P0:** All compliant modules support `table`, `json`, and `yaml` output
-  through the shared SDK.
+- **P0:** All compliant modules support `table` and `json` output through the
+  shell's rendering.
 - **P0:** Non-interactive output is stable and contains no decoration unless
   explicitly requested.
-- **P0:** Errors have a stable category, code, message, optional details, and
-  recovery suggestion.
+- **P0:** Errors have a stable category, code, message, and recovery
+  suggestion.
 - **P0:** Exit codes are defined centrally and tested for conformance.
 - **P0:** Secret values are automatically redacted from errors and debug logs.
 - **P0:** Root and product help use common templates and terminology.
@@ -317,7 +316,7 @@ derived from one session. It does not mean one token reused across products.
   problems rather than implementing output and error formatting repeatedly.
 - **P0:** The SDK integrates naturally with Cobra because the identified WSO2
   product CLIs already use Go and Cobra.
-- **P0:** A conformance test kit validates account, protocol compatibility,
+- **P0:** A conformance test kit validates the handshake, protocol compatibility,
   help, flags, output, errors, authentication use, and secret redaction.
 - **P1:** Existing CLIs can migrate incrementally through a compatibility
   adapter, but only fully conformant modules are presented as conformant.
@@ -326,72 +325,40 @@ derived from one session. It does not mean one token reused across products.
 
 ### 7.6 Module installation and management
 
-- **P0:** Users can list available and installed official modules.
-- **P0:** Users can install a module's latest compatible stable version or pin
-  an exact version.
-- **P0:** Installation is staged and activated only after all verification and
-  health checks succeed.
-- **P0:** Updates preserve the currently working version until the replacement
-  is activated.
-- **P0:** The CLI discovers newer compatible module releases through the
-  module catalog and exposes installed and available versions through module
-  inventory commands.
+- **P0:** Users can list available and installed official modules, with
+  available updates, in one command.
+- **P0:** Users can install a module's newest compatible version on a channel,
+  or install and pin an exact version without pinning the rest.
+- **P0:** Installation is staged and activated only after verification
+  succeeds; an update keeps the working version until the replacement is
+  active.
 - **P0:** An update check costs one catalog request whatever is installed, and
   its cost does not grow as products accumulate releases.
-- **P0:** Users can choose a release channel per module and pin one module to
-  an exact version without pinning the rest.
-- **P0:** Interactive update notices are non-disruptive, appear only after the
-  requested command completes, and never contaminate structured standard
-  output.
-- **P0:** Non-interactive and offline execution does not perform implicit
-  catalog network checks or module updates.
-- **P0:** Module updates are explicit by default. Automatic module updates,
-  when supported, are opt-in and follow the same verification and rollback
-  policy as explicit updates.
-- **P0:** Users can verify installed modules and roll back to a retained
-  version.
-- **P0:** CI can disable implicit installation and network access.
-- **P0:** CI can pin exact module versions and run without update notices or
-  implicit metadata refresh.
-- **P1:** A fresh air-gapped machine can install the root shell and a selected
-  set of modules from one signed, platform-specific, self-installing offline
-  bundle without a preinstalled `wso2` command or network access.
-- **P1:** The offline bundle includes its own verified bootstrap installer,
-  exact shell and module artifacts, signed catalog snapshot, manifest, digests,
-  signatures, provenance, and required offline trust material.
-- **P1:** A connected installation can create a tailored offline bundle for an
-  explicit target platform using only compatible releases from the verified
-  catalog.
-- **P1:** An existing `wso2` installation can inspect and import a transferred
-  bundle to add or update modules; this CLI-based import is not required for
-  fresh-machine installation.
-- **P1:** Individual signed module files and complete offline bundles follow the
-  same account, compatibility, verification, activation, rollback, and
-  revocation-metadata policy as online installation.
-- **P1:** Organizations can use an approved mirror without changing module
-  account or trust guarantees.
+- **P0:** Module updates are explicit. Non-interactive and offline execution
+  performs no implicit catalog check, install, or update, so CI runs pinned,
+  pre-installed modules without network access.
+- **P1:** Interactive update notices appear only after the requested command
+  completes and never reach standard output. Not built.
+- **P1:** Users can verify installed modules and roll back to a retained
+  version. Not built.
+- **P1:** A fresh air-gapped machine can install the shell and selected
+  modules from one platform-specific offline bundle, and an existing
+  installation can import one. Deferred; the trust model must be reconciled
+  with the integrity-only position in [architecture](architecture.md) section
+  9.2 first.
+- **P1:** Organizations can use an approved mirror without changing trust
+  guarantees.
 
-The offline-bundle requirements above are deferred rather than cancelled. Their
-signing, provenance, and revocation claims predate the trust position in
-`docs/architecture.md` section 9.2 and have to be reconciled with it before the
-work is picked up.
-
-Proposed command surface:
+Command surface:
 
 ```shell
-wso2 product install api
-wso2 product install api@1.8.0
 wso2 product list
-wso2 product info api
-wso2 product update api
+wso2 product install identity
+wso2 product install identity@0.2.0   # installs and pins
+wso2 product update identity
 wso2 product update --all
-wso2 product verify api
-wso2 product rollback api
-wso2 product remove api
+wso2 product remove identity
 ```
-
-The exact distinction between catalog refresh and binary upgrade will be
-settled before the command contract is frozen.
 
 ### 7.7 Versions
 
@@ -423,8 +390,8 @@ refresh or network-enabled check.
   unsupported platforms, unsafe archives, and modified binaries.
 - **P0:** A module release is refused when the released shell speaks no
   protocol the module declares, so the shell always ships first.
-- **P0:** Every launch validates the active module's trusted receipt and
-  executable integrity.
+- **P0:** Every launch validates the active module's receipt and executable
+  integrity.
 - **P0:** Updates use immutable version directories and atomic activation.
 - **P1:** Signing the catalog is a tracked follow-up, so that the removal of
   publisher signing is a recorded deferral rather than an omission.
@@ -443,62 +410,42 @@ refresh or network-enabled check.
 - Errors state what failed, why it failed, and the next safe action.
 - Automatic module download is opt-in in CI and controllable interactively.
 
-## 9. Initial delivery stages
+## 9. Delivery stages
 
-These stages describe product-level progression, not task order. The
-[first CLI vertical-slice plan](plans/first-cli-vertical-slice.md) defines the
-bounded architecture proof. Later stages require separate reviewed
-implementation plans.
+These stages describe product-level progression, not task order. Open work is
+tracked in [GitHub issues](https://github.com/wso2/wso2-cli/issues).
 
-### Stage 1: foundation
-
-- root command;
-- context and secure credential model;
-- SDK and module protocol;
-- output, error, and help conventions;
-- managed module store and receipts;
-- generated catalog format;
-- conformance test kit.
-
-### Stage 2: pilot modules
-
-Migrate two product CLIs with different internal shapes: one whose Cobra root
-is already factory-injected and one with more global initialization. This tests
-both the preferred SDK path and the migration adapter.
-
-### Stage 3: managed distribution
-
-- generated catalog and publishing gate;
-- update, verification, rollback, and pinning;
-- platform installers;
-- signed offline bundles.
-
-### Stage 4: product adoption
-
-- migrate remaining agreed product CLIs;
-- publish module-authoring guidance;
-- deprecation and compatibility guidance for old binary names.
+1. **Foundation** (done): shell, context and credential model, SDK and module
+   protocol, output and error conventions, managed store and receipts,
+   generated catalog, test kit.
+2. **Pilot modules**: migrate two product CLIs with different internal
+   shapes, one factory-injected Cobra root and one with global
+   initialization.
+3. **Managed distribution**: publishing gate, update and pinning (done);
+   rollback, platform installers, offline bundles.
+4. **Product adoption**: remaining product CLIs, authoring guidance, and
+   deprecation guidance for old binary names.
 
 ## 10. Success criteria
 
 - A user installs one root CLI and can discover and use multiple product
   namespaces.
-- Cloud developer login uses Authorization Code with PKCE by default, while
-  headless interactive login succeeds through the explicit device-code mode
-  where the backend advertises it.
-- One login serves every product its account reaches, and each product
-  invocation receives its own audience- and scope-bound token derived from that
-  session rather than a single token reused across products.
-- A product the session cannot reach is served by a separate account and
-  context, and the CLI says so instead of failing obscurely.
-- On-premises login follows the authentication kind declared for the selected
-  context's account without assuming a shared WSO2 account service.
+- Cloud developer login uses Authorization Code with PKCE by default, and a
+  headless machine logs in with device authorization where the backend
+  advertises it.
+- One credential entry serves every product a context reaches, and each
+  product holds its own audience- and scope-bound session rather than one
+  token reused across products.
+- A product the login cannot reach is served by a separate context, and the
+  CLI says so instead of failing obscurely.
+- On-premises login follows the authentication kind declared in the selected
+  context without assuming a shared WSO2 login service.
 - CI authentication completes non-interactively, without a separate login step,
   without invoking browser or device authorization, and without persisting
   secret values.
 - The pilot modules use the root authentication broker and store no long-lived
   credentials.
-- The same command result renders as valid table, JSON, and YAML.
+- The same command result renders as valid table and JSON.
 - All pilot modules pass the shared output, error, help, security, and protocol
   conformance suite.
 - A failed or maliciously modified update cannot replace the active working
@@ -511,39 +458,37 @@ both the preferred SDK path and the migration adapter.
 
 ## 11. Decisions already made
 
-- The root CLI will be implemented in Go.
-- Product functionality remains in independently released modules.
+- The shell is implemented in Go, in `github.com/wso2/wso2-cli`.
+- Product functionality remains in independently released modules, in one
+  repository with a generated catalog
+  ([ADR 0006](adr/0006-monorepo-modules-and-generated-catalog.md)).
 - First-release modules are WSO2-published product modules only.
 - The architecture is SDK-first hybrid: managed out-of-process executables plus
   a mandatory module contract and shared Go SDK.
 - Shared authentication, output, errors, and help are required behavior, not
   optional conventions.
-- The security model assumes trusted WSO2 code backed by a managed publishing
-  chain and integrity-checked artifacts; process separation alone is not
+- Artifacts are integrity-checked, not signed; process separation is not
   treated as a sandbox.
+- Product namespaces are `identity`, `api`, `agent`, and `integration`; the
+  shell's module commands are `wso2 product`, and one `wso2 product list`
+  reports installed versions and available updates
+  ([ADR 0015](adr/0015-one-word-per-concept-in-the-command-surface.md)).
+- A context owns its login and sessions
+  ([ADR 0016](adr/0016-a-context-owns-its-login-and-sessions.md)).
+- Supported platforms are listed in
+  [release artifacts](reference/release-artifacts.md#supported-targets).
 
 ## 12. Open decisions
 
-- Final repository and Go module name.
-- Final public product namespaces.
 - Which two existing CLIs will be the pilot migrations.
-- Whether first interactive use may install a known module automatically or
-  must ask for confirmation.
-- Exact catalog-refresh versus binary-update command terminology.
-- Module retention policy and default number of rollback versions.
-- Minimum supported operating systems and architectures.
-- Catalog origin hosting, and the owner and timing of catalog signing.
+- Whether first interactive use of an uninstalled product may install it
+  automatically or must ask.
+- Module retention policy and the number of rollback versions.
+- The owner and timing of catalog signing.
 - Compatibility and deprecation period for existing standalone CLI names.
-
-## 13. Supporting research
-
-- [Archived original CLI proposal](research/archive/original-proposal.md)
-- [Public WSO2 CLI inventory](research/public-wso2-cli-inventory.md)
-- [kubectl and Krew architecture research](research/kubectl-krew.md)
-- [Azure CLI, AWS CLI, and Google Cloud CLI comparison](research/cloud-cli-comparison.md)
-- [Module architecture options](research/module-architecture-options.md)
-- [Root CLI installation and distribution](research/root-cli-installation-distribution.md)
-
-## 14. Implementation plan
-
-- [First CLI vertical-slice plan](plans/first-cli-vertical-slice.md)
+- Deployment discovery from one URL
+  ([#196](https://github.com/wso2/wso2-cli/issues/196)).
+- Using a single product without ThunderID
+  ([#197](https://github.com/wso2/wso2-cli/issues/197)).
+- A seeded public CLI client in Asgardeo and Identity Server
+  ([#198](https://github.com/wso2/wso2-cli/issues/198)).

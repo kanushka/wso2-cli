@@ -501,12 +501,13 @@ func TestTheScaffoldNamesCommandsTheShellStillHas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, moved := range []string{"wso2 identity add-product", "wso2 identity list", "wso2 module "} {
+	for _, moved := range []string{"wso2 identity add-product", "wso2 identity list", "wso2 module ",
+		"wso2 account "} {
 		if strings.Contains(string(generated), moved) {
 			t.Errorf("the scaffold names %q, which the shell no longer answers", moved)
 		}
 	}
-	if !strings.Contains(string(generated), "wso2 account add-product") {
-		t.Errorf("the scaffold does not name wso2 account add-product:\n%s", generated)
+	if !strings.Contains(string(generated), "wso2 context product add") {
+		t.Errorf("the scaffold does not name wso2 context product add:\n%s", generated)
 	}
 }
