@@ -23,6 +23,7 @@ import (
 
 	"github.com/wso2/wso2-cli/internal/auth/oauthflow"
 	"github.com/wso2/wso2-cli/internal/contexts"
+	"github.com/wso2/wso2-cli/internal/wizard"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -326,18 +327,15 @@ func (s Shell) resolveClientID(flags loginFlags) (string, error) {
 	if may, reason := s.mayPrompt(flags.noInput); !may {
 		return "", missingClientID(reason)
 	}
-	if _, err := fmt.Fprint(s.Streams.Err, "Client ID of the registered OAuth application: "); err != nil {
-		return "", err
-	}
 	// s.reader() is this Shell's own input stream (#86, prompt.go): it
 	// defaults to the process's real standard input, and is what a test
 	// overrides to answer this prompt without a real terminal to hand it.
-	clientID, _, err := s.readLine()
+	clientID, err := s.ask("Client ID of the registered OAuth application", "", nil)
+	if errors.Is(err, wizard.ErrNoAnswer) {
+		return "", missingClientID("nothing was entered at the prompt")
+	}
 	if err != nil {
 		return "", err
-	}
-	if clientID == "" {
-		return "", missingClientID("nothing was entered at the prompt")
 	}
 	return clientID, nil
 }

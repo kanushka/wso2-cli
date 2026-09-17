@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/wso2/wso2-cli/internal/contexts"
+	"github.com/wso2/wso2-cli/internal/wizard"
 )
 
 // assignedNamePrefix is what a name the shell assigns starts with. A context
@@ -60,32 +61,17 @@ func (s Shell) askContextName(document contexts.Document, noInput bool) (string,
 	if may, _ := s.mayPrompt(noInput); !may {
 		return fallback, false, nil
 	}
-	for {
-		if _, err := fmt.Fprintf(s.Streams.Err, "Context name [%s]: ", fallback); err != nil {
-			return "", false, err
-		}
-		// End of input is the same as pressing return: the default. A read
-		// that failed is not, or a broken terminal would name the context.
-		answer, ok, err := s.readLine()
-		if err != nil {
-			return "", false, err
-		}
-		if !ok {
-			return fallback, false, nil
-		}
-		var why string
+	answer, err := s.ask("Context name", fallback, func(answer string) error {
 		switch {
-		case answer == "":
-			return fallback, false, nil
 		case !contexts.ValidName(answer):
-			why = fmt.Sprintf("%q cannot be used as a context name: a name is %s.", answer, contexts.NameRule)
+			return wizard.Hint(fmt.Sprintf("%q cannot be used as a context name: a name is %s.", answer, contexts.NameRule))
 		case declaresContext(document, answer):
-			why = fmt.Sprintf("%q is already taken by a context.", answer)
-		default:
-			return answer, true, nil
+			return wizard.Hint(fmt.Sprintf("%q is already taken by a context.", answer))
 		}
-		if _, err := fmt.Fprintln(s.Streams.Err, why); err != nil {
-			return "", false, err
-		}
+		return nil
+	})
+	if err != nil {
+		return "", false, err
 	}
+	return answer, answer != fallback, nil
 }

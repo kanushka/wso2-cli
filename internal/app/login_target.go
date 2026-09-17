@@ -17,23 +17,18 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/wso2/wso2-cli/internal/contexts"
+	"github.com/wso2/wso2-cli/internal/wizard"
 	"github.com/wso2/wso2-cli/sdk/problem"
-)
-
-// The deployments a new login can be set up against, in the order the
-// deployment question lists them.
-const (
-	deploymentCloud = iota
-	deploymentLocal
 )
 
 // cloudComingSoon is what picking WSO2 Cloud says until the shell ships the
 // WSO2-published public client that lets a cloud login ask nothing (#186).
-const cloudComingSoon = "WSO2 Cloud login is coming soon. Choose Local for now."
+const cloudComingSoon = "WSO2 Cloud login is coming soon. Choose another product for now."
 
 // resolveLoginTarget decides which context a login without --url is about,
 // asking when the flags leave it open and something may ask (#186).
@@ -84,9 +79,9 @@ func (s Shell) resolveLoginTarget(flags loginFlags) (loginFlags, error) {
 		return s.askNewLoginTarget(flags)
 	}
 
-	choice, err := s.choose("Log in to:", []promptOption{
-		{label: "An existing context"},
-		{label: "A new context"},
+	choice, err := s.choose("Log in to:", []wizard.Option{
+		{Label: "An existing context"},
+		{Label: "A new context"},
 	}, 0)
 	if err != nil {
 		return flags, err
@@ -95,12 +90,12 @@ func (s Shell) resolveLoginTarget(flags loginFlags) (loginFlags, error) {
 		return s.askNewLoginTarget(flags)
 	}
 
-	options := make([]promptOption, len(document.Contexts))
+	options := make([]wizard.Option, len(document.Contexts))
 	fallback := 0
 	for index, candidate := range document.Contexts {
-		options[index] = promptOption{label: candidate.Name}
+		options[index] = wizard.Option{Label: candidate.Name}
 		if candidate.Name == document.DefaultContext {
-			options[index].label += " (selected)"
+			options[index].Label += " (selected)"
 			fallback = index
 		}
 	}
@@ -112,52 +107,28 @@ func (s Shell) resolveLoginTarget(flags loginFlags) (loginFlags, error) {
 	return flags, nil
 }
 
-// askNewLoginTarget asks where a new context authenticates: the deployment,
-// then, for a local one, its issuer URL. The client ID and the name are asked
-// afterwards by the creating path, which asks them of a --url login already.
+// askNewLoginTarget sets up a new context with the create wizard and returns
+// the flags that log in to it. The wizard does not offer to log in: this
+// login is about to.
 func (s Shell) askNewLoginTarget(flags loginFlags) (loginFlags, error) {
-	_, err := s.choose("Deployment:", []promptOption{
-		deploymentCloud: {label: "WSO2 Cloud (coming soon)", unavailable: cloudComingSoon},
-		deploymentLocal: {label: "Local (Identity Server / Thunder)"},
-	}, deploymentLocal)
+	answers, err := s.setUpContext(flags.command, flags.contextName,
+		contextCreateFlags{noInput: flags.noInput}, true, false)
 	if err != nil {
 		return flags, err
 	}
-	issuer, err := s.askIssuerURL()
-	if err != nil {
-		return flags, err
+	flags.contextName = answers.name
+	if answers.flags.clientSecretVariable != "" {
+		if _, err := fmt.Fprintf(s.Streams.Out, "\nThe %q context signs in with client credentials when a "+
+			"command runs, so it needs no login.\n", answers.name); err != nil {
+			return flags, err
+		}
+		return flags, errNoLoginNeeded
 	}
-	flags.issuer = issuer
 	return flags, nil
 }
 
-// askIssuerURL reads an issuer URL, asking again when the answer is not one.
-// The person is still at the terminal, so a typo costs them a line rather
-// than the whole command. Like refuseNonIssuerURL, it never echoes the value.
-func (s Shell) askIssuerURL() (string, error) {
-	for {
-		if _, err := fmt.Fprint(s.Streams.Err, "Issuer URL: "); err != nil {
-			return "", err
-		}
-		answer, ok, err := s.readLine()
-		if err != nil {
-			return "", err
-		}
-		if !ok {
-			return "", problem.New(problem.CategoryUsage, "shell.missing_required_flag",
-				"no issuer URL was entered at the prompt").
-				WithRecovery(loginUsageRecovery)
-		}
-		if answer != "" && refuseNonIssuerURL(answer) == nil {
-			return answer, nil
-		}
-		if _, err := fmt.Fprintln(s.Streams.Err,
-			"Enter the issuer as an absolute URL with no user name or password, "+
-				"as in https://localhost:9443/oauth2/token."); err != nil {
-			return "", err
-		}
-	}
-}
+// errNoLoginNeeded ends a login whose new context needs none, successfully.
+var errNoLoginNeeded = errors.New("the new context needs no login")
 
 // missingLoginContext refuses a login, with nothing to ask, that names a
 // context no document declares and gives nothing to create it from.

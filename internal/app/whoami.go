@@ -376,15 +376,21 @@ func (w whoamiReport) next() string {
 // productsField renders every record on one line, namespace order:
 // "apim: federated, none; apim/gateway: sibling, present; iam: direct, present".
 // A product that holds no session of its own, exchanged or inline, has no
-// session state to add to its strategy, and is rendered "api: exchanged"
-// rather than "api: exchanged, exchanged".
+// session state to add to its strategy. An inline one is rendered "ci: inline".
+// An exchanged one is rendered "api: by exchange (not checked)": whoami makes
+// no call, so it cannot say whether the issuer will grant the exchange, and a
+// bare "exchanged" reads as one that already happened.
 func (w whoamiReport) productsField() string {
 	if len(w.Products) == 0 {
 		return "none configured"
 	}
 	parts := make([]string, 0, len(w.Products))
 	for _, product := range w.Products {
-		if product.Session == whoamiSessionExchanged || product.Session == whoamiSessionInline {
+		if product.Session == whoamiSessionExchanged {
+			parts = append(parts, fmt.Sprintf("%s: by exchange (not checked)", product.Namespace))
+			continue
+		}
+		if product.Session == whoamiSessionInline {
 			parts = append(parts, fmt.Sprintf("%s: %s", product.Namespace, product.Strategy))
 			continue
 		}

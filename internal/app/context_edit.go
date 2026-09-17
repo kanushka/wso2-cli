@@ -126,7 +126,7 @@ func (s Shell) contextEdit(command *cobra.Command, noInput bool) error {
 				"the edited document is not valid, so nothing was written").
 				WithRecovery("Run wso2 context edit again and correct it.")
 		}
-		again, err := s.confirm("Edit again? [y/N] ")
+		again, err := s.confirm("Edit again?")
 		if err != nil {
 			return err
 		}

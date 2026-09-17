@@ -63,3 +63,21 @@ func TestHintColorsCommandsWhereColorIsForced(t *testing.T) {
 		t.Errorf("FORCE_COLOR=0 forced color: %q", got)
 	}
 }
+
+func TestSubtleDimsOnlyWhereColorShows(t *testing.T) {
+	const link = "https://idp.example/authorize?state=x"
+	var buffer bytes.Buffer
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("FORCE_COLOR", "")
+	if got := Subtle(&buffer, link); got != link {
+		t.Errorf("without color: %q", got)
+	}
+	t.Setenv("FORCE_COLOR", "1")
+	if got := Subtle(&buffer, link); got != "\x1b[90m"+link+"\x1b[0m" {
+		t.Errorf("with color: %q", got)
+	}
+	t.Setenv("NO_COLOR", "1")
+	if got := Subtle(&buffer, link); got != link {
+		t.Errorf("under NO_COLOR: %q", got)
+	}
+}

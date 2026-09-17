@@ -40,12 +40,13 @@ type contextCreateFlags struct {
 	clientSecretVariable       string
 	organization, project      string
 	use, noInstall             bool
+	noInput                    bool
 }
 
 func (s Shell) contextCreateCommand() *cobra.Command {
 	var flags contextCreateFlags
 	command := &cobra.Command{
-		Use:   "create <name>",
+		Use:   "create [<name>]",
 		Short: "Create a context that logs in through a product or an issuer. Makes no network call.",
 		Long: "Create a context in one of two forms.\n\n" +
 			"  wso2 context create <name> --login-product <product> --url <url>\n" +
@@ -54,11 +55,27 @@ func (s Shell) contextCreateCommand() *cobra.Command {
 			"      written to the context file. The product is installed first when it is missing.\n\n" +
 			"  wso2 context create <name> --issuer <url> --client-id <id>\n" +
 			"      logs in through any OpenID provider directly. Nothing needs to be installed.\n\n" +
-			"Add the products the context reaches with wso2 context product add, then run wso2 login.",
-		Args: exactlyOneArgument("a name for the context", contextCreateUsage),
+			"Add the products the context reaches with wso2 context product add, then run wso2 login.\n\n" +
+			"Run with neither form on a terminal, and it asks for everything instead: where the context\n" +
+			"logs in, how you sign in, the products it reaches and its name, then offers to log in.",
+		Args: atMostOneArgument(contextCreateUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			flags.scopesSet = command.Flags().Changed("scopes")
-			return s.contextCreate(command, args[0], flags)
+			name := ""
+			if len(args) == 1 {
+				name = args[0]
+			}
+			if flags.loginProduct == "" && flags.issuer == "" {
+				if may, _ := s.mayPrompt(flags.noInput); may {
+					return s.contextCreateWizard(command, name, flags)
+				}
+			}
+			if name == "" {
+				return problem.New(problem.CategoryUsage, "shell.missing_argument",
+					fmt.Sprintf("%s needs a name for the context", command.CommandPath())).
+					WithRecovery(contextCreateUsage)
+			}
+			return s.contextCreate(command, name, flags)
 		},
 	}
 	f := command.Flags()
@@ -80,6 +97,7 @@ func (s Shell) contextCreateCommand() *cobra.Command {
 	f.BoolVar(&flags.use, "use", false, "Select the new context.")
 	f.BoolVar(&flags.noInstall, "no-install", false,
 		"Refuse rather than install a login product that is not installed.")
+	f.BoolVar(&flags.noInput, "no-input", false, "Refuse rather than ask for what the flags leave out.")
 	return command
 }
 
@@ -210,14 +228,22 @@ func (s Shell) contextCreate(command *cobra.Command, name string, flags contextC
 	return renderContext(s.Streams.Out, mode, report)
 }
 
+// refuseContextName refuses a name no context may have.
+func refuseContextName(name string) error {
+	if contexts.ValidName(name) {
+		return nil
+	}
+	return problem.New(problem.CategoryUsage, "shell.invalid_argument",
+		fmt.Sprintf("%q cannot be used as a context name", name)).
+		WithRecovery(fmt.Sprintf("A context name is %s. %s", contexts.NameRule, contextCreateUsage))
+}
+
 // checkContextCreateFlags refuses a line that names neither form, or both,
 // before anything is read. A URL alone does not say which product's
 // descriptor applies, so it is never guessed at.
 func checkContextCreateFlags(name string, flags contextCreateFlags) error {
-	if !contexts.ValidName(name) {
-		return problem.New(problem.CategoryUsage, "shell.invalid_argument",
-			fmt.Sprintf("%q cannot be used as a context name", name)).
-			WithRecovery(fmt.Sprintf("A context name is %s. %s", contexts.NameRule, contextCreateUsage))
+	if err := refuseContextName(name); err != nil {
+		return err
 	}
 	switch {
 	case flags.loginProduct != "" && flags.issuer != "":

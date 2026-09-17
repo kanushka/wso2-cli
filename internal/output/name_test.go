@@ -19,6 +19,7 @@ package output
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"testing"
 
@@ -164,5 +165,18 @@ func TestResultRenamesARecoveryFieldInEveryMode(t *testing.T) {
 		if !bytes.Contains(buffer.Bytes(), []byte("Run ws login.")) {
 			t.Errorf("%s output does not rename the recovery field:\n%s", mode, buffer.String())
 		}
+	}
+}
+
+func TestUnnamedReturnsTheWrappedStream(t *testing.T) {
+	var plain bytes.Buffer
+	if Unnamed(Named(&plain, "ws")) != io.Writer(&plain) {
+		t.Error("a named buffer did not unwrap to itself")
+	}
+	if Unnamed(Named(os.Stderr, "ws")) != io.Writer(os.Stderr) {
+		t.Error("a named file did not unwrap to the file")
+	}
+	if Unnamed(&plain) != io.Writer(&plain) {
+		t.Error("an unnamed stream changed")
 	}
 }

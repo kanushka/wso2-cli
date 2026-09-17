@@ -17,14 +17,13 @@
 package app
 
 import (
-	"bufio"
-	"fmt"
+	"errors"
 	"io"
 	"os"
-	"strconv"
-	"strings"
 
 	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/internal/wizard"
+	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
 // The reasons mayPrompt gives for refusing, shared verbatim with
@@ -102,114 +101,68 @@ func (s Shell) mayPrompt(noInput bool) (bool, string) {
 	return true, ""
 }
 
-// confirm asks a yes/no question on s.Streams.Err — a prompt is a diagnostic,
-// not a result, so it must never land on Out and corrupt --output json — and
-// reports the answer read from s.reader(), decided by isAffirmative.
-func (s Shell) confirm(prompt string) (bool, error) {
-	if _, err := fmt.Fprint(s.Streams.Err, prompt); err != nil {
-		return false, err
-	}
-	scanner := bufio.NewScanner(s.reader())
-	if !scanner.Scan() {
-		// EOF or an empty stream is the same as no answer, which is a no:
-		// the ordinary case of a person pressing return with nothing typed,
-		// and also what a reader that carries nothing at all produces.
-		return false, nil
-	}
-	return isAffirmative(scanner.Text()), nil
-}
+// promptTUIOffEnvVar, when set to anything, keeps the shell's questions in
+// their line-oriented form even on a terminal: for a screen reader, or a
+// terminal that draws forms badly.
+const promptTUIOffEnvVar = "WSO2_ACCESSIBLE"
 
-// readLine reads one line from s.reader(), trimmed, and reports false at end
-// of input with nothing read.
+// prompter is how this shell asks a question once mayPrompt has allowed it.
+// It writes to s.Streams.Err, never Out: a prompt is a diagnostic, not a
+// result, and must never corrupt --output json. It draws a form only when
+// both ends are a real terminal with a size; a reader handed in through
+// Shell.Reader, a pipe, a redirected standard error, or an unsized terminal
+// gets line prompts.
 //
-// It reads a byte at a time rather than through a bufio.Scanner, because a
-// scanner reads ahead and a login asks several questions in a row: the
-// answers to the later ones would be swallowed by the first question's
-// buffer and lost when it is dropped.
-func (s Shell) readLine() (string, bool, error) {
-	var line []byte
-	var single [1]byte
-	reader := s.reader()
-	for {
-		n, err := reader.Read(single[:])
-		if n == 1 {
-			if single[0] == '\n' {
-				return strings.TrimSpace(string(line)), true, nil
-			}
-			line = append(line, single[0])
-			continue
-		}
-		if err == io.EOF {
-			return strings.TrimSpace(string(line)), len(line) > 0, nil
-		}
-		if err != nil {
-			return "", false, err
-		}
-	}
+// The wizard is handed standard error unwrapped from the shell's invoked
+// name (output.Named): the form library finds the terminal only through the
+// real file, and draws nothing through the wrapper.
+func (s Shell) prompter() wizard.Prompter {
+	errOut := output.Unnamed(s.Streams.Err)
+	tui := s.reader() == io.Reader(os.Stdin) &&
+		output.StdinIsTerminal() &&
+		output.IsTerminal(errOut) &&
+		wizard.Drawable(errOut) &&
+		os.Getenv(promptTUIOffEnvVar) == ""
+	return wizard.New(s.reader(), errOut, tui)
 }
 
-// promptOption is one numbered answer choose offers. An option with an
-// unavailable note is listed but cannot be chosen: picking it prints the note
-// and asks again.
-type promptOption struct {
-	label       string
-	unavailable string
+// confirm asks a yes/no question whose default is no, decided by
+// isAffirmative.
+func (s Shell) confirm(title string) (bool, error) {
+	yes, err := s.prompter().Confirm(title, false)
+	return yes, cancelled(err)
 }
 
-// choose asks a numbered question on s.Streams.Err and returns the index of
-// the option picked. Pressing return, or end of input, takes fallback, which
-// must be an available option. An answer that is not an option's number, or
-// names an unavailable one, asks again.
-func (s Shell) choose(question string, options []promptOption, fallback int) (int, error) {
-	if _, err := fmt.Fprintln(s.Streams.Err, question); err != nil {
-		return 0, err
+// choose asks a question with numbered options and returns the index of the
+// option picked. Pressing return takes fallback, which must be available.
+func (s Shell) choose(question string, options []wizard.Option, fallback int) (int, error) {
+	picked, err := s.prompter().Select(question, options, fallback)
+	return picked, cancelled(err)
+}
+
+// ask reads one answer, checked with validate and asked again when refused.
+// An empty answer takes fallback. End of input with no fallback is
+// wizard.ErrNoAnswer, which the caller turns into its own refusal.
+func (s Shell) ask(title, fallback string, validate func(string) error) (string, error) {
+	answer, err := s.prompter().Input(title, fallback, validate)
+	return answer, cancelled(err)
+}
+
+// cancelled turns a question the person cancelled into the shell's refusal
+// for it. Nothing has been written by then: every command asks before it
+// changes anything.
+func cancelled(err error) error {
+	if errors.Is(err, wizard.ErrAborted) {
+		return problem.New(problem.CategoryUsage, "shell.cancelled", "cancelled at a prompt").
+			WithRecovery("Nothing was written. Run the command again to start over.")
 	}
-	for index, option := range options {
-		if _, err := fmt.Fprintf(s.Streams.Err, "  %d. %s\n", index+1, option.label); err != nil {
-			return 0, err
-		}
-	}
-	for {
-		if _, err := fmt.Fprintf(s.Streams.Err, "Choose [%d]: ", fallback+1); err != nil {
-			return 0, err
-		}
-		answer, ok, err := s.readLine()
-		if err != nil {
-			return 0, err
-		}
-		if !ok || answer == "" {
-			return fallback, nil
-		}
-		picked, convErr := strconv.Atoi(answer)
-		var why string
-		switch {
-		case convErr != nil || picked < 1 || picked > len(options):
-			why = fmt.Sprintf("Enter a number from 1 to %d.", len(options))
-		case options[picked-1].unavailable != "":
-			why = options[picked-1].unavailable
-		default:
-			return picked - 1, nil
-		}
-		if _, err := fmt.Fprintln(s.Streams.Err, why); err != nil {
-			return 0, err
-		}
-	}
+	return err
 }
 
 // isAffirmative is the whole of this shell's consent predicate: the one line
 // standing in front of an irreversible os.RemoveAll or an unbounded update.
-// Only "y" or "yes", checked case-insensitively after trimming surrounding
-// whitespace, count as yes. Every other line — empty, whitespace-only, "no",
-// garbage, or anything that is not one of those two words — is a no, because
-// a question guarding an action nothing here can undo must fail closed on
-// ambiguity rather than fail open on the first line that looks like consent.
-// prompt_internal_test.go table-tests this directly and mutation-proves it in
-// both directions, since nothing else in this file would catch a change here.
+// It is wizard.Affirmative; prompt_internal_test.go table-tests it here,
+// where the commands it guards live.
 func isAffirmative(line string) bool {
-	switch strings.ToLower(strings.TrimSpace(line)) {
-	case "y", "yes":
-		return true
-	default:
-		return false
-	}
+	return wizard.Affirmative(line)
 }
