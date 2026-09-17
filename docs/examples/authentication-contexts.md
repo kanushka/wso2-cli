@@ -14,31 +14,37 @@ The field names below are implemented: `internal/contexts` serializes and
 validates them, and `schemaVersion` is how the shell tells one shape from
 another. A document naming an unknown version fails closed rather than being
 guessed at, so changing a field name is a schema change and needs a version.
+The current schema is version 4 ([ADR 0016](../adr/0016-a-context-owns-its-login-and-sessions.md)):
+one list of contexts, each holding its own login, products and sessions.
 
-## 1. Account and context
+## 1. Context
 
-- An **account** is one login session, together with every product for which
-  the shell can derive valid access from that session without another login or
-  an independently supplied credential.
-- A **context** is one named target, referencing exactly one account.
+A **context** is one named target: how the shell logs in (its `login`), every
+product it can reach from that login (its `products`), the secure-store
+entries its sessions live under (its `credentialRef`), and optionally the
+organization and project to act within.
 
-> **Each context references exactly one account. One account may back several
-> contexts.**
+> **Each context owns its login and its sessions. No two contexts share a
+> `credentialRef`.**
 
-The two questions are separate, and keeping them separate is what makes the
-model work:
+Earlier schemas split this into an *account* (the login and products) and a
+context naming it, so that several contexts could share one login. That
+sharing is what made one context's change end or rebind another's sessions,
+and it is gone: two targets that need the same login are two contexts that
+each log in, or one context whose organization `wso2 org use` switches. See
+ADR 0016.
 
 | Question | Answered by |
 | --- | --- |
-| Which login is this? | the account |
-| Which products can that login reach? | the account's `products` |
-| Which organization and project am I working in? | the context |
+| Which login is this? | the context's `login` |
+| Which products can that login reach? | the context's `products` |
+| Which organization and project am I working in? | the context's `organization` and `project` |
 
-### Sharing an issuer is not sharing an account
+### Sharing an issuer is not sharing a login
 
-Two products configured against the same issuer URL do **not** share an
-account unless that session can actually produce access each of them accepts.
-The deciding property is whether a product delegates token validation to a
+Two products configured against the same issuer URL do **not** share a login
+unless that session can actually produce access each of them accepts. The
+deciding property is whether a product delegates token validation to a
 configurable external issuer or bundles its own resident one. A product that
 validates only its own resident issuer cannot be pointed at a shared session at
 all, whatever the configuration says.
@@ -51,20 +57,23 @@ reachability at parse time.
 
 ### One login is not one token
 
-One account means one *sign-on*, not one credential handed around and not
-one token. The person enters credentials once; the shell then runs one
-authorization per product the account records, each answered from that same
-sign-on, and stores the result as that product's own session. No session ever
-carries another product's scopes.
+One login means one *sign-on*, not one credential handed around and not one
+token. The person enters credentials once; the shell then runs one
+authorization per product the context records, each answered from that same
+sign-on, and stores the result as that product's own session under
+`<credentialRef>.<product>`. No session ever carries another product's scopes.
 
 How a product's session is obtained is decided per product, from the shape of
-its record and from what the deployment supports, in five strategies:
+its record and from what the deployment supports, in six strategies:
 
 - `direct` — the login session itself already covers the product's scopes and
   resource; nothing further is stored.
 - `sibling` — the login provider answers for the product too, but under a
   scope set or resource the login session does not already cover, so a second
   session is obtained there, silently, in the same sign-on.
+- `exchanged` — the product names an `exchange` grant: it accepts the login
+  provider's own tokens bound to its audience, so no session of its own is
+  kept; the login session's access token is exchanged (RFC 8693) per command.
 - `derived` — the product names a jwt-bearer grant: its own session is
   obtained at the login issuer, through one browser tab on first use, for the
   grant's assertion scopes; an identity token from that session is presented
@@ -72,110 +81,108 @@ its record and from what the deployment supports, in five strategies:
 - `federated` — the product names a federated grant: its own issuer is a
   public client federated to the login provider, so its session is obtained
   through one browser tab, answered by the same sign-on.
-- `inline` — a client-credentials account holds no session at all; access is
+- `inline` — a client-credentials context holds no session at all; access is
   a grant per command, at the product's own issuer when its record names one.
 
-A product with no grant is `direct` when it shares the login product's scope
-set and resource, and `sibling` otherwise; there is nothing to configure that
-chooses between the two. A product record may still name a grant explicitly,
-which chooses `derived` or `federated` regardless of what the login session
-already covers.
+A stored session records what it was authorized for — issuer, client, scopes,
+resource and strategy — and is presented only for a record that still asks for
+exactly that. A command that changes a record ends the sessions it no longer
+matches before it writes.
 
-### As deployments improve, contexts collapse
+## 2. Two files, two roles
 
-A product that needs its own login today becomes part of a shared account the
-day its backend accepts the shared issuer. That is a configuration change with
-no schema change: an account disappears and its products move into the
-remaining one. The model describes the estate as it is without baking today's
-fragmentation into the design.
+The **local document** (`contexts.json`) is complete: every value a login and
+a command need is written out, and the shell reads nothing else at command
+time. The **input file** is short and shareable: it leaves out whatever the
+installed products' descriptors already know, and `wso2 context apply -f`
+fills it in and writes the complete record. A later product update therefore
+changes no authentication behaviour until the file is applied again
+("frozen defaults"); `wso2 doctor` and `wso2 context show` say when a record
+differs from what the installed product would write now.
 
-## 2. Shape
+### The local document
 
 ```yaml
-accounts:
-  - name: <account name>       # required, unique
-    type: cloud | onprem        # selects defaults, never structure
-    auth:                       # required, exactly one per account
-      kind: oauth-browser | oauth-device | client-credentials | pat
-      issuer: <url>             # interactive OIDC kinds
-      clientId: <id>            # the client this account authenticates as
-      tenant: <home tenant>     # optional; where the login lives, not what it targets
-      credentialRef: <ref>      # OR a *Variable field; never a value
-    products:                   # what this one login reaches
-      <namespace>:
-        endpoint: <url>
-        audience: <resource id> # what the broker binds derived access to
-        scopes: [<scope>, ...]
-        grant:                    # optional: how this product's own session
-                                   # is derived when it is not direct/sibling
-          kind: jwt-bearer | federated
-          issuer: <url>            # the product's own issuer
-          clientId: <id>           # the public client presented there
-          scopes: [<scope>, ...]   # jwt-bearer only: assertion scopes
-          resource: <uri>          # resource indicator, when required
-        clientIdVariable: <VAR>     # product credential: client-credentials
-        clientSecretVariable: <VAR> # accounts only; the id variable may be
-                                    # omitted when a grant names the client
-    loginProduct: <namespace>   # optional: which direct product the login
-                                # authorization is run for
-
+schemaVersion: 4
+defaultContext: <context name>   # optional; absent selects nothing
 contexts:
-  - name: <context name>        # required, unique
-    account: <account name>   # required, exactly one
-    organization: <org id>      # targeting
-    project: <project id>       # targeting
-
-defaultContext: <context name>
-namespaceContexts:              # optional per-product bindings
-  <namespace>: <context name>
+  - name: <context name>         # required, unique
+    type: cloud | onprem         # selects defaults and wording, never structure
+    credentialRef: <ref>         # interactive kinds; unique; never follows a rename
+    login:
+      kind: oauth-browser | oauth-device | client-credentials | pat
+      issuer: <url>
+      clientId: <id>             # the client this context logs in as
+      tenant: <home tenant>      # optional; where the login lives
+      provider: asgardeo | identity-server | thunder   # optional
+      narrowing: scoped-refresh | token-resource       # optional; wins over provider
+      clientSecretVariable: <VAR>   # client-credentials only; a name, never a value
+      product: <namespace>       # the direct product the login runs for
+    organization: <org id>       # targeting
+    project: <project id>        # targeting
+    products:                    # what this login reaches
+      <namespace>:
+        url: <url>
+        audience: <resource id>  # what the broker binds derived access to
+        scopes: [<scope>, ...]
+        grant:                   # optional: when the login session does not cover it
+          kind: exchange | jwt-bearer | federated
+          issuer: <url>          # jwt-bearer, federated: the product's own issuer
+          clientId: <id>         # jwt-bearer, federated: the public client there
+          scopes: [<scope>, ...] # jwt-bearer only: assertion scopes
+          resource: <uri>        # resource indicator, when required
+        clientIdVariable: <VAR>     # product credential: client-credentials
+        clientSecretVariable: <VAR> # contexts only
+        gateway:                 # optional: the product's gateway record
+          url: <url>
+          audience: <uri>
+          scopes: [<scope>, ...]
 ```
 
-`namespaceContexts` is target behaviour, not shipped behaviour: it is
-recorded in [architecture](../architecture.md) section 4.7, deferred in
-[login walkthroughs](login-walkthroughs.md), and the shell does not read it
-yet. Where this document routes a namespace to a context with it, today's
-shell needs `--context` or `WSO2_CONTEXT`.
+(The shell reads JSON; YAML is used here for the annotations.)
+
+### The input file
+
+```yaml
+contexts:
+  - name: <context name>
+    login:
+      product: <namespace>       # a login provider among products; or
+      issuer: <url>              # an issuer and client, for a login with no product
+      clientId: <id>
+    products:
+      <namespace>:
+        url: <url>               # the one required member
+        version: <version>       # optional: the version an install pins
+        gateway: { url: <url> }
+```
+
+Every member of the local document may also appear, and is taken as written.
+Two may not: `credentialRef` and `defaultContext` belong to one machine, and a
+file naming either is refused. Unknown members are refused too, because the
+file is written by hand and a misspelling silently ignored would be a default
+nobody asked for.
 
 Notes:
 
-- `type` selects **defaults, not structure**. There is no `cloud:` block and no
-  separate on-premises layout. It exists because cloud is the default and
-  on-premises targeting is explicit, and because the shell must never infer that
-  an on-premises endpoint supports shared SSO.
-- `auth.tenant` is the home tenant the login belongs to at the issuer. It is
-  deliberately *not* the context's `organization`, which is what the command
-  targets and which the broker may reach through an organization-switch
-  exchange on the same session. Two different things, two different names.
-- `clientId` sits on the account, because it is what the login session
-  authenticates as. A product reached at its own issuer, as its own client,
-  still belongs to this account when a `grant` names that issuer and client:
-  the sign-on stays one person entering credentials once, whether every
-  product answers directly or some are reached through a grant.
-- `products` may be omitted for `type: cloud`, where the control plane resolves
-  the set at login. It is required for `type: onprem`.
-- `grant` names how one product's own session is obtained when the login
-  session does not already cover it and no sibling session at the login
-  provider will do: `jwt-bearer` obtains its own session at the login issuer,
-  narrowed by `scopes` (openid always among them) and, when that issuer
-  requires one, bound by `resource`, and presents that session's account
-  token at the grant's issuer per command; `federated` signs in at the
-  grant's issuer as its own public client, through the same browser sign-on,
-  and needs no `scopes` of its own. Omitting `grant` leaves the product
-  direct or sibling, decided by whether it shares the login product's scope
-  set and resource — there is nothing else to configure for that choice.
-- `clientIdVariable` and `clientSecretVariable` name a product's own client
-  credential, for a client-credentials account whose machine client a
-  product cannot map to its roles. Both or neither; names, never values, and
-  refused on an interactive account.
-- Contexts are always stored explicitly. There is no implicit context, so
-  `context list`, `context delete`, and export all operate on the same set.
-  `wso2 context create` and `wso2 login` generate the one-account/one-context
-  case so that the common path costs no hand-editing.
+- `type` selects **defaults and wording, not structure**. It is derived from
+  the issuer when not given.
+- `login.tenant` is the home tenant the login belongs to at the issuer. It is
+  deliberately *not* the context's `organization`, which is what commands
+  target. Two different things, two different names.
+- `login.product` is required once a context reaches a direct product, so that
+  recording a product which sorts earlier can never move the login session from
+  under the sessions already stored. The writing commands set it.
+- `grant` names how one product is reached when the login session does not
+  already cover it: `exchange` exchanges the login session per command,
+  `jwt-bearer` presents an identity token at the product's own issuer, and
+  `federated` signs in there as its own public client through the same browser
+  sign-on. Omitting `grant` leaves the product direct or sibling.
 
 ## 3. Security rules
 
-- Accounts and contexts hold target metadata, an authentication kind, and
-  non-secret references only.
+- Contexts hold target metadata, an authentication kind, and non-secret
+  references only.
 - A `credentialRef` is an opaque reference to an entry in the OS secure store.
   It is not the credential, and it is not a capability.
 - Fields ending in `Variable` hold environment-variable *names*, not values.
@@ -183,27 +190,24 @@ Notes:
   secrets, and private keys never appear in these files.
 - CI injects secrets from its secret store. The shell reads them into job
   memory and does not persist them.
-- An endpoint may not embed user information: `https://user:pass@host` is
-  rejected rather than stored (`internal/contexts` enforces this today).
+- A URL may not embed user information: `https://user:pass@host` is rejected
+  rather than stored, and the rejected value is never echoed.
 
 ## 4. Everything in WSO2 Cloud
 
 All products behind one cloud identity provider. One login, one context.
 
 ```yaml
-accounts:
-  - name: acme-cloud
-    type: cloud
-    auth:
-      kind: oauth-browser
-      credentialRef: acme-cloud
-
 contexts:
   - name: acme
-    account: acme-cloud
+    type: cloud
+    credentialRef: acme
+    login:
+      kind: oauth-browser
+      issuer: https://api.asgardeo.io/t/acme/oauth2/token
+      clientId: <published client>
     organization: acme
     project: retail
-
 defaultContext: acme
 ```
 
@@ -211,196 +215,159 @@ defaultContext: acme
 wso2 login              # one browser login
 wso2 agent status
 wso2 api status
-wso2 integration status
 ```
 
-`products` is omitted: the control plane resolves the reachable set at login.
-Each command receives its own audience-bound token derived from the one
-session.
-
-This shape is correct exactly when every product validates that cloud issuer.
-Where one of them still validates a different issuer, it is not part of this
-account, and the arrangement is §6 rather than this one.
+`products` is omitted: the target is that the control plane resolves the
+reachable set at login (WSO2 Cloud login is not in this release). Each command
+receives its own audience-bound token derived from the one session. Another
+organization in the same cloud is `wso2 org use <org>` on this context, not a
+second context.
 
 ## 5. Everything on-premises behind one identity provider
 
-The customer runs the products themselves, with one shared identity provider in
-front. Structurally identical to §4, one login and one context, differing only
-in `type` and in listing endpoints the CLI has no way to resolve.
+The customer runs the products themselves, with one identity provider in
+front. A platform team writes the short form once:
 
-```yaml
-accounts:
-  - name: customer-idp
-    type: onprem
-    auth:
-      kind: oauth-browser
-      issuer: https://idp.customer.example
-      clientId: wso2-cli
-      credentialRef: customer-idp
-    products:
-      agent:
-        endpoint: https://agent.customer.example
-        audience: https://agent.customer.example
-        scopes: [agent:read, agent:write]
-      api:
-        endpoint: https://api.customer.example
-        audience: https://api.customer.example
-        scopes: [api:read, api:write]
-      integration:
-        endpoint: https://esb.customer.example
-        audience: https://esb.customer.example
-        scopes: [integration:read]
-
-contexts:
-  - name: customer
-    account: customer-idp
-    organization: customer
-
-defaultContext: customer
+```json
+{
+  "contexts": [
+    {
+      "name": "local",
+      "login": { "product": "identity" },
+      "products": {
+        "identity": { "url": "http://localhost:8501" },
+        "api": { "url": "http://localhost:9251", "gateway": { "url": "http://localhost:9091" } }
+      }
+    }
+  ]
+}
 ```
 
 ```shell
-wso2 login --context customer     # may also create the context; see §8
-wso2 agent status
-wso2 api status
-wso2 integration status
+wso2 context apply -f team-context.json --use local
+wso2 login
+wso2 identity users list
+wso2 api gateway apis list
+```
+
+`apply` installs `identity` and `api` when they are missing, and writes the
+complete record the installed descriptors produce:
+
+```json
+{
+  "name": "local",
+  "type": "onprem",
+  "credentialRef": "local",
+  "login": {
+    "kind": "oauth-browser",
+    "issuer": "http://localhost:8501",
+    "clientId": "wso2-cli",
+    "provider": "thunder",
+    "product": "identity"
+  },
+  "products": {
+    "identity": { "url": "http://localhost:8501", "audience": "https://localhost:8090/mcp", "scopes": ["system"] },
+    "api": {
+      "url": "http://localhost:9251", "audience": "http://localhost:9251",
+      "grant": { "kind": "exchange" },
+      "gateway": { "url": "http://localhost:9091", "audience": "http://localhost:9091" }
+    }
+  }
+}
 ```
 
 Two things this example asserts, both of which can be wrong at runtime:
 
-- every listed product accepts access derived from that shared session. If one
+- every listed product accepts access derived from that session. If one
   validates only its own resident issuer, it does not belong here;
-- the user is *authorized* for each. One login authenticates for all three; it
-  does not authorize. A user who is authenticated but not entitled gets a typed
-  authorization problem from that product, not a login prompt.
+- the user is *authorized* for each. One login authenticates for all of them;
+  it does not authorize. A user who is authenticated but not entitled gets a
+  typed authorization problem from that product, not a login prompt.
 
 ## 6. Some on-premises, some cloud, one legacy product
 
 The realistic mixed estate: an on-premises Agent Manager behind its own
 identity provider, an on-premises API Manager that only understands its own
 credentials, and integration running in WSO2 Cloud. Three logins, so three
-accounts and three contexts.
+contexts.
 
 ```yaml
-accounts:
-  - name: onprem-agent
+contexts:
+  - name: own-agent
     type: onprem
-    auth:
+    credentialRef: own-agent
+    login:
       kind: oauth-browser
       issuer: https://thunder.own.example
       clientId: wso2-cli
-      credentialRef: onprem-agent
+      provider: thunder
+      product: agent
     products:
       agent:
-        endpoint: https://agent.own.example
+        url: https://agent.own.example
         audience: https://agent.own.example
         scopes: [agent:read, agent:write]
       agent-gateway:
-        endpoint: https://gateway.own.example
+        url: https://gateway.own.example
         audience: https://gateway.own.example
         scopes: [gateway:invoke]
 
-  - name: onprem-api
+  - name: own-api
     type: onprem
-    auth:
-      kind: pat                       # compatibility adapter; see §10
-      credentialRef: onprem-api
+    credentialRef: own-api
+    login:
+      kind: pat                        # compatibility adapter; see §10
     products:
       api:
-        endpoint: https://api.own.example
+        url: https://api.own.example
 
-  - name: acme-cloud
-    type: cloud
-    auth:
-      kind: oauth-browser
-      credentialRef: acme-cloud
-
-contexts:
-  - name: own-agent
-    account: onprem-agent
-  - name: own-api
-    account: onprem-api
   - name: acme
-    account: acme-cloud
+    type: cloud
+    credentialRef: acme
+    login:
+      kind: oauth-browser
+      issuer: https://api.asgardeo.io/t/acme/oauth2/token
+      clientId: <published client>
     organization: acme
-    project: retail
 
 defaultContext: acme
-namespaceContexts:
-  agent: own-agent
-  api: own-api
 ```
 
 ```shell
-wso2 agent login --url https://thunder.own.example   # creates own-agent, binds agent
-wso2 api login   --url https://api.own.example       # creates own-api,   binds api
-wso2 login                                           # creates acme, the default
-
-wso2 agent status         # own-agent, via its binding
-wso2 api status           # own-api
-wso2 integration status   # acme, the default context
+wso2 login --context own-agent
+wso2 login                        # acme, the default
+wso2 --context own-agent agent status
+wso2 integration status           # acme
 ```
 
-This is the arrangement the earlier per-product-authentication design handled by
-accident and this one handles by rule. Three logins is the truth of this estate;
-the configuration says so rather than hiding it behind one name.
+Three logins is the truth of this estate; the configuration says so rather
+than hiding it behind one name. `own-agent` shows that a Thunder-bound context
+is not limited to one product: Thunder accepts only one resource indicator per
+authorization, but that binds one *session* to one resource, not one context to
+one product. `agent` is `direct` and `agent-gateway` is `sibling`, a second
+session obtained from the same provider under its own resource, in the same
+`wso2 login`.
 
-Note what `namespaceContexts` is doing. Without it, every `agent` and `api`
-command would need an explicit `--context`, because the default context cannot
-reach those products. With it, each namespace resolves from a decision the
-login commands recorded, not from the shell guessing which context looks
-plausible.
+## 7. Several targets
 
-`onprem-api` is a compatibility-adapter account. Its access cannot be narrowed
-or derived from, so a module reached through it does not carry the same trust
-property as one reached through the other two. §10 states what that costs.
-
-`onprem-agent` shows that a Thunder-bound account is not limited to one
-product: Thunder accepts only one resource indicator per authorization, but
-that binds one *session* to one resource, not one account to one product.
-`agent` is `direct` — it is the login's own audience and scope set — and
-`agent-gateway` is `sibling`, a second session obtained from the same
-provider under its own resource, in the same `wso2 login`. Both come out of
-the one sign-on the `own-agent` context runs.
-
-## 7. Several targets over one login
-
-Where one login covers several projects or organizations, that is one account
-and several contexts. This is the case that makes the split earn its keep.
-
-```yaml
-accounts:
-  - name: acme-cloud
-    type: cloud
-    auth:
-      kind: oauth-browser
-      credentialRef: acme-cloud
-
-contexts:
-  - name: retail-dev
-    account: acme-cloud
-    organization: acme
-    project: retail-dev
-  - name: retail-prod
-    account: acme-cloud
-    organization: acme
-    project: retail-prod
-  - name: partner
-    account: acme-cloud
-    organization: acme-partner      # reached by organization switch on the same session
-
-defaultContext: retail-dev
-```
+Where one login covers several organizations, that is one context and
+`wso2 org use`:
 
 ```shell
-wso2 login                                  # once, for all three
-wso2 --context retail-prod api list         # no further authentication
-wso2 context use partner                    # no further authentication
+wso2 login
+wso2 org use acme-partner         # the same context, another organization
 ```
 
-One `credentialRef`, one browser flow, three targets. Adding a fourth adds four
-lines and no login. Reaching another organization is an exchange on the existing
-session, not another credential.
+Where two targets must be selectable by name, they are two contexts, and each
+logs in. Their sessions are separate by design: a change to one never ends or
+rebinds the other's, and logging out of one leaves the other signed in.
+
+```shell
+wso2 context apply -f team-context.json   # declares retail-dev and retail-prod
+wso2 login --context retail-dev
+wso2 login --context retail-prod          # a second sign-on, usually silent
+wso2 --context retail-prod api list
+```
 
 ## 8. Selection and login
 
@@ -410,51 +377,33 @@ Highest precedence first:
 
 1. `--context <name>`;
 2. `WSO2_CONTEXT`;
-3. `namespaceContexts[<invoked namespace>]`, if recorded;
-4. `defaultContext`;
-5. none. The command runs with no context, and the broker refuses anything
+3. `defaultContext`;
+4. none. The command runs with no context, and the broker refuses anything
    needing access, with recovery guidance.
 
-Step 3 is a recorded decision, not an inference. A binding exists only because
-a command wrote it, and `wso2 context list` shows it. The shell never scans for
-a context that happens to provide the namespace.
-
 A named context that does not exist is a typed error listing the configured
-contexts. A context naming an undeclared account is a malformed document.
+contexts. `wso2 context apply` never changes the selection unless `--use` is
+given, so a team file does not move an existing user's active environment.
 
 ### Which product
 
 The namespace is always explicit in the command, so the only question is whether
-the selected context's account reaches it. If not, the command **fails**,
-naming the contexts that do and the flag or binding that would select one. The
-shell does not switch accounts on the user's behalf, because a different
-account is a different login.
+the selected context reaches it. If not, the command **fails**, naming the
+command that records it. The shell does not switch contexts on the user's
+behalf, because a different context is a different login.
 
 ### What login does
 
-`wso2 login` authenticates the **account** of the selected context. Where
-several contexts share an account, one login covers all of them.
+`wso2 login` authenticates the selected context: its login session, then one
+session per further product it records, from the same sign-on.
 
-`wso2 login --url <issuer>` and `wso2 <namespace> login --url <issuer>` may
-create the context they authenticate, so a first run does not require
-hand-written configuration. Creation names the context explicitly, from
-`--context <name>` or a deterministic derivation, reports what it created, and
-never silently replaces an existing context. The namespace form also records
-the `namespaceContexts` binding.
-
-`wso2 <namespace> connect <url>` is the product-first way to write all of
-this: the module's product descriptor says how the issuer, audience,
-scopes and grant follow from the URL, and the shell records the product on
-the selected account, or creates the account when the product is itself
-a login provider. The first direct product it records is pinned as the
-account's `loginProduct`, so a product recorded later that sorts earlier
-by namespace does not move the login session from under the sessions
-already stored. A document without the pin keeps the namespace order.
-
-`wso2 context use` writes the selection and stops: no network call, no login.
-Creating or importing a context grants nothing;
-[Architecture](../architecture.md) §4.7 records the five properties that make
-that testable.
+`wso2 login --url <issuer> --client-id <id>` creates the context it
+authenticates, so a first run needs no file. `wso2 context create <name>
+--login-product <product> --url <url>` and `wso2 context product add` write a
+context from a product's descriptor; `wso2 context apply -f` writes contexts
+from a shared file. None of them makes a network call besides installing a
+missing product, and none grants anything: writing a context records public
+configuration only ([ADR 0012](../adr/0012-writing-a-context-or-identity-grants-nothing.md)).
 
 ## 9. CI
 
@@ -462,42 +411,36 @@ CI is non-interactive and uses client credentials. There is no reusable session
 to establish, so there is **no separate login step**. The shell acquires access
 inline during the command.
 
-```yaml
-accounts:
-  - name: ci-release
-    type: onprem
-    auth:
-      kind: client-credentials
-      tokenEndpoint: https://idp.acme.example/oauth2/token
-      clientIdVariable: WSO2_CI_CLIENT_ID
-      clientSecretVariable: WSO2_CI_CLIENT_SECRET
-    products:
-      api:
-        endpoint: https://api.acme.example
-        audience: https://api.acme.example
-        scopes: [api:read, api:write]
-      integration:
-        endpoint: https://esb.acme.example
-        audience: https://esb.acme.example
-        scopes: [integration:deploy]
-
-contexts:
-  - name: ci-release
-    account: ci-release
-    organization: acme
-
-defaultContext: ci-release
+```json
+{
+  "contexts": [
+    {
+      "name": "ci-release",
+      "type": "onprem",
+      "login": {
+        "kind": "client-credentials",
+        "issuer": "https://idp.acme.example/oauth2/token",
+        "clientId": "ci-release",
+        "clientSecretVariable": "WSO2_CI_CLIENT_SECRET"
+      },
+      "organization": "acme",
+      "products": {
+        "api": { "url": "https://api.acme.example", "audience": "https://api.acme.example", "scopes": ["api:read", "api:write"] }
+      }
+    }
+  ]
+}
 ```
 
 ```shell
-# Both variables are injected by the CI secret store. No wso2 login.
+wso2 context apply -f ci-context.json --use ci-release --no-input
+# The secret is injected by the CI secret store. No wso2 login.
 wso2 api deploy ./api.yaml
 ```
 
 The shell holds the client secret, performs the token exchange itself, and hands
 the module only the resulting short-lived access token. The secret never reaches
-the module, the filesystem, the OS secure store, or a module environment. The
-variable names, token endpoint, audiences, and scopes are non-secret metadata.
+the module, the filesystem, the OS secure store, or a module environment.
 
 Browser and device authorization are invalid here and fail with a stable
 configuration error rather than waiting for approval.
@@ -509,29 +452,29 @@ availability is per deployment, not universal:
 
 | Kind | Where it is valid | Today |
 | --- | --- | --- |
-| `oauth-browser` | supported by every account backend | implemented |
+| `oauth-browser` | supported by every OIDC backend | implemented |
 | `oauth-device` | only where the backend advertises the grant; the broker refuses otherwise | implemented |
-| `client-credentials` | supported by every account backend; the preferred CI method | implemented |
+| `client-credentials` | supported by every OIDC backend; the preferred CI method | implemented |
 | `pat` | only for products that accept product-issued long-lived tokens | validates, refuses at use with `auth.kind_not_implemented` |
 
 The last column is what the shell implements, not a property of the kind. A
 document naming a deferred kind loads and validates, deliberately, so that
 configuration written ahead of the shell stays readable. It refuses only when
-an account using it is actually selected. Examples below that use `pat`
+a context using it is actually selected. Examples below that use `pat`
 therefore describe intended shape, not something to run today.
 
-Browser and device are **login modes for one interactive OIDC account**, not
-two stored kinds. `oauth-device` appears as a kind only where an account can
+Browser and device are **login modes for one interactive OIDC context**, not
+two stored kinds. `oauth-device` appears as a kind only where a context can
 *only* be established that way; otherwise the mode is chosen at login with
 `--device-code`.
 
-That flag is not in this release. Until it arrives, an account that could be
+That flag is not in this release. Until it arrives, a context that could be
 established either way declares `oauth-browser` and is established that way, and
-`oauth-device` is the kind for an account where the browser mode is not
+`oauth-device` is the kind for a context where the browser mode is not
 available at all: a deployment that cannot register the loopback callback URLs,
 or one whose users are only ever on machines with no reachable browser. A
 developer who merely *happens* to be on a headless machine today is served by a
-second account, not by this kind; that is the gap `--device-code` closes.
+second context, not by this kind; that is the gap `--device-code` closes.
 
 ### The adapter tier
 
@@ -550,7 +493,7 @@ first-class again.
 ### Adding a kind
 
 A kind may add its own non-secret fields; adding one does not change the
-account or context shape. Every kind obeys §3 whatever it adds.
+context shape. Every kind obeys §3 whatever it adds.
 
 Unknown members are tolerated on read, so a newer shell can record non-secret
 facts an older one ignores, and one unsupported kind never makes a whole
@@ -563,8 +506,8 @@ within a version.
 
 Not a production kind and not a production shape. It exists only for the
 non-production `wso2 reference status` proof, in the reference namespace alone,
-and predates this model: no account list, and a single flat `endpoint`. It is
-kept here because it is the document the shell reads today, and because it obeys
+and predates this model: a single flat `endpoint`. It is kept here because the
+shell still reads it (and never rewrites it), and because it obeys
 the one rule everything above obeys: it names a credential source and never
 holds a credential.
 
@@ -592,7 +535,7 @@ audience and scope, the context's organization, and the current invocation. The
 reference module receives that token and nothing else: not the credential, not
 its source, and no way to renew what it was given.
 
-Migrating it to the shape in §2 is schema-version work.
+It is read into the §2 shape in memory and never written back.
 
 ## 12. Open questions
 
@@ -603,9 +546,9 @@ Migrating it to the shape in §2 is schema-version work.
 - Client provisioning. The research is explicit that a client identifier cannot
   be assumed to exist. It needs published public clients, per-tenant
   registration at context creation, or dynamic registration.
-- Whether contexts need grouping across accounts, so "everything in staging"
-  is expressible where one environment spans several logins.
-- Which of `context list | show | use | create | delete | import | export` are
-  in the next slice, and whether accounts need their own verbs.
+- Whether contexts need grouping, so "everything in staging" is expressible
+  where one environment spans several logins.
+- Deployment discovery, so a bare URL can produce an input file
+  (docs/plans/deployment-discovery-handoff.md).
 - Preservation of unknown members on write, which becomes a data-loss path as
   soon as commands can write configuration.

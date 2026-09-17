@@ -45,7 +45,7 @@ func Report(w io.Writer, mode Mode, produced result.Result) error {
 			next = field.Value
 			continue
 		}
-		pairs = append(pairs, [2]string{field.DisplayLabel(), field.Value})
+		pairs = append(pairs, [2]string{field.DisplayLabel(), fieldText(w, field)})
 	}
 	if err := Fields(w, pairs); err != nil {
 		return err

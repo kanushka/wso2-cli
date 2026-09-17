@@ -48,6 +48,7 @@ const doctorOnlineFlag = "online"
 // The check names doctor reports, and the names findings and tests key on.
 const (
 	checkContext     = "context"
+	checkDefaults    = "defaults"
 	checkSecureStore = "secure-store"
 	checkSession     = "session"
 	checkIssuer      = "issuer"
@@ -67,6 +68,11 @@ const (
 	statusFail          = "fail"
 	statusNotApplicable = "not-applicable"
 	statusNone          = "none"
+	// statusDiffers is the defaults check's word for a record whose frozen
+	// values differ from what its installed product would write now. It is
+	// not a failure: a product update changes nothing until a context is
+	// applied again (ADR 0016), and a value set deliberately differs too.
+	statusDiffers = "differs"
 )
 
 // severityRank orders the checks whose failure can decide the exit status,
@@ -201,6 +207,15 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 	default:
 		findings = append(findings, passFinding(checkContext,
 			nameDocument("the context document is valid", documentPath)))
+		if notes := driftNotes(document, s.installedDescriptors()); len(notes) > 0 {
+			findings = append(findings, doctorFinding{Check: checkDefaults, Status: statusDiffers,
+				Detail: strings.Join(notes, " "),
+				Recovery: "Re-apply the context file with wso2 context apply -f <file> --dry-run to see " +
+					"the change, then without --dry-run to adopt it."})
+		} else {
+			findings = append(findings, passFinding(checkDefaults,
+				"every product record matches what its installed product would write"))
+		}
 	}
 
 	store := session.Store{StateRoot: root}
@@ -239,6 +254,9 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 	case len(document.Contexts) == 0:
 		findings = append(findings, notApplicableFinding(checkSession,
 			"no context is configured, so there is no session to check"))
+	case contextName == "" && document.DefaultContext == "":
+		findings = append(findings, notApplicableFinding(checkSession,
+			"no context is selected, so there is no session to check"))
 	default:
 		chosen, selErr := document.Select(contextName)
 		if selErr != nil {

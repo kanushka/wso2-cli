@@ -36,23 +36,22 @@ func TestLoginWithoutTheContextFlagNamesTheAccountAccountOne(t *testing.T) {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
 	document := loadDocument(t, shell)
-	if len(document.Accounts) != 1 || document.Accounts[0].Name != "account-1" ||
-		document.Accounts[0].Auth.CredentialRef != "account-1" {
-		t.Fatalf("accounts = %+v, want one named account-1", document.Accounts)
+	if document.Contexts[0].CredentialRef != "context-1" {
+		t.Fatalf("contexts = %+v, want the reference context-1", document.Contexts)
 	}
-	if len(document.Contexts) != 1 || document.Contexts[0].Name != "account-1" {
-		t.Fatalf("contexts = %+v, want one named account-1", document.Contexts)
+	if len(document.Contexts) != 1 || document.Contexts[0].Name != "context-1" {
+		t.Fatalf("contexts = %+v, want one named context-1", document.Contexts)
 	}
 	if strings.Contains(errOut.String(), "Account name") {
 		t.Errorf("asked with no terminal to answer:\n%s", errOut)
 	}
-	for _, expected := range []string{`Created account "account-1"`, "--context <name>",
-		"wso2 account rename account-1 <name>"} {
+	for _, expected := range []string{`Created context "context-1"`, "--context <name>",
+		"wso2 context rename context-1 <name>"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Errorf("the report is missing %q in:\n%s", expected, out)
 		}
 	}
-	if _, err := (session.Store{StateRoot: shell.StateRoot}).Load("account-1"); err != nil {
+	if _, err := (session.Store{StateRoot: shell.StateRoot}).Load("context-1"); err != nil {
 		t.Fatalf("session not stored under the account's credentialRef: %v", err)
 	}
 }
@@ -70,8 +69,8 @@ func TestLoginAtABareAddressNamesTheAccountAccountOne(t *testing.T) {
 	if code := shell.Run([]string{"login", "--url", issuer, "--client-id", "wso2-cli"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
-	if name := loadDocument(t, shell).Accounts[0].Name; name != "account-1" {
-		t.Errorf("account = %q, want account-1", name)
+	if name := loadDocument(t, shell).Contexts[0].Name; name != "context-1" {
+		t.Errorf("account = %q, want context-1", name)
 	}
 }
 
@@ -84,13 +83,13 @@ func TestLoginWithoutTheContextFlagReusesTheAccountOnTheSameIssuerAndClient(t *t
 	}
 	out.Reset()
 	// Re-running the same login out of shell history is the common case, and
-	// must not grow an account-2 beside the first.
+	// must not grow an context-2 beside the first.
 	if code := shell.Run(arguments); code != exit.OK {
 		t.Fatalf("second login failed: exit %d, stderr %s", code, errOut)
 	}
 	document := loadDocument(t, shell)
-	if len(document.Accounts) != 1 || len(document.Contexts) != 1 {
-		t.Fatalf("two logins wrote %+v and %+v, want one of each", document.Accounts, document.Contexts)
+	if len(document.Contexts) != 1 {
+		t.Fatalf("two logins wrote %+v, want one context", document.Contexts)
 	}
 	if strings.Contains(out.String(), "was assigned") {
 		t.Errorf("a reused account is reported as newly named:\n%s", out)
@@ -107,9 +106,9 @@ func TestLoginWithoutTheContextFlagGivesAnotherClientTheNextNumber(t *testing.T)
 		t.Fatalf("second login failed: exit %d, stderr %s", code, errOut)
 	}
 	document := loadDocument(t, shell)
-	if len(document.Accounts) != 2 || document.Accounts[1].Name != "account-2" ||
-		document.Accounts[1].Auth.ClientID != "other-client" {
-		t.Fatalf("accounts = %+v, want account-2 for the second client", document.Accounts)
+	if len(document.Contexts) != 2 || document.Contexts[1].Name != "context-2" ||
+		document.Contexts[1].Login.ClientID != "other-client" {
+		t.Fatalf("accounts = %+v, want context-2 for the second client", document.Contexts)
 	}
 }
 
@@ -120,12 +119,12 @@ func TestLoginAsksForTheAccountNameItCreates(t *testing.T) {
 	if code := shell.Run([]string{"login", "--url", issuer.URL, "--client-id", "wso2-cli"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
-	if got := strings.Count(errOut.String(), "Account name [account-1]: "); got != 2 {
+	if got := strings.Count(errOut.String(), "Context name [context-1]: "); got != 2 {
 		t.Errorf("asked %d times, want 2:\n%s", got, errOut)
 	}
 	document := loadDocument(t, shell)
-	if len(document.Accounts) != 1 || document.Accounts[0].Name != "local-idp" ||
-		document.Contexts[0].Name != "local-idp" {
+	if len(document.Contexts) != 1 || document.Contexts[0].Name != "local-idp" ||
+		document.Contexts[0].CredentialRef != "local-idp" {
 		t.Fatalf("document = %+v, want local-idp", document)
 	}
 	if strings.Contains(out.String(), "was assigned") {
@@ -141,7 +140,7 @@ func TestLoginAsksNothingWhenTheContextFlagNamesTheAccount(t *testing.T) {
 	if code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
-	if name := loadDocument(t, shell).Accounts[0].Name; name != "customer" {
+	if name := loadDocument(t, shell).Contexts[0].Name; name != "customer" {
 		t.Errorf("account = %q, want customer", name)
 	}
 }

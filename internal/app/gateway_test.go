@@ -27,13 +27,10 @@ import (
 
 	keyring "github.com/zalando/go-keyring"
 
-	"github.com/wso2/wso2-cli/internal/app"
 	"github.com/wso2/wso2-cli/internal/auth/fakeissuer"
 	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/exit"
-	"github.com/wso2/wso2-cli/internal/modules"
-	"github.com/wso2/wso2-cli/internal/modules/fixture"
 )
 
 const (
@@ -46,9 +43,9 @@ const (
 // gateway one at the login provider for the API's own resource server.
 func gatewayDoc(loginIssuer, productIssuer string) contexts.Document {
 	document := browserDoc(loginIssuer)
-	document.Accounts[0].Auth.Provider = contexts.ProviderThunder
-	document.Accounts[0].LoginProduct = "iam"
-	document.Accounts[0].Products = map[string]contexts.Product{
+	document.Contexts[0].Login.Provider = contexts.ProviderThunder
+	document.Contexts[0].Login.Product = "iam"
+	document.Contexts[0].Products = map[string]contexts.Product{
 		"iam": {Endpoint: loginIssuer, Audience: "https://localhost:8090/mcp", Scopes: []string{"system"}},
 		"apim": {Endpoint: productIssuer, Audience: "apim-cli", Scopes: []string{"apim:api_view"},
 			Grant: &contexts.Grant{Kind: contexts.GrantFederated, Issuer: productIssuer, ClientID: "apim-cli"},
@@ -62,7 +59,7 @@ func TestADocumentCarryingAGatewayRecordDecodesAndOneWithoutAnAudienceIsRefused(
 	shell, _, errOut := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
 	installLogin(t, shell, gatewayDoc("http://login.example", "http://apim.example"))
-	if code := shell.Run([]string{"account", "list"}); code != exit.OK {
+	if code := shell.Run([]string{"context", "show"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	// The same document, edited by hand to drop the gateway's audience, on a
@@ -79,7 +76,7 @@ func TestADocumentCarryingAGatewayRecordDecodesAndOneWithoutAnAudienceIsRefused(
 		t.Fatal(err)
 	}
 	errOut.Reset()
-	if code := shell.Run([]string{"account", "list"}); code != exit.Usage ||
+	if code := shell.Run([]string{"context", "show"}); code != exit.Usage ||
 		!strings.Contains(errOut.String(), "contexts.document_malformed") ||
 		!strings.Contains(errOut.String(), "gateway") {
 		t.Fatalf("exit %d, stderr:\n%s", code, errOut)
@@ -124,175 +121,6 @@ func TestDoctorCountsTheGatewaySessionBesideTheManagementOne(t *testing.T) {
 func hasField(out, label, value string) bool {
 	pattern := `(?m)^` + regexp.QuoteMeta(label) + `\s+` + regexp.QuoteMeta(value) + `$`
 	return regexp.MustCompile(pattern).MatchString(out)
-}
-
-// connectBoth records the login provider and the apim management product,
-// the state a developer is in before recording the gateway.
-func connectBoth(t *testing.T, shell app.Shell) {
-	t.Helper()
-	if code, _, errOut := connect(t, shell, "iam", "connect", thunderURL); code != exit.OK {
-		t.Fatalf("iam connect: exit %d: %s", code, errOut)
-	}
-	if code, _, errOut := connect(t, shell, "apim", "connect", apimURL, "--client-id", apimClient); code != exit.OK {
-		t.Fatalf("apim connect: exit %d: %s", code, errOut)
-	}
-}
-
-func TestConnectGatewayRecordsTheGatewayOnTheProductAndReportsItsStrategy(t *testing.T) {
-	shell, _, _ := newConnectShell(t)
-	connectBoth(t, shell)
-	code, out, errOut := connect(t, shell, "apim", "connect", gatewayURL+"/", "--gateway",
-		"--audience", gatewayAudience, "--scopes", "hello:read,orders:read")
-	if code != exit.OK {
-		t.Fatalf("exit %d: %s", code, errOut)
-	}
-	identity := loadDocument(t, shell).Accounts[0]
-	product := identity.Products["apim"]
-	if product.Gateway == nil || product.Gateway.Endpoint != gatewayURL || product.Gateway.Audience != gatewayAudience ||
-		!slices.Equal(product.Gateway.Scopes, []string{"hello:read", "orders:read"}) {
-		t.Fatalf("gateway = %+v", product.Gateway)
-	}
-	// The management record is untouched, and so is the login pin.
-	if product.Endpoint != apimURL || product.Grant == nil || identity.LoginProduct != "iam" {
-		t.Errorf("the management record changed: %+v, login %q", product, identity.LoginProduct)
-	}
-	for label, value := range map[string]string{"Record": "gateway", "Endpoint": gatewayURL,
-		"Audience": gatewayAudience, "Scopes": "hello:read,orders:read", "Strategy": "sibling",
-		"Next": "Run `wso2 login`."} {
-		if !hasField(out, label, value) {
-			t.Errorf("the report lacks %s %s:\n%s", label, value, out)
-		}
-	}
-	// A second gateway on the product is refused without --replace, and
-	// replaces the record with it.
-	code, _, errOut = connect(t, shell, "apim", "connect", gatewayURL, "--gateway", "--audience", gatewayAudience)
-	if code != exit.Usage || !strings.Contains(errOut, "contexts.product_exists") {
-		t.Fatalf("without --replace: exit %d, stderr:\n%s", code, errOut)
-	}
-	code, out, errOut = connect(t, shell, "apim", "connect", "https://other.example:8243", "--gateway",
-		"--audience", "http://localhost:18090/orders", "--replace")
-	if code != exit.OK {
-		t.Fatalf("with --replace: exit %d: %s", code, errOut)
-	}
-	replaced := loadDocument(t, shell).Accounts[0].Products["apim"].Gateway
-	if replaced.Endpoint != "https://other.example:8243" || replaced.Audience != "http://localhost:18090/orders" ||
-		len(replaced.Scopes) != 0 || !strings.Contains(out, "Replaced") {
-		t.Fatalf("gateway = %+v\n%s", replaced, out)
-	}
-}
-
-func TestConnectGatewayNamesLoginOnlyWhenTheIdentityAlreadyHoldsItsSessions(t *testing.T) {
-	keyring.MockInit()
-	shell, _, _ := newConnectShell(t)
-	connectBoth(t, shell)
-	store := session.Store{StateRoot: shell.StateRoot}
-	if err := store.Save("account-1", session.Session{Issuer: thunderURL, RefreshToken: "rt"}); err != nil {
-		t.Fatal(err)
-	}
-	// The login session alone is not "the other sessions": the product's
-	// own session must be stored too before --only narrows the login.
-	code, out, errOut := connect(t, shell, "apim", "connect", gatewayURL, "--gateway", "--audience", gatewayAudience)
-	if code != exit.OK {
-		t.Fatalf("exit %d: %s", code, errOut)
-	}
-	if !hasField(out, "Next", "Run `wso2 login`.") {
-		t.Errorf("with only the login session the next line should be the whole login:\n%s", out)
-	}
-	if err := store.Save(contexts.ProductSessionRef("account-1", "apim"),
-		session.Session{Issuer: apimURL + "/oauth2/token", RefreshToken: "rt"}); err != nil {
-		t.Fatal(err)
-	}
-	code, out, errOut = connect(t, shell, "apim", "connect", gatewayURL, "--gateway", "--audience", gatewayAudience, "--replace")
-	if code != exit.OK {
-		t.Fatalf("exit %d: %s", code, errOut)
-	}
-	if !hasField(out, "Next", "Run `wso2 login --only apim`.") {
-		t.Errorf("the next line does not narrow the login to the product:\n%s", out)
-	}
-}
-
-func TestConnectGatewayNeedsTheManagementRecordFirst(t *testing.T) {
-	shell, _, _ := newConnectShell(t)
-	// No identity at all, then an identity without the apim product: both
-	// are the same refusal, naming the management connect to run first.
-	for _, step := range []string{"none", "iam"} {
-		if step == "iam" {
-			connect(t, shell, "iam", "connect", thunderURL)
-		}
-		code, _, errOut := connect(t, shell, "apim", "connect", gatewayURL, "--gateway", "--audience", gatewayAudience)
-		if code != exit.Usage || !strings.Contains(errOut, "shell.product_required") ||
-			!strings.Contains(errOut, "wso2 apim connect <management-url>") {
-			t.Fatalf("%s: exit %d, stderr:\n%s", step, code, errOut)
-		}
-	}
-	if identity := loadDocument(t, shell).Accounts[0]; identity.Products["apim"].Gateway != nil {
-		t.Errorf("a gateway was written: %+v", identity.Products)
-	}
-}
-
-func TestConnectGatewayIsRefusedForADescriptorWithoutAGatewayBlock(t *testing.T) {
-	shell, _, _ := newConnectShell(t)
-	connect(t, shell, "iam", "connect", thunderURL)
-	code, _, errOut := connect(t, shell, "iam", "connect", gatewayURL, "--gateway", "--audience", gatewayAudience)
-	if code != exit.Usage || !strings.Contains(errOut, "shell.connect_unsupported") ||
-		!strings.Contains(errOut, "iam") {
-		t.Fatalf("exit %d, stderr:\n%s", code, errOut)
-	}
-}
-
-func TestConnectGatewayRefusesAClientAndACredentialAndNeedsAnAudience(t *testing.T) {
-	shell, _, _ := newConnectShell(t)
-	connectBoth(t, shell)
-	for name, args := range map[string][]string{
-		"a client id":          {"--client-id", apimClient},
-		"a secret variable":    {"--client-secret-variable", "WSO2_APIM_CLIENT_SECRET"},
-		"a client id variable": {"--client-id-variable", "WSO2_APIM_CLIENT_ID", "--client-secret-variable", "WSO2_APIM_CLIENT_SECRET"},
-	} {
-		line := append([]string{"apim", "connect", gatewayURL, "--gateway", "--audience", gatewayAudience}, args...)
-		code, _, errOut := connect(t, shell, line...)
-		if code != exit.Usage || !strings.Contains(errOut, "shell.conflicting_arguments") {
-			t.Fatalf("%s: exit %d, stderr:\n%s", name, code, errOut)
-		}
-	}
-	code, _, errOut := connect(t, shell, "apim", "connect", gatewayURL, "--gateway")
-	if code != exit.Usage || !strings.Contains(errOut, "shell.missing_required_flag") ||
-		!strings.Contains(errOut, "--audience") {
-		t.Fatalf("no audience: exit %d, stderr:\n%s", code, errOut)
-	}
-}
-
-func TestConnectGatewayOnAMachineIdentityFollowsTheDescriptorsMachineList(t *testing.T) {
-	shell, _, _ := newConnectShell(t)
-	// closed carries a gateway a machine client may not reach inline.
-	installFixture(t, shell, fixture.Module{Namespace: "closed", Version: "0.1.0",
-		AuthAudiences: []string{"closed", "closed-gateway"}, AuthScopes: []string{"closed:read"},
-		Product: &modules.ProductDescriptor{
-			IssuerPath: "/oauth2/token", Audience: modules.AudienceClient,
-			Scopes: []string{"closed:read"}, Grant: contexts.GrantFederated,
-			Machine: []string{modules.MachineCredential},
-			Gateway: &modules.GatewayDescriptor{Audience: modules.AudienceResource},
-		}})
-	if code, _, errOut := connect(t, shell, "iam", "connect", thunderURL,
-		"--client-id", "wso2-cli-ci", "--client-secret-variable", "WSO2_CI_CLIENT_SECRET"); code != exit.OK {
-		t.Fatalf("iam connect: exit %d: %s", code, errOut)
-	}
-	for _, namespace := range []string{"apim", "closed"} {
-		if code, _, errOut := connect(t, shell, namespace, "connect", apimURL, "--client-id", apimClient,
-			"--client-secret-variable", "WSO2_APIM_CLIENT_SECRET"); code != exit.OK {
-			t.Fatalf("%s connect: exit %d: %s", namespace, code, errOut)
-		}
-	}
-	code, out, errOut := connect(t, shell, "apim", "connect", gatewayURL, "--gateway", "--audience", gatewayAudience)
-	if code != exit.OK {
-		t.Fatalf("exit %d: %s", code, errOut)
-	}
-	if !hasField(out, "Strategy", "inline") || !hasField(out, "Next", "Run `wso2 apim status --context account-1`.") {
-		t.Errorf("report:\n%s", out)
-	}
-	code, _, errOut = connect(t, shell, "closed", "connect", gatewayURL, "--gateway", "--audience", gatewayAudience)
-	if code != exit.AuthPolicy || !strings.Contains(errOut, "auth.product_not_configured") {
-		t.Fatalf("closed: exit %d, stderr:\n%s", code, errOut)
-	}
 }
 
 func TestLoginEstablishesTheGatewaySessionBesideTheOthers(t *testing.T) {
@@ -419,10 +247,10 @@ func TestWhoamiShowsTheGatewayRecordBesideTheManagementOne(t *testing.T) {
 	// A client-credentials identity reaches the gateway inline, like every
 	// other record.
 	machine := gatewayDoc("http://login.example", "http://apim.example")
-	machine.Accounts[0].Auth.Kind = contexts.KindClientCredentials
-	machine.Accounts[0].Auth.CredentialRef = ""
-	machine.Accounts[0].Auth.ClientSecretVariable = "WSO2_CI_CLIENT_SECRET"
-	machine.Accounts[0].LoginProduct = ""
+	machine.Contexts[0].Login.Kind = contexts.KindClientCredentials
+	machine.Contexts[0].CredentialRef = ""
+	machine.Contexts[0].Login.ClientSecretVariable = "WSO2_CI_CLIENT_SECRET"
+	machine.Contexts[0].Login.Product = ""
 	installLogin(t, shell, machine)
 	out.Reset()
 	if code := shell.Run([]string{"whoami"}); code != exit.OK {
@@ -460,24 +288,5 @@ func TestLogoutEndsTheGatewaySession(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "apim/gateway ended") || !strings.Contains(out.String(), "apim ended") {
 		t.Fatalf("report:\n%s", out)
-	}
-}
-
-func TestIdentityListShowsTheGatewayRecordUnderTheProduct(t *testing.T) {
-	shell, out, errOut := newShell(t)
-	t.Setenv("WSO2_CONTEXT", "")
-	installLogin(t, shell, gatewayDoc("http://login.example", "http://apim.example"))
-	if code := shell.Run([]string{"account", "list"}); code != exit.OK {
-		t.Fatalf("exit %d: %s", code, errOut)
-	}
-	if !regexp.MustCompile(`apim/gateway\s+` + regexp.QuoteMeta(gatewayURL) + `\s+hello:read,orders:read`).MatchString(out.String()) {
-		t.Fatalf("no gateway row:\n%s", out)
-	}
-	out.Reset()
-	if code := shell.Run([]string{"account", "list", "--output", "json"}); code != exit.OK {
-		t.Fatalf("exit %d: %s", code, errOut)
-	}
-	if !strings.Contains(out.String(), `"gateway": {`) || !strings.Contains(out.String(), `"endpoint": "`+gatewayURL+`"`) {
-		t.Fatalf("json:\n%s", out)
 	}
 }

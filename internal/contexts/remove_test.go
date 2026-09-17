@@ -27,7 +27,7 @@ import (
 // has to tell apart: the pinned login product, a direct product sharing its
 // session, a sibling, a federated product carrying a gateway record, a derived
 // product, and an exchanged one.
-func removalIdentity() contexts.Account {
+func removalIdentity() contexts.Context {
 	identity := thunderIdentity()
 	identity.LoginProduct = "iam"
 	delete(identity.Products, "gateway")
@@ -44,23 +44,23 @@ func removalIdentity() contexts.Account {
 			ClientID: "agent-cli", Resource: "https://agent.example"}}
 	identity.Products["ai"] = contexts.Product{Endpoint: "https://ai.example", Audience: "https://ai.example",
 		Grant: &contexts.Grant{Kind: contexts.GrantExchange}}
-	return identity
+	return contexts.FromAccount("thunder", identity)
 }
 
-// oneAccount wraps an account in the document a removal is computed over.
-func oneAccount(identity contexts.Account) contexts.Document {
-	return contexts.Document{Accounts: []contexts.Account{identity}}
+// oneContext wraps a context in the document a removal is computed over.
+func oneContext(context contexts.Context) contexts.Document {
+	return contexts.Document{Contexts: []contexts.Context{context}}
 }
 
 // unreachedRefs names the sessions a removal of key leaves nothing to reach.
-func unreachedRefs(t *testing.T, identity contexts.Account, key string) []string {
+func unreachedRefs(t *testing.T, identity contexts.Context, key string) []string {
 	t.Helper()
 	next, removed := identity.WithoutRecord(key)
 	if !removed {
 		t.Fatalf("%q was not removed", key)
 	}
 	var refs []string
-	for _, access := range oneAccount(identity).SessionsUnreachedBy(oneAccount(next)) {
+	for _, access := range oneContext(identity).SessionsUnreachedBy(oneContext(next)) {
 		refs = append(refs, access.SessionRef)
 	}
 	slices.Sort(refs)
@@ -75,8 +75,8 @@ func TestRemovingAProductTakesItsGatewayRecordWithIt(t *testing.T) {
 	if _, recorded := next.Products["apim"]; recorded {
 		t.Fatalf("apim survived: %+v", next.Products)
 	}
-	if slices.Contains(next.RecordKeys(), contexts.GatewayKey("apim")) {
-		t.Fatalf("the gateway record survived its product: %v", next.RecordKeys())
+	if slices.Contains(next.Account().RecordKeys(), contexts.GatewayKey("apim")) {
+		t.Fatalf("the gateway record survived its product: %v", next.Account().RecordKeys())
 	}
 }
 
@@ -116,12 +116,12 @@ func TestRemovingThePinnedLoginProductLeavesADocumentTheShellRefuses(t *testing.
 	if !removed {
 		t.Fatal("the pinned login product was not reported as held")
 	}
-	if next.LoginProduct != "iam" {
-		t.Fatalf("pin = %q, want it left on iam rather than moved", next.LoginProduct)
+	if next.Login.Product != "iam" {
+		t.Fatalf("login product = %q, want it left on iam rather than moved", next.Login.Product)
 	}
 	document := contexts.Document{
 		SchemaVersion: contexts.SchemaVersion,
-		Accounts:      []contexts.Account{next},
+		Contexts:      []contexts.Context{next},
 	}
 	if _, err := document.Encode(); err == nil {
 		t.Fatal("a document pinning the login to a removed product was accepted for writing")
@@ -142,9 +142,10 @@ func TestRemovingAProductLeavesUnreachedOnlyTheSessionsItHeldItself(t *testing.T
 		// through it, whatever product is removed.
 		{"direct, sharing the login session", "console", nil},
 		{"exchanged, holding no session", "ai", nil},
-		// The login product's own session stays; what goes is the sibling
-		// that the login now covers, because nothing names its entry any more.
-		{"the login product itself", "iam", []string{"thunder.api"}},
+		// With the login product gone the login would run for another
+		// product, so the login session is now bound differently and goes
+		// too, beside the sibling the login now covers.
+		{"the login product itself", "iam", []string{"thunder", "thunder.api"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -155,21 +156,49 @@ func TestRemovingAProductLeavesUnreachedOnlyTheSessionsItHeldItself(t *testing.T
 	}
 }
 
-func TestASessionAnotherAccountStillReachesIsNotUnreached(t *testing.T) {
-	identity := removalIdentity()
-	twin := removalIdentity()
-	twin.Name = "twin"
-	before := contexts.Document{Accounts: []contexts.Account{identity, twin}}
-	removed, _ := identity.WithoutRecord("api")
-	after := contexts.Document{Accounts: []contexts.Account{removed, twin}}
-	if got := before.SessionsUnreachedBy(after); len(got) != 0 {
-		t.Fatalf("unreached = %+v, want none: the twin account still reaches the same entry", got)
+func TestASessionReachedButBoundDifferentlyIsUnreached(t *testing.T) {
+	// A record that changes what its session is authorized for — here the
+	// sibling's resource — leaves the stored session presentable for
+	// something it was never granted, so it is ended like a removed one.
+	before := removalIdentity()
+	after := removalIdentity()
+	api := after.Products["api"]
+	api.Audience = "https://api.example/v2"
+	products := map[string]contexts.Product{}
+	for key, value := range after.Products {
+		products[key] = value
+	}
+	products["api"] = api
+	after.Products = products
+	got := oneContext(before).SessionsUnreachedBy(oneContext(after))
+	if len(got) != 1 || got[0].SessionRef != "thunder.api" {
+		t.Fatalf("unreached = %+v, want the api sibling only", got)
+	}
+}
+
+func TestAnUnchangedDocumentLeavesNothingUnreached(t *testing.T) {
+	document := oneContext(removalIdentity())
+	if got := document.SessionsUnreachedBy(document); len(got) != 0 {
+		t.Fatalf("unreached = %+v, want none", got)
+	}
+}
+
+func TestDeletingAContextLeavesEverySessionItHeldUnreached(t *testing.T) {
+	got := oneContext(removalIdentity()).SessionsUnreachedBy(contexts.Document{})
+	var refs []string
+	for _, access := range got {
+		refs = append(refs, access.SessionRef)
+	}
+	slices.Sort(refs)
+	want := []string{"thunder", "thunder.agent", "thunder.api", "thunder.apim", "thunder.apim/gateway"}
+	if !slices.Equal(refs, want) {
+		t.Fatalf("unreached = %v, want %v", refs, want)
 	}
 }
 
 func TestAClientCredentialsAccountLeavesNoSessionUnreached(t *testing.T) {
-	identity := contexts.Account{Name: "ci", Type: "cloud",
-		Auth: contexts.AccountAuth{Kind: contexts.KindClientCredentials, Issuer: "https://is.example",
+	identity := contexts.Context{Name: "ci", Type: "cloud",
+		Login: contexts.Login{Kind: contexts.KindClientCredentials, Issuer: "https://is.example",
 			ClientID: "ci", ClientSecretVariable: "WSO2_CI_SECRET"},
 		Products: map[string]contexts.Product{
 			"api": {Endpoint: "https://api.example", Scopes: []string{"api:read"}},

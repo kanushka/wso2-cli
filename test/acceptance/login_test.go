@@ -231,29 +231,15 @@ func browserDocument(issuerURL, endpoint string) contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: referenceContextName,
-		Accounts: []contexts.Account{{
-			Name: loginIdentityName,
-			Type: "cloud",
-			Auth: contexts.AccountAuth{
-				Kind:          contexts.KindOAuthBrowser,
-				Issuer:        issuerURL,
-				ClientID:      loginClientID,
-				Tenant:        referenceOrganization,
-				CredentialRef: loginCredentialRef,
-			},
-			Products: map[string]contexts.Product{
-				"reference": {
-					Endpoint: endpoint,
-					Audience: referenceAudience,
-					Scopes:   []string{referenceReadScope, referenceWriteScope},
-				},
+
+		Contexts: []contexts.Context{{Name: referenceContextName, Type: "cloud", CredentialRef: loginCredentialRef, Login: contexts.Login{Kind: contexts.KindOAuthBrowser, Issuer: issuerURL, ClientID: loginClientID, Tenant: referenceOrganization}, Organization: referenceOrganization, Products: map[string]contexts.Product{
+			"reference": {
+				Endpoint: endpoint,
+				Audience: referenceAudience,
+				Scopes:   []string{referenceReadScope, referenceWriteScope},
 			},
 		}},
-		Contexts: []contexts.Context{{
-			Name:         referenceContextName,
-			Account:      loginIdentityName,
-			Organization: referenceOrganization,
-		}},
+		},
 	}
 }
 
@@ -546,12 +532,12 @@ func deployInline(t *testing.T, options fakeissuer.Options, secret string) *logi
 	// read the variable rather than that the fixture is permissive.
 	options.ClientSecret = inlineClientSecret
 	deployment := deployLogin(t, options, func(document *contexts.Document) {
-		identity := &document.Accounts[0].Auth
-		identity.Kind = contexts.KindClientCredentials
-		// A non-interactive identity holds no secure-store reference: there is
+		context := &document.Contexts[0]
+		context.Login.Kind = contexts.KindClientCredentials
+		// A non-interactive context holds no secure-store reference: there is
 		// no session to keep.
-		identity.CredentialRef = ""
-		identity.ClientSecretVariable = inlineSecretVariable
+		context.CredentialRef = ""
+		context.Login.ClientSecretVariable = inlineSecretVariable
 	})
 	t.Setenv(inlineSecretVariable, secret)
 	return deployment

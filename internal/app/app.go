@@ -32,6 +32,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/wso2/wso2-cli/internal/catalog"
+	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/exit"
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/output"
@@ -51,6 +52,10 @@ type Shell struct {
 	StateRoot string
 	// Streams are the user-facing output destinations.
 	Streams output.Streams
+	// Name is the name the shell was invoked as, which every command the
+	// shell suggests is phrased with. cmd/wso2/main.go sets it from the
+	// process arguments; empty means output.DefaultName.
+	Name string
 	// OpenBrowser overrides how an interactive login opens the authorization
 	// URL. It is nil in production, which is the OS browser opener; a test uses
 	// it to drive a login without a display. It can only change how the URL is
@@ -66,6 +71,13 @@ type Shell struct {
 	// real terminal to hand it sets this to something else entirely — see
 	// mayPrompt in prompt.go for what that distinction is for.
 	Reader io.Reader
+
+	// RunEditor opens a file in the user's editor and waits for it to close.
+	// It is nil in production, which runs $VISUAL or $EDITOR (vi without
+	// either) on the terminal; a test uses it to edit the file itself. It can
+	// only change how the file is edited: what is written is validated the
+	// same either way.
+	RunEditor func(path string) error
 
 	// ReleasedIndex is the catalog index the help page names products from. It is
 	// nil in production, which is the copy this binary was released with
@@ -102,6 +114,8 @@ func CommandNames() []string {
 
 // Run executes one invocation and returns the process exit code.
 func (s Shell) Run(args []string) exit.Code {
+	s.Streams.Out = output.Named(s.Streams.Out, s.Name)
+	s.Streams.Err = output.Named(s.Streams.Err, s.Name)
 	err := s.dispatch(args)
 	if err == nil {
 		return exit.OK
@@ -147,6 +161,7 @@ func (s Shell) dispatch(args []string) error {
 		if _, diagnostic := preferences.Load(root); diagnostic != nil {
 			output.Diagnostic(s.Streams.Err, *diagnostic)
 		}
+		s.upgradeContexts(root)
 	}
 
 	root := s.rootCommand()
@@ -172,41 +187,7 @@ func (s Shell) dispatch(args []string) error {
 		return root.Execute()
 	}
 
-	if moved := movedAccountVerb(name, args[1:]); moved != nil {
-		return moved
-	}
 	return s.dispatchNamespace(root, name, args[1:])
-}
-
-// movedAccountVerb answers a command that named the account family by the word
-// it used to be called, and reports nil for everything else.
-//
-// ADR 0015 renamed the shell's identity command to account and gave the freed
-// word to a product namespace, so no alias could be kept: an alias is a shell
-// command, and a shell command shadows the namespace it shares a name with.
-// A redirect is not an alias. It is consulted after Cobra has already declined
-// the name, before the module store is opened, and it fires only for the three
-// verbs the shell itself used to own — so a module command sharing one of
-// those names is reached exactly as it would have been, and the namespace
-// stays the module's.
-//
-// It exists because both refusals a moved command would otherwise reach are
-// wrong rather than merely unhelpful. An uninstalled namespace reports that
-// nothing owns the word, and an installed one reports that the module has no
-// such command; each tells a user the command does not exist, at the one
-// moment the shell knows both that it did and where it went.
-func movedAccountVerb(namespace string, args []string) error {
-	if namespace != "identity" || len(args) == 0 {
-		return nil
-	}
-	verb := args[0]
-	if verb != "create" && verb != "add-product" && verb != "list" {
-		return nil
-	}
-	return problem.New(problem.CategoryUsage, "shell.command_moved",
-		fmt.Sprintf("wso2 identity %s is now wso2 account %s", verb, verb)).
-		WithRecovery(fmt.Sprintf("Run wso2 account %s instead. The account command became account, "+
-			"and account is now a product namespace.", verb))
 }
 
 // isShellCommand reports whether a name is a command the shell owns. A built-in
@@ -238,8 +219,7 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 	if err != nil {
 		return err
 	}
-	// --no-input is taken the same way and for the same reason; for connect
-	// it stops the question naming an account connect creates.
+	// --no-input is taken the same way and for the same reason.
 	args, noInput, err := takeNoInput(args)
 	if err != nil {
 		return err
@@ -263,6 +243,11 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 		return err
 	}
 	if !slices.Contains(namespaces, namespace) {
+		// A command the shell removed is answered with its replacement
+		// before the namespace is reported unknown (redirects.go).
+		if moved := movedCommand(namespace, args, nil); moved != nil {
+			return moved
+		}
 		return unknownNamespace(root, namespace)
 	}
 
@@ -282,12 +267,13 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 		"executable", resolved.ExecutablePath,
 		"module_version", resolved.Receipt.ModuleVersion,
 		"protocol_version", resolved.ProtocolVersion)
-	// connect is the shell's own subcommand of every namespace, read here
-	// after the receipt was verified and before anything is launched: it
-	// writes the product record from the descriptor the receipt carries,
-	// and the module never sees the word.
-	if len(args) > 0 && args[0] == connectSubcommand {
-		return s.connect(namespace, resolved.Receipt, args[1:], noInput)
+	// A word the module does not declare, which the shell used to answer
+	// itself under every namespace, is answered with its replacement. The
+	// module never sees it.
+	if len(args) > 0 && !declaresCommand(resolved.Receipt, args[0]) {
+		if moved := movedCommand(namespace, args, resolved.Receipt.Capabilities.Product); moved != nil {
+			return moved
+		}
 	}
 	return s.invokeModule(namespace, resolved, args, noInput)
 }
@@ -412,4 +398,33 @@ func (s Shell) helpTopic(root *cobra.Command, args []string) error {
 		return unknownProductCommand(namespace, routed.Unrouted, declared)
 	}
 	return s.renderProductHelp(namespace, declared, routed.Command)
+}
+
+// upgradeContexts rewrites a context document an earlier shell wrote in the
+// current schema, once, and says what the upgrade changed when it changed
+// anything a user has to act on: a context whose shared session stayed with
+// another context needs a login of its own (ADR 0016).
+//
+// It is best effort. A document that cannot be upgraded now — a read-only
+// state root, a lock held by another invocation — is still read through the
+// same migration by every command, and the next write stores it; the command
+// the user ran is not refused over a housekeeping step it did not ask for.
+func (s Shell) upgradeContexts(root string) {
+	migration, migrated, err := contexts.Upgrade(root)
+	if err != nil {
+		s.log.Debug("the context document could not be upgraded yet", "error", err.Error())
+		return
+	}
+	if !migrated {
+		return
+	}
+	notes := migration.Notes()
+	if len(notes) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(s.Streams.Err, "Upgraded the context document to schema version %d: each context "+
+		"now holds its own login and products.\n", contexts.SchemaVersion)
+	for _, note := range notes {
+		_, _ = fmt.Fprintln(s.Streams.Err, note)
+	}
 }

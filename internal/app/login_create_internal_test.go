@@ -68,22 +68,22 @@ func TestTheProductlessLoginReportMatchesTheDeploymentKind(t *testing.T) {
 		refuses      []string
 	}{
 		{
-			name:         "a cloud account is not called self-hosted",
+			name:         "a cloud context is not called self-hosted",
 			identityType: contexts.TypeCloud,
 			wants: []string{
-				"No products are configured for this account yet.",
-				"discovered automatically",
-				"wso2 account add-product customer",
+				"No products are configured for this context.",
+				"not discovered automatically",
+				"wso2 context product add <product> --url <url> --context customer",
 			},
 			refuses: []string{"self-hosted"},
 		},
 		{
-			name:         "a self-hosted account keeps the discoverability explanation",
+			name:         "a self-hosted context keeps the discoverability explanation",
 			identityType: contexts.TypeOnprem,
 			wants: []string{
-				"No products are configured for this account.",
-				"A self-hosted deployment is not\ndiscoverable",
-				"wso2 account add-product customer",
+				"No products are configured for this context.",
+				"A self-hosted deployment is not discoverable",
+				"wso2 context product add <product> --url <url> --context customer",
 			},
 			refuses: []string{"discovered automatically"},
 		},
@@ -93,10 +93,7 @@ func TestTheProductlessLoginReportMatchesTheDeploymentKind(t *testing.T) {
 			shell := Shell{Streams: output.Streams{Out: out, Err: &bytes.Buffer{}}}
 			identity := contexts.Account{Name: "customer", Type: testCase.identityType}
 
-			err := shell.reportLoginWrite(loginWrite{
-				Identity: "customer", Context: "customer",
-				CreatedIdentity: true, CreatedContext: true,
-			}, identity)
+			err := shell.reportLoginWrite(loginWrite{Context: "customer", CreatedContext: true}, identity)
 			if err != nil {
 				t.Fatalf("reportLoginWrite: %v", err)
 			}
@@ -156,19 +153,8 @@ func TestPlanLoginRecordsTheAsgardeoTenantAsTheOrganization(t *testing.T) {
 func TestPlanLoginKeepsADeclaredContextsOrganization(t *testing.T) {
 	document := contexts.Document{
 		SchemaVersion: contexts.SchemaVersion,
-		Accounts: []contexts.Account{{
-			Name: "acme-asgardeo", Type: contexts.TypeCloud,
-			Auth: contexts.AccountAuth{
-				Kind:          contexts.KindOAuthBrowser,
-				Issuer:        "https://api.asgardeo.io/t/acme/oauth2/token",
-				ClientID:      "wso2-cli",
-				CredentialRef: "acme-asgardeo",
-			},
-		}},
-		Contexts: []contexts.Context{{
-			Name: "acme-asgardeo", Account: "acme-asgardeo",
-			Organization: "acme-partner",
-		}},
+
+		Contexts:       []contexts.Context{{Name: "acme-asgardeo", Type: contexts.TypeCloud, CredentialRef: "acme-asgardeo", Login: contexts.Login{Kind: contexts.KindOAuthBrowser, Issuer: "https://api.asgardeo.io/t/acme/oauth2/token", ClientID: "wso2-cli"}, Organization: "acme-partner"}},
 		DefaultContext: "acme-asgardeo",
 	}
 	selected, err := planLogin(document, "acme-asgardeo",

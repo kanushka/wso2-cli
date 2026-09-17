@@ -18,6 +18,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -84,6 +88,194 @@ func TestCreatingAResourceServerRefusesAPermissionCarryingTheDelimiter(t *testin
 	}
 	if !strings.Contains(outcome.Problem.Message, "delimiter") {
 		t.Fatalf("the refusal does not name the cause: %q", outcome.Problem.Message)
+	}
+}
+
+// route is one path's canned answer for the routed stubs below.
+type route struct {
+	status int
+	body   string
+}
+
+// newRoutedStub answers by method-and-path rather than by path alone, and
+// records the body of the last POST it received, which is what the
+// organization-unit tests need: they must prove what create sent, not merely
+// that it succeeded.
+func newRoutedStub(t *testing.T, routes map[string]route, captured *string) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && captured != nil {
+			body, _ := io.ReadAll(r.Body)
+			*captured = string(body)
+		}
+		found, ok := routes[r.Method+" "+r.URL.Path]
+		if !ok {
+			http.Error(w, `{"code":"NOT_FOUND"}`, http.StatusNotFound)
+			return
+		}
+		status := found.status
+		if status == 0 {
+			status = http.StatusOK
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(found.body))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestCreatingAResourceServerSendsTheOUIDFromASingleOUListing(t *testing.T) {
+	// Thunder now requires ouId on create. When the deployment records exactly
+	// one organization unit, that is the only sensible default, so a caller
+	// creating a first resource server never has to look it up by hand.
+	var captured string
+	server := newRoutedStub(t, map[string]route{
+		"GET /organization-units": {body: `{"totalResults":1,"organizationUnits":[
+			{"id":"ou-default","handle":"default","name":"Default"}]}`},
+		"POST /resource-servers": {status: http.StatusCreated,
+			body: `{"id":"rs-1","name":"Hello API","identifier":"http://localhost:8801/hello",` +
+				`"delimiter":":","ouId":"ou-default"}`},
+	}, &captured)
+
+	outcome := testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
+		Command:   []string{"resource-servers", "create"},
+		Arguments: []string{"Hello API", "--identifier", "http://localhost:8801/hello"},
+		Context:   module.Context{Name: "c1", Endpoint: server.URL},
+		Access:    &testkit.Access{Token: "brokered-token"},
+	})
+	if outcome.Problem != nil {
+		t.Fatalf("create was refused: %+v", outcome.Problem)
+	}
+	var sent map[string]any
+	if err := json.Unmarshal([]byte(captured), &sent); err != nil {
+		t.Fatalf("the request body is not valid JSON: %v\n%s", err, captured)
+	}
+	if sent["ouId"] != "ou-default" {
+		t.Fatalf("the request did not carry ouId from the single organization unit: %s", captured)
+	}
+}
+
+func TestCreatingAResourceServerUsesAnOUIDGivenDirectly(t *testing.T) {
+	// --ou given as an id names the organization unit outright, without
+	// falling back to whatever the deployment's listing would default to.
+	var captured string
+	server := newRoutedStub(t, map[string]route{
+		"GET /organization-units": {body: `{"totalResults":2,"organizationUnits":[
+			{"id":"ou-1","handle":"default","name":"Default"},
+			{"id":"ou-2","handle":"marketing","name":"Marketing"}]}`},
+		"POST /resource-servers": {status: http.StatusCreated,
+			body: `{"id":"rs-1","name":"Hello API","identifier":"http://localhost:8801/hello",` +
+				`"delimiter":":","ouId":"ou-2"}`},
+	}, &captured)
+
+	outcome := testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
+		Command:   []string{"resource-servers", "create"},
+		Arguments: []string{"Hello API", "--identifier", "http://localhost:8801/hello", "--ou", "ou-2"},
+		Context:   module.Context{Name: "c1", Endpoint: server.URL},
+		Access:    &testkit.Access{Token: "brokered-token"},
+	})
+	if outcome.Problem != nil {
+		t.Fatalf("create was refused: %+v", outcome.Problem)
+	}
+	var sent map[string]any
+	if err := json.Unmarshal([]byte(captured), &sent); err != nil {
+		t.Fatalf("the request body is not valid JSON: %v\n%s", err, captured)
+	}
+	if sent["ouId"] != "ou-2" {
+		t.Fatalf("the request did not carry the --ou id given: %s", captured)
+	}
+}
+
+func TestCreatingAResourceServerResolvesAnOUHandle(t *testing.T) {
+	// --ou given as a handle is resolved through the same listing to Thunder's
+	// own id, because a handle is what an operator recognizes and an id is
+	// what Thunder's API requires.
+	var captured string
+	server := newRoutedStub(t, map[string]route{
+		"GET /organization-units": {body: `{"totalResults":2,"organizationUnits":[
+			{"id":"ou-1","handle":"default","name":"Default"},
+			{"id":"ou-2","handle":"marketing","name":"Marketing"}]}`},
+		"POST /resource-servers": {status: http.StatusCreated,
+			body: `{"id":"rs-1","name":"Hello API","identifier":"http://localhost:8801/hello",` +
+				`"delimiter":":","ouId":"ou-2"}`},
+	}, &captured)
+
+	outcome := testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
+		Command: []string{"resource-servers", "create"},
+		Arguments: []string{"Hello API", "--identifier", "http://localhost:8801/hello",
+			"--ou", "marketing"},
+		Context: module.Context{Name: "c1", Endpoint: server.URL},
+		Access:  &testkit.Access{Token: "brokered-token"},
+	})
+	if outcome.Problem != nil {
+		t.Fatalf("create was refused: %+v", outcome.Problem)
+	}
+	var sent map[string]any
+	if err := json.Unmarshal([]byte(captured), &sent); err != nil {
+		t.Fatalf("the request body is not valid JSON: %v\n%s", err, captured)
+	}
+	if sent["ouId"] != "ou-2" {
+		t.Fatalf("the handle marketing was not resolved to its id: %s", captured)
+	}
+}
+
+func TestCreatingAResourceServerWithMultipleOUsAndNoOURefuses(t *testing.T) {
+	// A deployment recording more than one organization unit has no honest
+	// default; guessing would silently place the resource server somewhere
+	// the caller never chose.
+	server := newRoutedStub(t, map[string]route{
+		"GET /organization-units": {body: `{"totalResults":2,"organizationUnits":[
+			{"id":"ou-1","handle":"default","name":"Default"},
+			{"id":"ou-2","handle":"marketing","name":"Marketing"}]}`},
+	}, nil)
+
+	outcome := testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
+		Command:   []string{"resource-servers", "create"},
+		Arguments: []string{"Hello API", "--identifier", "http://localhost:8801/hello"},
+		Context:   module.Context{Name: "c1", Endpoint: server.URL},
+		Access:    &testkit.Access{Token: "brokered-token"},
+	})
+	if outcome.Problem == nil {
+		t.Fatalf("an ambiguous default organization unit was accepted: %+v", outcome.Result)
+	}
+	for _, want := range []string{"--ou", "default (ou-1)", "marketing (ou-2)"} {
+		if !strings.Contains(outcome.Problem.Message, want) {
+			t.Fatalf("the refusal does not mention %q: %q", want, outcome.Problem.Message)
+		}
+	}
+}
+
+func TestCreatingAResourceServerRendersThunderFieldErrorsFromA400(t *testing.T) {
+	// Thunder's field errors were dropped before this fix: only the generic
+	// "Validation Failed" message reached the user. The description and the
+	// per-field errors are what actually explain the refusal.
+	server := newRoutedStub(t, map[string]route{
+		"GET /organization-units": {body: `{"totalResults":1,"organizationUnits":[
+			{"id":"ou-default","handle":"default","name":"Default"}]}`},
+		"POST /resource-servers": {status: http.StatusBadRequest,
+			body: `{"code":"INVALID_INPUT_METADATA","description":"One or more inbound fields ` +
+				`failed structural edge-boundary rules.","errors":{"ouId":"The field 'ouId' is ` +
+				`missing but is strictly required."},"message":"Validation Failed"}`},
+	}, nil)
+
+	outcome := testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
+		Command:   []string{"resource-servers", "create"},
+		Arguments: []string{"Hello API", "--identifier", "http://localhost:8801/hello"},
+		Context:   module.Context{Name: "c1", Endpoint: server.URL},
+		Access:    &testkit.Access{Token: "brokered-token"},
+	})
+	if outcome.Problem == nil {
+		t.Fatalf("a 400 was not surfaced as a problem: %+v", outcome.Result)
+	}
+	if !strings.Contains(outcome.Problem.Message, "ouId: The field 'ouId' is missing") {
+		t.Fatalf("the problem does not render the field error: %q", outcome.Problem.Message)
+	}
+	if !strings.Contains(outcome.Problem.Message, "structural edge-boundary rules") {
+		t.Fatalf("the problem does not render Thunder's description: %q", outcome.Problem.Message)
+	}
+	if strings.Contains(outcome.Problem.Recovery, "deployment's own logs") {
+		t.Fatalf("a 400 still points at the deployment's logs: %q", outcome.Problem.Recovery)
 	}
 }
 

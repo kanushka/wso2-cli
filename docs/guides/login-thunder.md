@@ -36,11 +36,11 @@ Three things follow:
   indicator per authorization: *"Only a single resource parameter is
   supported"*, so a session is bound to one resource server. Before the
   per-product session model that meant one login reached one product, and the
-  context document refused an account that named Thunder and declared more
-  than one. Under [ADR 0014](../adr/0014-one-login-one-session-per-product.md)
-  an account holds one session per product and the shell runs one
-  authorization per product from the same sign-on, so a Thunder account may
-  declare several; the binding is why each gets its own session.
+  context document refused a login that named Thunder and declared more than
+  one. Under [ADR 0014](../adr/0014-one-login-one-session-per-product.md) a
+  context holds one session per product and the shell runs one authorization
+  per product from the same sign-on, so a Thunder context may declare several;
+  the binding is why each gets its own session.
 - **The audience check means what it says.** On Asgardeo an access token's `aud`
   is the client ID and cannot distinguish one product from another. On Thunder it
   is the resource server identifier and nothing else, which is the strongest
@@ -91,8 +91,8 @@ docker run -d --name thunderid -p 8490:8090 \
 **Everything below this point writes `8090`.** If you took the offset recipe,
 substitute the host port you chose, in the discovery URL, the console URL, the
 certificate you trust, the resource server's identifier, and the issuer and
-audience you write into the context document. The port is part of the issuer's
-account here, not a detail of how you reach it, so a value that is close but
+audience you write into the context document. The port is part of the issuer
+here, not a detail of how you reach it, so a value that is close but
 not exact fails at discovery.
 
 Confirm what it advertises rather than assuming it:
@@ -274,7 +274,7 @@ The client-credentials grant has no earlier authorization to inherit a resource
 binding from, so the shell sends the resource indicator on that request too. A
 Thunder deployment refuses the grant outright without it.
 
-**That is why a Thunder CI account carries `provider` exactly as a browser one
+**That is why a Thunder CI context carries `provider` exactly as a browser one
 does.** `provider` is what selects the resource-bound derivation, and the shell
 sends no indicator without it, so the
 [CI context in the login guide](login.md#51-write-the-ci-context), which is
@@ -283,31 +283,37 @@ form:
 
 ```json
 {
-  "name": "thunder-ci",
-  "type": "onprem",
-  "auth": {
-    "kind": "client-credentials",
-    "provider": "thunder",
-    "issuer": "https://localhost:8090",
-    "clientId": "REPLACE_WITH_YOUR_CI_CLIENT_ID",
-    "clientSecretVariable": "WSO2_THUNDER_CI_SECRET"
-  },
-  "products": {
-    "reference": {
-      "endpoint": "https://localhost:8090",
-      "audience": "https://localhost:8090/reference-status",
-      "scopes": ["read", "write"]
+  "contexts": [
+    {
+      "name": "thunder-ci",
+      "type": "onprem",
+      "login": {
+        "kind": "client-credentials",
+        "provider": "thunder",
+        "issuer": "https://localhost:8090",
+        "clientId": "REPLACE_WITH_YOUR_CI_CLIENT_ID",
+        "clientSecretVariable": "WSO2_THUNDER_CI_SECRET"
+      },
+      "products": {
+        "reference": {
+          "url": "https://localhost:8090",
+          "audience": "https://localhost:8090/reference-status",
+          "scopes": ["read", "write"]
+        }
+      }
     }
-  }
+  ]
 }
 ```
 
-The rule that binds a Thunder browser account binds this one, and the shell
+Apply it with `wso2 context apply -f thunder-ci.json --use thunder-ci`.
+
+The rule that binds a Thunder browser context binds this one, and the shell
 refuses the document rather than the grant if it is broken: an **audience that
 is an absolute URI**. Carrying the login guide's
 `"audience": "reference-status"` over is refused at parse as not a URI, which
 is the cheap failure; omitting `provider` is the expensive one, because the
-document parses and the deployment refuses every grant. A machine account is
+document parses and the deployment refuses every grant. A machine context is
 minted once per product it declares, each with that product's resource
 indicator, so it may declare several.
 
@@ -328,58 +334,69 @@ which is the same for all three products.
 
 ---
 
-## 9. Declare the account, then log in
+## 9. Declare the context, then log in
 
 A Thunder authorization is bound to one protected resource from the moment
 it is established, so the shell has to know the resource before the browser
-opens. A module that carries a product descriptor is recorded from its URL
-alone: `wso2 <namespace> connect https://localhost:8090` writes the account,
-the product and the context. The reference module declares no descriptor, so declare
-the account yourself, naming the provider and the product it reaches, then
-log in:
+opens. The identity product is Thunder's own, and its descriptor knows the
+client, provider, audience and scopes, so a context that logs in through it is
+one command:
 
 ```console
-$ wso2 account create thunder-local --issuer https://thunder.example.com \
-    --client-id <client-id> --provider thunder \
-    --product reference --endpoint https://localhost:8090 \
-    --audience https://localhost:8090/reference-status --scope read --scope write
-
-$ wso2 login --context thunder-local
+$ wso2 context create thunder-local --login-product identity \
+    --url https://localhost:8090 --use
+$ wso2 context product add reference --url https://localhost:8090 \
+    --audience https://localhost:8090/reference-status --scopes read,write
+$ wso2 login
 ```
 
-`account create` writes the account, a same-named context, and selects it
-when nothing else is selected; its last line is the login to run. What it
-writes is spare: the issuer and client ID, `"type": "onprem"`, a
-`credentialRef` equal to the account name, `"provider": "thunder"`, and the
-product. That is the document below. Everything from here is
-[the main login guide](login.md), from section 2.
+`context create` installs the identity product first if it is missing, and
+writes the complete record: the issuer and client ID, `"type": "onprem"`, a
+`credentialRef` equal to the context name (`"credentialRef": "thunder-local"`),
+`"provider": "thunder"`, and the login product. The reference module declares no product descriptor, so its
+audience and scopes are given on the line and written as given. Everything
+from here is [the main login guide](login.md), from section 2.
+
+Without the identity product installed, write the complete record and apply
+it; nothing is installed for a login product the file states in full:
 
 ```json
 {
-  "name": "thunder-local",
-  "type": "onprem",
-  "auth": {
-    "kind": "oauth-browser",
-    "provider": "thunder",
-    "issuer": "https://localhost:8090",
-    "clientId": "wso2-cli",
-    "credentialRef": "thunder-local"
-  },
-  "products": {
-    "reference": {
-      "endpoint": "https://localhost:8090",
-      "audience": "https://localhost:8090/reference-status",
-      "scopes": ["read", "write"]
+  "contexts": [
+    {
+      "name": "thunder-local",
+      "type": "onprem",
+      "login": {
+        "kind": "oauth-browser",
+        "provider": "thunder",
+        "issuer": "https://localhost:8090",
+        "clientId": "wso2-cli",
+        "product": "reference"
+      },
+      "products": {
+        "reference": {
+          "url": "https://localhost:8090",
+          "audience": "https://localhost:8090/reference-status",
+          "scopes": ["read", "write"]
+        }
+      }
     }
-  }
+  ]
 }
+```
+
+```console
+$ wso2 context apply -f thunder-local.json --no-install --use thunder-local
+$ wso2 login
 ```
 
 `provider` is what makes the shell send the resource indicator. Without it,
 `wso2 login --url … --client-id …` on a deployment with no default resource
 server is refused by Thunder with `invalid_target` before any sign-in page
 appears, and no session is established. That is why the first-login form
-that creates the account as it logs in does not fit Thunder.
+that creates a context as it logs in does not fit Thunder, and why
+`wso2 context create --issuer … --provider thunder` is refused in favour of
+`--login-product identity`.
 
 You may also write `narrowing` explicitly in the document, as
 `scoped-refresh` or `token-resource`, for a deployment that does not behave
@@ -396,17 +413,17 @@ configured is the case this exists for.
 > the deployment will not issue access for the "reference" module without being
 > told which protected resource it is for
 
-The account does not name Thunder as its provider, so the shell asked in a
+The context does not name Thunder as its provider, so the shell asked in a
 shape this deployment does not accept. Add `"provider": "thunder"` to the
-account's `auth` block.
+context's `login` block (`wso2 context edit`).
 
 ### `contexts.document_malformed`, about one login and one product
 
-A shell from before the per-product session model refuses an account that
+A shell from before the per-product session model refuses a login that
 derives access by resource and declares more than one product, because one
 session then reached one product. A current shell holds one session per
 product ([ADR 0014](../adr/0014-one-login-one-session-per-product.md)) and
-accepts the document; update the shell rather than splitting the account.
+accepts the document; update the shell rather than splitting the context.
 
 ### `contexts.document_malformed`, about a product without an audience
 

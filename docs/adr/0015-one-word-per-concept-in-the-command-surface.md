@@ -151,3 +151,12 @@ the page never omits a namespace the shell would dispatch. A product the copy
 knows only as a prerelease is left out, because install selects the stable
 channel. When the installed products cannot be read, the copy is listed
 unmarked and the page says it could not tell.
+
+## Amendment: the account is retired (ADR 0016)
+
+ADR 0016 folds the account into the context and removes the `wso2 account`
+family and `wso2 <namespace> connect`, answering the rejection above ("several
+contexts may name one account") by giving each context its own sessions. The
+redirect this ADR introduced for the moved identity verbs now names the
+`wso2 context` commands, and the core commands on the help page are `context`,
+`login`, `logout`, `org`, `product` and `whoami`.

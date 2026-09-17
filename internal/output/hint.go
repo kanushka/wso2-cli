@@ -41,14 +41,15 @@ func Hint(w io.Writer, text string) string {
 	if ColorEnabled(w) {
 		open, close = commandStyle, resetStyle
 	}
-	return markCommands(text, open, close)
+	name := NameOf(w)
+	return markCommands(Rename(text, name), name, open, close)
 }
 
-func markCommands(text, open, close string) string {
+func markCommands(text, name, open, close string) string {
 	tokens := strings.Split(text, " ")
 	marked := make([]string, 0, len(tokens))
 	for index := 0; index < len(tokens); index++ {
-		if !startsCommand(tokens, index) {
+		if !startsCommand(tokens, index, name) {
 			marked = append(marked, tokens[index])
 			continue
 		}
@@ -61,10 +62,10 @@ func markCommands(text, open, close string) string {
 	return strings.Join(marked, " ")
 }
 
-// startsCommand reports whether the token at index opens a command: a bare
-// "wso2" followed by at least one more word of it.
-func startsCommand(tokens []string, index int) bool {
-	if tokens[index] != "wso2" || index+1 >= len(tokens) {
+// startsCommand reports whether the token at index opens a command: the bare
+// shell name followed by at least one more word of it.
+func startsCommand(tokens []string, index int, name string) bool {
+	if tokens[index] != name || index+1 >= len(tokens) {
 		return false
 	}
 	next, _ := splitTrailing(tokens[index+1])

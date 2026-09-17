@@ -38,10 +38,10 @@ const theResource = "https://deployment.example.test/reference-status"
 // resourceBoundDoc is browserDoc against such a deployment.
 func resourceBoundDoc(issuerURL string) contexts.Document {
 	document := browserDoc(issuerURL)
-	document.Accounts[0].Auth.Provider = contexts.ProviderThunder
-	product := document.Accounts[0].Products["reference"]
+	document.Contexts[0].Login.Provider = contexts.ProviderThunder
+	product := document.Contexts[0].Products["reference"]
 	product.Audience = theResource
-	document.Accounts[0].Products["reference"] = product
+	document.Contexts[0].Products["reference"] = product
 	return document
 }
 

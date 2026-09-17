@@ -91,13 +91,12 @@ const sessionExpiryNotStated = "not stated by the issuer"
 // whichever of "nothing is configured" or "a context is configured but has no
 // session" produced it. TestWhoamiOnAnUnconfiguredMachineReportsPlainly pins
 // this for the unconfigured case specifically.
-const unconfiguredRecovery = "Run wso2 login to create an account and a context, " +
-	"or wso2 context create <name> --account <account> if you already have one."
+const unconfiguredRecovery = contextSetupHint
 
 func (s Shell) whoamiCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:                   "whoami",
-		Short:                 "Show who is signed in, and to what context, account, and session.",
+		Short:                 "Show who is signed in, to which context, and with what session.",
 		Args:                  noArguments(whoamiUsage),
 		DisableFlagsInUseLine: true,
 		RunE: func(command *cobra.Command, args []string) error {
@@ -148,7 +147,9 @@ func (s Shell) whoami(command *cobra.Command) error {
 	}
 
 	report := whoamiReport{Session: whoamiSessionNone, Recovery: unconfiguredRecovery}
-	if len(document.Contexts) > 0 {
+	if len(document.Contexts) > 0 && contextName == "" && document.DefaultContext == "" {
+		report.Recovery = "No context is selected. Run wso2 context use <name> to select one."
+	} else if len(document.Contexts) > 0 {
 		selected, selErr := document.Select(contextName)
 		if selErr != nil {
 			// An unresolvable --context name is the caller's argument
@@ -158,7 +159,7 @@ func (s Shell) whoami(command *cobra.Command) error {
 		}
 		report.Configured = true
 		report.Context = selected.Context.Name
-		report.Identity = selected.Context.Account
+		report.Issuer = selected.Context.Login.Issuer
 		report.Organization = selected.Context.Organization
 
 		store := session.Store{StateRoot: root}
@@ -222,8 +223,7 @@ func (s Shell) whoami(command *cobra.Command) error {
 	// must not invent two sentences for the one fact.
 	_, err = fmt.Fprintln(s.Streams.Out,
 		output.Hint(s.Streams.Out, "No context is configured, so commands run against nothing.\n\n"+
-			"Run wso2 login to create an account and a context, "+
-			"or wso2 context create <name> --account <account> if you already have one."))
+			contextSetupHint))
 	return err
 }
 
@@ -292,7 +292,7 @@ type whoamiReport struct {
 	// of empty strings.
 	Configured   bool   `json:"configured"`
 	Context      string `json:"context"`
-	Identity     string `json:"account"`
+	Issuer       string `json:"issuer"`
 	Organization string `json:"organization"`
 	// Subject is unknownSubject for a pre-R6 session, and empty when there is
 	// no session at all — see whoamiSessionNone.
@@ -322,7 +322,7 @@ type whoamiReport struct {
 	// expired case; TestWhoamiReportsAPresentSessionWithUndisclosedExpiry
 	// pins the one case where it must be empty.
 	Recovery string `json:"recovery,omitempty"`
-	// Products is every record the selected account declares — each product
+	// Products is every record the selected context declares — each product
 	// and, under its gateway key, its gateway record — with what
 	// Identity.Access says about how it is reached and what the secure store
 	// says about its session. It is nil for an unconfigured machine or an
@@ -346,7 +346,7 @@ type whoamiProduct struct {
 func (w whoamiReport) fields() [][2]string {
 	pairs := [][2]string{
 		{"Context", w.Context},
-		{"Account", w.Identity},
+		{"Issuer", w.Issuer},
 	}
 	// Organization is left out when the context names none, for the reason
 	// the Name row is below: a blank row reads as a value that failed to load.
@@ -354,13 +354,13 @@ func (w whoamiReport) fields() [][2]string {
 		pairs = append(pairs, [2]string{"Organization", w.Organization})
 	}
 	// The Name row is left out, rather than shown blank, when the session
-	// carries no name: the Subject row below already identifies who signed
+	// carries no name: the User ID row below already identifies who signed
 	// in, and a blank Name would read as a value the shell failed to load.
 	if w.Name != "" {
 		pairs = append(pairs, [2]string{"Name", w.Name})
 	}
 	pairs = append(pairs, [][2]string{
-		{"Subject", w.Subject},
+		{"User ID", w.Subject},
 		{"Session", w.Session},
 		{"Session expiry", w.SessionExpiry},
 		{"Products", w.productsField()},

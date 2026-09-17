@@ -52,7 +52,6 @@ func broker(t *testing.T) *auth.Broker {
 		Selection: contexts.Selection{
 			Context: contexts.Context{
 				Name:         "reference-local",
-				Account:      "reference-local",
 				Organization: organization,
 			},
 			Identity: contexts.Account{
@@ -292,7 +291,6 @@ func productionBroker(t *testing.T, kind string) *auth.Broker {
 		Selection: contexts.Selection{
 			Context: contexts.Context{
 				Name:         "reference-cloud",
-				Account:      "reference-cloud",
 				Organization: homeTenant,
 			},
 			Identity: contexts.Account{
@@ -464,11 +462,11 @@ func TestAProductNamespaceTheIdentityDoesNotConfigureIsRefused(t *testing.T) {
 	if !strings.Contains(refusal.Problem.Message, "api") {
 		t.Errorf("the refusal %q does not name the product namespace", refusal.Problem.Message)
 	}
-	// The command that records a product registration exists, so the recovery
-	// names it — with this identity and namespace filled in — rather than
-	// sending the user to edit a file by hand.
-	if !strings.Contains(refusal.Problem.Recovery, "wso2 account add-product reference-cloud api") {
-		t.Errorf("the recovery %q does not name wso2 account add-product for this identity and namespace",
+	// The command that records a product exists, so the recovery names it —
+	// with this context and namespace filled in — rather than sending the
+	// user to edit a file by hand.
+	if !strings.Contains(refusal.Problem.Recovery, "wso2 context product add api --url <url> --context reference-cloud") {
+		t.Errorf("the recovery %q does not name wso2 context product add for this context and namespace",
 			refusal.Problem.Recovery)
 	}
 }

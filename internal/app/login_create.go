@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"strings"
 
 	"github.com/wso2/wso2-cli/internal/auth/oauthflow"
 	"github.com/wso2/wso2-cli/internal/contexts"
@@ -94,37 +93,35 @@ func (s Shell) loginCreating(flags loginFlags) error {
 	// document, so none of it is credential material: the client identifier is
 	// public by definition, and the record is written before the write it
 	// describes so that a failure has a line above it saying what was tried.
-	s.log.Debug("writing the account and context a login created",
-		"identity", name, "context", name,
+	s.log.Debug("writing the context a login created",
+		"context", name,
 		"issuer", flags.issuer, "client_id", clientID,
 		"document", contexts.Path(root))
 
-	written := loginWrite{Identity: name, Context: name, Assigned: assigned}
+	written := loginWrite{Context: name, Assigned: assigned}
 	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
 		planned, err := planLogin(document, name, flags.issuer, clientID)
 		if err != nil {
 			return document, err
 		}
+		// The session was stored under the reference planned before the
+		// login. A context another invocation wrote since may have taken it,
+		// and writing this one beside it would have two contexts claim one
+		// session; that is refused rather than papered over.
+		if planned.Context.CredentialRef != selected.Context.CredentialRef {
+			return document, problem.New(problem.CategoryUsage, "contexts.document_busy",
+				"the context document changed during the login").
+				WithRecovery("Run the same wso2 login again.")
+		}
 		// A fresh machine yields the zero document, whose schema version is
 		// zero rather than the one the shell writes.
 		document.SchemaVersion = contexts.SchemaVersion
-		if !declaresIdentity(document, name) {
-			// The identity planLogin built is written as planned, so what the
-			// report describes and what the document holds cannot disagree.
-			// Its credential reference is the account's own name, which is
-			// legal by construction: a reference and a name are held to the
-			// same pattern, so a name the document accepts is a reference it
-			// accepts. It carries no products, because this login discovers
-			// none, and the report names the command that records them.
-			document.Accounts = append(document.Accounts, planned.Identity)
-			written.CreatedIdentity = true
-		}
 		if !declaresContext(document, name) {
-			// The context planLogin resolved, for the same reason the identity
-			// is written as planned: it carries the organization the identity's
-			// home tenant names, and what the report describes and what the
-			// document holds cannot disagree.
-			document.Contexts = append(document.Contexts, planned.Context)
+			// The context planLogin built is written as planned, so what the
+			// report describes and what the document holds cannot disagree.
+			// It carries no products, because this login discovers none, and
+			// the report names the command that records them.
+			document = document.Put(planned.Context)
 			written.CreatedContext = true
 		}
 		if document.DefaultContext == "" {
@@ -147,37 +144,31 @@ func (s Shell) loginCreating(flags loginFlags) error {
 // for naming no resource server, and passes every other failure through.
 //
 // Such an issuer — ThunderID — binds each login to one resource server, and a
-// login that creates its account records no product whose resource it could
-// name, so no retry of this command can succeed. What can is the connect of
-// the login provider's own product, which records that product and creates
-// the account and context with it; the installed modules say whose.
+// login that creates its context records no product whose resource it could
+// name, so no retry of this command can succeed. What can is a context that
+// logs in through the login provider's own product, which records that product
+// with it; the installed modules say whose.
 func (s Shell) explainUnboundLogin(err error, identity contexts.Account, issuer, name string) error {
 	var rejected oauthflow.TargetRejected
 	if !errors.As(err, &rejected) || rejected.Resource != "" || len(identity.Products) > 0 {
 		return err
 	}
-	create := fmt.Sprintf("wso2 account create %s --issuer %s --client-id <id> --product <namespace> "+
-		"--endpoint <url> --audience <resource-id> --scope <scope>", name, issuer)
+	provider := "<product>"
 	if providers := s.loginProviderNamespaces(); len(providers) > 0 {
-		connects := make([]string, 0, len(providers))
-		for _, provider := range providers {
-			connects = append(connects, fmt.Sprintf("wso2 %s connect %s --account %s", provider, issuer, name))
-		}
-		create = strings.Join(connects, " or ")
+		provider = providers[0]
 	}
+	create := fmt.Sprintf("wso2 context create %s --login-product %s --url %s --use", name, provider, issuer)
 	return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
 		"the identity provider binds every login to a resource server (invalid_target), and a login "+
-			"that creates an account records no product whose resource server it could name").
-		WithRecovery(fmt.Sprintf("Create the account with the login provider's own product instead: %s, "+
-			"then run wso2 login --context %s.", create, name))
+			"that creates a context records no product whose resource server it could name").
+		WithRecovery(fmt.Sprintf("Create the context through the login provider's own product instead: %s, "+
+			"then run wso2 login.", create))
 }
 
 // loginWrite is what a creating login changed in the context document.
 type loginWrite struct {
-	Identity        string
-	Context         string
-	CreatedIdentity bool
-	CreatedContext  bool
+	Context        string
+	CreatedContext bool
 	// Selected reports that this context became the one commands run against,
 	// which happens for the first context on a machine and no other.
 	Selected bool
@@ -189,26 +180,23 @@ type loginWrite struct {
 // loginIdentityName is the name a creating login writes, and whether the
 // shell assigned it rather than the user naming it.
 //
-// --context names it when given. Without it, an account that already
-// authenticates against this issuer with this client is the one the login is
-// about, so re-running a login out of shell history refreshes that account
-// rather than growing another beside it. Only when none does is a new name
-// needed: the next free account-N, or what the user answers when something
-// may ask (#175). Either way one name serves the identity and the context:
-// they are created together by one command, and two names for one thing would
-// be two things for the user to remember about a target they named once.
+// --context names it when given. Without it, a context that already logs in
+// against this issuer with this client is the one the login is about, so
+// re-running a login out of shell history refreshes that context rather than
+// growing another beside it. Only when none does is a new name needed: the
+// next free context-N, or what the user answers when something may ask.
 func (s Shell) loginIdentityName(document contexts.Document, flags loginFlags, clientID string) (
 	string, bool, error) {
 	if flags.contextName != "" {
 		return flags.contextName, false, nil
 	}
-	for _, declared := range document.Accounts {
-		if declared.Auth.Issuer == flags.issuer && declared.Auth.ClientID == clientID &&
-			declared.Auth.Kind == contexts.KindOAuthBrowser {
+	for _, declared := range document.Contexts {
+		if declared.Login.Issuer == flags.issuer && declared.Login.ClientID == clientID &&
+			declared.Login.Kind == contexts.KindOAuthBrowser {
 			return declared.Name, false, nil
 		}
 	}
-	name, chosen, err := s.askAccountName(document, flags.noInput)
+	name, chosen, err := s.askContextName(document, flags.noInput)
 	return name, !chosen, err
 }
 
@@ -268,86 +256,58 @@ func refuseNonIssuerURL(issuer string) error {
 // planLogin resolves what this login authenticates as, and refuses a name that
 // is already something else.
 //
-// An identity whose issuer and client identifier both match is reused, because
+// A context whose issuer and client identifier both match is reused, because
 // re-running the same login is the ordinary case: a session expired and someone
-// repeated the command out of shell history. An identity that differs in either
-// is a different identity wearing a taken name, and is refused rather than
+// repeated the command out of shell history. A context that differs in either
+// is a different context wearing a taken name, and is refused rather than
 // replaced — the issuer and client it names are not recorded anywhere else, so
 // overwriting them is the one thing the user could not undo (#112 D7).
 func planLogin(document contexts.Document, name, issuer, clientID string) (contexts.Selection, error) {
-	identity := contexts.Account{
+	// The tenant an Asgardeo issuer carries in its path is the home tenant of
+	// the session this login establishes, so it is recorded rather than
+	// discarded, and the context runs within it: the broker refuses a context
+	// that names any other organization. Empty for every other issuer, which is
+	// the derivation failing closed (contexts.TenantForIssuer).
+	tenant := contexts.TenantForIssuer(issuer)
+	context := contexts.Context{
 		Name: name,
 		// Derived from the issuer, not asserted: an issuer on a WSO2-operated
-		// cloud host records "cloud" and anything else records "onprem", so the
-		// document says what kind of deployment was actually logged in to.
-		// contexts.IdentityTypeForIssuer explains why the member is descriptive.
-		Type: contexts.IdentityTypeForIssuer(issuer),
-		Auth: contexts.AccountAuth{
-			Kind:          contexts.KindOAuthBrowser,
-			Issuer:        issuer,
-			ClientID:      clientID,
-			CredentialRef: name,
-			// The tenant an Asgardeo issuer carries in its path is the home
-			// tenant of the session this login establishes, so it is recorded
-			// rather than discarded. Empty for every other issuer, which is the
-			// derivation failing closed (contexts.TenantForIssuer).
-			Tenant: contexts.TenantForIssuer(issuer),
+		// cloud host records "cloud" and anything else records "onprem".
+		Type:          contexts.IdentityTypeForIssuer(issuer),
+		CredentialRef: document.NewCredentialRef(name),
+		Login: contexts.Login{
+			Kind:     contexts.KindOAuthBrowser,
+			Issuer:   issuer,
+			ClientID: clientID,
+			Tenant:   tenant,
 		},
+		Organization: tenant,
 	}
-	for _, declared := range document.Accounts {
-		if declared.Name != name {
-			continue
+	if declared, found := document.Find(name); found {
+		if declared.Login.Issuer != issuer {
+			return contexts.Selection{}, identityDiffers(name, "issuer", declared.Login.Issuer, issuer)
 		}
-		if declared.Auth.Issuer != issuer {
-			return contexts.Selection{}, identityDiffers(name, "issuer", declared.Auth.Issuer, issuer)
+		if declared.Login.ClientID != clientID {
+			return contexts.Selection{}, identityDiffers(name, "client", declared.Login.ClientID, clientID)
 		}
-		if declared.Auth.ClientID != clientID {
-			return contexts.Selection{}, identityDiffers(name, "client", declared.Auth.ClientID, clientID)
-		}
-		// The declared identity rather than the one built above: it carries the
-		// products whose permissions the login has to ask for, and its kind is
-		// what decides whether this login has a step at all.
-		identity = declared
+		// The declared context rather than the one built above: it carries the
+		// products whose permissions the login has to ask for, and what it
+		// says stands — a login must not undo an organization wso2 org use
+		// recorded.
+		context = declared
 	}
-	// The context runs within the identity's home tenant, which is the one
-	// organization its session can already act in — the broker refuses a
-	// context that names any other (internal/auth/source.go's checkHomeTenant).
-	// Taken from the identity after the loop above, so a reused identity that
-	// recorded no tenant yields a context naming no organization, exactly as
-	// its earlier logins did.
-	selected := contexts.Context{Name: name, Account: name,
-		Organization: identity.Auth.Tenant}
-	for _, declared := range document.Contexts {
-		if declared.Name != name {
-			continue
-		}
-		if declared.Account != name {
-			return contexts.Selection{}, contextExists(name)
-		}
-		// The declared context, because what it says stands: a login refreshes
-		// a session, and must not undo an organization wso2 org use recorded.
-		selected = declared
-	}
-	return contexts.Selection{
-		Context:  selected,
-		Identity: identity,
-	}, nil
+	return contexts.Selection{Context: context, Identity: context.Account()}, nil
 }
 
-// identityDiffers refuses a login that would change an identity rather than use
-// it.
-//
-// It has its own code rather than sharing contexts.context_exists: the thing
-// already there is an identity, the field that disagrees is named in the
-// message, and the way out is a different --context name rather than a
-// different argument. The message names both values because a user who typed
-// one of them is looking at half the answer.
+// identityDiffers refuses a login that would change a context rather than use
+// it. The message names both values because a user who typed one of them is
+// looking at half the answer.
 func identityDiffers(name, field, declared, asked string) problem.Problem {
-	return problem.New(problem.CategoryUsage, "contexts.identity_exists",
-		fmt.Sprintf("the account %q already authenticates against the %s %q, not %q",
+	return problem.New(problem.CategoryUsage, "contexts.context_exists",
+		fmt.Sprintf("the context %q already logs in against the %s %q, not %q",
 			name, field, declared, asked)).
 		WithRecovery("Log in under another name with --context <name>. " +
-			"Logging in never replaces an account that is already configured.")
+			"Logging in never replaces a context that is already configured.")
 }
 
 // resolveClientID answers which OAuth application this login presents itself
@@ -398,31 +358,18 @@ func missingClientID(because string) problem.Problem {
 // reportLoginWrite says what the login assigned, and what is still missing.
 //
 // A name the user is not told is a name they have to go and read out of a JSON
-// file, and an identity that reaches no product is a first run that stops here
+// file, and a context that reaches no product is a first run that stops here
 // unless the command that fixes it is named where the user is standing (#118
 // acceptance criterion 9).
 func (s Shell) reportLoginWrite(written loginWrite, identity contexts.Account) error {
-	switch {
-	case written.CreatedIdentity && written.CreatedContext:
-		if _, err := fmt.Fprintf(s.Streams.Out, "\nCreated account %q and context %q.\n",
-			written.Identity, written.Context); err != nil {
+	if written.CreatedContext {
+		if _, err := fmt.Fprintf(s.Streams.Out, "\nCreated context %q.\n", written.Context); err != nil {
 			return err
 		}
 		if written.Assigned {
-			if _, err := fmt.Fprintln(s.Streams.Out, assignedNameNote("--context", written.Identity)); err != nil {
+			if _, err := fmt.Fprintln(s.Streams.Out, assignedNameNote("--context", written.Context)); err != nil {
 				return err
 			}
-		}
-	// Reached only if an identity of this name exists and a context of it does
-	// not. The document cannot be in that state today — validation refuses a
-	// context naming an undeclared identity, and this command creates the two
-	// together — but a hand-authored document that declares an identity and no
-	// context for it is legal, and this is what that user is told.
-	case written.CreatedContext:
-		if _, err := fmt.Fprintf(s.Streams.Out,
-			"\nCreated context %q for the existing account %q.\n",
-			written.Context, written.Identity); err != nil {
-			return err
 		}
 	}
 	if written.Selected {
@@ -434,26 +381,18 @@ func (s Shell) reportLoginWrite(written loginWrite, identity contexts.Account) e
 	if len(identity.Products) > 0 {
 		return nil
 	}
-	// The justification is picked by the account's own deployment kind,
+	// The justification is picked by the context's own deployment kind,
 	// because it is only true of one of them: a self-hosted deployment
-	// publishes no catalogue of what it serves, so "not discoverable" is its
-	// honest explanation, while a user who just authenticated against WSO2's
-	// cloud must not be told their deployment is self-hosted. The instruction
-	// is the same either way — this login discovers no products for anyone.
+	// publishes no catalogue of what it serves, while a user who just
+	// authenticated against WSO2's cloud must not be told their deployment is
+	// self-hosted. The instruction is the same either way.
+	why := "Product URLs are not discovered automatically"
 	if identity.Type == contexts.TypeOnprem {
-		_, err := fmt.Fprintf(s.Streams.Out,
-			"\nNo products are configured for this account. A self-hosted deployment is not\n"+
-				"discoverable, so each product's endpoint has to be recorded:\n\n"+
-				"  wso2 account add-product %s <namespace> \\\n"+
-				"      --endpoint <url> --audience <resource-id> --scopes <list>\n",
-			written.Identity)
-		return err
+		why = "A self-hosted deployment is not discoverable"
 	}
 	_, err := fmt.Fprintf(s.Streams.Out,
-		"\nNo products are configured for this account yet. Product endpoints are not\n"+
-			"discovered automatically, so each product's endpoint has to be recorded:\n\n"+
-			"  wso2 account add-product %s <namespace> \\\n"+
-			"      --endpoint <url> --audience <resource-id> --scopes <list>\n",
-		written.Identity)
+		"\nNo products are configured for this context. %s, so record each product's URL:\n\n"+
+			"  wso2 context product add <product> --url <url> --context %s\n",
+		why, written.Context)
 	return err
 }

@@ -168,8 +168,7 @@ The broker:
 - identifies the already integrity-checked module through the launch
   handshake;
 - checks the module's declared audience and scope capabilities;
-- resolves the selected context, its account, and the relevant product
-  session;
+- resolves the selected context and the relevant product session;
 - refreshes credentials without exposing refresh tokens;
 - returns short-lived or invocation-scoped access material and restricts
   audience and scope when the deployment supports them;
@@ -180,18 +179,19 @@ The broker:
 
 The IPC endpoint must not be a world-discoverable local port.
 
-#### Account
+#### A context's login
 
-An **account** is one reusable login session, together with every product for
-which the broker can derive valid access from that session without another
-login or an independently supplied credential.
+A **context** holds one reusable login, together with every product for which
+the broker can derive valid access from that login without another login or an
+independently supplied credential, and the sessions obtained for them. Each
+context owns its sessions; no two contexts share a credential reference
+([ADR 0016](adr/0016-a-context-owns-its-login-and-sessions.md)).
 
-An account is not an issuer. Two products configured against the same issuer
-URL do not share an account unless that session can actually produce access
+A login is not an issuer. Two products configured against the same issuer
+URL do not share a login unless that session can actually produce access
 each of them accepts. A product that validates only its own resident issuer, or
 that requires its own separately authenticated OAuth client, personal access
-token, or password, belongs to a different account and therefore to a
-different context.
+token, or password, belongs to a different context.
 
 Whether a session can derive access for a product is a property of the running
 deployment, not of a configuration file. The configuration records the
@@ -200,7 +200,7 @@ authorization failure when a command needs access, never as a malformed
 document.
 
 The broker derives product-specific access bound to the product's
-audience/resource and to scopes. One account therefore does not mean one
+audience/resource and to scopes. One login therefore does not mean one
 access token: a separate short-lived token may be derived for each product
 invocation. How narrowly that derivation can be bound is a per-backend
 capability, so the broker resolves a downscoping strategy per deployment and
@@ -224,12 +224,12 @@ that rather than presenting it as equivalent.
 >
 > The device grant is reached through the `oauth-device` **kind**, not yet
 > through a login-time flag: `wso2 login --device-code` is not in this release.
-> So the mode-not-kind rule below states the target, and today an account that
+> So the mode-not-kind rule below states the target, and today a context that
 > can only be established by device says so in its kind.
 
 Browser Authorization Code with PKCE and the Device Authorization Grant are two
-**login modes for the same interactive OIDC account**, not two stored
-authentication methods. An account records that it authenticates interactively
+**login modes for the same interactive OIDC context**, not two stored
+authentication methods. A context records that it authenticates interactively
 against an issuer; the mode is chosen at login time, by the machine the user is
 sitting at.
 
@@ -252,15 +252,16 @@ authorization is still interactive and must not be used by CI.
 
 #### On-premises login
 
-An on-premises context explicitly configures its account: the products it
-reaches, their endpoints, and the authentication method. The shell uses only
+An on-premises context explicitly configures its login: the products it
+reaches, their URLs, and the authentication method. A platform team describes
+these once in a shareable input file, which `wso2 context apply` resolves
+against the installed products' descriptors into complete local records. The shell uses only
 mechanisms that deployment supports.
 
 The CLI must not infer that an on-premises endpoint supports WSO2 Cloud SSO,
 WSO2 Identity Server, shared authentication, or device authorization. Products
-that one login cannot reach belong to separate accounts, and therefore to
-separate contexts. A single account never mixes authentication methods across
-its products.
+that one login cannot reach belong to separate contexts. A single context never
+mixes authentication methods across its products.
 
 #### CI authentication
 
@@ -282,7 +283,7 @@ With client credentials the shell holds the client secret, performs the token
 exchange itself, and passes the module only the resulting short-lived access
 token; the secret never leaves the shell. A personal access token that a
 product accepts directly as bearer material cannot be narrowed or derived from,
-so it is compatibility-adapter territory under the account rules above rather
+so it is compatibility-adapter territory under the login rules above rather
 than an equivalent CI method.
 
 The CI platform injects the secret from its secret store. The shell reads it
@@ -294,36 +295,43 @@ configuration, or module environment.
 
 The configuration store contains non-secret data:
 
-- named accounts, as defined in §4.6;
-- named cloud and on-premises contexts;
-- default context, and any per-namespace context bindings;
+- named cloud and on-premises contexts, each with its login and products as
+  defined in §4.6;
+- the selected context;
 - module pins and update policy;
 - mirror/offline policy;
 - output and interaction defaults.
 
-#### Accounts and contexts
+#### Contexts
 
-**Each context references exactly one account. One account may back several
-contexts.** Several projects or organizations reached through the same login
-are several contexts over one account, not several logins.
+**Each context owns its login, its products and its sessions.** Several
+organizations reached through the same login are one context whose
+organization `wso2 org use` switches; two targets that must be selectable by
+name are two contexts, each with its own sessions.
 
-Configuration divides along that boundary:
+A context carries:
 
-- an **account** carries the authentication kind, the issuer, the client
-  identifier, and an opaque OS-secure-store reference or CI variable name;
-- a **product entry** on an account carries the endpoint plus the
-  audience/resource metadata the broker needs to target access;
-- a **context** carries targeting only, the organization and project, plus the
-  name of its account.
+- a **login block**: the authentication kind, the issuer, the client
+  identifier, an optional home tenant and provider, a CI variable name where
+  the kind needs one, and the product the login runs for;
+- an opaque OS-secure-store **credential reference** its sessions live under,
+  unique across the document and stable across renames;
+- **product entries**, each with the URL plus the audience/resource, scopes
+  and grant metadata the broker needs to target access;
+- targeting: the organization and project.
+
+The document on disk is complete: values a product descriptor supplies are
+written into the record when it is created or applied, and nothing is derived
+when a command runs, so a product update changes no authentication behaviour
+until the context is applied again.
 
 A context therefore never mixes authentication methods across products. Where
-an account's authentication cannot reach a product, that product belongs to
-another account and another context.
+a context's login cannot reach a product, that product belongs to another
+context.
 
 Where authentication itself needs a tenant, meaning a home organization at the
-issuer, that belongs to the account's authentication configuration and is named
-distinctly from the context's target organization, which the broker may reach
-through an organization-switch exchange on the same session.
+issuer, that belongs to the login block and is named distinctly from the
+context's target organization.
 
 The legal authentication kinds are `oauth-browser`, `oauth-device`,
 `client-credentials`, and `pat`. Availability is per deployment, not universal:
@@ -339,14 +347,10 @@ A command resolves its context in this order:
 
 1. the `--context` flag;
 2. the `WSO2_CONTEXT` environment variable;
-3. a context bound to the invoked product namespace, if one is recorded;
-4. the configured default context;
-5. none, which produces a typed refusal when a command requires access.
+3. the selected (default) context;
+4. none, which produces a typed refusal when a command requires access.
 
-Step 3 is a recorded decision, not an inference: a per-namespace binding exists
-only because a command wrote it, and it is reported by context listings like
-any other selection. Without it, a deployment whose products require separate
-logins would force `--context` onto nearly every invocation.
+Per-namespace context bindings remain a target, not shipped behaviour.
 
 Selecting a context never authenticates. `wso2 context use` writes the
 selection and performs no network call. A selected but unauthenticated context
@@ -359,9 +363,9 @@ assigns and is reported; it never silently replaces an existing context.
 #### Credentials
 
 The store never contains access tokens, refresh tokens, personal access tokens,
-client secrets, passwords, or private keys. Importing or exporting an account
-or context therefore moves target and authentication configuration but never a
-credential.
+client secrets, passwords, or private keys. Applying or exporting a context
+therefore moves target and authentication configuration but never a
+credential, and an input file that names a credential reference is refused.
 
 Interactive long-lived credentials are stored in the OS keychain or another
 approved secure store and referenced by opaque identifiers. CI credentials
@@ -372,19 +376,19 @@ remain owned by the CI secret store and exist in the CLI only in job memory.
 The architecture proof holds the invariant that no shell command can write a
 context, so no shell command can grant itself access. A production
 `wso2 context create` ends that invariant, and replaces it with one that
-survives a writable store: **writing a context or an account grants nothing.**
+survives a writable store: **writing a context grants nothing.**
 Why the invariant is stated this way, rather than as a rule about which
 command is allowed to write, is recorded in
-[ADR 0012](adr/0012-writing-a-context-or-account-grants-nothing.md).
+[ADR 0012](adr/0012-writing-a-context-or-identity-grants-nothing.md).
 
 It holds through five properties, each of which is testable:
 
 1. the types have nowhere to put a credential, and a value supplied where a
    reference or variable name belongs is rejected rather than stored;
-2. a created account and context, with no login, yield an
+2. a created or applied context, with no login, yields an
    authentication-class refusal on first use;
-3. an imported account and context grant the importer nothing they did not
-   already hold in their own OS secure store;
+3. an applied context grants the importer nothing they did not already hold
+   in their own OS secure store;
 4. a secure-store reference is a lookup key, not a capability: naming an entry
    the invoking OS user cannot read fails as an authentication problem;
 5. export is credential-free by construction, because the document has no
@@ -1157,14 +1161,14 @@ Every module is tested against the same black-box suite:
 - Device Authorization as the explicit headless login mode, and its refusal
   with a stable error where the backend does not advertise the grant;
 - rejection of browser and device authorization in CI/non-interactive mode;
-- on-premises accounts without assuming WSO2 Cloud SSO or Identity Server;
-- one account backing several contexts: a single login serving every context
-  that references it, with no further authentication on switch;
+- on-premises contexts without assuming WSO2 Cloud SSO or Identity Server;
+- one context reaching several products: a single login serving every product
+  it records, with no further authentication per product;
 - per-product access derived from one session and bound to each product's
   audience and scopes, rather than one token reused across products;
 - refusal, rather than a broader grant, where a requested narrowing is
   unavailable;
-- a product the selected context's account cannot reach failing with guidance
+- a product the selected context cannot reach failing with guidance
   that names the contexts that can;
 - recorded namespace bindings selecting a context, and no selection occurring
   without an explicit flag, variable, binding, or default;
@@ -1176,7 +1180,7 @@ Every module is tested against the same black-box suite:
 - OS secure-store integration for interactive credentials;
 - CI secret-variable and stdin inputs with no filesystem or secure-store
   persistence;
-- account and context import/export proving that no credential values are
+- context apply/export proving that no credential values are
   present.
 
 ### End-to-end tests

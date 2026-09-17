@@ -113,29 +113,22 @@ func documentedCredentialRefs(doc string) []string {
 	return refs
 }
 
-// refOnlyDocument is a minimal, otherwise-valid schema version 2 document
-// declaring one pat identity. The pat kind needs nothing but a credentialRef,
-// which isolates the one property under test — whether the value matches
-// refPattern — from fields (issuer, clientId) an oauth-browser identity would
-// also require and that most of the documented examples leave for a
-// separate, not-yet-implemented default (docs/examples/login-walkthroughs.md
-// gap 2).
+// refOnlyDocument is a minimal, otherwise-valid current document declaring
+// one pat context. The pat kind needs nothing but a credentialRef, which
+// isolates the one property under test — whether the value matches
+// refPattern — from fields (issuer, clientId) an oauth-browser context would
+// also require and that most of the documented examples leave out.
 func refOnlyDocument(credentialRef string) string {
 	return fmt.Sprintf(`{
-  "schemaVersion": 2,
+  "schemaVersion": 4,
   "defaultContext": "example",
-  "identities": [
+  "contexts": [
     {
       "name": "example",
       "type": "onprem",
-      "auth": {
-        "kind": "pat",
-        "credentialRef": %q
-      }
+      "credentialRef": %q,
+      "login": {"kind": "pat"}
     }
-  ],
-  "contexts": [
-    {"name": "example", "identity": "example"}
   ]
 }`, credentialRef)
 }

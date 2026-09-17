@@ -104,10 +104,16 @@ func moduleOptions() module.Options {
 // The tree is an ordinary Cobra tree: commands, flags, and help are declared
 // here exactly as they would be in a standalone CLI. What differs is the
 // ending, because a handler returns fields instead of printing them.
+//
+// No command here sets cobra.Command.Args: cobratree.Tree.invoke only calls
+// command.ParseFlags, never command.ValidateArgs, so a Cobra positional-arg
+// validator would never run and would be dead configuration that looks live.
+// Positional-argument counts are enforced in each handler instead, with the
+// shared exactlyOneArgument helper in access.go.
 func commands() *cobratree.Tree {
 	root := &cobra.Command{
 		Use:   Namespace,
-		Short: "Api commands for the WSO2 CLI.",
+		Short: "Work with WSO2 API Platform: projects, APIs, and gateways.",
 	}
 	statusCommand := &cobra.Command{
 		Use:   "status",
@@ -115,7 +121,7 @@ func commands() *cobratree.Tree {
 	}
 	projectsCommand := &cobra.Command{
 		Use:   "projects",
-		Short: "Read the projects this organization holds.",
+		Short: "Read and create the projects this organization holds.",
 	}
 	projectsListCommand := &cobra.Command{
 		Use:   "list",
@@ -123,9 +129,18 @@ func commands() *cobratree.Tree {
 	}
 	projectsCommand.AddCommand(projectsListCommand)
 
+	projectsCreateCommand := &cobra.Command{
+		Use:   "create <name> [--description <text>]",
+		Short: "Create a project.",
+	}
+	projectsCreateFlagsValue := &projectsCreateFlags{}
+	projectsCreateCommand.Flags().StringVar(&projectsCreateFlagsValue.description, "description", "",
+		"A description of the project.")
+	projectsCommand.AddCommand(projectsCreateCommand)
+
 	apisCommand := &cobra.Command{
 		Use:   "apis",
-		Short: "Read the APIs a project designs.",
+		Short: "Read and design the APIs a project holds.",
 	}
 	apisListCommand := &cobra.Command{
 		Use:   "list --project <id>",
@@ -136,10 +151,59 @@ func commands() *cobratree.Tree {
 		"The project whose APIs to list; wso2 api projects list shows the ids.")
 	apisCommand.AddCommand(apisListCommand)
 
+	apisCreateCommand := &cobra.Command{
+		Use:   "create -f <file> --project <id>",
+		Short: "Create an API in a project from a gateway RestApi file.",
+	}
+	createFlags := &apisCreateFlags{}
+	apisCreateCommand.Flags().StringVarP(&createFlags.file, "file", "f", "",
+		"The gateway RestApi document to create the API from.")
+	apisCreateCommand.Flags().StringVar(&createFlags.project, "project", "",
+		"The project to create the API in; wso2 api projects list shows the ids.")
+	apisCommand.AddCommand(apisCreateCommand)
+
+	apisDeployCommand := &cobra.Command{
+		Use:   "deploy <api-id> --gateway-id <gateway-id>",
+		Short: "Deploy an API to a registered gateway.",
+	}
+	deployFlags := &apisDeployFlags{}
+	// Named --gateway-id, not --gateway: "wso2 context product add api
+	// --gateway <url>" already gives --gateway one meaning, the gateway's
+	// URL, and ADR 0015 keeps one word to one meaning across the surface.
+	// This flag names a gateway's handle instead.
+	apisDeployCommand.Flags().StringVar(&deployFlags.gatewayID, "gateway-id", "",
+		"The handle of the gateway to deploy the API to.")
+	apisCommand.AddCommand(apisDeployCommand)
+
 	gatewayCommand := &cobra.Command{
 		Use:   "gateway",
-		Short: "Read what a gateway is actually serving.",
+		Short: "Register a gateway and read what it is actually serving.",
 	}
+	gatewayRegisterCommand := &cobra.Command{
+		Use: "register <handle> --display-name <name> --endpoint <url> " +
+			"[--endpoint <url> ...] [--type regular|ai|event]",
+		Short: "Register a gateway with the control plane and mint its registration token.",
+	}
+	registerFlags := &gatewayRegisterFlags{}
+	gatewayRegisterCommand.Flags().StringVar(&registerFlags.displayName, "display-name", "",
+		"The gateway's human-readable name.")
+	gatewayRegisterCommand.Flags().StringArrayVar(&registerFlags.endpoints, "endpoint", nil,
+		"A network endpoint the gateway exposes; repeat for more than one.")
+	gatewayRegisterCommand.Flags().StringVar(&registerFlags.gwType, "type", "",
+		"The gateway's functionality type: regular, ai, or event. Defaults to regular.")
+	gatewayCommand.AddCommand(gatewayRegisterCommand)
+
+	gatewayTokenCommand := &cobra.Command{
+		Use:   "token",
+		Short: "Mint a gateway's registration token.",
+	}
+	gatewayTokenCreateCommand := &cobra.Command{
+		Use:   "create <gateway-id>",
+		Short: "Mint a new registration token for a gateway that is already registered.",
+	}
+	gatewayTokenCommand.AddCommand(gatewayTokenCreateCommand)
+	gatewayCommand.AddCommand(gatewayTokenCommand)
+
 	gatewayApisCommand := &cobra.Command{
 		Use:   "apis",
 		Short: "Read the APIs deployed on the gateway.",
@@ -156,7 +220,12 @@ func commands() *cobratree.Tree {
 	return cobratree.New(root).
 		Handle(statusCommand, status).
 		Handle(projectsListCommand, projectsList).
+		Handle(projectsCreateCommand, projectsCreate(projectsCreateCommand, projectsCreateFlagsValue)).
 		Handle(apisListCommand, apisList(apisListCommand, &project)).
+		Handle(apisCreateCommand, apisCreate(apisCreateCommand, createFlags)).
+		Handle(apisDeployCommand, apisDeploy(apisDeployCommand, deployFlags)).
+		Handle(gatewayRegisterCommand, gatewayRegister(gatewayRegisterCommand, registerFlags)).
+		Handle(gatewayTokenCreateCommand, gatewayTokenCreate(gatewayTokenCreateCommand)).
 		Handle(gatewayApisListCommand, gatewayApisList)
 }
 
@@ -167,7 +236,7 @@ func commands() *cobratree.Tree {
 // your product from here: the invocation carries the selected context, and
 // request.Access.Acquire is how a handler obtains short-lived access to it.
 func status(ctx context.Context, request module.Request) (result.Result, error) {
-	next := "Record where this product runs on the account you log in with: wso2 api connect <url>."
+	next := "Record where this product runs on the selected context: wso2 context product add api --url <url>."
 	if request.Context.Endpoint != "" {
 		next = "Run wso2 api --help to see what this module can do at " + request.Context.Endpoint + "."
 	}

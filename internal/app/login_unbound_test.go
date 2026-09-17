@@ -60,7 +60,7 @@ func TestACreatingLoginAnIssuerRefusesForNoResourceNamesTheProvidersConnect(t *t
 	}
 	for _, expected := range []string{
 		"auth.product_not_configured", "invalid_target",
-		"wso2 iam connect " + issuer.URL + " --account local", "wso2 login --context local",
+		"wso2 context create local --login-product iam --url " + issuer.URL + " --use", "wso2 login",
 	} {
 		if !strings.Contains(errOut.String(), expected) {
 			t.Errorf("stderr is missing %q:\n%s", expected, errOut)
@@ -73,7 +73,7 @@ func TestACreatingLoginAnIssuerRefusesForNoResourceNamesTheProvidersConnect(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(document.Accounts) != 0 {
-		t.Errorf("a refused login wrote an account: %+v", document.Accounts)
+	if len(document.Contexts) != 0 {
+		t.Errorf("a refused login wrote a context: %+v", document.Contexts)
 	}
 }

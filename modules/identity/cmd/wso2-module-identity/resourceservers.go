@@ -70,12 +70,12 @@ func resourceServersList(ctx context.Context, request module.Request) (result.Re
 		WithColumn("id", "ID")
 	for _, rs := range listing.ResourceServers {
 		// The identifier is second, because it is the value an operator copies
-		// into an account's product record as the audience.
+		// into a context's product record as the audience.
 		report = report.WithRow(rs.Name, rs.Identifier, rs.ID)
 	}
 	return report.With(NextField, "Next",
-		"Record one on an account with wso2 account add-product <account> <namespace> "+
-			"--endpoint <url> --audience <identifier>."), nil
+		"Record one on the selected context with wso2 context product add <namespace> "+
+			"--url <url> --audience <identifier>."), nil
 }
 
 // resourceServerFlags are what create was asked for. They are bound to the
@@ -86,6 +86,7 @@ type resourceServerFlags struct {
 	identifier  string
 	description string
 	permissions []string
+	ou          string
 }
 
 // resourceServersCreate answers "wso2 identity resource-servers create".
@@ -113,7 +114,11 @@ func createResourceServer(
 	if err != nil {
 		return result.Result{}, err
 	}
-	body := map[string]any{"name": name, "identifier": flags.identifier}
+	ouID, err := resolveOrganizationUnitID(ctx, client, flags.ou, request.Context.Endpoint)
+	if err != nil {
+		return result.Result{}, err
+	}
+	body := map[string]any{"name": name, "identifier": flags.identifier, "ouId": ouID}
 	if flags.description != "" {
 		body["description"] = flags.description
 	}
@@ -146,8 +151,8 @@ func createResourceServer(
 		report = report.With("permissions", "Permissions", strings.Join(granted, " "))
 	}
 	return report.With(NextField, "Next",
-		"Record it on an account with wso2 account add-product <account> <namespace> "+
-			"--endpoint <url> --audience "+created.Identifier+"."), nil
+		"Record it on the selected context with wso2 context product add <namespace> "+
+			"--url <url> --audience "+created.Identifier+"."), nil
 }
 
 // resourceServerName proves the command line names exactly one resource

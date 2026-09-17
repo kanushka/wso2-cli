@@ -82,3 +82,11 @@ and a command acquires a missing one on first use, refusing under
 act per product; a client-credentials identity is healthy with no session.
 The measurements are in `docs/research/2026-09-06-single-login-spikes.md`
 and the two proof documents it cites.
+
+## Amendment (ADR 0016)
+
+What this ADR calls an identity is now a context, which owns its login and its
+sessions: product sessions are keyed by the context's credential reference,
+and no two contexts share one. A stored session also records the resource and
+audience it was authorized for, and is presented only for a record that still
+asks for them.

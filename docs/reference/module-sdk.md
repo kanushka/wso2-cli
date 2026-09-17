@@ -178,17 +178,17 @@ Acquire(ctx context.Context, request AccessRequest) (Access, error)
 ```
 
 The shell intersects the request with what the installed module's receipt
-declares, finds the selected context and account, obtains or reuses the
+declares, finds the selected context, obtains or reuses the
 product's session, and returns short-lived access for this one invocation. An
 undeclared audience is refused with `auth.audience_not_declared`, and a scope
-neither the receipt nor the account's product entry for this namespace names
+neither the receipt nor the context's product entry for this namespace names
 is refused with `auth.scope_not_declared`, rather than narrowed away: a module
 silently granted less than it asked for would proceed believing it holds access
 it does not.
 
 `Scopes` may be empty, and ordinarily is. An empty list asks for exactly the
-scopes recorded on the account's product entry for this namespace, which the
-user or the product's `connect` wrote down when the product was recorded, and
+scopes recorded on the context's product entry for this namespace, which the
+user or the product's descriptor wrote down when the product was recorded, and
 those recorded scopes are the ceiling for every request whichever side named
 them. So a module declares every scope its commands can need once, in
 `module.json` and `Options`, and a handler names scopes only when one command

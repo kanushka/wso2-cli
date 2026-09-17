@@ -19,10 +19,12 @@ package app
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"text/tabwriter"
 
+	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/internal/parsetree"
 	"github.com/wso2/wso2-cli/sdk/commandtree"
 )
@@ -40,7 +42,8 @@ import (
 // rather than a half-written page and fifteen unchecked writes.
 func (s Shell) renderProductHelp(namespace string, declared parsetree.Tree,
 	found commandtree.Command) error {
-	path := strings.TrimSpace("wso2 " + namespace + " " + strings.Join(found.Path, " "))
+	name := output.NameOf(s.Streams.Out)
+	path := strings.TrimSpace(name + " " + namespace + " " + strings.Join(found.Path, " "))
 	children := productChildren(declared, found.Path)
 	var page bytes.Buffer
 
@@ -90,7 +93,8 @@ func (s Shell) renderProductHelp(namespace string, declared parsetree.Tree,
 		return err
 	}
 
-	_, err := s.Streams.Out.Write(page.Bytes())
+	// A module's descriptions are prose it wrote naming the default shell.
+	_, err := io.WriteString(s.Streams.Out, output.RenameLines(page.String(), name))
 	return err
 }
 

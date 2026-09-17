@@ -52,6 +52,9 @@ requirements or architecture.
   and what it may return: the options a module serves, the request a handler is
   given, results, the five problem categories and the exit codes they map to,
   and the test kit.
+- [Context file](reference/context-file.md) states the short, shareable file
+  `wso2 context apply` reads: every member it may carry, what apply fills in
+  from the installed products, and what it refuses.
 - [Authentication context examples](examples/authentication-contexts.md)
 
 These documents illustrate proposed interfaces. They are not evidence that the
@@ -63,8 +66,8 @@ described commands or schemas are currently available.
   to a working `wso2`, by one command or by hand from the release page, and
   covers pinning a version, release candidates, where files go, and uninstalling.
 - [Logging in](guides/login.md) takes a first-time user from a registered
-  OAuth application, through the first `wso2 login`, which creates the account
-  and context it authenticates, to a CI job that authenticates without one. It
+  OAuth application, or a context file a platform team shares, through the first
+  `wso2 login`, to a CI job that authenticates without one. It
   also describes the context document itself, for reading what a login wrote or
   writing one by hand. Everything in it is the same whichever product backs the
   deployment.

@@ -30,6 +30,22 @@ SDK reaches it without a release. The `go.mod` here requires the published SDK
 at the version every other module in this repository requires, and carries no
 `replace` directive.
 
+## Commands
+
+| Command | Does |
+| --- | --- |
+| `wso2 api status` | Reports this module's own status and what to run first. |
+| `wso2 api projects list` | Lists the projects the control plane records. |
+| `wso2 api projects create <name> [--description <text>]` | Creates a project, sending only `displayName` (and `description`, when given) — the handle is left for platform-api to auto-generate from the name, per `CreateRESTAPIRequest`'s own schema, rather than this command reimplementing its slug rules. A 409 (a project by this name/handle already exists) is refused naming the project and pointing at `wso2 api projects list`. |
+| `wso2 api apis list --project <id>` | Lists the APIs a project holds. |
+| `wso2 api apis create -f <file> --project <id>` | Creates an API in a project from a gateway `RestApi` document (the same CR the gateway itself reads, such as `gateway/hello-api.yaml`). Takes no positional arguments. Refuses a document whose `apiVersion`/`kind` do not match. Refuses, by path (e.g. `spec.upstream.main.hostRewrite`, `spec.operations[1].foo`, `metadata.namespace`, or a top-level key such as `status`), any member of the document, `spec`, `spec.upstream`, a policy, or an operation that it cannot map onto platform-api's `CreateRESTAPIRequest`, rather than dropping it silently — `metadata.name` must be a string when present. Requires `spec.displayName`, `spec.context`, `spec.version` (as a quoted string — an unquoted `1.0` decodes as a number, which is refused, naming the fix), and `spec.upstream.main` (a map with `url` or `ref` — `null` is refused with that exact shape named). A 400 the deployment answers with per-field validation failures is reported with each `field: message`, and its recovery points at the file. |
+| `wso2 api apis deploy <api-id> --gateway-id <gateway-id>` | Deploys an API to a registered gateway. Posts the deployment alone: platform-api's own deploy operation associates the API with the gateway itself when it is not already associated. |
+| `wso2 api gateway register <handle> --display-name <name> --endpoint <url> [--endpoint <url> ...] [--type regular\|ai\|event]` | Registers a gateway with the control plane and mints its registration token in the same run. The token is shown exactly once, in the command's own result — it is never written to a file, config, or log, and a note on standard error says so. If the gateway registers but the token mint fails (or the deployment answers a 201 with no token), the gateway is left registered and the command points at `wso2 api gateway token create <handle>` to finish the job, naming the underlying failure's own reason (reported as `api.not_authorized` when it was a 403, so an administrator knows to fix permissions rather than retry blindly). If the 201 from registration carries no id, the handle given on the command line is used instead. |
+| `wso2 api gateway token create <gateway-id>` | Mints a new registration token for a gateway that is already registered — the way to recover from a `register` whose token mint failed, or to get a fresh token later. Same one-time-display rule as `register`. Notes platform-api's limit of 2 active tokens per gateway in its recovery text when a mint is refused. |
+| `wso2 api gateway apis list` | Lists the APIs the gateway is actually serving. |
+
+Every command above reaches the control plane's own session, except `gateway apis list`, which reads the gateway's own management API through its gateway session — the two are separate records on the same product (see `cmd/wso2-module-api/access.go`).
+
 ## What to change first
 
 `cmd/wso2-module-api/main.go` declares one `status` command that reports what it
