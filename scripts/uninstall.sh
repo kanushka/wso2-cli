@@ -59,13 +59,19 @@ state_root="${WSO2_HOME:-$HOME/.wso2}"
 bin_dir="${state_root}/bin"
 removed=0
 
-# The binary and any staging file an interrupted install left beside it.
-if [ -e "${bin_dir}/wso2" ]; then
-	rm -f "${bin_dir}/wso2"
-	printf 'Removed %s\n' "${bin_dir}/wso2"
+# The binary, under the name the installer recorded (an install from before
+# the record was named wso2), and any staging file an interrupted install left
+# beside it.
+cli_name="$(cat "${bin_dir}/.cli-name" 2>/dev/null || printf 'wso2')"
+case "$cli_name" in
+'' | */* | . | ..) cli_name=wso2 ;;
+esac
+if [ -e "${bin_dir}/${cli_name}" ]; then
+	rm -f "${bin_dir}/${cli_name}"
+	printf 'Removed %s\n' "${bin_dir}/${cli_name}"
 	removed=1
 fi
-rm -f "${bin_dir}"/.wso2.install.* 2>/dev/null || true
+rm -f "${bin_dir}/.cli-name" "${bin_dir}"/.wso2.install.* 2>/dev/null || true
 
 # Only if it is empty. A directory holding something this installer did not put
 # there is not this script's to delete.
@@ -124,7 +130,7 @@ else
 fi
 
 if [ "$removed" -eq 0 ]; then
-	printf 'Nothing to remove: no wso2 installation was found under %s.\n' "$state_root"
+	printf 'Nothing to remove: no WSO2 CLI installation was found under %s.\n' "$state_root"
 else
 	printf '\nOpen a new terminal so the PATH change takes effect.\n'
 fi

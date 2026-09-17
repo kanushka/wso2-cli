@@ -85,6 +85,9 @@ jobs:
       - name: Assemble the site
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The command the page tells people to run; the same repository
+          # variable names the released binary (release.yml).
+          CLI_NAME: ${{ vars.CLI_NAME || 'ws' }}
         run: ./scripts/assemble-site.sh site
 
       - name: Configure Pages

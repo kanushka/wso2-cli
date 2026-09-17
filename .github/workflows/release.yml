@@ -50,6 +50,11 @@ jobs:
       # further: this release publishes no container image, no Homebrew tap, and
       # no package repository.
       contents: write
+    env:
+      # The command the shell is published as. GoReleaser names the binary and
+      # the shell's own text after it; the repository variable CLI_NAME renames
+      # it without a code change.
+      CLI_NAME: ${{ vars.CLI_NAME || 'ws' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -155,8 +160,18 @@ jobs:
           export WSO2_HOME="${state}"
           tar -xzf "${archive}" -C "${workdir}"
 
-          reported="$("${workdir}/wso2" version)"
+          if [[ ! -x "${workdir}/${CLI_NAME}" ]]; then
+            echo "::error::the archive holds no ${CLI_NAME} binary"
+            exit 1
+          fi
+          reported="$("${workdir}/${CLI_NAME}" version)"
           echo "${reported}"
+
+          # Its help page names commands after the command users will type.
+          if ! "${workdir}/${CLI_NAME}" help | grep -qF "${CLI_NAME} <command>"; then
+            echo "::error::the released binary does not name its commands ${CLI_NAME}"
+            exit 1
+          fi
 
           if ! grep -qF "${tag}" <<<"${reported}"; then
             echo "::error::the released binary reports no version matching ${tag}"
@@ -194,4 +209,4 @@ jobs:
           # The same read-back the copy passed before the build, asked of the
           # published binary: it proves GoReleaser injected the copy, not only
           # that the copy was sound.
-          "${GITHUB_WORKSPACE}/scripts/help-lists-released-catalog.sh" "${workdir}/wso2" "${WSO2_RELEASED_CATALOG}"
+          "${GITHUB_WORKSPACE}/scripts/help-lists-released-catalog.sh" "${workdir}/${CLI_NAME}" "${WSO2_RELEASED_CATALOG}"

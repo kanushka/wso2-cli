@@ -81,7 +81,7 @@ const (
 // itself, so it is captured and renamed as a whole: a help page is all prose.
 func (s Shell) renderPage(root *cobra.Command, render func() error) error {
 	name := output.NameOf(s.Streams.Out)
-	if name == output.DefaultName {
+	if name == output.SourceName {
 		return render()
 	}
 	var out, errOut bytes.Buffer
