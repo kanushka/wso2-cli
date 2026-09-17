@@ -28,13 +28,14 @@ import (
 
 // The prompt tests below hand the shell a scripted reader, one answer per
 // line, in the order the setup wizard (#189) asks a new context's questions
-// when WSO2 Identity Server is picked: the server URL, the client ID, how to
+// when Asgardeo is picked: where the organization is, the client ID, how to
 // sign in, the name, then whether to create and select it. No product is
 // installed, so no product is offered.
 
-// newServerLogin is newCreatingLogin against an issuer named as Identity
-// Server names it, below /oauth2/token, with the server URL the wizard asks
-// for.
+// newServerLogin is newCreatingLogin against an issuer named below
+// /oauth2/token, with the server URL the wizard asks for. The organization
+// question takes an absolute URL as readily as a name, which is what lets
+// these tests point Asgardeo's branch at a local fake issuer.
 func newServerLogin(t *testing.T) (app.Shell, *bytes.Buffer, *bytes.Buffer, *fakeissuer.Issuer, string) {
 	t.Helper()
 	shell, out, errOut, _ := newCreatingLogin(t)
@@ -42,8 +43,7 @@ func newServerLogin(t *testing.T) (app.Shell, *bytes.Buffer, *bytes.Buffer, *fak
 	return shell, out, errOut, issuer, strings.TrimSuffix(issuer.URL, "/oauth2/token")
 }
 
-// serverAnswers picks Identity Server at server and takes every default but
-// the name.
+// serverAnswers picks Asgardeo at server and takes every default but the name.
 func serverAnswers(server, name string) string {
 	return "2\n" + server + "\nwso2-cli\n\n" + name + "\n\n\n"
 }
@@ -56,7 +56,7 @@ func TestLoginAsksForANewContextWhenNoneExist(t *testing.T) {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
 	for _, want := range []string{"No contexts yet.", "Sign in with:", "WSO2 Cloud (coming soon)",
-		"Identity Server URL (e.g. https://localhost:9443): ", "Client ID of the registered OAuth application: ",
+		"Asgardeo organization name: ", "Client ID of the registered OAuth application: ",
 		"Sign in using:", "Context name [context-1]: ", `Create the "local-is" context? [Y/n]`} {
 		if !strings.Contains(errOut.String(), want) {
 			t.Errorf("stderr lacks %q:\n%s", want, errOut)
@@ -104,8 +104,8 @@ func TestLoginAsksAgainForAnIssuerThatIsNotAURL(t *testing.T) {
 	if code := shell.Run([]string{"login"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
-	if got := strings.Count(errOut.String(), "Identity Server URL (e.g. https://localhost:9443): "); got != 2 {
-		t.Errorf("server asked %d times, want 2:\n%s", got, errOut)
+	if got := strings.Count(errOut.String(), "Asgardeo organization name: "); got != 2 {
+		t.Errorf("the organization was asked %d times, want 2:\n%s", got, errOut)
 	}
 	if strings.Contains(errOut.String(), "idp.example\n") {
 		t.Errorf("the rejected answer was echoed:\n%s", errOut)
@@ -194,7 +194,7 @@ func TestLoginWithNoInputAsksNothing(t *testing.T) {
 
 func TestLoginSettingUpAMachineContextEndsWithoutALogin(t *testing.T) {
 	shell, out, errOut, _, server := newServerLogin(t)
-	// Identity Server, its URL and client, client credentials and the
+	// Asgardeo, where it is, its client, client credentials and the
 	// variable, then the defaults.
 	shell.Reader = strings.NewReader("2\n" + server + "\nci-client\n3\nCI_SECRET\nci\n\n\n")
 

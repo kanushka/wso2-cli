@@ -126,6 +126,61 @@ func TestContextProductAddResolutionRefusals(t *testing.T) {
 	}
 }
 
+// TestContextProductAddNamesTheProviderAProductServes proves the refusal a
+// login provider recorded elsewhere gives says which provider each side is,
+// and adds the line that ends the search when no module serves the context's
+// provider at all. Logging in at Asgardeo works; reaching iam from there does
+// not, and the difference is what the message has to carry.
+func TestContextProductAddNamesTheProviderAProductServes(t *testing.T) {
+	cases := map[string]struct {
+		setup      func(t *testing.T, shell app.Shell)
+		args       []string
+		want, none []string
+	}{
+		"a provider no module serves": {
+			setup: func(t *testing.T, shell app.Shell) {
+				mustRun(t, shell, "context", "create", "acme", "--issuer",
+					"https://api.asgardeo.io/t/acme/oauth2/token", "--provider", contexts.ProviderAsgardeo,
+					"--client-id", "cli", "--use")
+			},
+			args: []string{"iam", "--url", thunderURL},
+			want: []string{`the iam product signs in at its own Thunder issuer, and the "acme" context ` +
+				"signs in at Asgardeo", "No module serves Asgardeo yet."},
+		},
+		"the same provider at another URL": {
+			setup: func(t *testing.T, shell app.Shell) {
+				mustRun(t, shell, "context", "create", "local", "--login-product", "iam",
+					"--url", thunderURL, "--use")
+			},
+			args: []string{"iam", "--url", "https://thunder.corp.example", "--replace"},
+			want: []string{`the iam product signs in at its own Thunder issuer, and the "local" context ` +
+				"signs in at Thunder"},
+			// A second Thunder is a mistyped URL, not a missing module.
+			none: []string{"No module serves"},
+		},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			shell, _, _ := newContextShell(t)
+			testCase.setup(t, shell)
+			code, _, errOut := run(t, shell, append([]string{"context", "product", "add"}, testCase.args...)...)
+			if code != exit.Usage {
+				t.Fatalf("exit %d, want %d: %s", code, exit.Usage, errOut)
+			}
+			for _, want := range testCase.want {
+				if !strings.Contains(errOut, want) {
+					t.Errorf("stderr lacks %q:\n%s", want, errOut)
+				}
+			}
+			for _, none := range testCase.none {
+				if strings.Contains(errOut, none) {
+					t.Errorf("stderr carries %q, which this refusal is not:\n%s", none, errOut)
+				}
+			}
+		})
+	}
+}
+
 // TestContextProductAddResolvesAMachineClientTheProductAcceptsInline proves
 // the gwm fixture's happy path: a client-credentials context reaches it
 // directly, without a gateway, when the gateway is left out.
