@@ -35,9 +35,10 @@ const (
 func (s Shell) contextDeleteCommand() *cobra.Command {
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "delete <name>",
-		Short: "Delete a context, ending every session it holds first.",
-		Args:  exactlyOneArgument("the name of the context to delete", contextDeleteUsage),
+		Use:               "delete <name>",
+		ValidArgsFunction: s.completeFirstContextName,
+		Short:             "Delete a context, ending every session it holds first.",
+		Args:              exactlyOneArgument("the name of the context to delete", contextDeleteUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.contextDelete(command, args[0], dryRun)
 		},
@@ -48,9 +49,10 @@ func (s Shell) contextDeleteCommand() *cobra.Command {
 
 func (s Shell) contextRenameCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "rename <name> <new-name>",
-		Short: "Rename a context. Its sessions stay where they are.",
-		Args:  exactlyTwoArguments("the context's name and its new name", contextRenameUsage),
+		Use:               "rename <name> <new-name>",
+		ValidArgsFunction: s.completeFirstContextName,
+		Short:             "Rename a context. Its sessions stay where they are.",
+		Args:              exactlyTwoArguments("the context's name and its new name", contextRenameUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.contextRename(command, args[0], args[1])
 		},

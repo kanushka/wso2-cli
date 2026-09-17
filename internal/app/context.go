@@ -97,9 +97,10 @@ func (s Shell) contextCommand() *cobra.Command {
 
 func (s Shell) contextUseCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "use <name>",
-		Short: "Select the context commands run against.",
-		Args:  exactlyOneArgument("the name of a configured context", contextUseUsage),
+		Use:               "use <name>",
+		ValidArgsFunction: s.completeFirstContextName,
+		Short:             "Select the context commands run against.",
+		Args:              exactlyOneArgument("the name of a configured context", contextUseUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.contextUse(command, args[0])
 		},

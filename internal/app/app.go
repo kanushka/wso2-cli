@@ -157,7 +157,11 @@ func (s Shell) dispatch(args []string) error {
 	// rather than depending on which path a command happens to take, and it
 	// also now covers the bare `wso2` and `--version` cases below, which
 	// applyShellFlags never reached either.
-	if root, err := s.stateRoot(); err == nil {
+	// A completion request runs on every Tab, so it writes nothing to stderr and
+	// changes nothing on disk. It is answered from the command tree and the
+	// installed receipts alone.
+	completing := len(args) > 0 && isCompletionRequest(args[0])
+	if root, err := s.stateRoot(); err == nil && !completing {
 		if _, diagnostic := preferences.Load(root); diagnostic != nil {
 			output.Diagnostic(s.Streams.Err, *diagnostic)
 		}
@@ -179,7 +183,10 @@ func (s Shell) dispatch(args []string) error {
 	// A shell-owned command, or any leading flag, is Cobra's to route. Anything
 	// else is a product namespace, and its arguments must reach the module
 	// unparsed, so it never enters the command tree.
-	if strings.HasPrefix(name, "-") || isShellCommand(root, name) {
+	if completing {
+		s.prepareCompletion(root, args[1:])
+	}
+	if completing || strings.HasPrefix(name, "-") || isShellCommand(root, name) {
 		root.SetArgs(args)
 		// Execute runs the command bodies too, so its error is returned as it
 		// is. A flag-parsing failure has already been turned into a usage

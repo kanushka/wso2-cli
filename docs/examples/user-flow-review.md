@@ -59,6 +59,7 @@ $ wso2 --help
 Usage: wso2 <command> [arguments]
 
 Shell commands
+   completion    Write the tab completion script for a shell.
    config        Show and change shell preferences.
    context       Create, select, and list the targets commands run against.
    doctor        Check the shell's context, secure-store, and session health.

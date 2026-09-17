@@ -166,6 +166,40 @@ func shorthandRunEndsInAValue(command commandtree.Command, argument string) bool
 	return false
 }
 
+// PendingValue reports the flag whose value the word after args would be, and
+// whether there is one. It answers completion, which has to tell a flag's value
+// from a command name or an argument before the word is written.
+//
+// It follows Route: the flag is looked up on the command the words before it
+// name, and a flag that command does not declare is assumed to take a value.
+// The name is the long spelling when the command declares the flag, and what
+// was written otherwise.
+func (t Tree) PendingValue(args []string) (string, bool) {
+	if len(args) == 0 {
+		return "", false
+	}
+	last := args[len(args)-1]
+	if last == "--" || len(last) < 2 || last[0] != '-' || strings.Contains(last, "=") {
+		return "", false
+	}
+	command := t.Route(args[:len(args)-1]).Command
+	if name, long := strings.CutPrefix(last, "--"); long {
+		flag, declared := command.LookupFlag(name)
+		if !declared {
+			return name, true
+		}
+		return flag.Name, flag.TakesValue()
+	}
+	if !shorthandRunEndsInAValue(command, last) {
+		return "", false
+	}
+	letters := []rune(last[1:])
+	if flag, declared := command.LookupShorthand(letters[len(letters)-1]); declared {
+		return flag.Name, true
+	}
+	return string(letters[len(letters)-1]), true
+}
+
 // RootHasChildren reports whether the namespace declares any subcommand. A
 // namespace that does takes a subcommand name where it is given a plain word,
 // and reports an unknown one rather than passing it along, which is what an

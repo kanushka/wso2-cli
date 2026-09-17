@@ -33,7 +33,7 @@ import (
 )
 
 func TestCommandNamesAreDerivedFromTheShellCommandTree(t *testing.T) {
-	if got, want := app.CommandNames(), []string{"config", "context", "doctor", "help", "login", "logout", "module", "org", "product", "version", "whoami"}; !slices.Equal(got, want) {
+	if got, want := app.CommandNames(), []string{"completion", "config", "context", "doctor", "help", "login", "logout", "module", "org", "product", "version", "whoami"}; !slices.Equal(got, want) {
 		t.Errorf("CommandNames() = %v, want %v", got, want)
 	}
 }
@@ -51,7 +51,7 @@ func TestHelpListsEveryShellCommand(t *testing.T) {
 	// product, and a help page that advertised it would teach the word the
 	// deprecation exists to retire. It still resolves, which
 	// TestTheProductCommandReplacesModuleAndModuleStaysAsAnAlias proves.
-	for _, command := range []string{"config", "context", "doctor", "help", "login", "logout", "org", "product", "version", "whoami"} {
+	for _, command := range []string{"completion", "config", "context", "doctor", "help", "login", "logout", "org", "product", "version", "whoami"} {
 		if !strings.Contains(out.String(), command) {
 			t.Errorf("help does not list the %q command:\n%s", command, out)
 		}
@@ -200,21 +200,6 @@ func TestAProductFlagStillReachesTheModule(t *testing.T) {
 				t.Fatalf("the shell rejected a flag that belongs to the module:\n%s", errOut)
 			}
 		})
-	}
-}
-
-// TestCompletionIsNotOffered proves the framework's generated completion command
-// is absent. Until a module declares its command tree, completion would know
-// every built-in and no product command, which a user reads as absence of the
-// command rather than absence of information.
-func TestCompletionIsNotOffered(t *testing.T) {
-	shell, out, _ := newShell(t)
-
-	if code := shell.Run([]string{"help"}); code != exit.OK {
-		t.Fatalf("exit code = %d, want %d", code, exit.OK)
-	}
-	if strings.Contains(out.String(), "completion") {
-		t.Fatalf("help offers a completion command:\n%s", out)
 	}
 }
 
@@ -566,6 +551,7 @@ Product commands
    reference     Explore the reference product.
 
 Other commands
+   completion    Write the tab completion script for a shell.
    config        Show and change shell preferences.
    doctor        Check the shell's context, secure-store, and session health.
    help          Show the shell command tree.

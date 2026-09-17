@@ -127,11 +127,6 @@ func (s Shell) rootCommand() *cobra.Command {
 				forwardToNamespace(command, args[1:]))
 		},
 	}
-	// Completion is deliberately absent. Until a module declares its command
-	// tree, a generated completion would know every built-in and no product
-	// command, which reads as "that command does not exist" rather than as
-	// missing information.
-	root.CompletionOptions.DisableDefaultCmd = true
 	// Only a flag-parsing failure becomes a usage problem. Cobra reports one
 	// through this hook, so wrapping here keeps every other error a command
 	// returns — an unwritable stream, a failed lookup — classified as what it
@@ -200,7 +195,16 @@ func (s Shell) rootCommand() *cobra.Command {
 	// answers a product namespace from its declaration and refuses an unknown
 	// name the way dispatch does.
 	root.InitDefaultHelpCmd()
+
+	// Completion covers product commands as well as built-ins, because every
+	// module declares its command tree in its receipt (completion.go). The
+	// command is added here rather than by Execute so that dispatch finds it
+	// among the shell's own commands.
+	root.InitDefaultCompletionCmd()
 	for _, command := range root.Commands() {
+		if command.Name() == "completion" {
+			command.Short = "Write the tab completion script for a shell."
+		}
 		if command.Name() == "help" {
 			command.Short = "Show the shell command tree."
 			command.Run = nil
