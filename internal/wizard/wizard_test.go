@@ -117,6 +117,141 @@ func TestInputAtEndOfInput(t *testing.T) {
 	}
 }
 
+// errWriter fails its first write with err, and succeeds every write after
+// (recording it in Buffer), so a test can make exactly one of a prompter's
+// several writes fail without wedging the ones that come after it.
+type errWriter struct {
+	bytes.Buffer
+	err     error
+	failed  bool
+	failAll bool
+}
+
+func (w *errWriter) Write(p []byte) (int, error) {
+	if w.err != nil && (w.failAll || !w.failed) {
+		w.failed = true
+		return 0, w.err
+	}
+	return w.Buffer.Write(p)
+}
+
+var errWrite = errors.New("write failed")
+
+// errReader always fails its Read with a non-EOF error, the way a broken
+// terminal would.
+type errReader struct{ err error }
+
+func (r errReader) Read([]byte) (int, error) { return 0, r.err }
+
+var errRead = errors.New("read failed")
+
+func TestSelectReportsAWriteFailureOnTheTitle(t *testing.T) {
+	out := &errWriter{err: errWrite, failAll: true}
+	prompter := wizard.New(strings.NewReader("1\n"), out, false)
+	if _, err := prompter.Select("Q", []wizard.Option{{Label: "a"}}, 0); !errors.Is(err, errWrite) {
+		t.Fatalf("Select err = %v, want %v", err, errWrite)
+	}
+}
+
+func TestSelectReportsAWriteFailureListingOptions(t *testing.T) {
+	// The title write succeeds; the first option line fails.
+	counting := &countingErrWriter{failAt: 2, err: errWrite}
+	prompter := wizard.New(strings.NewReader("1\n"), counting, false)
+	if _, err := prompter.Select("Q", []wizard.Option{{Label: "a"}}, 0); !errors.Is(err, errWrite) {
+		t.Fatalf("Select err = %v, want %v", err, errWrite)
+	}
+}
+
+func TestSelectReportsAWriteFailureOnThePrompt(t *testing.T) {
+	counting := &countingErrWriter{failAt: 3, err: errWrite}
+	prompter := wizard.New(strings.NewReader("1\n"), counting, false)
+	if _, err := prompter.Select("Q", []wizard.Option{{Label: "a"}}, 0); !errors.Is(err, errWrite) {
+		t.Fatalf("Select err = %v, want %v", err, errWrite)
+	}
+}
+
+func TestSelectReportsAReadFailure(t *testing.T) {
+	prompter := wizard.New(errReader{errRead}, &bytes.Buffer{}, false)
+	if _, err := prompter.Select("Q", []wizard.Option{{Label: "a"}}, 0); !errors.Is(err, errRead) {
+		t.Fatalf("Select err = %v, want %v", err, errRead)
+	}
+}
+
+func TestSelectReportsAWriteFailureOnTheRefusal(t *testing.T) {
+	// title, option line, prompt, then the refusal line fails.
+	counting := &countingErrWriter{failAt: 4, err: errWrite}
+	prompter := wizard.New(strings.NewReader("9\n"), counting, false)
+	if _, err := prompter.Select("Q", []wizard.Option{{Label: "a"}}, 0); !errors.Is(err, errWrite) {
+		t.Fatalf("Select err = %v, want %v", err, errWrite)
+	}
+}
+
+func TestInputReportsAWriteFailureOnThePrompt(t *testing.T) {
+	counting := &countingErrWriter{failAt: 1, err: errWrite}
+	prompter := wizard.New(strings.NewReader("x\n"), counting, false)
+	if _, err := prompter.Input("Name", "", nil); !errors.Is(err, errWrite) {
+		t.Fatalf("Input err = %v, want %v", err, errWrite)
+	}
+}
+
+func TestInputReportsAReadFailure(t *testing.T) {
+	prompter := wizard.New(errReader{errRead}, &bytes.Buffer{}, false)
+	if _, err := prompter.Input("Name", "", nil); !errors.Is(err, errRead) {
+		t.Fatalf("Input err = %v, want %v", err, errRead)
+	}
+}
+
+func TestInputReportsAWriteFailureOnTheRefusal(t *testing.T) {
+	// prompt, then the refusal line fails.
+	counting := &countingErrWriter{failAt: 2, err: errWrite}
+	prompter := wizard.New(strings.NewReader("\n"), counting, false)
+	if _, err := prompter.Input("Name", "", nil); !errors.Is(err, errWrite) {
+		t.Fatalf("Input err = %v, want %v", err, errWrite)
+	}
+}
+
+func TestConfirmReportsAWriteFailure(t *testing.T) {
+	counting := &countingErrWriter{failAt: 1, err: errWrite}
+	prompter := wizard.New(strings.NewReader("y\n"), counting, false)
+	if _, err := prompter.Confirm("Go?", false); !errors.Is(err, errWrite) {
+		t.Fatalf("Confirm err = %v, want %v", err, errWrite)
+	}
+}
+
+func TestConfirmReportsAReadFailure(t *testing.T) {
+	prompter := wizard.New(errReader{errRead}, &bytes.Buffer{}, false)
+	if _, err := prompter.Confirm("Go?", false); !errors.Is(err, errRead) {
+		t.Fatalf("Confirm err = %v, want %v", err, errRead)
+	}
+}
+
+// countingErrWriter fails its failAt'th Write call and no other.
+type countingErrWriter struct {
+	bytes.Buffer
+	count  int
+	failAt int
+	err    error
+}
+
+func (w *countingErrWriter) Write(p []byte) (int, error) {
+	w.count++
+	if w.count == w.failAt {
+		return 0, w.err
+	}
+	return w.Buffer.Write(p)
+}
+
+func TestNewDrawsAFormWhenTUIIsTrue(t *testing.T) {
+	// A form prompter reads keystrokes rather than lines: an immediate
+	// Ctrl+C aborts it the way it aborts any other form question, which a
+	// line prompter would instead read as ordinary (and empty) input.
+	var out bytes.Buffer
+	prompter := wizard.New(strings.NewReader("\x03"), &out, true)
+	if _, err := prompter.Confirm("Go?", true); err != wizard.ErrAborted {
+		t.Fatalf("Confirm err = %v, want ErrAborted", err)
+	}
+}
+
 func TestConfirmFailsClosed(t *testing.T) {
 	cases := map[string]bool{"y\n": true, " YES \n": true, "n\n": false, "yep\n": false, "\n": false, "": false}
 	for input, want := range cases {
