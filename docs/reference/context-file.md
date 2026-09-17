@@ -95,7 +95,7 @@ authorize.
 | `schemaVersion` | Must be `4`. Versions 2 and 3 are read and upgraded in place the first time this shell runs; version 1 is read and never rewritten. |
 | `defaultContext` | The context used when no `--context` flag and no `WSO2_CONTEXT` is given. May be absent, which selects nothing. |
 | `contexts[].name` | Lower-case letters, digits and dashes, starting with a letter, up to 64 characters. |
-| `contexts[].type` | `cloud` or `onprem`. Selects defaults and wording, never structure; derived from the issuer when absent. |
+| `contexts[].type` | `cloud` or `onprem`. Selects defaults and wording, never structure. Required here; `context apply` derives it from the issuer when an input file omits it. |
 | `contexts[].credentialRef` | The name this context's sessions are stored under in the OS secure store: the login session under the reference, and each product's own under `<ref>.<product>`. **Required** for `oauth-browser`, `oauth-device` and `pat`; **not allowed** for `client-credentials`. Unique across the document; it stays when the context is renamed, so no session moves. |
 | `login.kind` | `oauth-browser` for a person at a browser, `oauth-device` for a context that can only be established without one, `client-credentials` for CI. `pat` is named by the schema but not implemented in this release. |
 | `login.issuer` | The issuer, verbatim from its discovery document. |
@@ -136,8 +136,9 @@ authorize.
 ```
 
 `name`, one way to log in, and a `url` per product are all that is required.
-Every member of the local document may also appear here, and is taken as
-written — state `audience`, `scopes`, `grant`, a `clientIdVariable` or
+Every member of the local document may also appear here except
+`credentialRef` and `defaultContext`, which apply refuses; what you do state is
+taken as written — state `audience`, `scopes`, `grant`, a `clientIdVariable` or
 `clientSecretVariable` only when the deployment differs from what the
 installed product declares; otherwise let `apply` fill them in from the
 descriptor. `products.<namespace>.version` pins the module version to
@@ -231,8 +232,8 @@ With `--no-install`, a login product that is not installed must also state
 
 ## Share one
 
-`wso2 context export [<name>]` prints your contexts in exactly the local
-document's form, with nothing machine-specific, ready to commit:
+`wso2 context export [<name>]` prints your contexts in the input-file form,
+with the credential references and the selection removed, ready to commit:
 
 ```sh
 wso2 context export > team-context.json
@@ -253,20 +254,27 @@ happen to be sitting today:
 
 ```json
 {
-  "name": "remote",
-  "credentialRef": "remote",
-  "login": {
-    "kind": "oauth-device",
-    "issuer": "https://api.asgardeo.io/t/acme/oauth2/token",
-    "clientId": "wso2-cli",
-    "tenant": "acme",
-    "product": "reference"
-  }
+  "contexts": [
+    {
+      "name": "remote",
+      "login": {
+        "kind": "oauth-device",
+        "issuer": "https://api.asgardeo.io/t/acme/oauth2/token",
+        "clientId": "wso2-cli",
+        "tenant": "acme",
+        "product": "reference"
+      },
+      "products": {
+        "reference": { "url": "https://reference.example.test" }
+      }
+    }
+  ]
 }
 ```
 
-Every other field means exactly what it means for `oauth-browser`, and
-`credentialRef` is required the same way. Thunder-backed products advertise no
+Every other field means exactly what it means for `oauth-browser`. Apply
+writes the `credentialRef` the sessions are stored under, as it does for
+`oauth-browser`. Thunder-backed products advertise no
 device grant and refuse this kind outright.
 
 ## CI: authenticate without a login

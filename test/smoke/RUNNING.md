@@ -361,9 +361,10 @@ only verdicts whose deployment line names the deployment you mean to record.
 
 ### Recording the verdicts
 
-Both verdicts belong in "Measured product verdicts" below, in the row for the
-product and question the run answered. Record the date, the verdict, and the
-deployment line the run printed.
+A new measurement goes in a GitHub issue with the date, the verdict, and the
+deployment line the run printed. The table below carries only what the smoke
+tests assert; a verdict that changes a decision is summarised in the ADR that
+rests on it (ADR 0001).
 
 ## Measured product verdicts
 
@@ -377,7 +378,7 @@ same refresh token is normally reused across renewals; enabling "Renew refresh
 token" invalidates the old one on each exchange, with a short graceful-reuse
 window when that is also turned on).
 
-### Asgardeo (`https://api.asgardeo.io/t/kanushka/oauth2/token`, measured 2026-08-06)
+### Asgardeo (`https://api.asgardeo.io/t/<org>/oauth2/token`, measured 2026-08-06)
 
 | Question | Verdict |
 | --- | --- |

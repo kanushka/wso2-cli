@@ -23,6 +23,11 @@ docker run -d --name thunderid -p 8090:8090 \
 Keep the host port at 8090: the issuer the server advertises must match the
 URL you reach it on.
 
+ThunderID's docs now lead with a Compose quick-start
+(`docker compose -f oci://ghcr.io/thunder-id/thunderid-quick-start:latest up`)
+instead of this `docker run` form; the command above was written on
+2026-08-06 and still works against `1.0.0-beta`.
+
 ## 2. Trust the server's certificate
 
 ```sh
@@ -111,7 +116,13 @@ login from its descriptor instead:
 ```sh
 wso2 context create thunder-local --login-product identity \
   --url https://localhost:8090 --use
+wso2 context product add reference --url https://localhost:8090 \
+  --audience https://localhost:8090/reference-status \
+  --scopes reference:status:read
 ```
+
+That path records the login only, so add the product you are going to run
+before step 7.
 
 `wso2 context create --issuer` and `wso2 login --url` can't create a ThunderID
 context.
@@ -177,3 +188,9 @@ wso2 reference status
 | `auth.product_not_configured` with `invalid_target` | The audience isn't a registered resource server identifier (step 3). |
 | `shell.invalid_argument` or `contexts.document_malformed` about the audience | The audience must be an absolute URI. |
 | A product reports a permission the context doesn't carry | Add it to the product's `scopes`. |
+
+## Sources
+
+- [Get ThunderID (quick-start)](https://thunderid.dev/docs/next/getting-started/get-thunderid/)
+- [Manage Applications](https://thunderid.dev/docs/next/guides/applications/manage-applications/)
+- [Manage Resource Servers (permissions, audience claim)](https://thunderid.dev/docs/next/guides/resource-servers/)

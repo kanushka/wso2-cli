@@ -21,7 +21,7 @@ Removes what scripts/install.ps1 added.
 .DESCRIPTION
 Removes the binary, the directory the installer created for it, the per-user PATH
 entry, and the per-user WSO2_HOME variable. It does not remove configuration,
-contexts, or credentials unless -Purge is given: removing a binary is not the
+or contexts unless -Purge is given: removing a binary is not the
 same decision as abandoning a setup.
 
 Running it when nothing is installed is not a failure. It reports what it found
@@ -31,7 +31,7 @@ install that failed halfway.
 Nothing here needs administrator rights.
 
 .PARAMETER Purge
-Also remove configuration, contexts, and credentials.
+Also remove configuration and contexts. Sessions in the OS secure store are not touched: run logout first.
 #>
 param(
     [switch] $Purge
@@ -117,14 +117,15 @@ if ($userStateRoot -and $userStateRoot.TrimEnd('\') -ieq $stateRoot.TrimEnd('\')
 if ($Purge) {
     if (Test-Path -LiteralPath $stateRoot) {
         Remove-Item -LiteralPath $stateRoot -Recurse -Force
-        Write-Output "Removed $stateRoot, including configuration and credentials."
+        Write-Output "Removed $stateRoot, including configuration and contexts."
+        Write-Output "Sessions in the OS secure store are not touched: run logout first."
         $removed = $true
     }
 } elseif (Test-Path -LiteralPath $stateRoot) {
     # Named explicitly rather than left implicit: someone who wanted everything
     # gone needs to know that something is still there and how to remove it.
     Write-Output ''
-    Write-Output "Left $stateRoot in place, with your contexts and credentials."
+    Write-Output "Left $stateRoot in place, with your contexts and preferences."
     Write-Output 'Remove it too with: .\uninstall.ps1 -Purge'
 }
 

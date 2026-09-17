@@ -387,7 +387,7 @@ capabilities the way the broker does, so a handler asking for an audience that
 `module.json` does not declare passes its tests and is refused on a user's
 machine with `auth.audience_not_declared`. Install the module and run it under
 a real shell before tagging: see the guide's
-[Run it under the real shell](../guides/build-module-quickstart.md#run-it-under-the-real-shell-before-you-tag).
+[Install it into a local shell](../guides/build-module-quickstart.md#3-install-it-into-a-local-shell).
 
 ## Naming your own commands
 

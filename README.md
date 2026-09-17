@@ -1,8 +1,7 @@
 # WSO2 CLI
 
 The WSO2 CLI provides a common command-line entry point for WSO2 products. This
-repository is the project home for its source code, SDK, documentation,
-examples, and supporting research.
+repository is the project home for its source code, SDK, and documentation.
 
 > [!IMPORTANT]
 > The project is in early development. Documentation may describe intended
@@ -51,13 +50,15 @@ The principal documents are:
   [ThunderID](docs/guides/setup-thunder.md)
 
 Product requirements and architecture decisions are authoritative within their
-respective scopes. Reference material illustrates proposed interfaces.
+respective scopes. Reference describes what is built; anything not built yet
+says so.
 
 ## Project status
 
-The initial implementation is being prepared. Public namespaces, protocol
-details, release infrastructure, supported platforms, and migration scope
-remain subject to review where identified as open decisions.
+The shell, the module SDK, and the product modules are implemented and
+released from this repository. Interfaces may still change: open decisions are
+tracked as GitHub issues and recorded in
+[decision records](docs/adr/) once settled.
 
 ## Contributing
 

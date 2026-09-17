@@ -147,10 +147,13 @@ The broker:
 - returns short-lived access bound to the product's audience and scopes, and
   refuses rather than issuing broader access when narrowing is unavailable.
 
-One login serves several products through **one session per product**, each
-obtained from the provider's browser sign-on by one of the strategies
-`direct`, `derived`, `federated`, `exchanged`, or `sibling`; a
-client-credentials context mints access `inline` per command with no session.
+One login serves several products, each reached by the strategy its record
+implies: `direct` (the login session itself covers the product), `sibling` and
+`derived` (a second session at the login issuer), `federated` (a session at the
+product's own issuer, through the same browser sign-on), `exchanged` (no
+session of its own — the login session's token is exchanged per command), and
+`inline` (a client-credentials grant per command, no session). Every session a
+product does hold is bound to that product's audience and scopes.
 See [ADR 0005](adr/0005-audience-side-verification.md),
 [ADR 0014](adr/0014-one-login-one-session-per-product.md), and
 [ADR 0010](adr/0010-best-effort-revocation-on-session-end.md) for revocation.

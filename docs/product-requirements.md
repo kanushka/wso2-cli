@@ -249,8 +249,9 @@ A context contains only its authentication kind and non-secret references,
 such as an opaque secure-store reference or CI variable name, never a
 credential.
 
-Shared-login success means one credential entry and a separate audience- and
-scope-bound session per product
+Shared-login success means one credential entry, and access that is bound to
+one product's audience and scopes: a separate session where the product holds
+one, and a token exchanged per command where it does not
 ([ADR 0014](adr/0014-one-login-one-session-per-product.md)). It does not mean
 one token reused across products.
 

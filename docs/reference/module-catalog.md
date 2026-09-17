@@ -1,6 +1,5 @@
 # Module catalog
 
-**Status:** Accepted
 **Related:** [Release artifacts](release-artifacts.md),
 [architecture](../architecture.md)
 **Last reviewed:** 2026-08-20

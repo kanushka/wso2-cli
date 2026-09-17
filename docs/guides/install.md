@@ -22,7 +22,8 @@ Windows (PowerShell):
 iwr https://wso2.github.io/wso2-cli/install.ps1 -useb | iex
 ```
 
-Open a new terminal and run `wso2 version`. Supported platforms: Linux (`amd64`, `arm64`, `arm`, `386`), macOS (`amd64`,
+Open a new terminal and run `<name> version`, with the name the installer
+printed (`ws` for a stock release). Supported platforms: Linux (`amd64`, `arm64`, `arm`, `386`), macOS (`amd64`,
 `arm64`), Windows (`amd64`, `arm64`).
 
 To read the scripts first, see `scripts/install.sh` and `scripts/install.ps1`
@@ -100,8 +101,19 @@ curl -fsSL https://wso2.github.io/wso2-cli/uninstall.sh | bash
 iwr https://wso2.github.io/wso2-cli/uninstall.ps1 -useb | iex
 ```
 
-This removes the binary and the profile block. It keeps your contexts and
-credentials. To remove those too:
+This removes the binary and the profile block, and leaves everything under
+`$WSO2_HOME` (contexts, preferences, installed products) in place.
+
+Log out before you remove anything, because your sessions live in the OS
+secure store and no uninstaller touches it:
+
+```sh
+wso2 logout
+wso2 context delete <name>
+```
+
+`--purge` then deletes `$WSO2_HOME` itself. It cannot be undone, and a session
+left in the keychain survives it:
 
 ```sh
 curl -fsSL https://wso2.github.io/wso2-cli/uninstall.sh | bash -s -- --purge

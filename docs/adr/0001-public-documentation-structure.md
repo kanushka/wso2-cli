@@ -157,5 +157,12 @@ docs/
 The authority hierarchy becomes: product requirements, architecture, ADRs,
 reference, guides.
 
+- **No per-document status label outside `adr/`.** An ADR keeps its status
+  (Proposed, Accepted, Superseded). The status line other documents carried
+  ("Proposed reference", "Working draft") dated from a tree where most pages
+  described unbuilt interfaces. Where a document lives now says what it
+  is, and a page that describes something unbuilt says so in the sentence that
+  describes it.
+
 **Rule: do not commit research or plan documents.** Put findings and plans in
 a GitHub issue, and record the decision that follows in an ADR.

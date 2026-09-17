@@ -1,5 +1,9 @@
 # Documentation
 
+Authority runs in this order: product requirements, architecture, decision
+records, reference, guides. Where two documents disagree, the earlier one in
+that list wins.
+
 ## Start here
 
 - [Product requirements](product-requirements.md): goals, non-goals,

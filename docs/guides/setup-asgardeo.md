@@ -5,6 +5,9 @@ for it, and logs in. The examples use the organization `acme` and the
 `reference` product (`wso2 product install reference`). For every field a
 context can hold, see the [context file reference](../reference/context-file.md).
 
+Asgardeo was renamed WSO2 Identity Platform on 2026-06-15; the console paths
+below were written on 2026-08-06 and are unchanged by the rename.
+
 ## 1. Register the application
 
 In the Asgardeo Console, for your organization:
@@ -38,8 +41,8 @@ In the Asgardeo Console, for your organization:
    select its scopes.
 
 **Asgardeo puts the client ID in the access token's `aud` claim, not the API
-resource identifier** (measured 2026-08-06). So the audience you record for a
-product is the client ID.
+resource identifier** (measured against Asgardeo on 2026-08-06). So the
+audience you record for a product is the client ID.
 
 ## 3. Create a user
 
@@ -153,3 +156,9 @@ file the job applies with `wso2 context apply -f context.json --use acme-ci`.
 | `auth.keyring_unavailable` | No OS secure store. On headless Linux, start a keyring daemon or use a CI context. |
 | `auth.context_not_selected` | Run `wso2 context use acme`. |
 | `auth.login_not_required` | The context uses client credentials. Run the product command directly. |
+
+## Sources
+
+- [Register a standard-based app](https://wso2.com/asgardeo/docs/guides/applications/register-standard-based-app/)
+- [OAuth2 grant types (device authorization grant)](https://wso2.com/asgardeo/docs/references/grant-types/)
+- [Access tokens (`aud` claim)](https://wso2.com/asgardeo/docs/references/tokens/access-tokens/)

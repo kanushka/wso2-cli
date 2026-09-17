@@ -99,7 +99,11 @@ make test-module NAMESPACE=abc    # unit tests, with the race detector
 
 Unit tests use `sdk/testkit`, which runs a command
 through the real protocol with no build or login. `testkit.Access` fakes the
-token broker. It does not check declared audiences and scopes; step 3 does.
+token broker, so it accepts an audience or scope `module.json` does not
+declare; the shell's broker refuses one at run time with
+`auth.audience_not_declared`, and
+`internal/boundaries` holds a test that compares every module's declaration
+against what it serves.
 
 After you edit the code, repeat steps 3 and 4. To remove the module:
 

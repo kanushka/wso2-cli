@@ -170,3 +170,10 @@ CI uses a client-credentials context and doesn't run `wso2 login`.
 | `auth.product_not_configured` | The context doesn't record the product or one of its scopes. Run `wso2 context product add`. |
 | `auth.login_required` | The session expired or was revoked. Run `wso2 login`. |
 | `auth.context_not_selected` | Run `wso2 context use is-local`. |
+
+## Sources
+
+- [Run WSO2 Identity Server with Docker](https://hub.docker.com/r/wso2/wso2is)
+- [Register a standard-based app](https://is.docs.wso2.com/en/latest/guides/applications/register-standard-based-app/)
+- [Device authorization flow](https://is.docs.wso2.com/en/latest/guides/authentication/oidc/implement-device-flow/)
+- [API authorization with RBAC (audience and scopes)](https://is.docs.wso2.com/en/latest/guides/authorization/api-authorization/api-authorization/)

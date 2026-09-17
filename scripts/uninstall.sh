@@ -18,11 +18,11 @@
 # Removes what scripts/install.sh added on macOS, Linux, and WSL.
 #
 #	bash uninstall.sh              # remove the binary and the profile block
-#	bash uninstall.sh --purge      # also remove configuration and credentials
+#	bash uninstall.sh --purge      # also remove configuration and contexts
 #
 # It removes the binary, the directory the installer created for it, and the
 # delimited block the installer appended to a shell profile. It does not remove
-# configuration, contexts, or credentials unless asked: removing a binary is not
+# configuration or contexts unless asked: removing a binary is not
 # the same decision as abandoning a setup, and silently destroying the second
 # would be the worse default.
 #
@@ -45,7 +45,8 @@ for argument in "$@"; do
 	--purge) PURGE=1 ;;
 	-h | --help)
 		printf 'Usage: uninstall.sh [--purge]\n\n'
-		printf '  --purge  Also remove configuration, contexts, and credentials.\n'
+		printf '  --purge  Also remove configuration and contexts. Sessions in the OS\n'
+		printf '           secure store are not touched: run logout first.\n'
 		exit 0
 		;;
 	*)
@@ -117,14 +118,15 @@ done
 if [ "$PURGE" -eq 1 ]; then
 	if [ -d "$state_root" ]; then
 		rm -rf "$state_root"
-		printf 'Removed %s, including configuration and credentials.\n' "$state_root"
+		printf 'Removed %s, including configuration and contexts.\n' "$state_root"
+		printf 'Sessions in the OS secure store are not touched: run logout first.\n'
 		removed=1
 	fi
 else
 	# Named explicitly rather than left implicit: someone who wanted everything
 	# gone needs to know that something is still there and how to remove it.
 	if [ -d "$state_root" ]; then
-		printf '\nLeft %s in place, with your contexts and credentials.\n' "$state_root"
+		printf '\nLeft %s in place, with your contexts and preferences.\n' "$state_root"
 		printf 'Remove it too with: bash uninstall.sh --purge\n'
 	fi
 fi
