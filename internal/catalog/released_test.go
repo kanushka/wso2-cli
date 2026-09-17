@@ -101,3 +101,17 @@ func TestTheReleaseJobFetchesTheIndexFromTheDefaultOrigin(t *testing.T) {
 		t.Errorf("the release workflow does not fetch the catalog copy from %s", want)
 	}
 }
+
+// TestReleasedIndexInADevelopmentBuildKnowsNoProduct pins ReleasedIndex
+// itself: a development build injects no index, and the function must still
+// hand back a schema-tagged, empty index for a help page to render rather
+// than a zero value with no schema at all.
+func TestReleasedIndexInADevelopmentBuildKnowsNoProduct(t *testing.T) {
+	index := catalog.ReleasedIndex()
+	if index.SchemaVersion != catalog.SchemaVersion {
+		t.Errorf("SchemaVersion = %d, want %d", index.SchemaVersion, catalog.SchemaVersion)
+	}
+	if len(index.Modules) != 0 {
+		t.Errorf("Modules = %v, want none: this binary was not built with an injected index", index.Modules)
+	}
+}
