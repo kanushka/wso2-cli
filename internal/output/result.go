@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/wso2/wso2-cli/sdk/result"
 )
@@ -78,10 +79,18 @@ func resultTable(w io.Writer, produced result.Result) error {
 	}
 	headers := make([]string, 0, len(produced.Fields))
 	values := make([]string, 0, len(produced.Fields))
+	// A value that spans lines — an API's answer, a document — cannot be a
+	// column: it is rendered under its label after the table, in the order
+	// the fields came, before the next line.
+	var blocks [][2]string
 	next := ""
 	for _, field := range produced.Fields {
 		if field.Name == NextField {
 			next = field.Value
+			continue
+		}
+		if strings.Contains(field.Value, "\n") {
+			blocks = append(blocks, [2]string{field.DisplayLabel(), field.Value})
 			continue
 		}
 		headers = append(headers, field.DisplayLabel())
@@ -91,6 +100,11 @@ func resultTable(w io.Writer, produced result.Result) error {
 		table := NewTable(headers...)
 		table.Append(values...)
 		if err := table.Render(w); err != nil {
+			return err
+		}
+	}
+	for _, block := range blocks {
+		if _, err := fmt.Fprintf(w, "\n%s\n%s\n", block[0], strings.TrimRight(block[1], "\n")); err != nil {
 			return err
 		}
 	}

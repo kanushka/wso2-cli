@@ -709,6 +709,10 @@ func (i *Issuer) exchangeGrant(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = subject
 	audience := r.PostForm.Get("resource")
+	if i.opts.RegisteredResource != "" && audience != i.opts.RegisteredResource {
+		oauthError(w, http.StatusBadRequest, "invalid_target")
+		return
+	}
 	if i.opts.ExchangeAudience != "" {
 		audience = i.opts.ExchangeAudience
 	}

@@ -201,3 +201,21 @@ func TestAHandlerNamesTheRecordItAsksFor(t *testing.T) {
 		t.Errorf("the broker was asked for %+v, want %+v", outcome.AccessRequests, request)
 	}
 }
+
+func TestAHandlerNamesTheResourceItAsksFor(t *testing.T) {
+	request := module.AccessRequest{
+		Audience: "probe-invocation", Record: module.RecordAPI, Resource: "https://gw.example/hello",
+	}
+	outcome := testkit.Run(t.Context(), probeOptions(),
+		[]module.Command{acquiringCommand(request, nil, nil)},
+		testkit.Invocation{
+			Command: []string{"status"},
+			Access:  &testkit.Access{Token: "fixture-token", ExpiresAt: grantedUntil},
+		})
+	if outcome.Err != nil {
+		t.Fatalf("the invocation failed: %v", outcome.Err)
+	}
+	if len(outcome.AccessRequests) != 1 || !reflect.DeepEqual(outcome.AccessRequests[0], request) {
+		t.Errorf("the broker was asked for %+v, want %+v", outcome.AccessRequests, request)
+	}
+}

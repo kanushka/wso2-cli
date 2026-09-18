@@ -65,6 +65,9 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 			return nil, err
 		}
 		product := b.Selection.Identity.Products[b.Namespace]
+		if err := b.checkInvocable(request, kind); err != nil {
+			return nil, err
+		}
 		if kind == contexts.KindClientCredentials {
 			return b.inlineSource(request)
 		}
@@ -126,7 +129,7 @@ func (b *Broker) resolveSource(request Request) (source, error) {
 				},
 				namespace: access.Namespace,
 				product:   b.namespace(),
-				audience:  access.Audience,
+				audience:  b.exchangedAudience(request, access),
 			}, nil
 		}
 		if access.Strategy == contexts.StrategyDerived {
@@ -227,6 +230,35 @@ func (b *Broker) checkProduct(request Request) error {
 		}
 	}
 	return nil
+}
+
+// checkInvocable refuses the api record where nothing can answer it: the
+// access is exchanged from a person's login session, so a machine context has
+// no session to exchange and a product reached any other way has no exchange.
+func (b *Broker) checkInvocable(request Request, kind string) error {
+	if request.Record != contexts.APIRecord {
+		return nil
+	}
+	access, _ := b.Selection.Identity.Access(b.recordKey(request))
+	if kind != contexts.KindClientCredentials && access.Strategy == contexts.StrategyExchanged {
+		return nil
+	}
+	return denial("auth.invocation_unavailable",
+		fmt.Sprintf("the %q context cannot obtain access to an API for the %q module: that access is "+
+			"exchanged from a browser or device login session, for a product reached by the exchange grant",
+			b.Selection.Context.Name, b.namespace()),
+		"Select a context that signs in interactively at an identity provider offering token exchange "+
+			"and reaches this product by the exchange grant.")
+}
+
+// exchangedAudience is what an exchange asks for and is proved bound to: the
+// resource an api record request states, or the audience the context records
+// for the product.
+func (b *Broker) exchangedAudience(request Request, access contexts.ProductAccess) string {
+	if request.Record == contexts.APIRecord {
+		return request.Resource
+	}
+	return access.Audience
 }
 
 // checkGateway proves the identity records a gateway for the product asking,

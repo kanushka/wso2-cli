@@ -50,10 +50,20 @@ type AccessRequest struct {
 	// record, the one the shell holds for the API's own resource server. A
 	// record the module's descriptor does not declare is denied.
 	Record string
+	// Resource is the resource identifier of the API the access is for, read
+	// only with RecordAPI. It is the audience the API itself declares, and the
+	// shell grants only a token it has proved is bound to exactly that.
+	Resource string
 }
 
 // RecordGateway names a product's gateway record in an AccessRequest.
 const RecordGateway = "gateway"
+
+// RecordAPI asks for access to one API the product serves, named by
+// AccessRequest.Resource, so a handler can call the API the way a consumer
+// would. The context records nothing per API, and a module whose descriptor
+// does not declare invocation is denied it.
+const RecordAPI = "api"
 
 // Access is what the broker granted.
 //
@@ -128,6 +138,7 @@ func (b *streamBroker) Acquire(ctx context.Context, request AccessRequest) (Acce
 			Audience: request.Audience,
 			Scopes:   request.Scopes,
 			Record:   request.Record,
+			Resource: request.Resource,
 		}},
 	}); err != nil {
 		return Access{}, fmt.Errorf("module: cannot ask the shell for access: %w", err)

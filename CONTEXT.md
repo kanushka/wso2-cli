@@ -148,6 +148,13 @@ one that establishes the sign-on every other product session is obtained
 through.
 _Avoid_: Master session, primary session, parent session
 
+**API access**:
+The access a module is granted, for one command, to call one API its product
+serves the way a consumer would: exchanged from the login session for the
+audience the API itself declares, which no context records, and stored
+nowhere. It is the `api` record of a broker request (ADR 0018).
+_Avoid_: API token, test token, invocation token
+
 **Login product**:
 The product a context logs in through, written into the context's login block
 (`login.product`) so that a product recorded later cannot displace it. A

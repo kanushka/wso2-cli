@@ -816,8 +816,14 @@ type AcquireAccess struct {
 	Scopes []string `protobuf:"bytes,2,rep,name=scopes,proto3" json:"scopes,omitempty"`
 	// record names which record of the module's product the access is for:
 	// empty for the product's own record, "gateway" for its gateway record. A
-	// record the module's descriptor does not declare is denied.
-	Record        string `protobuf:"bytes,3,opt,name=record,proto3" json:"record,omitempty"`
+	// record the module's descriptor does not declare is denied. "api" asks for
+	// access to an API the product serves, named by resource.
+	Record string `protobuf:"bytes,3,opt,name=record,proto3" json:"record,omitempty"`
+	// resource is the RFC 8707 resource identifier of the API the access is for.
+	// It is read only with the "api" record, where the context records no
+	// audience to bind to: the module states the one the API itself declares,
+	// and the shell proves the token it issues is bound to exactly that.
+	Resource      string `protobuf:"bytes,4,opt,name=resource,proto3" json:"resource,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -869,6 +875,13 @@ func (x *AcquireAccess) GetScopes() []string {
 func (x *AcquireAccess) GetRecord() string {
 	if x != nil {
 		return x.Record
+	}
+	return ""
+}
+
+func (x *AcquireAccess) GetResource() string {
+	if x != nil {
+		return x.Resource
 	}
 	return ""
 }
@@ -1370,11 +1383,12 @@ const file_wso2_cli_module_v1_contract_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
 	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12\x1a\n" +
 	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12)\n" +
-	"\x10gateway_endpoint\x18\x04 \x01(\tR\x0fgatewayEndpoint\"[\n" +
+	"\x10gateway_endpoint\x18\x04 \x01(\tR\x0fgatewayEndpoint\"w\n" +
 	"\rAcquireAccess\x12\x1a\n" +
 	"\baudience\x18\x01 \x01(\tR\baudience\x12\x16\n" +
 	"\x06scopes\x18\x02 \x03(\tR\x06scopes\x12\x16\n" +
-	"\x06record\x18\x03 \x01(\tR\x06record\"M\n" +
+	"\x06record\x18\x03 \x01(\tR\x06record\x12\x1a\n" +
+	"\bresource\x18\x04 \x01(\tR\bresource\"M\n" +
 	"\rAccessGranted\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12&\n" +
 	"\x0fexpires_at_unix\x18\x02 \x01(\x03R\rexpiresAtUnix\"E\n" +
