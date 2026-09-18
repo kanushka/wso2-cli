@@ -94,7 +94,7 @@ func moduleOptions() module.Options {
 	return module.Options{
 		Namespace:     Namespace,
 		Version:       moduleVersion,
-		AuthAudiences: []string{ManagementAudience, GatewayAudience},
+		AuthAudiences: []string{ManagementAudience, GatewayAudience, InvocationAudience},
 	}
 }
 
@@ -175,6 +175,28 @@ func commands() *cobratree.Tree {
 		"The handle of the gateway to deploy the API to.")
 	apisCommand.AddCommand(apisDeployCommand)
 
+	apisInvokeCommand := &cobra.Command{
+		Use:   "invoke <api-id> [path] [-X <method>] [-H <name: value>]... [-d <body>] [--gateway-id <id>] [--no-token]",
+		Short: "Call a deployed API through its gateway, with a token minted for it.",
+	}
+	invokeFlags := &apisInvokeFlags{}
+	apisInvokeCommand.Flags().StringVarP(&invokeFlags.method, "method", "X", "", "The HTTP method; GET by default.")
+	apisInvokeCommand.Flags().StringArrayVarP(&invokeFlags.headers, "header", "H", nil,
+		"A header to send, as name: value; repeat for more than one.")
+	apisInvokeCommand.Flags().StringVarP(&invokeFlags.data, "data", "d", "", "The request body to send.")
+	apisInvokeCommand.Flags().StringVar(&invokeFlags.gatewayID, "gateway-id", "",
+		"The handle of the gateway to call, when the API is deployed on more than one.")
+	apisInvokeCommand.Flags().BoolVar(&invokeFlags.noToken, "no-token", false,
+		"Send no token, to see what the gateway answers an anonymous caller.")
+	apisCommand.AddCommand(apisInvokeCommand)
+
+	apisTokenCommand := &cobra.Command{
+		Use:   "token <api-id>",
+		Short: "Mint a short-lived token bound to a deployed API, for calling it by hand.",
+	}
+	tokenFlags := &apisTokenFlags{}
+	apisCommand.AddCommand(apisTokenCommand)
+
 	gatewayCommand := &cobra.Command{
 		Use:   "gateway",
 		Short: "Register a gateway and read what it is actually serving.",
@@ -224,6 +246,8 @@ func commands() *cobratree.Tree {
 		Handle(apisListCommand, apisList(apisListCommand, &project)).
 		Handle(apisCreateCommand, apisCreate(apisCreateCommand, createFlags)).
 		Handle(apisDeployCommand, apisDeploy(apisDeployCommand, deployFlags)).
+		Handle(apisInvokeCommand, apisInvoke(apisInvokeCommand, invokeFlags)).
+		Handle(apisTokenCommand, apisToken(apisTokenCommand, tokenFlags)).
 		Handle(gatewayRegisterCommand, gatewayRegister(gatewayRegisterCommand, registerFlags)).
 		Handle(gatewayTokenCreateCommand, gatewayTokenCreate(gatewayTokenCreateCommand)).
 		Handle(gatewayApisListCommand, gatewayApisList)

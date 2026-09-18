@@ -203,6 +203,35 @@ func TestANextFieldRendersAsATrailingLine(t *testing.T) {
 	t.Errorf("report did not end with the next line:\n%s", out.String())
 }
 
+func TestAMultiLineFieldRendersAsABlockAfterTheTable(t *testing.T) {
+	// An API's answer, a certificate, a document: a value that spans lines
+	// cannot be a column, and a table that tried would break every column
+	// after it. It is rendered under its label after the table, before next.
+	produced := result.New("api.invocation/v1").
+		With("status", "Status", "200").
+		With("body", "Body", "{\n  \"greeting\": \"hello\"\n}").
+		With("next", "Next", "Run wso2 api apis list.")
+	var out bytes.Buffer
+	if err := output.Result(&out, output.ModeTable, produced); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if strings.Contains(strings.SplitN(text, "\n", 2)[0], "BODY") {
+		t.Errorf("the multi-line field was rendered as a column:\n%s", text)
+	}
+	want := "\nBody\n{\n  \"greeting\": \"hello\"\n}\n\nNext  Run `wso2 api apis list`.\n"
+	if !strings.HasSuffix(text, want) {
+		t.Errorf("the block is not rendered after the table:\n%s", text)
+	}
+	out.Reset()
+	if err := output.Result(&out, output.ModeJSON, produced); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"body": "{\n  \"greeting\": \"hello\"\n}"`) {
+		t.Errorf("json lost the body:\n%s", out.String())
+	}
+}
+
 // listingResult is a result of the shape a product listing takes: a summary
 // field, one row per item under declared columns, and a next line.
 func listingResult() result.Result {

@@ -249,6 +249,12 @@ type Product struct {
 // the session key spell it.
 const GatewayRecord = "gateway"
 
+// APIRecord names, in a broker request, access to one API the product serves,
+// bound to the resource the request states. Nothing is stored under it: a
+// context records no API, so the access is derived per command from the
+// product's own record.
+const APIRecord = "api"
+
 // GatewayKey is the key a product's gateway record is reported and stored
 // under: the namespace, a slash, and GatewayRecord. The slash is admitted by
 // neither a namespace nor a credential reference, so the key can collide

@@ -202,8 +202,15 @@ message AcquireAccess {
 
   // record names which record of the module's product the access is for:
   // empty for the product's own record, "gateway" for its gateway record. A
-  // record the module's descriptor does not declare is denied.
+  // record the module's descriptor does not declare is denied. "api" asks for
+  // access to an API the product serves, named by resource.
   string record = 3;
+
+  // resource is the RFC 8707 resource identifier of the API the access is for.
+  // It is read only with the "api" record, where the context records no
+  // audience to bind to: the module states the one the API itself declares,
+  // and the shell proves the token it issues is bound to exactly that.
+  string resource = 4;
 }
 
 // AccessGranted answers AcquireAccess with the access material itself.

@@ -285,6 +285,19 @@ func TestTheRecordAnAccessRequestNamesReachesTheBroker(t *testing.T) {
 	}
 }
 
+func TestTheResourceAnAccessRequestNamesReachesTheBroker(t *testing.T) {
+	broker := &recordingBroker{grant: auth.Grant{Token: "fixture-token", ExpiresAt: grantedUntil}}
+	request := accessRequest()
+	request.GetAcquireAccess().Record = "api"
+	request.GetAcquireAccess().Resource = "https://gw.example/hello"
+	if _, _, err := runBrokered(t, broker, moduleStream(t, conformingHello(), request, statusResult())); err != nil {
+		t.Fatalf("Run returned %v", err)
+	}
+	if len(broker.requested) != 1 || broker.requested[0].Resource != "https://gw.example/hello" {
+		t.Fatalf("the broker was asked for %+v, want the resource it named", broker.requested)
+	}
+}
+
 func TestTheGatewayEndpointReachesTheModuleWithTheInvocation(t *testing.T) {
 	var toModule bytes.Buffer
 	session := testSession()

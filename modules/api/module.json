@@ -7,13 +7,16 @@
     "protocolVersions": [2]
   },
   "capabilities": {
-    "authAudiences": ["api-management", "api-gateway"],
+    "authAudiences": ["api-management", "api-gateway", "api-invocation"],
     "authScopes": [],
     "product": {
       "audience": "resource",
       "scopes": [],
       "grant": "exchange",
       "gateway": {
+        "audience": "resource"
+      },
+      "invocation": {
         "audience": "resource"
       }
     }

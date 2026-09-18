@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -49,6 +50,9 @@ type Request struct {
 	// Record names which record of the product the access is for: empty for
 	// the product's own record, contexts.GatewayRecord for its gateway.
 	Record string
+	// Resource is the resource identifier of the API the access is for, read
+	// only with contexts.APIRecord.
+	Resource string
 }
 
 // Grant is the access the shell issues.
@@ -139,6 +143,11 @@ type Broker struct {
 	// granted records that this invocation already has access, so the module
 	// cannot come back for more.
 	granted bool
+	// invocationGranted is the same record for the api record, kept apart
+	// because a command that calls an API holds two accesses by design: its
+	// product's, to learn where the API is and what it is bound to, and the
+	// API's own. Each is still granted once.
+	invocationGranted bool
 }
 
 // Acquire applies broker policy to one request and issues access or refuses it.
@@ -146,7 +155,7 @@ type Broker struct {
 // Every refusal is a typed problem in the authentication class, with recovery
 // guidance a user can act on and no detail of the credential behind it.
 func (b *Broker) Acquire(request Request) (Grant, error) {
-	if b.granted {
+	if b.alreadyGranted(request) {
 		return Grant{}, denial("auth.already_granted",
 			fmt.Sprintf("the %q module asked for access twice in one command", b.namespace()),
 			"Retry the command. A module is granted access once per command and cannot renew it.")
@@ -154,6 +163,9 @@ func (b *Broker) Acquire(request Request) (Grant, error) {
 	// The record is checked against the descriptor before anything else: a
 	// module may ask only for a record its installation declared.
 	if err := b.checkRecord(request); err != nil {
+		return Grant{}, err
+	}
+	if err := b.checkInvocation(request); err != nil {
 		return Grant{}, err
 	}
 	// A request naming no scopes asks for the record's recorded scopes: the
@@ -178,8 +190,62 @@ func (b *Broker) Acquire(request Request) (Grant, error) {
 		return Grant{}, asDenial(err)
 	}
 
-	b.granted = true
+	if request.Record == contexts.APIRecord {
+		b.invocationGranted = true
+	} else {
+		b.granted = true
+	}
 	return grant, nil
+}
+
+// alreadyGranted reports whether this command already holds the kind of
+// access the request asks for.
+func (b *Broker) alreadyGranted(request Request) bool {
+	if request.Record == contexts.APIRecord {
+		return b.invocationGranted
+	}
+	return b.granted
+}
+
+// checkInvocation proves a request's resource is one the api record may be
+// asked for, and that no other record carries one.
+//
+// The resource is the one value in a request the context does not vouch for:
+// the module read it from the API's own definition. What keeps that safe is
+// stated here and at the issuer. Here: it is an absolute URI, and it is not the
+// audience of any record this context holds, so the api record is never a
+// second way to a product's own token past that record's scope checks. At the
+// issuer: a resource it does not register is refused, and the token that comes
+// back is proved bound to exactly the resource asked for.
+func (b *Broker) checkInvocation(request Request) error {
+	if request.Record != contexts.APIRecord {
+		if request.Resource == "" {
+			return nil
+		}
+		return denial("auth.invocation_refused",
+			fmt.Sprintf("the %q module named a resource for a record that is bound by the context, not by "+
+				"the request", b.namespace()),
+			"Reinstall the module. Only the api record is bound to a resource the request names.")
+	}
+	parsed, err := url.Parse(request.Resource)
+	if err != nil || !parsed.IsAbs() || parsed.Host == "" {
+		return denial("auth.invocation_refused",
+			fmt.Sprintf("the %q module asked for access to an API without naming the absolute resource "+
+				"identifier the API is bound to", b.namespace()),
+			"Give the API an audience that is an absolute URI, registered as a resource server at the "+
+				"identity provider, then retry the command.")
+	}
+	for namespace, product := range b.Selection.Identity.Products {
+		if product.Audience == request.Resource ||
+			(product.Gateway != nil && product.Gateway.Audience == request.Resource) {
+			return denial("auth.invocation_refused",
+				fmt.Sprintf("the %q module asked for access to an API bound to %q, which is the audience "+
+					"this context records for its %q product", b.namespace(), request.Resource, namespace),
+				"Give the API an audience of its own. A token bound to a product's audience is issued "+
+					"only for that product's own commands.")
+		}
+	}
+	return nil
 }
 
 // checkDeclared intersects the request with the module receipt.
@@ -228,6 +294,15 @@ func (b *Broker) checkRecord(request Request) error {
 			fmt.Sprintf("the %q module asked for its gateway record, which its descriptor does not declare",
 				b.namespace()),
 			"Install a version of the module whose descriptor declares a gateway. The shell grants "+
+				"only the records a module receipt declares.")
+	case contexts.APIRecord:
+		if b.Capabilities.Product != nil && b.Capabilities.Product.Invocation != nil {
+			return nil
+		}
+		return denial("auth.product_not_configured",
+			fmt.Sprintf("the %q module asked for access to an API, which its descriptor does not declare",
+				b.namespace()),
+			"Install a version of the module whose descriptor declares invocation. The shell grants "+
 				"only the records a module receipt declares.")
 	default:
 		return denial("auth.product_not_configured",

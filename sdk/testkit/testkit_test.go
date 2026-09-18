@@ -219,6 +219,40 @@ func TestRunRecordsAccessRequestsInOrder(t *testing.T) {
 	}
 }
 
+func TestRunAnswersARecordWithTheAccessScriptedForIt(t *testing.T) {
+	var tokens []string
+	command := module.Command{
+		Path: []string{"both"},
+		Run: func(ctx context.Context, request module.Request) (result.Result, error) {
+			for _, asked := range []module.AccessRequest{
+				{Audience: "first"},
+				{Audience: "second", Record: module.RecordAPI, Resource: "https://gw.example/hello"},
+			} {
+				access, err := request.Access.Acquire(ctx, asked)
+				if err != nil {
+					return result.Result{}, err
+				}
+				tokens = append(tokens, access.Token)
+			}
+			return result.New("probe.status/v1").With("status", "Status", "operational"), nil
+		},
+	}
+	outcome := testkit.Run(t.Context(), probeOptions(), []module.Command{command},
+		testkit.Invocation{
+			Command: []string{"both"},
+			Access:  &testkit.Access{Token: "own-token"},
+			AccessByRecord: map[string]*testkit.Access{
+				module.RecordAPI: {Token: "api-token"},
+			},
+		})
+	if outcome.Err != nil || outcome.Problem != nil {
+		t.Fatalf("Run failed: err=%v problem=%v", outcome.Err, outcome.Problem)
+	}
+	if len(tokens) != 2 || tokens[0] != "own-token" || tokens[1] != "api-token" {
+		t.Errorf("the handler was granted %v, want own-token then api-token", tokens)
+	}
+}
+
 func TestRunDefaultsTheInvocationIdentifier(t *testing.T) {
 	var seen module.Request
 	command := module.Command{

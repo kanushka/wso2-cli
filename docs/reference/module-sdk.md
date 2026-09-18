@@ -167,6 +167,8 @@ is not passed at all.
 type AccessRequest struct {
 	Audience string
 	Scopes   []string
+	Record   string
+	Resource string
 }
 
 type Access struct {
@@ -194,9 +196,28 @@ them. So a module declares every scope its commands can need once, in
 `module.json` and `Options`, and a handler names scopes only when one command
 should hold fewer than the entry allows.
 
-The token is opaque. Do not parse it, log it, return it, persist it, or pass it
-in command-line arguments. `ExpiresAt` lets a module fail early; the audience
-enforces expiry regardless.
+`Record` names which record of the product the access is for: empty for the
+product's own, `module.RecordGateway` for its gateway record, or
+`module.RecordAPI` for one API the product serves. The first two are bound by
+what the context records. The third is bound by `Resource`, the audience the
+API itself declares, which the module reads from the API's definition and no
+context records; it is granted only to a module whose descriptor declares
+`invocation`, only for a product reached by the exchange grant from an
+interactive login, and never for a resource that is the audience of any record
+the context holds (`auth.invocation_refused`). The identity provider is the
+allowlist beyond that: a resource it does not register is refused
+(`auth.exchange_unavailable`), and a token it issues is proved bound to exactly
+the resource asked for before the module sees it. ADR 0018 records the rule.
+
+A command is granted each record once. A command that calls an API holds two
+accesses by design, its product's to find the API and the API's own to call it,
+and asks for each once.
+
+The token is opaque. Do not parse it, log it, persist it, or pass it in
+command-line arguments. `ExpiresAt` lets a module fail early; the audience
+enforces expiry regardless. The one command that returns a token as its result
+is one whose whole purpose is to hand it over (`wso2 api apis token`), and it
+says on standard error that the token is stored nowhere.
 
 A denial arrives as a typed problem and should be returned unchanged.
 
@@ -238,6 +259,10 @@ reads, falling back to the name when empty. Build a result with `result.New` and
 By convention the last field is named `next` and says what a user most likely
 runs next; the shell renders it as a trailing line under the table. The
 generated module follows the convention and its generated test checks it.
+
+A value that spans lines, such as an API's answer or a document, is not a
+column either: the shell renders it under its label as a block after the
+table, before the next line. JSON output carries it as the string it is.
 
 Every `Value` is a string, so a module formats its own times and numbers. This
 is a deliberate limit of the architecture proof rather than a lasting design:
