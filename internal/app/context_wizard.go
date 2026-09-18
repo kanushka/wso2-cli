@@ -271,9 +271,9 @@ func (s Shell) askIssuerLogin(flags *contextCreateFlags, provider, title string,
 	return err
 }
 
-// thunderDeviceComingSoon is what picking a device sign-in at Thunder says
-// until Thunder serves the device authorization grant.
-const thunderDeviceComingSoon = "Device sign-in with Thunder is coming soon. Choose a browser sign-in for now."
+// deviceComingSoon is what picking a device sign-in in the wizard says until
+// the wizard offers it.
+const deviceComingSoon = "Device code sign-in is coming soon. Choose a browser sign-in for now."
 
 // serverURL is an Identity Server URL as typed, when it is one.
 func serverURL(answer string) (string, error) {
@@ -336,18 +336,14 @@ func (s Shell) askSignIn(flags *contextCreateFlags, descriptor *modules.ProductD
 	if flags.device || flags.clientSecretVariable != "" {
 		return nil
 	}
-	machine := wizard.Option{Label: "Client credentials, for CI (the secret is read from an environment variable)"}
+	machine := wizard.Option{Label: "Client credentials (CI)"}
 	if descriptor != nil && !descriptor.AllowsMachine(modules.MachineInline) {
 		machine.Unavailable = fmt.Sprintf("The %s product does not accept a machine client at its own "+
 			"issuer. Choose a browser or device sign-in.", flags.loginProduct)
 	}
-	device := wizard.Option{Label: "A code approved on another device (no browser here)"}
-	if descriptor != nil && descriptor.Provider == contexts.ProviderThunder {
-		device.Label += " (coming soon)"
-		device.Unavailable = thunderDeviceComingSoon
-	}
+	device := wizard.Option{Label: "Device code (coming soon)", Unavailable: deviceComingSoon}
 	picked, err := s.choose("Sign in using:", []wizard.Option{
-		signInBrowser: {Label: "A browser on this machine"},
+		signInBrowser: {Label: "Browser"},
 		signInDevice:  device,
 		signInMachine: machine,
 	}, signInBrowser)
@@ -373,17 +369,38 @@ func (s Shell) askSignIn(flags *contextCreateFlags, descriptor *modules.ProductD
 	return nil
 }
 
+// productSummaries is each product's one-line summary as the root help page
+// names it, by namespace.
+func (s Shell) productSummaries() map[string]string {
+	products, _ := s.helpProducts()
+	summaries := make(map[string]string, len(products))
+	for _, product := range products {
+		summaries[product.namespace] = product.summary
+	}
+	return summaries
+}
+
+// productLabel names a product in a picker: its namespace, then its summary
+// when it has one.
+func productLabel(namespace, summary string) string {
+	if summary == "" {
+		return namespace
+	}
+	return namespace + " — " + summary
+}
+
 // askProducts offers the installed products the context does not log in
 // through, one at a time, until the person is done.
 func (s Shell) askProducts(installed []string, lookup descriptorLookup, loginProduct string) ([]productAnswer, error) {
 	remaining := reachable(installed, lookup, nil)
+	summaries := s.productSummaries()
 	var answers []productAnswer
 	for len(remaining) > 0 {
 		// The installed products first, the first as the default, and a way
 		// to stop last.
 		options := make([]wizard.Option, 0, len(remaining)+1)
 		for _, namespace := range remaining {
-			options = append(options, wizard.Option{Label: namespace})
+			options = append(options, wizard.Option{Label: productLabel(namespace, summaries[namespace])})
 		}
 		options = append(options, wizard.Option{Label: "Skip"})
 		title := "Add a product this context reaches:"
