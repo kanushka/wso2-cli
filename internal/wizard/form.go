@@ -21,6 +21,7 @@ import (
 	"io"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/term"
@@ -69,10 +70,20 @@ func (p formPrompter) Input(title, fallback string, validate func(string) error)
 	return orDefault(answer, fallback), nil
 }
 
+// Confirm is a select of Yes and No rather than huh's confirm buttons, so a
+// yes/no question is answered the same way as every other choice. Filtering
+// two options helps nobody, so its key and hint are left out: the binding has
+// no keys at all, because huh enables the filter key again whenever it clears
+// the filter.
 func (p formPrompter) Confirm(title string, fallback bool) (bool, error) {
 	answer := fallback
-	field := huh.NewConfirm().Title(title).Value(&answer)
-	if err := p.run(field); err != nil {
+	field := huh.NewSelect[bool]().
+		Title(title).
+		Options(huh.NewOption("Yes", true), huh.NewOption("No", false)).
+		Value(&answer)
+	keymap := huh.NewDefaultKeyMap()
+	keymap.Select.Filter = key.NewBinding()
+	if err := p.runWith(field, keymap); err != nil {
 		return false, err
 	}
 	return answer, nil
@@ -91,7 +102,11 @@ func theme(isDark bool) *huh.Styles {
 	return styles
 }
 
-func (p formPrompter) run(field huh.Field) (err error) {
+func (p formPrompter) run(field huh.Field) error {
+	return p.runWith(field, huh.NewDefaultKeyMap())
+}
+
+func (p formPrompter) runWith(field huh.Field, keymap *huh.KeyMap) (err error) {
 	// huh dereferences a nil model when its program ends on end of input
 	// before the form is answered. A terminal that closed is no answer, not a
 	// crash.
@@ -105,6 +120,7 @@ func (p formPrompter) run(field huh.Field) (err error) {
 		WithOutput(p.out).
 		WithWidth(p.width()).
 		WithTheme(huh.ThemeFunc(theme)).
+		WithKeyMap(keymap).
 		Run()
 	if errors.Is(err, huh.ErrUserAborted) {
 		return ErrAborted

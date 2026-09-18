@@ -69,6 +69,33 @@ func TestFormConfirmTakesTheDefault(t *testing.T) {
 	if yes, err := p.Confirm("Go?", true); err != nil || !yes {
 		t.Fatalf("Confirm = %v, %v", yes, err)
 	}
+	p = formPrompter{in: terminal(t, "\r"), out: &out}
+	if yes, err := p.Confirm("Go?", false); err != nil || yes {
+		t.Fatalf("Confirm = %v, %v; want the No default", yes, err)
+	}
+}
+
+func TestFormConfirmIsASelectOfYesAndNo(t *testing.T) {
+	var out bytes.Buffer
+	p := formPrompter{in: terminal(t, "\x1b[B\r"), out: &out}
+	if yes, err := p.Confirm("Go?", true); err != nil || yes {
+		t.Fatalf("Confirm = %v, %v; want No after moving down", yes, err)
+	}
+	p = formPrompter{in: terminal(t, "\x1b[A\r"), out: &out}
+	if yes, err := p.Confirm("Go?", false); err != nil || !yes {
+		t.Fatalf("Confirm = %v, %v; want Yes after moving up", yes, err)
+	}
+}
+
+func TestFormConfirmOffersNoFilter(t *testing.T) {
+	var out bytes.Buffer
+	p := formPrompter{in: terminal(t, "\r"), out: &out}
+	if _, err := p.Confirm("Go?", true); err != nil {
+		t.Fatalf("Confirm err = %v", err)
+	}
+	if bytes.Contains(out.Bytes(), []byte("filter")) {
+		t.Errorf("Confirm drew a filter hint:\n%s", out.String())
+	}
 }
 
 // terminal is input that carries keys and then stays open, as a terminal
