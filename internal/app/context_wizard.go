@@ -271,9 +271,9 @@ func (s Shell) askIssuerLogin(flags *contextCreateFlags, provider, title string,
 	return err
 }
 
-// thunderDeviceComingSoon is what picking a device sign-in at Thunder says
-// until Thunder serves the device authorization grant.
-const thunderDeviceComingSoon = "Device sign-in with Thunder is coming soon. Choose a browser sign-in for now."
+// deviceComingSoon is what picking a device sign-in in the wizard says until
+// the wizard offers it.
+const deviceComingSoon = "Device code sign-in is coming soon. Choose a browser sign-in for now."
 
 // serverURL is an Identity Server URL as typed, when it is one.
 func serverURL(answer string) (string, error) {
@@ -341,11 +341,7 @@ func (s Shell) askSignIn(flags *contextCreateFlags, descriptor *modules.ProductD
 		machine.Unavailable = fmt.Sprintf("The %s product does not accept a machine client at its own "+
 			"issuer. Choose a browser or device sign-in.", flags.loginProduct)
 	}
-	device := wizard.Option{Label: "Device code"}
-	if descriptor != nil && descriptor.Provider == contexts.ProviderThunder {
-		device.Label += " (coming soon)"
-		device.Unavailable = thunderDeviceComingSoon
-	}
+	device := wizard.Option{Label: "Device code (coming soon)", Unavailable: deviceComingSoon}
 	picked, err := s.choose("Sign in using:", []wizard.Option{
 		signInBrowser: {Label: "Browser"},
 		signInDevice:  device,
