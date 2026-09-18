@@ -3,7 +3,7 @@ go 1.25.8
 // The workspace composes the SDK and the product modules from source during
 // local development, so a change to the SDK is testable before it is tagged.
 //
-// It declares no replacements. sdk/v0.2.0 is published, so every module
+// It declares no replacements. sdk/v0.3.0 is published, so every module
 // requires a version the module proxy can serve and nothing here has to stand
 // in for it.
 //
