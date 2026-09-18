@@ -336,18 +336,18 @@ func (s Shell) askSignIn(flags *contextCreateFlags, descriptor *modules.ProductD
 	if flags.device || flags.clientSecretVariable != "" {
 		return nil
 	}
-	machine := wizard.Option{Label: "Client credentials, for CI (the secret is read from an environment variable)"}
+	machine := wizard.Option{Label: "Client credentials (CI)"}
 	if descriptor != nil && !descriptor.AllowsMachine(modules.MachineInline) {
 		machine.Unavailable = fmt.Sprintf("The %s product does not accept a machine client at its own "+
 			"issuer. Choose a browser or device sign-in.", flags.loginProduct)
 	}
-	device := wizard.Option{Label: "Device code, for a machine with no browser (approve it on another device)"}
+	device := wizard.Option{Label: "Device code (no browser here)"}
 	if descriptor != nil && descriptor.Provider == contexts.ProviderThunder {
 		device.Label += " (coming soon)"
 		device.Unavailable = thunderDeviceComingSoon
 	}
 	picked, err := s.choose("Sign in using:", []wizard.Option{
-		signInBrowser: {Label: "A browser on this machine"},
+		signInBrowser: {Label: "Browser"},
 		signInDevice:  device,
 		signInMachine: machine,
 	}, signInBrowser)
