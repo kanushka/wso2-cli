@@ -3,9 +3,9 @@ go 1.25.8
 // The workspace composes the SDK and the product modules from source during
 // local development, so a change to the SDK is testable before it is tagged.
 //
-// The replacement below is a release bootstrap and is temporary: the modules
-// require sdk v0.3.0, which nothing has published yet. Drop it once sdk/v0.3.0
-// is pushed, and bump sdkPublishedVersion in internal/boundaries with it.
+// It declares no replacements. sdk/v0.3.0 is published, so every module
+// requires a version the module proxy can serve and nothing here has to stand
+// in for it.
 //
 // One replacement is permitted, and only while an SDK release is in flight: the
 // release gate compares its tag against the version modules/reference requires,
@@ -25,5 +25,3 @@ use (
 	./modules/reference
 	./sdk
 )
-
-replace github.com/wso2/wso2-cli/sdk v0.3.0 => ./sdk
