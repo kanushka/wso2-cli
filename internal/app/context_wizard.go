@@ -373,17 +373,38 @@ func (s Shell) askSignIn(flags *contextCreateFlags, descriptor *modules.ProductD
 	return nil
 }
 
+// productSummaries is each product's one-line summary as the root help page
+// names it, by namespace.
+func (s Shell) productSummaries() map[string]string {
+	products, _ := s.helpProducts()
+	summaries := make(map[string]string, len(products))
+	for _, product := range products {
+		summaries[product.namespace] = product.summary
+	}
+	return summaries
+}
+
+// productLabel names a product in a picker: its namespace, then its summary
+// when it has one.
+func productLabel(namespace, summary string) string {
+	if summary == "" {
+		return namespace
+	}
+	return namespace + " — " + summary
+}
+
 // askProducts offers the installed products the context does not log in
 // through, one at a time, until the person is done.
 func (s Shell) askProducts(installed []string, lookup descriptorLookup, loginProduct string) ([]productAnswer, error) {
 	remaining := reachable(installed, lookup, nil)
+	summaries := s.productSummaries()
 	var answers []productAnswer
 	for len(remaining) > 0 {
 		// The installed products first, the first as the default, and a way
 		// to stop last.
 		options := make([]wizard.Option, 0, len(remaining)+1)
 		for _, namespace := range remaining {
-			options = append(options, wizard.Option{Label: namespace})
+			options = append(options, wizard.Option{Label: productLabel(namespace, summaries[namespace])})
 		}
 		options = append(options, wizard.Option{Label: "Skip"})
 		title := "Add a product this context reaches:"
