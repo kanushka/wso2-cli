@@ -49,10 +49,12 @@ Environment variables it reads:
                                stable release.
   WSO2_CLI_NO_PROFILE=1        Install without changing any environment
                                variable or setting up tab completion.
-  WSO2_CLI_RELEASE_BASE_URL    Where releases are downloaded from, and the
-  WSO2_CLI_RELEASE_API_URL     PowerShell profile tab completion is set up in.
-  WSO2_CLI_POWERSHELL_PROFILE  Overridden by the tests; users have no reason
-                               to set any of them.
+  WSO2_CLI_RELEASE_BASE_URL    Where releases are downloaded from.
+  WSO2_CLI_RELEASE_API_URL
+  WSO2_CLI_POWERSHELL_PROFILE  The PowerShell profile tab completion is set up
+                               in, in place of $PROFILE.
+
+  The last three are overridden by the tests; users have no reason to set them.
 #>
 param(
     [string] $Version

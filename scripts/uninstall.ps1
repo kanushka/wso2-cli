@@ -116,8 +116,14 @@ if ($userStateRoot -and $userStateRoot.TrimEnd('\') -ieq $stateRoot.TrimEnd('\')
 
 # The tab completion block `completion install` wrote into a PowerShell profile.
 # Both editions' profiles are checked, because the install may have run under
-# the other one. Only the lines between the markers go, and a profile with a
-# start marker and no end is left alone rather than guessed at.
+# the other one. Only the lines between the markers go. A profile whose markers
+# do not pair up, start before end, is left alone rather than guessed at.
+#
+# The profile is rewritten byte for byte apart from the block: it is read as
+# Latin-1, which maps every byte to one character, so UTF-8 with or without a
+# BOM and the ANSI code page all survive; only UTF-16, which PowerShell also
+# writes, is read as what it is. The rewrite goes through a temporary file
+# beside the profile, so an interrupted run cannot truncate it.
 $BlockBegin = '# >>> wso2 cli >>>'
 $BlockEnd = '# <<< wso2 cli <<<'
 $profiles = @()
@@ -132,24 +138,46 @@ if ($env:WSO2_CLI_POWERSHELL_PROFILE) {
 }
 foreach ($profilePath in ($profiles | Select-Object -Unique)) {
     if (-not $profilePath -or -not (Test-Path -LiteralPath $profilePath)) { continue }
-    $lines = @(Get-Content -LiteralPath $profilePath)
-    if ($lines -notcontains $BlockBegin) { continue }
-    if ($lines -notcontains $BlockEnd) {
-        [Console]::Error.WriteLine("warning: $profilePath has the wso2 block start but no end marker.")
-        [Console]::Error.WriteLine("Left it alone rather than guessing where it ends. Remove these lines by hand:")
+    $bytes = [System.IO.File]::ReadAllBytes($profilePath)
+    $encoding = [System.Text.Encoding]::GetEncoding(28591)
+    if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) {
+        $encoding = [System.Text.Encoding]::Unicode
+    } elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) {
+        $encoding = [System.Text.Encoding]::BigEndianUnicode
+    }
+    $lines = $encoding.GetString($bytes) -split "`n"
+
+    $kept = New-Object System.Collections.Generic.List[string]
+    $inside = $false
+    $found = $false
+    $malformed = $false
+    foreach ($line in $lines) {
+        $bare = $line.TrimEnd("`r")
+        if ($bare -ceq $BlockBegin) {
+            if ($inside) { $malformed = $true; break }
+            $inside = $true
+            $found = $true
+            continue
+        }
+        if ($bare -ceq $BlockEnd) {
+            if (-not $inside) { $malformed = $true; break }
+            $inside = $false
+            continue
+        }
+        if (-not $inside) { $kept.Add($line) }
+    }
+    if ($inside) { $malformed = $true }
+    if (-not $found -and -not $malformed) { continue }
+    if ($malformed) {
+        [Console]::Error.WriteLine("warning: the wso2 block markers in $profilePath do not pair up.")
+        [Console]::Error.WriteLine("Left it alone rather than guessing where the block ends. Remove these lines by hand:")
         [Console]::Error.WriteLine("  $BlockBegin ... $BlockEnd")
         continue
     }
-    $kept = @()
-    $inside = $false
-    foreach ($line in $lines) {
-        if ($line -eq $BlockBegin) { $inside = $true; continue }
-        if ($line -eq $BlockEnd) { $inside = $false; continue }
-        if (-not $inside) { $kept += $line }
-    }
-    # Joined first: Set-Content refuses an empty array, which is what a profile
-    # holding nothing but the block leaves.
-    Set-Content -LiteralPath $profilePath -Value ($kept -join [Environment]::NewLine)
+
+    $staged = "$profilePath.wso2-uninstall.$PID"
+    [System.IO.File]::WriteAllBytes($staged, $encoding.GetBytes($kept -join "`n"))
+    Move-Item -LiteralPath $staged -Destination $profilePath -Force
     Write-Output "Removed the wso2 block from $profilePath"
     $removed = $true
 }

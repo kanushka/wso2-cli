@@ -220,7 +220,8 @@ func TestCompletionInstallJoinsTheInstallersBlock(t *testing.T) {
 	if _, errOut, code := runInstall(t); code != exit.OK {
 		t.Fatalf("exit %d; stderr: %s", code, errOut)
 	}
-	want := "# mine\n\n# >>> wso2 cli >>>\nexport PATH=\"/x/bin:$PATH\"\neval \"$(wso2 completion bash)\"\n# <<< wso2 cli <<<\n"
+	want := "# mine\n\n# >>> wso2 cli >>>\nexport PATH=\"/x/bin:$PATH\"\n" +
+		"command -v wso2 >/dev/null 2>&1 && eval \"$(wso2 completion bash)\"\n# <<< wso2 cli <<<\n"
 	if got := readFile(t, profile); got != want {
 		t.Errorf("profile =\n%s\nwant\n%s", got, want)
 	}

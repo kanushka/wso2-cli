@@ -75,7 +75,8 @@ var commandNameForProfile = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 func (s Shell) extendCompletionCommand(command *cobra.Command) {
 	command.Short = "Set up tab completion, or print a shell's completion script."
 	command.Long = "Run wso2 completion install to set up tab completion for your shell. " +
-		"wso2 completion <shell> prints the script itself."
+		"wso2 completion <shell> prints the script itself when its output is piped or redirected; " +
+		"at a terminal it says how to set completion up, and --print prints the script anyway."
 	for _, child := range command.Commands() {
 		if !slices.Contains(completionShells, child.Name()) {
 			continue
@@ -232,15 +233,19 @@ func completionShellTitle(shell string) string {
 // the start-up cost for everyone whose framework already did. bash reads the
 // script through eval, because the bash 3.2 macOS ships cannot source a
 // process substitution.
+//
+// Both load the script only when the command is on PATH. The installer may
+// have put it there in a file only a login shell reads, and a line that fails
+// in every other terminal is worse than no completion there.
 func completionLines(shell, name string) []string {
 	switch shell {
 	case shellZsh:
 		return []string{
 			"(( $+functions[compdef] )) || { autoload -Uz compinit && compinit; }",
-			"source <(" + name + " completion zsh)",
+			"(( $+commands[" + name + "] )) && source <(" + name + " completion zsh)",
 		}
 	case shellBash:
-		return []string{`eval "$(` + name + ` completion bash)"`}
+		return []string{"command -v " + name + ` >/dev/null 2>&1 && eval "$(` + name + ` completion bash)"`}
 	default:
 		return []string{name + " completion powershell | Out-String | Invoke-Expression"}
 	}
@@ -352,10 +357,9 @@ func addToProfile(path string, lines []string) (bool, error) {
 	return true, writeProfile(path, []byte(updated))
 }
 
-// withCompletionLines returns contents with lines inside its wso2 block. The
-// last line is the one that loads the script, so a block that has it is already
-// set up. Every line outside the block is kept byte for byte, including a
-// Windows line ending.
+// withCompletionLines returns contents with lines inside its wso2 block, in
+// order, and reports whether it had to change anything. Every other line is
+// kept byte for byte, including a Windows line ending.
 func withCompletionLines(contents string, lines []string, path string) (string, bool, error) {
 	newline := "\n"
 	if strings.Contains(contents, "\r\n") {
@@ -390,18 +394,28 @@ func withCompletionLines(contents string, lines []string, path string) (string, 
 		}
 		return prefix + newline + strings.Join(block, newline) + newline, true, nil
 	}
+	// Any of the lines already there are taken out and all of them written
+	// again, in order, so a block that lost one gets it back where it belongs.
+	var kept []string
+	present := 0
 	for _, line := range existing[begin+1 : end] {
-		if strings.TrimSuffix(line, "\r") == lines[len(lines)-1] {
-			return contents, false, nil
+		if slices.Contains(lines, strings.TrimSuffix(line, "\r")) {
+			present++
+			continue
 		}
+		kept = append(kept, line)
 	}
-	inserted := make([]string, 0, len(existing)+len(lines))
-	inserted = append(inserted, existing[:end]...)
+	if present == len(lines) {
+		return contents, false, nil
+	}
+	rebuilt := make([]string, 0, len(existing)+len(lines))
+	rebuilt = append(rebuilt, existing[:begin+1]...)
+	rebuilt = append(rebuilt, kept...)
 	for _, line := range lines {
-		inserted = append(inserted, line+strings.TrimSuffix(newline, "\n"))
+		rebuilt = append(rebuilt, line+strings.TrimSuffix(newline, "\n"))
 	}
-	inserted = append(inserted, existing[end:]...)
-	return strings.Join(inserted, "\n"), true, nil
+	rebuilt = append(rebuilt, existing[end:]...)
+	return strings.Join(rebuilt, "\n"), true, nil
 }
 
 // writeFishCompletion writes the file fish loads when it first completes the

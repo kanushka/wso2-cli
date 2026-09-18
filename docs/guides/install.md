@@ -77,7 +77,7 @@ On Unix the installer adds this block to your shell profile, here for bash:
 # >>> wso2 cli >>>
 export WSO2_HOME="/home/you/.wso2"
 export PATH="/home/you/.wso2/bin:$PATH"
-eval "$(wso2 completion bash)"
+command -v wso2 >/dev/null 2>&1 && eval "$(wso2 completion bash)"
 # <<< wso2 cli <<<
 ```
 
@@ -105,8 +105,8 @@ when completion is already set up:
   would stop the profile loading, so it is refused.
 
 `--profile <file>` edits another file. Every line loads the script when a
-terminal opens, so it never goes stale, and a product you install completes at
-once. `wso2 completion <shell>` prints the script itself when its output is piped;
+terminal opens, and only when the command is on `PATH`, so it never goes stale,
+and a product you install completes at once. `wso2 completion <shell>` prints the script itself when its output is piped;
 typed at a terminal it says how to set completion up, and `--print` prints the
 script anyway.
 

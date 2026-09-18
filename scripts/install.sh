@@ -305,23 +305,26 @@ print_manual_path_instructions() {
 	printf '    export PATH="%s:$PATH"\n' "$bin_dir"
 }
 
-# completion_line reports the profile line that loads tab completion for the
-# running shell, or nothing for a shell the CLI cannot complete in.
-completion_line() {
+# completion_lines reports the profile lines that load tab completion for the
+# running shell, or nothing for a shell the CLI cannot complete in. zsh needs
+# compinit first, which a plain zsh profile never runs.
+completion_lines() {
 	local cli_name="$1"
 	case "${SHELL##*/}" in
-	zsh) printf 'source <(%s completion zsh)\n' "$cli_name" ;;
+	zsh) printf 'autoload -Uz compinit && compinit\nsource <(%s completion zsh)\n' "$cli_name" ;;
 	bash) printf 'eval "$(%s completion bash)"\n' "$cli_name" ;;
 	fish) printf '%s completion fish | source\n' "$cli_name" ;;
 	esac
 }
 
 print_manual_completion_instructions() {
-	local cli_name="$1" line
-	line="$(completion_line "$cli_name")"
-	[ -n "$line" ] || return 0
-	printf '\nFor tab completion, add this line to your shell profile too:\n\n'
-	printf '    %s\n' "$line"
+	local cli_name="$1" lines line
+	lines="$(completion_lines "$cli_name")"
+	[ -n "$lines" ] || return 0
+	printf '\nFor tab completion, add this to your shell profile too:\n\n'
+	while IFS= read -r line; do
+		printf '    %s\n' "$line"
+	done <<<"$lines"
 }
 
 # set_up_completion has the installed shell add tab completion to the profile,
