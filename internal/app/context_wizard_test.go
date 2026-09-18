@@ -67,7 +67,7 @@ func TestContextCreateWizardWritesWhatTheCommandLinesWrite(t *testing.T) {
 	for _, question := range []string{"Sign in with:", "1. Thunder", "2. Asgardeo", "3. WSO2 Identity Server (coming soon)",
 		"4. WSO2 Cloud (coming soon)", "Thunder URL: ", "Sign in using:",
 		"2. Device code (coming soon)",
-		"Device code sign-in is coming soon.", "Add a product this context reaches:",
+		"Device code sign-in with Thunder is coming soon.", "Add a product this context reaches:",
 		"1. api", "2. apim", "3. Skip", "api URL: ", "api gateway URL (empty for none): ", "Add another product:", "Context name [context-1]: ",
 		`Create the "local" context? [Y/n]`, `Select "local" as the current context? [Y/n]`, "Log in now? [Y/n]"} {
 		if !strings.Contains(errOut, question) {
@@ -299,6 +299,9 @@ func TestContextCreateWizardThroughAsgardeo(t *testing.T) {
 	}
 	if !strings.Contains(errOut, "Asgardeo organization name: ") {
 		t.Errorf("stderr lacks the organization question:\n%s", errOut)
+	}
+	if !strings.Contains(errOut, "2. Device code\n") {
+		t.Errorf("Asgardeo should offer device code without \"(coming soon)\":\n%s", errOut)
 	}
 	acme := contextNamed(t, loadDocument(t, shell), "acme")
 	want := contexts.Login{Kind: contexts.KindOAuthBrowser, Issuer: "https://api.asgardeo.io/t/acme/oauth2/token",
