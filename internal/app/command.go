@@ -200,11 +200,12 @@ func (s Shell) rootCommand() *cobra.Command {
 	// Completion covers product commands as well as built-ins, because every
 	// module declares its command tree in its receipt (completion.go). The
 	// command is added here rather than by Execute so that dispatch finds it
-	// among the shell's own commands.
+	// among the shell's own commands. It also sets completion up for the user
+	// (completion_setup.go).
 	root.InitDefaultCompletionCmd()
 	for _, command := range root.Commands() {
 		if command.Name() == "completion" {
-			command.Short = "Write the tab completion script for a shell."
+			s.extendCompletionCommand(command)
 		}
 		if command.Name() == "help" {
 			command.Short = "Show the shell command tree."

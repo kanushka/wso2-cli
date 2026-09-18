@@ -34,7 +34,8 @@
 #	WSO2_HOME                  State root to install into. Default ~/.wso2.
 #	WSO2_CLI_PRERELEASE=true   Resolve the newest prerelease, not the newest
 #	                           stable release.
-#	WSO2_CLI_NO_PROFILE=1      Install without editing any shell profile.
+#	WSO2_CLI_NO_PROFILE=1      Install without editing any shell profile or
+#	                           setting up tab completion.
 #	WSO2_CLI_RELEASE_BASE_URL  Where releases are downloaded from. Overridden by
 #	WSO2_CLI_RELEASE_API_URL   the tests; users have no reason to set either.
 
@@ -304,6 +305,42 @@ print_manual_path_instructions() {
 	printf '    export PATH="%s:$PATH"\n' "$bin_dir"
 }
 
+# completion_line reports the profile line that loads tab completion for the
+# running shell, or nothing for a shell the CLI cannot complete in.
+completion_line() {
+	local cli_name="$1"
+	case "${SHELL##*/}" in
+	zsh) printf 'source <(%s completion zsh)\n' "$cli_name" ;;
+	bash) printf 'eval "$(%s completion bash)"\n' "$cli_name" ;;
+	fish) printf '%s completion fish | source\n' "$cli_name" ;;
+	esac
+}
+
+print_manual_completion_instructions() {
+	local cli_name="$1" line
+	line="$(completion_line "$cli_name")"
+	[ -n "$line" ] || return 0
+	printf '\nFor tab completion, add this line to your shell profile too:\n\n'
+	printf '    %s\n' "$line"
+}
+
+# set_up_completion has the installed shell add tab completion to the profile,
+# inside the block wire_path wrote when that is a file the shell reads
+# interactively. zsh completion always goes in .zshrc, so a PATH block in
+# .zprofile gets a second block there. The shell owns that edit, so this script
+# and a user running it by hand make the same one.
+#
+# A failure is a warning: the CLI is installed and on PATH either way, and
+# completion is one command away. Standard input is closed, because under
+# `curl | bash` it is the rest of this script.
+set_up_completion() {
+	local state_root="$1" binary="$2" cli_name="$3"
+	printf '\n'
+	if ! WSO2_HOME="$state_root" "$binary" completion install </dev/null; then
+		printf 'warning: tab completion was not set up. Set it up later with: %s completion install\n' "$cli_name" >&2
+	fi
+}
+
 main() {
 	require_tools
 
@@ -400,6 +437,7 @@ main() {
 	if [ -n "${WSO2_CLI_NO_PROFILE:-}" ]; then
 		print_manual_path_instructions "$state_root" "$bin_dir" \
 			'Left your shell profile untouched, as asked.'
+		print_manual_completion_instructions "$cli_name"
 	else
 		local profile
 		# Detecting nothing is an ordinary outcome, not a failure: the `|| true`
@@ -409,6 +447,7 @@ main() {
 		if [ -z "$profile" ]; then
 			print_manual_path_instructions "$state_root" "$bin_dir" \
 				'No shell profile was detected, so none was edited.'
+			print_manual_completion_instructions "$cli_name"
 		elif [ ! -w "$profile" ]; then
 			# The binary is already installed by this point. Failing here would
 			# abandon a working install over a file this script cannot write, and
@@ -416,8 +455,10 @@ main() {
 			# can act on.
 			print_manual_path_instructions "$state_root" "$bin_dir" \
 				"Your profile ${profile} is not writable, so it was left alone."
+			print_manual_completion_instructions "$cli_name"
 		else
 			wire_path "$state_root" "$bin_dir" "$profile"
+			set_up_completion "$state_root" "${bin_dir}/${cli_name}" "$cli_name"
 			printf '\nOpen a new terminal, or run: source %s\n' "$profile"
 		fi
 	fi

@@ -20,9 +20,9 @@ Removes what scripts/install.ps1 added.
 
 .DESCRIPTION
 Removes the binary, the directory the installer created for it, the per-user PATH
-entry, and the per-user WSO2_HOME variable. It does not remove configuration,
-or contexts unless -Purge is given: removing a binary is not the
-same decision as abandoning a setup.
+entry, the per-user WSO2_HOME variable, and the tab completion block in the
+PowerShell profile. It does not remove configuration or contexts unless -Purge
+is given: removing a binary is not the same decision as abandoning a setup.
 
 Running it when nothing is installed is not a failure. It reports what it found
 and exits successfully, which is also what makes it usable to clean up after an
@@ -111,6 +111,46 @@ $userStateRoot = [Environment]::GetEnvironmentVariable('WSO2_HOME', 'User')
 if ($userStateRoot -and $userStateRoot.TrimEnd('\') -ieq $stateRoot.TrimEnd('\')) {
     [Environment]::SetEnvironmentVariable('WSO2_HOME', $null, 'User')
     Write-Output 'Removed the user WSO2_HOME variable.'
+    $removed = $true
+}
+
+# The tab completion block `completion install` wrote into a PowerShell profile.
+# Both editions' profiles are checked, because the install may have run under
+# the other one. Only the lines between the markers go, and a profile with a
+# start marker and no end is left alone rather than guessed at.
+$BlockBegin = '# >>> wso2 cli >>>'
+$BlockEnd = '# <<< wso2 cli <<<'
+$profiles = @()
+if ($env:WSO2_CLI_POWERSHELL_PROFILE) {
+    $profiles += $env:WSO2_CLI_POWERSHELL_PROFILE
+} else {
+    $documents = [Environment]::GetFolderPath('MyDocuments')
+    $profiles += $PROFILE
+    foreach ($edition in @('PowerShell', 'WindowsPowerShell')) {
+        $profiles += Join-Path (Join-Path $documents $edition) 'Microsoft.PowerShell_profile.ps1'
+    }
+}
+foreach ($profilePath in ($profiles | Select-Object -Unique)) {
+    if (-not $profilePath -or -not (Test-Path -LiteralPath $profilePath)) { continue }
+    $lines = @(Get-Content -LiteralPath $profilePath)
+    if ($lines -notcontains $BlockBegin) { continue }
+    if ($lines -notcontains $BlockEnd) {
+        [Console]::Error.WriteLine("warning: $profilePath has the wso2 block start but no end marker.")
+        [Console]::Error.WriteLine("Left it alone rather than guessing where it ends. Remove these lines by hand:")
+        [Console]::Error.WriteLine("  $BlockBegin ... $BlockEnd")
+        continue
+    }
+    $kept = @()
+    $inside = $false
+    foreach ($line in $lines) {
+        if ($line -eq $BlockBegin) { $inside = $true; continue }
+        if ($line -eq $BlockEnd) { $inside = $false; continue }
+        if (-not $inside) { $kept += $line }
+    }
+    # Joined first: Set-Content refuses an empty array, which is what a profile
+    # holding nothing but the block leaves.
+    Set-Content -LiteralPath $profilePath -Value ($kept -join [Environment]::NewLine)
+    Write-Output "Removed the wso2 block from $profilePath"
     $removed = $true
 }
 

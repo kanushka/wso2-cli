@@ -20,12 +20,13 @@
 // fixture release, so both are proven against one published contract rather than
 // two descriptions of it.
 //
-// What differs is the environment it touches. There is no shell profile to edit:
-// PATH and the state root are per-user environment variables, which is why these
-// runs assert on what the script wrote to the user's environment rather than on
-// what it wrote to a file. Those writes are real and outlive the process, so each
-// run is given its own registry-backed user environment to write into and the
-// values are put back afterwards.
+// What differs is the environment it touches. PATH and the state root are
+// per-user environment variables, which is why these runs assert on what the
+// script wrote to the user's environment; only tab completion goes in a file,
+// the PowerShell profile, which each run points at its own home directory. The
+// environment writes are real and outlive the process, so each run is given its
+// own registry-backed user environment to write into and the values are put
+// back afterwards.
 package acceptance_test
 
 import (
@@ -231,6 +232,12 @@ func TestInstallScriptLeavesTheEnvironmentAloneWhenAsked(t *testing.T) {
 	if binDir := filepath.Join(install.stateRoot, "bin"); !strings.Contains(stdout, binDir) {
 		t.Errorf("output does not tell the user how to reach %s:\n%s", binDir, stdout)
 	}
+	if profile := install.readPowerShellProfile(t); profile != "" {
+		t.Errorf("the PowerShell profile was written despite the opt-out:\n%s", profile)
+	}
+	if !strings.Contains(stdout, powerShellCompletionLine) {
+		t.Errorf("output does not print the completion line to add by hand:\n%s", stdout)
+	}
 }
 
 func TestInstallScriptHonoursTheStateRootVariable(t *testing.T) {
@@ -246,6 +253,55 @@ func TestInstallScriptHonoursTheStateRootVariable(t *testing.T) {
 
 	if _, statErr := os.Stat(install.installedBinary()); statErr != nil {
 		t.Errorf("the binary was not installed under WSO2_HOME: %v", statErr)
+	}
+}
+
+// powerShellCompletionLine is what the installer adds to the PowerShell
+// profile, inside its block, so that every new session loads completion.
+const powerShellCompletionLine = "wso2 completion powershell | Out-String | Invoke-Expression"
+
+// powerShellProfile is the profile the scripts are pointed at in place of
+// $PROFILE, inside the run's own home directory.
+func (i *installHarness) powerShellProfile() string {
+	return filepath.Join(i.home, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1")
+}
+
+// readPowerShellProfile reports the profile's contents, or nothing when there
+// is none.
+func (i *installHarness) readPowerShellProfile(t *testing.T) string {
+	t.Helper()
+	contents, err := os.ReadFile(i.powerShellProfile())
+	if os.IsNotExist(err) {
+		return ""
+	}
+	if err != nil {
+		t.Fatalf("reading the PowerShell profile returned %v", err)
+	}
+	return string(contents)
+}
+
+func TestInstallScriptSetsUpTabCompletion(t *testing.T) {
+	install := newInstallHarness(t)
+	defer install.restoreUserEnvironment(t)
+
+	stdout, stderr, err := install.run()
+	if err != nil {
+		t.Fatalf("install.ps1 failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "Tab completion added for PowerShell.") {
+		t.Errorf("the summary does not say completion was set up:\n%s", stdout)
+	}
+	profile := install.readPowerShellProfile(t)
+	if !strings.Contains(profile, installBlockMarker) || !strings.Contains(profile, powerShellCompletionLine) {
+		t.Errorf("the profile does not load completion inside the wso2 block:\n%s", profile)
+	}
+
+	if _, stderr, err := install.run(); err != nil {
+		t.Fatalf("second install failed: %v\nstderr:\n%s", err, stderr)
+	}
+	if lines := strings.Count(install.readPowerShellProfile(t), powerShellCompletionLine); lines != 1 {
+		t.Errorf("the profile loads completion %d times after two runs, want exactly 1:\n%s",
+			lines, install.readPowerShellProfile(t))
 	}
 }
 
@@ -292,6 +348,9 @@ func (i *installHarness) scriptEnvironment() []string {
 	environment := []string{
 		"USERPROFILE=" + i.home,
 		"HOME=" + i.home,
+		// PowerShell finds $PROFILE through the shell folder API rather than
+		// USERPROFILE, so without this a run would edit the runner's real one.
+		"WSO2_CLI_POWERSHELL_PROFILE=" + i.powerShellProfile(),
 		"WSO2_CLI_RELEASE_BASE_URL=" + i.server.URL + "/releases",
 		"WSO2_CLI_RELEASE_API_URL=" + i.server.URL + "/releases",
 	}

@@ -69,16 +69,46 @@ To upgrade, run the installer again.
 | Variable | Effect |
 | --- | --- |
 | `WSO2_HOME` | State root. Default `~/.wso2`. The binary goes in `$WSO2_HOME/bin`. |
-| `WSO2_CLI_NO_PROFILE=1` | Don't edit your shell profile (Unix) or user environment (Windows). The installer prints what to set. |
+| `WSO2_CLI_NO_PROFILE=1` | Don't edit your shell profile (Unix) or user environment (Windows), and don't set up tab completion. The installer prints what to set. |
 
-On Unix the installer adds this block to your shell profile:
+On Unix the installer adds this block to your shell profile, here for bash:
 
 ```text
 # >>> wso2 cli >>>
 export WSO2_HOME="/home/you/.wso2"
 export PATH="/home/you/.wso2/bin:$PATH"
+eval "$(wso2 completion bash)"
 # <<< wso2 cli <<<
 ```
+
+## Tab completion
+
+The installers finish by running `wso2 completion install`, which sets up tab
+completion for your shell. Run it yourself after installing some other way, or
+for another shell:
+
+```sh
+wso2 completion install [bash|zsh|fish|powershell]
+```
+
+It detects the shell from `$SHELL` (PowerShell on Windows) and changes nothing
+when completion is already set up:
+
+- zsh: adds `source <(wso2 completion zsh)` to the block in `~/.zshrc`, after a
+  `compinit` that runs only when nothing else has run one.
+- bash: adds `eval "$(wso2 completion bash)"` to the block in `~/.bashrc` (or
+  `~/.bash_profile`). Completion needs the `bash-completion` package.
+- fish: writes `~/.config/fish/completions/wso2.fish`, which runs
+  `wso2 completion fish | source`.
+- PowerShell: adds `wso2 completion powershell | Out-String | Invoke-Expression`
+  to the block in `$PROFILE`. An execution policy of `Restricted` or `AllSigned`
+  would stop the profile loading, so it is refused.
+
+`--profile <file>` edits another file. Every line loads the script when a
+terminal opens, so it never goes stale, and a product you install completes at
+once. `wso2 completion <shell>` prints the script itself when its output is piped;
+typed at a terminal it says how to set completion up, and `--print` prints the
+script anyway.
 
 ## Install a product
 
@@ -101,7 +131,8 @@ curl -fsSL https://wso2.github.io/wso2-cli/uninstall.sh | bash
 iwr https://wso2.github.io/wso2-cli/uninstall.ps1 -useb | iex
 ```
 
-This removes the binary and the profile block, and leaves everything under
+This removes the binary, the profile block with the tab completion line in it,
+and the fish completion file, and leaves everything under
 `$WSO2_HOME` (contexts, preferences, installed products) in place.
 
 Log out before you remove anything, because your sessions live in the OS

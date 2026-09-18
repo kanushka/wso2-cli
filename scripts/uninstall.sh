@@ -20,11 +20,11 @@
 #	bash uninstall.sh              # remove the binary and the profile block
 #	bash uninstall.sh --purge      # also remove configuration and contexts
 #
-# It removes the binary, the directory the installer created for it, and the
-# delimited block the installer appended to a shell profile. It does not remove
-# configuration or contexts unless asked: removing a binary is not
-# the same decision as abandoning a setup, and silently destroying the second
-# would be the worse default.
+# It removes the binary, the directory the installer created for it, the
+# delimited block the installer appended to a shell profile (tab completion
+# included), and the fish completion file. It does not remove configuration or
+# contexts unless asked: removing a binary is not the same decision as abandoning
+# a setup, and silently destroying the second would be the worse default.
 #
 # Running it when nothing is installed is not a failure. It reports what it found
 # and exits successfully, which is also what makes it usable to clean up after an
@@ -114,6 +114,15 @@ for profile in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zshrc" "$HOME/.zpro
 	printf 'Removed the wso2 block from %s\n' "$profile"
 	removed=1
 done
+
+# The fish completion file `completion install` writes, recognised by the block
+# marker it carries. A file of the same name without it is the user's own.
+fish_completion="${XDG_CONFIG_HOME:-$HOME/.config}/fish/completions/${cli_name}.fish"
+if [ -f "$fish_completion" ] && grep -qF "$BLOCK_BEGIN" "$fish_completion"; then
+	rm -f "$fish_completion"
+	printf 'Removed %s\n' "$fish_completion"
+	removed=1
+fi
 
 if [ "$PURGE" -eq 1 ]; then
 	if [ -d "$state_root" ]; then
