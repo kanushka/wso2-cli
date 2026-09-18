@@ -341,7 +341,7 @@ func (s Shell) askSignIn(flags *contextCreateFlags, descriptor *modules.ProductD
 		machine.Unavailable = fmt.Sprintf("The %s product does not accept a machine client at its own "+
 			"issuer. Choose a browser or device sign-in.", flags.loginProduct)
 	}
-	device := wizard.Option{Label: "Device code (no browser here)"}
+	device := wizard.Option{Label: "Device code"}
 	if descriptor != nil && descriptor.Provider == contexts.ProviderThunder {
 		device.Label += " (coming soon)"
 		device.Unavailable = thunderDeviceComingSoon
