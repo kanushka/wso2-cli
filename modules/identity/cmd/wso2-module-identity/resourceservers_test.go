@@ -156,6 +156,46 @@ func TestCreatingAResourceServerSendsTheOUIDFromASingleOUListing(t *testing.T) {
 	}
 }
 
+func TestCreatingAResourceServerSaysWhatTheIdentifierIsFor(t *testing.T) {
+	// A resource server stands for one of two things, and this module cannot
+	// tell which: a product the context records (then its audience is
+	// recorded with context product add), or an API the identifier is the
+	// audience of. Pointing at product add alone sends the second case to a
+	// command it has no use for.
+	var captured string
+	server := newRoutedStub(t, map[string]route{
+		"GET /organization-units": {body: `{"totalResults":1,"organizationUnits":[
+			{"id":"ou-default","handle":"default","name":"Default"}]}`},
+		"POST /resource-servers": {status: http.StatusCreated,
+			body: `{"id":"rs-1","name":"Hello API","identifier":"http://localhost:8801/hello",` +
+				`"delimiter":":","ouId":"ou-default"}`},
+	}, &captured)
+
+	outcome := testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
+		Command:   []string{"resource-servers", "create"},
+		Arguments: []string{"Hello API", "--identifier", "http://localhost:8801/hello"},
+		Context:   module.Context{Name: "c1", Endpoint: server.URL},
+		Access:    &testkit.Access{Token: "brokered-token"},
+	})
+	if outcome.Problem != nil {
+		t.Fatalf("create was refused: %+v", outcome.Problem)
+	}
+	next := ""
+	for _, field := range outcome.Result.Fields {
+		if field.Name == NextField {
+			next = field.Value
+		}
+	}
+	for _, want := range []string{"audience", "http://localhost:8801/hello", "context product add", "API"} {
+		if !strings.Contains(next, want) {
+			t.Errorf("next %q does not mention %q", next, want)
+		}
+	}
+	if strings.HasPrefix(next, "Record it on the selected context") {
+		t.Errorf("next %q assumes the resource server is a product", next)
+	}
+}
+
 func TestCreatingAResourceServerUsesAnOUIDGivenDirectly(t *testing.T) {
 	// --ou given as an id names the organization unit outright, without
 	// falling back to whatever the deployment's listing would default to.
