@@ -244,6 +244,20 @@ func TestApisInvokeRefusesAnApiThatIsNotDeployed(t *testing.T) {
 	}
 }
 
+func TestApisInvokeCallsAnApiWhoseDeploymentIsStillInProgress(t *testing.T) {
+	// apis deploy answers DEPLOYING and the gateway picks the route up a
+	// moment later. A person who runs invoke right after is calling a route
+	// that may or may not be there yet, and the gateway's own answer is the
+	// truth about that; refusing here would send them to deploy again.
+	platform := newFakePlatform(t)
+	platform.deployments = `[{"gatewayId":"c1-gateway","status":"DEPLOYING"}]`
+	outcome := platform.run("invoke", "hello-api-v1")
+	mustSucceed(t, outcome)
+	if got := platform.apiMethod; got != http.MethodGet {
+		t.Fatalf("the API was not called: method %q", got)
+	}
+}
+
 func TestApisInvokeNeedsTheGatewayNamedWhenTheApiIsOnSeveral(t *testing.T) {
 	platform := newFakePlatform(t)
 	platform.deployments = `[{"gatewayId":"c1-gateway","status":"DEPLOYED"},

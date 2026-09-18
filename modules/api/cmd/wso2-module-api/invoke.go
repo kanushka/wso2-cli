@@ -282,9 +282,14 @@ func deployedEndpoint(ctx context.Context, client platform.Client, endpoint, api
 	if err := client.Get(ctx, path, &deployed); err != nil {
 		return "", callFailed(err, "read the deployments of the API "+apiID, endpoint)
 	}
+	// A deployment still in progress counts: apis deploy answers DEPLOYING
+	// and the gateway picks the route up a moment later, so a call made right
+	// after it is answered by the gateway itself, 404 until then, rather than
+	// refused here as if nothing had been deployed.
 	var serving []string
 	for _, deployment := range deployed.List {
-		if deployment.Status == "DEPLOYED" && (gatewayID == "" || deployment.GatewayID == gatewayID) {
+		inProgress := deployment.Status == "DEPLOYED" || deployment.Status == "DEPLOYING"
+		if inProgress && (gatewayID == "" || deployment.GatewayID == gatewayID) {
 			serving = append(serving, deployment.GatewayID)
 		}
 	}
