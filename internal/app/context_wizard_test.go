@@ -66,7 +66,7 @@ func TestContextCreateWizardWritesWhatTheCommandLinesWrite(t *testing.T) {
 	}
 	for _, question := range []string{"Sign in with:", "1. Thunder", "2. Asgardeo", "3. WSO2 Identity Server (coming soon)",
 		"4. WSO2 Cloud (coming soon)", "Thunder URL: ", "Sign in using:",
-		"2. A code approved on another device (no browser here) (coming soon)",
+		"2. Device code, for a machine with no browser (approve it on another device) (coming soon)",
 		"Device sign-in with Thunder is coming soon.", "Add a product this context reaches:",
 		"1. api", "2. apim", "3. Skip", "api URL: ", "api gateway URL (empty for none): ", "Add another product:", "Context name [context-1]: ",
 		`Create the "local" context? [Y/n]`, `Select "local" as the current context? [Y/n]`, "Log in now? [Y/n]"} {
