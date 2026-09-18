@@ -46,6 +46,19 @@ func listModules(shell, stateRoot, origin string) (string, string, error) {
 	return runShellWith(shell, environment, "product", "list")
 }
 
+// tableRow reports the line of a rendered table that names one product, its
+// column padding collapsed to single spaces, or "" when no line names it. A
+// row is matched line by line so an expected row cannot be satisfied by text
+// running from one line into the next.
+func tableRow(output, product string) string {
+	for _, line := range strings.Split(output, "\n") {
+		if fields := strings.Fields(line); len(fields) > 0 && fields[0] == product {
+			return strings.Join(fields, " ")
+		}
+	}
+	return ""
+}
+
 // removeModule runs one removal and reports both streams and the exit error.
 func removeModule(shell, stateRoot string, args ...string) (string, string, error) {
 	return runShellWith(shell, shellEnvironment(stateRoot),
@@ -89,8 +102,10 @@ func TestRemovingAModuleTakesItOffTheMachine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listing returned %v", err)
 	}
-	if strings.Contains(inventory, catalogNamespace) {
-		t.Errorf("a removed module is still listed as installed:\n%s", inventory)
+	// The catalog still publishes it, so the list still names it — as a
+	// product to install, with no installed version.
+	if row := tableRow(inventory, catalogNamespace); row != catalogNamespace+" — stable v4.5.0 to install" {
+		t.Errorf("a removed module is not listed as not installed:\n%s", inventory)
 	}
 }
 
@@ -144,8 +159,13 @@ func TestRemovingOneModuleLeavesTheOthersInstalled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listing returned %v", err)
 	}
-	if !strings.Contains(inventory, catalogOtherNamespace) {
-		t.Errorf("the module that was not named is no longer listed:\n%s", inventory)
+	// The list names every product the catalog publishes, installed or not,
+	// so the row has to carry the installed version to prove anything.
+	if row := tableRow(inventory, catalogOtherNamespace); row != catalogOtherNamespace+" v1.0.0 stable current" {
+		t.Errorf("the module that was not named is no longer listed as installed:\n%s", inventory)
+	}
+	if row := tableRow(inventory, catalogNamespace); row != catalogNamespace+" — stable v4.5.0 to install" {
+		t.Errorf("the removed module is not listed as not installed:\n%s", inventory)
 	}
 }
 

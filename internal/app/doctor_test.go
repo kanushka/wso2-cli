@@ -149,7 +149,7 @@ func TestDoctorNamesTheContextDocumentInEveryContextCheckOutcome(t *testing.T) {
 				keyring.MockInit()
 				seeded := identityOnlyDocument()
 				seeded.DefaultContext = "acme"
-				seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
+				seeded.Contexts = []contexts.Context{acmeCloud("acme")}
 				installLogin(t, shell, seeded)
 				store := session.Store{StateRoot: shell.StateRoot}
 				if err := store.Save("acme-cloud", session.Session{
@@ -309,7 +309,7 @@ func TestDoctorHappyPathPassesEveryCheck(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
+	seeded.Contexts = []contexts.Context{acmeCloud("acme")}
 	installLogin(t, shell, seeded)
 	store := session.Store{StateRoot: shell.StateRoot}
 	if err := store.Save("acme-cloud", session.Session{
@@ -361,7 +361,7 @@ func TestDoctorReportsALoggedOutContextAsNoneNotAFault(t *testing.T) {
 	keyring.MockInit()
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
+	seeded.Contexts = []contexts.Context{acmeCloud("acme")}
 
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, seeded)
@@ -402,7 +402,7 @@ func TestDoctorStillFailsAnUnreadableStoredSession(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
+	seeded.Contexts = []contexts.Context{acmeCloud("acme")}
 	installLogin(t, shell, seeded)
 	store := session.Store{StateRoot: shell.StateRoot}
 	if err := keyring.Set(session.Service, store.EntryName("acme-cloud"), "not json"); err != nil {
@@ -559,7 +559,7 @@ func TestDoctorRefusesAnUnknownContextAsUsage(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
+	seeded.Contexts = []contexts.Context{acmeCloud("acme")}
 	installLogin(t, shell, seeded)
 
 	if code := shell.Run([]string{"doctor", "--context", "nosuch"}); code != exit.Usage {
@@ -577,21 +577,10 @@ func TestDoctorRefusesAnUnknownContextAsUsage(t *testing.T) {
 func TestDoctorHonorsContextPrecedence(t *testing.T) {
 	keyring.MockInit()
 	seeded := identityOnlyDocument()
-	seeded.Accounts = append(seeded.Accounts, contexts.Account{
-		Name: "beta-cloud",
-		Type: "cloud",
-		Auth: contexts.AccountAuth{
-			Kind:          contexts.KindOAuthBrowser,
-			Issuer:        "https://idp.example",
-			ClientID:      "wso2-cli",
-			CredentialRef: "beta-cloud",
-		},
-	})
+	beta := acmeCloud("beta")
+	beta.CredentialRef = "beta-cloud"
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{
-		{Name: "acme", Account: "acme-cloud"},
-		{Name: "beta", Account: "beta-cloud"},
-	}
+	seeded.Contexts = []contexts.Context{acmeCloud("acme"), beta}
 	// A session exists only for beta's identity, so "session: pass" is only
 	// possible when beta is the context doctor actually resolved.
 	seedBetaSession := func(t *testing.T, shell app.Shell) {

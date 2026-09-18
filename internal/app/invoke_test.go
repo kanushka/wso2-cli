@@ -194,14 +194,9 @@ func twoContextDocument() contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: "first",
-		Accounts: []contexts.Account{{
-			Name: "acme",
-			Type: "onprem",
-			Auth: contexts.AccountAuth{Kind: contexts.KindPAT, CredentialRef: "acme-login"},
-		}},
-		Contexts: []contexts.Context{
-			{Name: "first", Account: "acme"},
-			{Name: "second", Account: "acme"},
+
+		Contexts: []contexts.Context{{Name: "first", Type: "onprem", CredentialRef: "acme-login", Login: contexts.Login{Kind: contexts.KindPAT}},
+			{Name: "second", Type: "onprem", CredentialRef: "acme-second", Login: contexts.Login{Kind: contexts.KindPAT}},
 		},
 	}
 }
@@ -245,8 +240,8 @@ func TestContextSelectionOrder(t *testing.T) {
 			if selected.Context.Name != testCase.expected {
 				t.Errorf("selected context is %q, want %q", selected.Context.Name, testCase.expected)
 			}
-			if selected.Identity.Name != "acme" {
-				t.Errorf("the selection does not carry its identity: %+v", selected.Identity)
+			if selected.Identity.Name != testCase.expected || selected.Identity.Auth.Kind != contexts.KindPAT {
+				t.Errorf("the selection does not carry its login: %+v", selected.Identity)
 			}
 		})
 	}

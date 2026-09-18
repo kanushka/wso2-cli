@@ -319,6 +319,7 @@ func (s Session) answerAccess(
 		Audience: request.GetAudience(),
 		Scopes:   request.GetScopes(),
 		Record:   request.GetRecord(),
+		Resource: request.GetResource(),
 	})
 	release()
 	if err != nil {

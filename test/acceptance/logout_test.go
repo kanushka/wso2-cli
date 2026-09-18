@@ -207,12 +207,12 @@ func TestLogoutRendersJSON(t *testing.T) {
 	deployment.logout(t, "--output", "json", "--keep-browser-session")
 
 	var reported struct {
-		Context        string `json:"context"`
-		Identity       string `json:"identity"`
-		Session        string `json:"session"`
-		Revocation     string `json:"revocation"`
-		SharedContexts string `json:"sharedContexts"`
-		BrowserSession string `json:"browserSession"`
+		Context        string  `json:"context"`
+		Account        *string `json:"account"`
+		Session        string  `json:"session"`
+		Revocation     string  `json:"revocation"`
+		SharedContexts *string `json:"sharedContexts"`
+		BrowserSession string  `json:"browserSession"`
 	}
 	if err := json.Unmarshal(deployment.out.Bytes(), &reported); err != nil {
 		t.Fatalf("logout did not render a JSON document: %v\n%s", err, deployment.out)
@@ -220,17 +220,16 @@ func TestLogoutRendersJSON(t *testing.T) {
 	if reported.Context != referenceContextName {
 		t.Errorf("context = %q, want %q", reported.Context, referenceContextName)
 	}
-	if reported.Identity != loginIdentityName {
-		t.Errorf("identity = %q, want %q", reported.Identity, loginIdentityName)
+	// A context owns its sessions, so there is no account to name and no
+	// other context the session is shared with.
+	if reported.Account != nil || reported.SharedContexts != nil {
+		t.Errorf("logout still reports an account or shared contexts: %s", deployment.out)
 	}
 	if reported.Session != "ended" {
 		t.Errorf("session = %q, want ended", reported.Session)
 	}
 	if reported.Revocation != "confirmed" {
 		t.Errorf("revocation = %q, want confirmed", reported.Revocation)
-	}
-	if reported.SharedContexts != referenceContextName {
-		t.Errorf("sharedContexts = %q, want %q", reported.SharedContexts, referenceContextName)
 	}
 	// What became of the identity provider's browser session has to reach a
 	// JSON caller too; --keep-browser-session names it kept.
@@ -288,61 +287,32 @@ func TestLogoutOutputFlagAcceptsEverySpelling(t *testing.T) {
 	}
 }
 
-// A session is keyed by the identity's credential reference, so contexts
-// sharing an identity share one session. Ending it ends theirs, and a user who
-// named one context by hand would not otherwise learn that.
-func TestLogoutNamesEveryContextSharingTheSession(t *testing.T) {
+// Each context owns its own sessions (ADR 0016), so logging out of one ends
+// nothing another context holds, and the report names no other context.
+func TestLogoutEndsOnlyTheSelectedContextsSessions(t *testing.T) {
 	const secondContext = "reference-staging"
+	const secondRef = "reference-staging"
 	deployment := deployLoginWithoutModule(t, fakeissuer.Options{AllowAnyLoopbackPort: true},
 		func(document *contexts.Document) {
-			document.Contexts = append(document.Contexts, contexts.Context{
-				Name:         secondContext,
-				Account:      loginIdentityName,
-				Organization: referenceOrganization,
-			})
+			second := document.Contexts[0]
+			second.Name, second.CredentialRef = secondContext, secondRef
+			document.Contexts = append(document.Contexts, second)
 		})
 	deployment.login(t)
+	store := session.Store{StateRoot: deployment.stateRoot}
+	if err := store.Save(secondRef, session.Session{Issuer: deployment.issuer.URL,
+		RefreshToken: "second-context-refresh-token"}); err != nil {
+		t.Fatal(err)
+	}
 
-	deployment.logout(t)
+	deployment.logout(t, "--keep-browser-session")
 
+	if present, err := store.Stored(secondRef); err != nil || !present {
+		t.Errorf("logging out of one context ended another's session: present %v, err %v", present, err)
+	}
 	reported := deployment.out.String()
-	if !strings.Contains(reported, "share one session") {
-		t.Errorf("logout did not warn that the session is shared:\n%s", reported)
-	}
-	if !strings.Contains(reported, secondContext) {
-		t.Errorf("logout did not name the other affected context:\n%s", reported)
-	}
-}
-
-// Two identity records may name one credential reference, and the document
-// forbids only duplicate identity names. The session is keyed by the reference,
-// so ending it ends theirs too — and a report that matched on the identity name
-// would delete their session without naming them.
-func TestLogoutNamesContextsReachingTheSessionThroughAnotherIdentity(t *testing.T) {
-	const secondIdentity = "reference-cloud-alias"
-	const secondContext = "reference-alias"
-	deployment := deployLoginWithoutModule(t, fakeissuer.Options{AllowAnyLoopbackPort: true},
-		func(document *contexts.Document) {
-			alias := document.Accounts[0]
-			alias.Name = secondIdentity
-			document.Accounts = append(document.Accounts, alias)
-			document.Contexts = append(document.Contexts, contexts.Context{
-				Name:         secondContext,
-				Account:      secondIdentity,
-				Organization: referenceOrganization,
-			})
-		})
-	deployment.login(t)
-
-	deployment.logout(t)
-
-	reported := deployment.out.String()
-	if !strings.Contains(reported, secondContext) {
-		t.Errorf("logout did not name the context reaching this session through another identity:\n%s",
-			reported)
-	}
-	if !strings.Contains(reported, "share one session") {
-		t.Errorf("logout did not warn that the session is shared:\n%s", reported)
+	if strings.Contains(reported, "share one session") || strings.Contains(reported, secondContext) {
+		t.Errorf("logout reported another context as affected:\n%s", reported)
 	}
 }
 
@@ -387,12 +357,12 @@ func TestLogoutRevealsNoTokenMaterial(t *testing.T) {
 func TestLogoutReportsAnIdentityThatHoldsNoSession(t *testing.T) {
 	deployment := deployLoginWithoutModule(t, fakeissuer.Options{AllowAnyLoopbackPort: true},
 		func(document *contexts.Document) {
-			document.Accounts[0].Auth.Kind = contexts.KindClientCredentials
-			document.Accounts[0].Auth.ClientSecretVariable = inlineSecretVariable
+			document.Contexts[0].Login.Kind = contexts.KindClientCredentials
+			document.Contexts[0].Login.ClientSecretVariable = inlineSecretVariable
 			// The schema refuses a secure-store reference on a non-interactive
 			// identity, which is the same fact this test is about: such an
 			// identity has no session, so it has nowhere to keep one.
-			document.Accounts[0].Auth.CredentialRef = ""
+			document.Contexts[0].CredentialRef = ""
 		})
 
 	if code := deployment.shell.Run([]string{"logout"}); code != exit.OK {

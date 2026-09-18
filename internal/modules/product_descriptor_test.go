@@ -207,3 +207,53 @@ func TestADescriptorMayDeclareTheExchangeGrant(t *testing.T) {
 		t.Fatalf("a descriptor naming the exchange grant was refused: %v", err)
 	}
 }
+
+func invocationDescriptor() *modules.ProductDescriptor {
+	return &modules.ProductDescriptor{
+		Audience: modules.AudienceResource, Grant: "exchange",
+		Invocation: &modules.InvocationDescriptor{Audience: modules.AudienceResource},
+	}
+}
+
+func TestAnInvocationBlockRoundTripsThroughTheReceipt(t *testing.T) {
+	receipt := validReceipt()
+	receipt.Capabilities.Product = invocationDescriptor()
+	encoded, err := receipt.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := modules.DecodeReceipt(encoded)
+	if err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if got := decoded.Capabilities.Product.Invocation; got == nil || got.Audience != modules.AudienceResource {
+		t.Errorf("invocation = %+v", got)
+	}
+}
+
+func TestAMalformedInvocationBlockIsRefused(t *testing.T) {
+	cases := map[string]func(*modules.ProductDescriptor){
+		"an audience kind an API is not named by": func(d *modules.ProductDescriptor) {
+			d.Invocation.Audience = modules.AudienceClient
+		},
+		"no audience kind": func(d *modules.ProductDescriptor) { d.Invocation.Audience = "" },
+		"a product with no session to exchange": func(d *modules.ProductDescriptor) {
+			d.Grant, d.Scopes = "federated", []string{"apim:api_view"}
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			receipt := validReceipt()
+			receipt.Capabilities.Product = invocationDescriptor()
+			mutate(receipt.Capabilities.Product)
+			err := receipt.Validate()
+			var reported problem.Problem
+			if !errors.As(err, &reported) || reported.Code != "modules.receipt_malformed" {
+				t.Fatalf("validation returned %v, want modules.receipt_malformed", err)
+			}
+			if !strings.Contains(reported.Message, "invocation") {
+				t.Errorf("the refusal %q does not name the invocation block", reported.Message)
+			}
+		})
+	}
+}

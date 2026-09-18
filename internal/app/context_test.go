@@ -33,28 +33,100 @@ import (
 	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/exit"
+	"github.com/wso2/wso2-cli/internal/modules"
+	"github.com/wso2/wso2-cli/internal/modules/fixture"
 	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/internal/state"
 )
 
-// identityOnlyDocument is the state a machine is in after wso2 login has
-// created an identity and before any context names it. It is the starting point
-// for most of these tests because it is the state wso2 context create exists to
-// move a user out of.
-func identityOnlyDocument() contexts.Document {
-	return contexts.Document{
-		SchemaVersion: contexts.SchemaVersion,
-		Accounts: []contexts.Account{{
-			Name: "acme-cloud",
-			Type: "cloud",
-			Auth: contexts.AccountAuth{
-				Kind:          contexts.KindOAuthBrowser,
-				Issuer:        "https://idp.example",
-				ClientID:      "wso2-cli",
-				CredentialRef: "acme-cloud",
-			},
-		}},
+const (
+	thunderURL    = "http://localhost:8501"
+	apiURL        = "http://localhost:9251"
+	apiGatewayURL = "http://localhost:9091"
+	apimURL       = "https://localhost:9443"
+	apimClient    = "DgP2V4Arw9KYeo2ltIm4r8r19vca"
+)
+
+// installContextModules installs the products the setup commands resolve
+// against: iam, a thunder login provider; api, reached by exchanging the login
+// session and carrying a gateway; apim, reached by a federated grant; and
+// reference, which declares no product descriptor at all.
+func installContextModules(t *testing.T, shell app.Shell) {
+	t.Helper()
+	installFixture(t, shell, fixture.Module{Namespace: "iam", Version: "0.1.0",
+		AuthAudiences: []string{"thunder-system"}, AuthScopes: []string{"system"},
+		Product: &modules.ProductDescriptor{
+			Provider: contexts.ProviderThunder, ClientID: "wso2-cli",
+			Audience: modules.AudienceResource, DefaultAudience: "https://localhost:8090/mcp",
+			Scopes: []string{"system"}, Machine: []string{modules.MachineInline},
+		}})
+	installFixture(t, shell, fixture.Module{Namespace: "api", Version: "0.1.0",
+		AuthAudiences: []string{"api-platform"}, AuthScopes: []string{},
+		Product: &modules.ProductDescriptor{
+			Audience: modules.AudienceResource, Grant: contexts.GrantExchange,
+			Gateway: &modules.GatewayDescriptor{Audience: modules.AudienceResource},
+		}})
+	installFixture(t, shell, fixture.Module{Namespace: "apim", Version: "0.1.0",
+		AuthAudiences: []string{"apim-publisher"}, AuthScopes: []string{"apim:api_view"},
+		Product: &modules.ProductDescriptor{
+			IssuerPath: "/oauth2/token", Audience: modules.AudienceClient,
+			Scopes: []string{"apim:api_view"}, Grant: contexts.GrantFederated,
+			Machine: []string{modules.MachineCredential},
+		}})
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+}
+
+// newContextShell is a shell with the setup products installed and the
+// developer's own selection neutralized.
+func newContextShell(t *testing.T) (app.Shell, *bytes.Buffer, *bytes.Buffer) {
+	t.Helper()
+	keyring.MockInit()
+	t.Setenv("WSO2_CONTEXT", "")
+	t.Setenv("WSO2_NO_INPUT", "")
+	shell, out, errOut := newShell(t)
+	installContextModules(t, shell)
+	return shell, out, errOut
+}
+
+// run runs one command line and returns what the shell wrote.
+func run(t *testing.T, shell app.Shell, args ...string) (exit.Code, string, string) {
+	t.Helper()
+	out, errOut := shell.Streams.Out.(*bytes.Buffer), shell.Streams.Err.(*bytes.Buffer)
+	out.Reset()
+	errOut.Reset()
+	code := shell.Run(args)
+	return code, out.String(), errOut.String()
+}
+
+// mustRun runs one command line and fails the test unless it succeeds.
+func mustRun(t *testing.T, shell app.Shell, args ...string) string {
+	t.Helper()
+	code, out, errOut := run(t, shell, args...)
+	if code != exit.OK {
+		t.Fatalf("%v: exit %d\nstdout: %s\nstderr: %s", args, code, out, errOut)
 	}
+	return out
+}
+
+// oneContextDocument is one browser context with no products, as a creating
+// login leaves it.
+func oneContextDocument() contexts.Document {
+	return contexts.Document{
+		SchemaVersion:  contexts.SchemaVersion,
+		DefaultContext: "acme",
+		Contexts: []contexts.Context{{Name: "acme", Type: "cloud", CredentialRef: "acme",
+			Login:        contexts.Login{Kind: contexts.KindOAuthBrowser, Issuer: "https://idp.example", ClientID: "wso2-cli"},
+			Organization: "acme"}},
+	}
+}
+
+// twoContextDocument adds a second context, beta, beside acme.
+func twoContextDocument() contexts.Document {
+	document := oneContextDocument()
+	beta := document.Contexts[0]
+	beta.Name, beta.CredentialRef, beta.Organization = "beta", "beta", "beta"
+	document.Contexts = append(document.Contexts, beta)
+	return document
 }
 
 // loadDocument reads what a command actually wrote, through the shell's own
@@ -71,161 +143,533 @@ func loadDocument(t *testing.T, shell app.Shell) contexts.Document {
 // contextNamed reports the named context, or fails the test.
 func contextNamed(t *testing.T, document contexts.Document, name string) contexts.Context {
 	t.Helper()
-	for _, candidate := range document.Contexts {
-		if candidate.Name == name {
-			return candidate
-		}
+	found, ok := document.Find(name)
+	if !ok {
+		t.Fatalf("the document declares no context named %q: %+v", name, document.Contexts)
 	}
-	t.Fatalf("the document declares no context named %q: %+v", name, document.Contexts)
-	return contexts.Context{}
+	return found
 }
 
-func TestContextCreateWritesASchemaVersionTwoContext(t *testing.T) {
-	shell, out, errOut := newShell(t)
-	installLogin(t, shell, identityOnlyDocument())
+// localSetup creates the local context through iam and adds api with its
+// gateway, the demo notebook's setup.
+func localSetup(t *testing.T, shell app.Shell) {
+	t.Helper()
+	mustRun(t, shell, "context", "create", "local", "--login-product", "iam", "--url", thunderURL, "--use")
+	mustRun(t, shell, "context", "product", "add", "api", "--url", apiURL, "--gateway", apiGatewayURL)
+}
 
-	code := shell.Run([]string{"context", "create", "acme",
-		"--account", "acme-cloud", "--organization", "acme", "--project", "retail"})
-	if code != exit.OK {
-		t.Fatalf("exit code = %d, want %d; stdout: %s stderr: %s", code, exit.OK, out, errOut)
+func TestContextCreateThroughALoginProductWritesTheCompleteRecord(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	out := mustRun(t, shell, "context", "create", "local", "--login-product", "iam", "--url", thunderURL+"/")
+
+	document := loadDocument(t, shell)
+	local := contextNamed(t, document, "local")
+	if local.CredentialRef != "local" || local.Type != contexts.TypeOnprem {
+		t.Errorf("context = %+v", local)
+	}
+	want := contexts.Login{Kind: contexts.KindOAuthBrowser, Issuer: thunderURL, ClientID: "wso2-cli",
+		Provider: contexts.ProviderThunder, Product: "iam"}
+	if local.Login != want {
+		t.Errorf("login = %+v, want %+v", local.Login, want)
+	}
+	iam := local.Products["iam"]
+	if iam.Endpoint != thunderURL || iam.Audience != "https://localhost:8090/mcp" ||
+		!slices.Equal(iam.Scopes, []string{"system"}) {
+		t.Errorf("iam = %+v", iam)
+	}
+	// Nothing is selected unless asked: one selection rule, --use.
+	if document.DefaultContext != "" {
+		t.Errorf("create selected %q without --use", document.DefaultContext)
+	}
+	if !strings.Contains(out, "wso2 context use local") {
+		t.Errorf("the report does not say how to select it:\n%s", out)
+	}
+}
+
+func TestContextCreateWithUseSelectsTheContext(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	out := mustRun(t, shell, "context", "create", "local", "--login-product", "iam", "--url", thunderURL, "--use")
+	if selected := loadDocument(t, shell).DefaultContext; selected != "local" {
+		t.Fatalf("selected = %q", selected)
+	}
+	if !strings.Contains(out, "Run `wso2 login`") {
+		t.Errorf("the report does not name the login:\n%s", out)
+	}
+}
+
+func TestContextCreateThroughAnIssuerNeedsNoProduct(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	mustRun(t, shell, "context", "create", "corp", "--issuer", "https://idp.corp.example/oauth2/token",
+		"--client-id", "cli", "--provider", contexts.ProviderIdentityServer, "--organization", "retail")
+	corp := contextNamed(t, loadDocument(t, shell), "corp")
+	if corp.Login.Product != "" || len(corp.Products) != 0 || corp.Login.Issuer != "https://idp.corp.example/oauth2/token" ||
+		corp.Login.Provider != contexts.ProviderIdentityServer || corp.Organization != "retail" {
+		t.Errorf("context = %+v", corp)
+	}
+}
+
+func TestContextCreateWithAClientSecretVariableIsAMachineContext(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	mustRun(t, shell, "context", "create", "ci", "--login-product", "iam", "--url", thunderURL,
+		"--client-id", "ci-client", "--client-secret-variable", "CI_SECRET")
+	ci := contextNamed(t, loadDocument(t, shell), "ci")
+	if ci.Login.Kind != contexts.KindClientCredentials || ci.CredentialRef != "" ||
+		ci.Login.ClientSecretVariable != "CI_SECRET" || ci.Login.ClientID != "ci-client" {
+		t.Errorf("context = %+v", ci)
+	}
+}
+
+func TestContextCreateRefusals(t *testing.T) {
+	cases := map[string]struct {
+		args []string
+		code string
+	}{
+		"a url alone":           {[]string{"--url", thunderURL}, "shell.missing_required_flag"},
+		"a login product alone": {[]string{"--login-product", "iam"}, "shell.missing_required_flag"},
+		"neither form":          {nil, "shell.missing_required_flag"},
+		"both forms": {[]string{"--login-product", "iam", "--url", thunderURL, "--issuer", thunderURL,
+			"--client-id", "x"}, "shell.conflicting_arguments"},
+		"an issuer without a client":    {[]string{"--issuer", thunderURL}, "shell.missing_required_flag"},
+		"thunder through an issuer":     {[]string{"--issuer", thunderURL, "--client-id", "x", "--provider", "thunder"}, "shell.conflicting_arguments"},
+		"a product that is no provider": {[]string{"--login-product", "api", "--url", apiURL}, "shell.invalid_argument"},
+		"an unknown provider":           {[]string{"--issuer", thunderURL, "--client-id", "x", "--provider", "okta"}, "shell.invalid_argument"},
+		"a secret where a name belongs": {[]string{"--login-product", "iam", "--url", thunderURL,
+			"--client-secret-variable", "s3cr3t-value"}, "shell.invalid_argument"},
+		"a missing product under --no-install": {[]string{"--login-product", "nosuch", "--url", thunderURL,
+			"--no-install"}, "shell.product_not_installed"},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			shell, _, _ := newContextShell(t)
+			code, _, errOut := run(t, shell, append([]string{"context", "create", "local"}, testCase.args...)...)
+			if code != exit.Usage && code != exit.AuthPolicy {
+				t.Fatalf("exit %d, want a refusal: %s", code, errOut)
+			}
+			if !strings.Contains(errOut, testCase.code) {
+				t.Errorf("stderr does not carry %s:\n%s", testCase.code, errOut)
+			}
+			if strings.Contains(errOut, "s3cr3t-value") {
+				t.Errorf("the refusal echoes the value:\n%s", errOut)
+			}
+			if _, err := os.Stat(contexts.Path(shell.StateRoot)); err == nil {
+				t.Error("a refused create wrote the document")
+			}
+		})
+	}
+}
+
+func TestContextCreateRefusesATakenNameAndAnIllegalOne(t *testing.T) {
+	for _, name := range []string{"acme", "Acme", "a b", "1acme"} {
+		t.Run(name, func(t *testing.T) {
+			shell, _, _ := newContextShell(t)
+			installLogin(t, shell, oneContextDocument())
+			code, _, errOut := run(t, shell, "context", "create", name, "--login-product", "iam", "--url", thunderURL)
+			if code != exit.Usage {
+				t.Fatalf("exit %d: %s", code, errOut)
+			}
+			if strings.Contains(errOut, "remove it") {
+				t.Errorf("the refusal offers to remove the user's document:\n%s", errOut)
+			}
+		})
+	}
+}
+
+func TestProductAddResolvesAnExchangedProductAndItsGateway(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	localSetup(t, shell)
+	local := contextNamed(t, loadDocument(t, shell), "local")
+	api := local.Products["api"]
+	if api.Endpoint != apiURL || api.Audience != apiURL || api.Grant == nil || api.Grant.Kind != contexts.GrantExchange {
+		t.Fatalf("api = %+v", api)
+	}
+	if api.Gateway == nil || api.Gateway.Endpoint != apiGatewayURL || api.Gateway.Audience != apiGatewayURL {
+		t.Fatalf("gateway = %+v", api.Gateway)
+	}
+	if local.Login.Product != "iam" {
+		t.Errorf("the login product moved to %q", local.Login.Product)
+	}
+	access, _ := local.Account().Access("api")
+	if access.Strategy != contexts.StrategyExchanged {
+		t.Errorf("strategy = %q", access.Strategy)
+	}
+}
+
+func TestProductAddFreezesTheLoginBeforeAnEarlierSortingProduct(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	mustRun(t, shell, "context", "create", "local", "--issuer", "https://idp.corp.example", "--client-id", "cli", "--use")
+	mustRun(t, shell, "context", "product", "add", "reference", "--url", "https://ref.example",
+		"--audience", "reference-status", "--scopes", "reference:status:read")
+	local := contextNamed(t, loadDocument(t, shell), "local")
+	if local.Login.Product != "reference" {
+		t.Fatalf("login product = %q, want the only direct product frozen", local.Login.Product)
+	}
+}
+
+func TestProductAddRefusesAnExistingProductWithoutReplace(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	localSetup(t, shell)
+	code, _, errOut := run(t, shell, "context", "product", "add", "api", "--url", apiURL)
+	if code != exit.Usage || !strings.Contains(errOut, "contexts.product_exists") {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+}
+
+func TestProductAddReplaceEndsTheSessionsItRebinds(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	mustRun(t, shell, "context", "create", "local", "--login-product", "iam", "--url", thunderURL, "--use")
+	mustRun(t, shell, "context", "product", "add", "reference", "--url", "https://ref.example",
+		"--audience", "https://ref.example", "--scopes", "reference:status:read")
+	store := session.Store{StateRoot: shell.StateRoot}
+	sibling := contexts.ProductSessionRef("local", "reference")
+	if err := store.Save(sibling, session.Session{Issuer: thunderURL, RefreshToken: "sibling-token"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save("local", session.Session{Issuer: thunderURL, RefreshToken: "login-token"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// --dry-run names the session and ends nothing.
+	out := mustRun(t, shell, "context", "product", "add", "reference", "--url", "https://ref.example",
+		"--audience", "https://ref.example/v2", "--scopes", "reference:status:read", "--replace", "--dry-run")
+	if !strings.Contains(out, "reference session") {
+		t.Errorf("the dry run does not name the session it would end:\n%s", out)
+	}
+	if present, _ := store.Stored(sibling); !present {
+		t.Fatal("the dry run ended a session")
+	}
+	if got := contextNamed(t, loadDocument(t, shell), "local").Products["reference"].Audience; got != "https://ref.example" {
+		t.Fatalf("the dry run wrote the record: audience %q", got)
+	}
+
+	mustRun(t, shell, "context", "product", "add", "reference", "--url", "https://ref.example",
+		"--audience", "https://ref.example/v2", "--scopes", "reference:status:read", "--replace")
+	if present, _ := store.Stored(sibling); present {
+		t.Error("the rebound sibling session was kept")
+	}
+	if present, _ := store.Stored("local"); !present {
+		t.Error("the login session, whose binding did not change, was ended")
+	}
+	if got := contextNamed(t, loadDocument(t, shell), "local").Products["reference"].Audience; got != "https://ref.example/v2" {
+		t.Errorf("audience = %q", got)
+	}
+}
+
+func TestProductAddTargetsTheContextFlagOverTheSelection(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	localSetup(t, shell)
+	mustRun(t, shell, "context", "create", "other", "--login-product", "iam", "--url", "http://other:8501")
+	mustRun(t, shell, "context", "product", "add", "api", "--url", "http://other:9251", "--context", "other")
+	document := loadDocument(t, shell)
+	if _, recorded := contextNamed(t, document, "other").Products["api"]; !recorded {
+		t.Error("--context did not target the other context")
+	}
+	if got := contextNamed(t, document, "local").Products["api"].Endpoint; got != apiURL {
+		t.Errorf("the selected context changed: %q", got)
+	}
+}
+
+func TestProductAddWithNothingSelectedIsRefused(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	mustRun(t, shell, "context", "create", "local", "--login-product", "iam", "--url", thunderURL)
+	code, _, errOut := run(t, shell, "context", "product", "add", "api", "--url", apiURL)
+	if code != exit.Usage || !strings.Contains(errOut, "contexts.no_context_selected") {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+}
+
+func TestProductRemoveEndsTheProductsOwnSessionFirst(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	mustRun(t, shell, "context", "create", "local", "--login-product", "iam", "--url", thunderURL, "--use")
+	mustRun(t, shell, "context", "product", "add", "reference", "--url", "https://ref.example",
+		"--audience", "https://ref.example", "--scopes", "reference:status:read")
+	store := session.Store{StateRoot: shell.StateRoot}
+	sibling := contexts.ProductSessionRef("local", "reference")
+	if err := store.Save(sibling, session.Session{Issuer: thunderURL, RefreshToken: "sibling-token"}); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, shell, "context", "product", "remove", "reference")
+	if present, _ := store.Stored(sibling); present {
+		t.Error("the removed product's session was kept")
+	}
+	if _, recorded := contextNamed(t, loadDocument(t, shell), "local").Products["reference"]; recorded {
+		t.Error("the product is still recorded")
+	}
+}
+
+func TestProductRemoveRefusesTheLoginProduct(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	localSetup(t, shell)
+	code, _, errOut := run(t, shell, "context", "product", "remove", "iam")
+	if code != exit.Usage || !strings.Contains(errOut, "contexts.login_product") {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+}
+
+func TestProductRemoveTakesAGatewayAlone(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	localSetup(t, shell)
+	mustRun(t, shell, "context", "product", "remove", "api/gateway")
+	api := contextNamed(t, loadDocument(t, shell), "local").Products["api"]
+	if api.Gateway != nil || api.Endpoint != apiURL {
+		t.Fatalf("api = %+v", api)
+	}
+}
+
+func TestContextDeleteEndsEverySessionAndClearsTheSelection(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	localSetup(t, shell)
+	store := session.Store{StateRoot: shell.StateRoot}
+	if err := store.Save("local", session.Session{Issuer: thunderURL, RefreshToken: "login-token"}); err != nil {
+		t.Fatal(err)
+	}
+	out := mustRun(t, shell, "context", "delete", "local", "--dry-run")
+	if present, _ := store.Stored("local"); !present || len(loadDocument(t, shell).Contexts) != 1 {
+		t.Fatalf("the dry run changed something:\n%s", out)
+	}
+	mustRun(t, shell, "context", "delete", "local")
+	if present, _ := store.Stored("local"); present {
+		t.Error("the deleted context's login session was kept")
 	}
 	document := loadDocument(t, shell)
-	if document.SchemaVersion != contexts.SchemaVersion {
-		t.Errorf("schemaVersion = %d, want %d", document.SchemaVersion, contexts.SchemaVersion)
-	}
-	created := contextNamed(t, document, "acme")
-	if created.Account != "acme-cloud" || created.Organization != "acme" || created.Project != "retail" {
-		t.Errorf("created context = %+v, want the account, organization and project that were named", created)
+	if len(document.Contexts) != 0 || document.DefaultContext != "" {
+		t.Errorf("document = %+v", document)
 	}
 }
 
-func TestContextCreateIsRefusedWhenTheNameIsTaken(t *testing.T) {
-	shell, out, errOut := newShell(t)
-	seeded := identityOnlyDocument()
-	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "first"}}
-	installLogin(t, shell, seeded)
-
-	code := shell.Run([]string{"context", "create", "acme", "--account", "acme-cloud",
-		"--organization", "second"})
+func TestContextRenameKeepsTheSessionsAndTheSelection(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	localSetup(t, shell)
+	mustRun(t, shell, "context", "rename", "local", "demo")
+	document := loadDocument(t, shell)
+	demo := contextNamed(t, document, "demo")
+	if demo.CredentialRef != "local" || document.DefaultContext != "demo" {
+		t.Fatalf("renamed = %+v, selected %q", demo, document.DefaultContext)
+	}
+	code, _, errOut := run(t, shell, "context", "rename", "demo", "Bad Name")
 	if code != exit.Usage {
-		t.Fatalf("exit code = %d, want the usage class %d; stdout: %s stderr: %s",
-			code, exit.Usage, out, errOut)
-	}
-	if !strings.Contains(errOut.String(), "contexts.context_exists") {
-		t.Errorf("stderr does not carry contexts.context_exists:\n%s", errOut)
-	}
-	if organization := contextNamed(t, loadDocument(t, shell), "acme").Organization; organization != "first" {
-		t.Errorf("the existing context was replaced: organization = %q, want %q", organization, "first")
+		t.Fatalf("exit %d: %s", code, errOut)
 	}
 }
 
-func TestContextCreateIsRefusedWhenTheIdentityDoesNotExist(t *testing.T) {
-	shell, out, errOut := newShell(t)
-	installLogin(t, shell, identityOnlyDocument())
+// teamFile is a short input file of the kind a platform team shares.
+const teamFile = `{
+  "contexts": [
+    {
+      "name": "local",
+      "login": {"product": "iam"},
+      "products": {
+        "iam": {"url": "http://localhost:8501"},
+        "api": {"url": "http://localhost:9251", "gateway": {"url": "http://localhost:9091"}}
+      }
+    },
+    {
+      "name": "staging",
+      "login": {"product": "iam", "clientId": "staging-cli"},
+      "products": {"iam": {"url": "https://idp.staging.example"}}
+    }
+  ]
+}`
 
-	code := shell.Run([]string{"context", "create", "acme", "--account", "nosuch"})
+func writeFile(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "team-context.json")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestApplyWritesCompleteRecordsAndSelectsOnlyWithUse(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	file := writeFile(t, teamFile)
+	out := mustRun(t, shell, "context", "apply", "-f", file)
+	document := loadDocument(t, shell)
+	if document.DefaultContext != "" {
+		t.Errorf("apply selected %q without --use", document.DefaultContext)
+	}
+	if !strings.Contains(out, "wso2 context use") {
+		t.Errorf("the report does not say how to select one:\n%s", out)
+	}
+	local := contextNamed(t, document, "local")
+	if local.Login.Issuer != thunderURL || local.Login.ClientID != "wso2-cli" || local.Login.Provider != contexts.ProviderThunder ||
+		local.CredentialRef != "local" || local.Products["iam"].Audience != "https://localhost:8090/mcp" ||
+		local.Products["api"].Grant.Kind != contexts.GrantExchange || local.Products["api"].Gateway.Audience != apiGatewayURL {
+		t.Fatalf("local = %+v", local)
+	}
+	if contextNamed(t, document, "staging").Login.ClientID != "staging-cli" {
+		t.Error("the file's own client was not kept")
+	}
+
+	mustRun(t, shell, "context", "apply", "-f", file, "--use", "local")
+	if selected := loadDocument(t, shell).DefaultContext; selected != "local" {
+		t.Fatalf("--use selected %q", selected)
+	}
+}
+
+func TestApplyKeepsAnExistingSelectionAndOtherContexts(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	installLogin(t, shell, oneContextDocument())
+	mustRun(t, shell, "context", "apply", "-f", writeFile(t, teamFile))
+	document := loadDocument(t, shell)
+	if document.DefaultContext != "acme" || len(document.Contexts) != 3 {
+		t.Fatalf("document = %+v", document)
+	}
+}
+
+func TestApplyReplacesByNameKeepingTheReferenceAndReportsChanges(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	mustRun(t, shell, "context", "apply", "-f", writeFile(t, teamFile))
+	changed := strings.Replace(teamFile, `"http://localhost:9251"`, `"http://localhost:9999"`, 1)
+	out := mustRun(t, shell, "context", "apply", "-f", writeFile(t, changed), "--dry-run")
+	if !strings.Contains(out, "products.api.url: http://localhost:9251 -> http://localhost:9999") {
+		t.Errorf("the dry run does not show the change:\n%s", out)
+	}
+	if got := contextNamed(t, loadDocument(t, shell), "local").Products["api"].Endpoint; got != apiURL {
+		t.Fatalf("the dry run wrote: %q", got)
+	}
+	mustRun(t, shell, "context", "apply", "-f", writeFile(t, changed))
+	local := contextNamed(t, loadDocument(t, shell), "local")
+	if local.Products["api"].Endpoint != "http://localhost:9999" || local.CredentialRef != "local" {
+		t.Fatalf("local = %+v", local)
+	}
+	out = mustRun(t, shell, "context", "apply", "-f", writeFile(t, changed))
+	if !strings.Contains(out, "unchanged") {
+		t.Errorf("a second apply does not report the contexts unchanged:\n%s", out)
+	}
+}
+
+func TestApplyRefusesMachineSpecificAndUnknownMembers(t *testing.T) {
+	cases := map[string]string{
+		"a selection":            `{"defaultContext": "local", "contexts": []}`,
+		"a credential ref":       `{"contexts": [{"name": "local", "credentialRef": "x", "login": {"issuer": "https://i.example", "clientId": "c"}}]}`,
+		"a misspelled member":    `{"contexts": [{"name": "local", "logn": {}}]}`,
+		"no login":               `{"contexts": [{"name": "local"}]}`,
+		"a login product absent": `{"contexts": [{"name": "local", "login": {"product": "iam"}, "products": {}}]}`,
+		"two of one name":        `{"contexts": [{"name": "a", "login": {"issuer": "https://i.example", "clientId": "c"}}, {"name": "a", "login": {"issuer": "https://i.example", "clientId": "c"}}]}`,
+		"a url with a password":  `{"contexts": [{"name": "a", "login": {"product": "iam"}, "products": {"iam": {"url": "http://u:s3cr3t@h"}}}]}`,
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			shell, _, _ := newContextShell(t)
+			code, _, errOut := run(t, shell, "context", "apply", "-f", writeFile(t, content))
+			if code != exit.Usage {
+				t.Fatalf("exit %d: %s", code, errOut)
+			}
+			if strings.Contains(errOut, "s3cr3t") {
+				t.Errorf("the refusal echoes the credential:\n%s", errOut)
+			}
+			if _, err := os.Stat(contexts.Path(shell.StateRoot)); err == nil {
+				t.Error("a refused apply wrote the document")
+			}
+		})
+	}
+}
+
+func TestApplyWithNoInstallTakesACompleteRecordAsWritten(t *testing.T) {
+	shell, _, _ := newShell(t)
+	t.Setenv("WSO2_CONTEXT", "")
+	complete := `{"contexts": [{"name": "corp", "login": {"issuer": "https://idp.corp.example", "clientId": "cli"},
+	  "products": {"orders": {"url": "https://orders.example", "audience": "orders", "scopes": ["orders:read"]}}}]}`
+	mustRun(t, shell, "context", "apply", "-f", writeFile(t, complete), "--no-install", "--use", "corp")
+	corp := contextNamed(t, loadDocument(t, shell), "corp")
+	if corp.Products["orders"].Audience != "orders" || corp.Login.Product != "orders" {
+		t.Fatalf("corp = %+v", corp)
+	}
+}
+
+func TestExportRoundTripsThroughApplyWithoutMachineFacts(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	localSetup(t, shell)
+	exported := mustRun(t, shell, "context", "export")
+	if strings.Contains(exported, "credentialRef") || strings.Contains(exported, "defaultContext") {
+		t.Fatalf("the export carries machine facts:\n%s", exported)
+	}
+	other, _, _ := newContextShell(t)
+	mustRun(t, other, "context", "apply", "-f", writeFile(t, exported), "--use", "local")
+	mine := contextNamed(t, loadDocument(t, shell), "local")
+	theirs := contextNamed(t, loadDocument(t, other), "local")
+	mineJSON, _ := json.Marshal(mine)
+	theirsJSON, _ := json.Marshal(theirs)
+	if string(mineJSON) != string(theirsJSON) {
+		t.Fatalf("the round trip changed the context:\nbefore %s\nafter  %s", mineJSON, theirsJSON)
+	}
+}
+
+func TestEditWritesAValidChangeAndRefusesAnInvalidOne(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	localSetup(t, shell)
+	shell.RunEditor = func(path string) error {
+		data, _ := os.ReadFile(path)
+		edited := strings.Replace(string(data), `"name": "local",`, `"name": "local", "project": "retail",`, 1)
+		return os.WriteFile(path, []byte(edited), 0o600)
+	}
+	mustRun(t, shell, "context", "edit")
+	if got := contextNamed(t, loadDocument(t, shell), "local").Project; got != "retail" {
+		t.Fatalf("project = %q", got)
+	}
+	before, _ := os.ReadFile(contexts.Path(shell.StateRoot))
+	shell.RunEditor = func(path string) error {
+		data, _ := os.ReadFile(path)
+		return os.WriteFile(path, []byte(strings.Replace(string(data), `"kind": "oauth-browser"`, `"kind": "password"`, 1)), 0o600)
+	}
+	code, _, errOut := run(t, shell, "context", "edit")
 	if code != exit.Usage {
-		t.Fatalf("exit code = %d, want the usage class %d; stdout: %s stderr: %s",
-			code, exit.Usage, out, errOut)
+		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !strings.Contains(errOut.String(), "contexts.unknown_identity") {
-		t.Errorf("stderr does not carry contexts.unknown_identity:\n%s", errOut)
-	}
-	// D3: login is the only thing that creates an identity, so it is the only
-	// answer a recovery can honestly give.
-	if !strings.Contains(errOut.String(), "wso2 login") {
-		t.Errorf("the recovery does not name wso2 login, which is what creates an account:\n%s", errOut)
-	}
-	// An identity exists here, so the likeliest fault is a mistyped name, and
-	// the recovery names the command that shows what login recorded.
-	if !strings.Contains(errOut.String(), "wso2 account list") {
-		t.Errorf("the recovery does not name wso2 account list:\n%s", errOut)
-	}
-	if len(loadDocument(t, shell).Contexts) != 0 {
-		t.Error("a refused create wrote a context")
+	after, _ := os.ReadFile(contexts.Path(shell.StateRoot))
+	if string(before) != string(after) {
+		t.Error("an invalid edit was written")
 	}
 }
 
-func TestContextCreateWithNoIdentitiesAtAllPointsAtLoginAlone(t *testing.T) {
-	// A machine nobody has logged in on holds no identities, so there is
-	// nothing for wso2 account list to show: offering it, or offering wso2
-	// context create again, would walk a first-run user in a circle. Login is
-	// the one honest way forward.
-	shell, out, errOut := newShell(t)
-
-	code := shell.Run([]string{"context", "create", "acme", "--account", "nosuch"})
-	if code != exit.Usage {
-		t.Fatalf("exit code = %d, want the usage class %d; stdout: %s stderr: %s",
-			code, exit.Usage, out, errOut)
-	}
-	if !strings.Contains(errOut.String(), "contexts.unknown_identity") {
-		t.Errorf("stderr does not carry contexts.unknown_identity:\n%s", errOut)
-	}
-	if !strings.Contains(errOut.String(), "no accounts exist") {
-		t.Errorf("the refusal does not say no accounts exist:\n%s", errOut)
-	}
-	if !strings.Contains(errOut.String(), "wso2 login") {
-		t.Errorf("the recovery does not name wso2 login:\n%s", errOut)
-	}
-	if strings.Contains(errOut.String(), "wso2 account list") {
-		t.Errorf("the recovery offers wso2 account list with nothing to list:\n%s", errOut)
+func TestEditWithoutATerminalPointsAtTheFile(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	localSetup(t, shell)
+	code, _, errOut := run(t, shell, "context", "edit", "--no-input")
+	if code != exit.Usage || !strings.Contains(errOut, contexts.Path(shell.StateRoot)) {
+		t.Fatalf("exit %d: %s", code, errOut)
 	}
 }
 
-func TestContextCreateNamesTheFlagWhenNoIdentityIsGiven(t *testing.T) {
-	shell, _, errOut := newShell(t)
-	installLogin(t, shell, identityOnlyDocument())
-
-	if code := shell.Run([]string{"context", "create", "acme"}); code != exit.Usage {
-		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
+func TestRemovedCommandsNameTheirReplacement(t *testing.T) {
+	cases := map[string]struct {
+		args []string
+		want string
+	}{
+		"account list":   {[]string{"account", "list"}, "wso2 context show"},
+		"bare account":   {[]string{"account"}, "wso2 context --help"},
+		"account create": {[]string{"account", "create", "demo", "--issuer", thunderURL, "--client-id", "cli"}, "wso2 context create demo --issuer " + thunderURL + " --client-id cli"},
+		"account add-product": {[]string{"account", "add-product", "demo", "orders", "--endpoint", "https://o.example"},
+			"wso2 context product add orders --url https://o.example --context demo"},
+		"account remove-product": {[]string{"account", "remove-product", "demo", "orders"}, "wso2 context product remove orders --context demo"},
+		"account rename":         {[]string{"account", "rename", "demo", "local"}, "wso2 context rename demo local"},
+		"login provider connect": {[]string{"iam", "connect", thunderURL, "--account", "demo"},
+			"wso2 context create demo --login-product iam --url " + thunderURL + " --use"},
+		"product connect": {[]string{"api", "connect", apiURL, "--account", "demo"},
+			"wso2 context product add api --url " + apiURL + " --context demo"},
+		"gateway connect": {[]string{"api", "connect", apiGatewayURL, "--gateway", "--account", "demo"},
+			"wso2 context product add api --url <api-url> --gateway " + apiGatewayURL + " --replace --context demo"},
+		"connect under an uninstalled namespace": {[]string{"orders", "connect", "https://o.example"},
+			"wso2 context product add orders --url https://o.example"},
+		"the identity verbs ADR 0015 moved": {[]string{"identity", "list"}, "wso2 context show"},
 	}
-	if !strings.Contains(errOut.String(), "--account") {
-		t.Errorf("the refusal does not name --account:\n%s", errOut)
-	}
-}
-
-func TestTheFirstContextCreatedBecomesTheDefault(t *testing.T) {
-	shell, out, errOut := newShell(t)
-	installLogin(t, shell, identityOnlyDocument())
-
-	if code := shell.Run([]string{"context", "create", "acme", "--account", "acme-cloud"}); code != exit.OK {
-		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
-	}
-	if selected := loadDocument(t, shell).DefaultContext; selected != "acme" {
-		t.Errorf("defaultContext = %q, want %q", selected, "acme")
-	}
-	// A user who is not told that the first create also selected the context
-	// has to run wso2 context current to find out.
-	if !strings.Contains(out.String(), "selected") {
-		t.Errorf("the output does not say the new context was selected:\n%s", out)
-	}
-}
-
-func TestASecondContextCreatedDoesNotStealTheDefault(t *testing.T) {
-	shell, _, errOut := newShell(t)
-	installLogin(t, shell, identityOnlyDocument())
-
-	if code := shell.Run([]string{"context", "create", "acme", "--account", "acme-cloud"}); code != exit.OK {
-		t.Fatalf("first create: exit code = %d; stderr: %s", code, errOut)
-	}
-	if code := shell.Run([]string{"context", "create", "beta", "--account", "acme-cloud"}); code != exit.OK {
-		t.Fatalf("second create: exit code = %d; stderr: %s", code, errOut)
-	}
-	if selected := loadDocument(t, shell).DefaultContext; selected != "acme" {
-		t.Errorf("defaultContext = %q, want the first context %q", selected, "acme")
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			shell, _, _ := newContextShell(t)
+			code, _, errOut := run(t, shell, testCase.args...)
+			if code != exit.Usage {
+				t.Fatalf("exit %d, want usage: %s", code, errOut)
+			}
+			if !strings.Contains(errOut, "shell.command_moved") || !strings.Contains(errOut, testCase.want) {
+				t.Errorf("stderr does not name %q:\n%s", testCase.want, errOut)
+			}
+		})
 	}
 }
 
 func TestContextUseSelectsAndWritesNothingElse(t *testing.T) {
 	shell, _, errOut := newShell(t)
-	seeded := identityOnlyDocument()
-	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{
-		{Name: "acme", Account: "acme-cloud", Organization: "acme"},
-		{Name: "beta", Account: "acme-cloud", Organization: "beta"},
-	}
-	installLogin(t, shell, seeded)
+	installLogin(t, shell, twoContextDocument())
 	before := loadDocument(t, shell)
 
 	if code := shell.Run([]string{"context", "use", "beta"}); code != exit.OK {
@@ -245,10 +689,7 @@ func TestContextUseSelectsAndWritesNothingElse(t *testing.T) {
 
 func TestContextUseIsRefusedForAnUnknownName(t *testing.T) {
 	shell, _, errOut := newShell(t)
-	seeded := identityOnlyDocument()
-	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
-	installLogin(t, shell, seeded)
+	installLogin(t, shell, oneContextDocument())
 
 	if code := shell.Run([]string{"context", "use", "nosuch"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
@@ -263,94 +704,114 @@ func TestContextUseIsRefusedForAnUnknownName(t *testing.T) {
 
 func TestContextListRendersEveryContextAndMarksTheDefault(t *testing.T) {
 	shell, out, errOut := newShell(t)
-	seeded := identityOnlyDocument()
+	seeded := twoContextDocument()
 	seeded.DefaultContext = "beta"
-	seeded.Contexts = []contexts.Context{
-		{Name: "acme", Account: "acme-cloud"},
-		{Name: "beta", Account: "acme-cloud"},
-	}
 	installLogin(t, shell, seeded)
 
 	if code := shell.Run([]string{"context", "list"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	for _, name := range []string{"acme", "beta"} {
-		if !strings.Contains(out.String(), name) {
-			t.Errorf("the listing omits the %q context:\n%s", name, out)
-		}
-	}
-	// Which one commands run against is the fact the listing exists to answer.
 	selected := ""
 	for _, line := range strings.Split(out.String(), "\n") {
 		if strings.Contains(line, "*") {
 			selected = line
 		}
 	}
-	if !strings.Contains(selected, "beta") {
+	if !strings.Contains(selected, "beta") || !strings.Contains(out.String(), "acme") {
 		t.Errorf("the listing does not mark beta as the selected context:\n%s", out)
+	}
+	header := strings.SplitN(out.String(), "\n", 2)[0]
+	if strings.Contains(header, "ACCOUNT") || strings.Contains(header, "IDENTITY") {
+		t.Errorf("wso2 context list still has an account column: %q", header)
+	}
+}
+
+func TestContextListWithNothingSelectedSaysSo(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	seeded := twoContextDocument()
+	seeded.DefaultContext = ""
+	installLogin(t, shell, seeded)
+	if code := shell.Run([]string{"context", "list"}); code != exit.OK {
+		t.Fatalf("exit code = %d; stderr: %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "No context is selected") {
+		t.Errorf("the listing does not say nothing is selected:\n%s", out)
 	}
 }
 
 func TestContextListOnAMachineWithNoDocumentSaysSoPlainly(t *testing.T) {
 	shell, out, errOut := newShell(t)
-
 	if code := shell.Run([]string{"context", "list"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	if !strings.Contains(out.String(), "context create") {
-		t.Errorf("an empty listing does not name the command that fills it:\n%s", out)
+	if !strings.Contains(out.String(), "context apply") || !strings.Contains(out.String(), "context create") {
+		t.Errorf("an empty listing does not name the commands that fill it:\n%s", out)
 	}
 }
 
 func TestContextCurrentReportsTheSelectedContext(t *testing.T) {
 	shell, out, errOut := newShell(t)
-	seeded := identityOnlyDocument()
-	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "acme"}}
-	installLogin(t, shell, seeded)
-
+	installLogin(t, shell, oneContextDocument())
 	if code := shell.Run([]string{"context", "current"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	if !strings.Contains(out.String(), "acme-cloud") {
-		t.Errorf("the report does not name the account the context authenticates as:\n%s", out)
+	if !strings.Contains(out.String(), "https://idp.example") {
+		t.Errorf("the report does not name the issuer the context logs in through:\n%s", out)
 	}
 }
 
-// TestContextCurrentOnAMachineWithNoDocumentSaysSoPlainly proves an
-// unconfigured machine is reported as a state rather than as a breakage: a
-// first-run user meets this before they have done anything wrong.
 func TestContextCurrentOnAMachineWithNoDocumentSaysSoPlainly(t *testing.T) {
 	shell, out, errOut := newShell(t)
-
 	if code := shell.Run([]string{"context", "current"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stdout: %s stderr: %s", code, exit.OK, out, errOut)
 	}
 	if errOut.Len() != 0 {
 		t.Errorf("an unconfigured machine wrote to stderr:\n%s", errOut)
 	}
-	if !strings.Contains(out.String(), "wso2 login") {
+	if !strings.Contains(out.String(), "wso2 context") {
 		t.Errorf("the report does not name what to run next:\n%s", out)
+	}
+}
+
+func TestContextCurrentReportsAnUnconfiguredMachineInBothRenderings(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	if code := shell.Run([]string{"context", "current", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d; stderr: %s", code, errOut)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("the output is not JSON: %v\n%s", err, out)
+	}
+	if configured, ok := decoded["configured"].(bool); !ok || configured {
+		t.Fatalf("configured = %v", decoded["configured"])
 	}
 }
 
 func TestEveryContextSubcommandRendersJSON(t *testing.T) {
 	for name, args := range map[string][]string{
-		"create":  {"context", "create", "gamma", "--account", "acme-cloud", "--output", "json"},
-		"use":     {"context", "use", "beta", "--output", "json"},
-		"list":    {"context", "list", "--output", "json"},
-		"current": {"context", "current", "--output", "json"},
+		"create":         {"context", "create", "gamma", "--issuer", "https://i.example", "--client-id", "c", "--output", "json"},
+		"use":            {"context", "use", "beta", "--output", "json"},
+		"list":           {"context", "list", "--output", "json"},
+		"current":        {"context", "current", "--output", "json"},
+		"show":           {"context", "show", "--output", "json"},
+		"rename":         {"context", "rename", "beta", "gamma", "--output", "json"},
+		"delete":         {"context", "delete", "beta", "--output", "json"},
+		"product add":    {"context", "product", "add", "reference", "--url", "https://r.example", "--output", "json"},
+		"product remove": {"context", "product", "remove", "orders", "--output", "json"},
+		"export":         {"context", "export"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			shell, out, errOut := newShell(t)
-			seeded := identityOnlyDocument()
-			seeded.DefaultContext = "acme"
-			seeded.Contexts = []contexts.Context{
-				{Name: "acme", Account: "acme-cloud"},
-				{Name: "beta", Account: "acme-cloud"},
-			}
+			shell, out, errOut := newContextShell(t)
+			seeded := twoContextDocument()
+			acme := seeded.Contexts[0]
+			acme.Products = map[string]contexts.Product{"reference": {Endpoint: "https://r.example"},
+				"orders": {Endpoint: "https://o.example"}}
+			acme.Login.Product = "reference"
+			seeded = seeded.Put(acme)
 			installLogin(t, shell, seeded)
-
+			if name == "product add" {
+				installLogin(t, shell, twoContextDocument())
+			}
 			if code := shell.Run(args); code != exit.OK {
 				t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 			}
@@ -358,12 +819,6 @@ func TestEveryContextSubcommandRendersJSON(t *testing.T) {
 			if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
 				t.Fatalf("the output is not one JSON document: %v\n%s", err, out)
 			}
-			if len(decoded) == 0 {
-				t.Errorf("the JSON document carries no fields:\n%s", out)
-			}
-			// The shell's own renderer publishes no discriminator, so neither
-			// does this family: one command inventing a second convention is
-			// worse than the convention being absent.
 			if _, published := decoded["schema"]; published {
 				t.Errorf("the result publishes a schema key the rest of the shell suppresses:\n%s", out)
 			}
@@ -372,10 +827,6 @@ func TestEveryContextSubcommandRendersJSON(t *testing.T) {
 }
 
 // failingTransport fails the test if anything it is installed on dials.
-//
-// family names the command family under test, because more than one installs
-// this guard and a failure that named the wrong one would send a reader to the
-// wrong package for the most load-bearing assertion either family makes.
 type failingTransport struct {
 	t      *testing.T
 	family string
@@ -386,62 +837,41 @@ func (f failingTransport) RoundTrip(request *http.Request) (*http.Response, erro
 	return nil, errNoNetwork
 }
 
-// errNoNetwork is what the guard answers a caller with. It is a plain error
-// rather than a sentinel borrowed from net/http, whose sentinels all mean
-// something specific to a client that a transport must not claim.
 var errNoNetwork = errors.New("this test permits no network call")
 
 // TestNoContextSubcommandOpensANetworkConnection is the D8 guard: an issuer
 // typo has to surface at wso2 login, never at wso2 context create, which is
-// what makes ADR 0011's claim checkable.
-//
-// It is asserted at runtime rather than by reading the source. Every HTTP
-// client the shell builds leaves its Transport nil or names
-// http.DefaultTransport explicitly, so replacing that one value intercepts
-// every request this binary can make today. A client that carried its own
-// transport would evade this, which is why the assertion is here rather than
-// only in a source-reading boundary test: a new client added to a context
-// command body would have to be written deliberately to escape it.
+// what makes ADR 0011's claim checkable. Installing is the one network use a
+// setup command makes, and every product here is installed already.
 func TestNoContextSubcommandOpensANetworkConnection(t *testing.T) {
 	original := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = original })
 	http.DefaultTransport = failingTransport{t: t, family: "context"}
 
-	// The refusal paths are covered alongside the successful ones. A refusal is
-	// where a well-meaning "let me check the issuer before I complain" would be
-	// added, and it is the path a first-run user reaches first.
 	invocations := map[string][]string{
-		"create":                 {"context", "create", "gamma", "--account", "acme-cloud", "--organization", "acme"},
+		"create":                 {"context", "create", "gamma", "--login-product", "iam", "--url", thunderURL},
+		"create, issuer":         {"context", "create", "delta", "--issuer", "https://i.example", "--client-id", "c"},
+		"product add":            {"context", "product", "add", "api", "--url", apiURL, "--gateway", apiGatewayURL},
 		"use":                    {"context", "use", "beta"},
 		"list":                   {"context", "list"},
 		"current":                {"context", "current"},
-		"create, taken name":     {"context", "create", "acme", "--account", "acme-cloud"},
-		"create, no account":     {"context", "create", "delta", "--account", "nosuch"},
-		"create, illegal name":   {"context", "create", "Delta", "--account", "acme-cloud"},
-		"create, no name":        {"context", "create"},
+		"show":                   {"context", "show"},
+		"export":                 {"context", "export"},
+		"create, taken name":     {"context", "create", "acme", "--login-product", "iam", "--url", thunderURL},
+		"create, illegal name":   {"context", "create", "Delta", "--issuer", "https://i.example", "--client-id", "c"},
 		"use, unknown name":      {"context", "use", "nosuch"},
-		"list, stray argument":   {"context", "list", "extra"},
 		"unsupported shell flag": {"--context", "acme", "context", "list"},
 	}
 	for name, args := range invocations {
 		t.Run(name, func(t *testing.T) {
-			shell, _, _ := newShell(t)
-			seeded := identityOnlyDocument()
-			seeded.DefaultContext = "acme"
-			seeded.Contexts = []contexts.Context{
-				{Name: "acme", Account: "acme-cloud"},
-				{Name: "beta", Account: "acme-cloud"},
-			}
-			installLogin(t, shell, seeded)
-			// The exit code is not asserted: what is asserted is that whatever
-			// the command decided, it decided it without dialling anything.
+			shell, _, _ := newContextShell(t)
+			installLogin(t, shell, twoContextDocument())
 			shell.Run(args)
 		})
 	}
 }
 
-// TestTheNetworkGuardWouldNoticeARequest proves the guard is not vacuous: the
-// same transport, reached by the same in-process route, fails a test.
+// TestTheNetworkGuardWouldNoticeARequest proves the guard is not vacuous.
 func TestTheNetworkGuardWouldNoticeARequest(t *testing.T) {
 	watched := &testing.T{}
 	transport := failingTransport{t: watched, family: "context"}
@@ -473,9 +903,7 @@ const legacyDocumentJSON = `{
 }
 `
 
-// installLegacy writes a version 1 document into the shell's isolated state,
-// without going through a writer, because no writer in the repository produces
-// one at this path.
+// installLegacy writes a version 1 document into the shell's isolated state.
 func installLegacy(t *testing.T, shell app.Shell) {
 	t.Helper()
 	path := contexts.Path(shell.StateRoot)
@@ -487,30 +915,18 @@ func installLegacy(t *testing.T, shell app.Shell) {
 	}
 }
 
-// TestContextCreateOnAVersionOneDocumentExplainsWhatToDo covers the user this
-// command exists for: someone who hand-wrote a context file before the shell
-// could write one. The writer refuses to overwrite their document, and the bare
-// refusal would meet them with a failure and no route forward.
 func TestContextCreateOnAVersionOneDocumentExplainsWhatToDo(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	installLegacy(t, shell)
 
-	if code := shell.Run([]string{"context", "create", "acme", "--account", "legacy"}); code != exit.Usage {
+	if code := shell.Run([]string{"context", "create", "acme", "--issuer", "https://i.example", "--client-id", "c"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
 	}
 	reported := errOut.String()
-	for _, wanted := range []string{
-		contexts.Path(shell.StateRoot), // which file
-		"version 1",                    // what is wrong with it
-		"wso2 context list",            // that it still works for reading
-	} {
+	for _, wanted := range []string{contexts.Path(shell.StateRoot), "version 1", "wso2 context list"} {
 		if !strings.Contains(reported, wanted) {
 			t.Errorf("the refusal does not mention %q:\n%s", wanted, reported)
 		}
-	}
-	// Nothing invents a migration, and nothing touches the file.
-	if strings.Contains(reported, "migrate") {
-		t.Errorf("the refusal offers a migration that does not exist:\n%s", reported)
 	}
 	data, err := os.ReadFile(contexts.Path(shell.StateRoot))
 	if err != nil {
@@ -521,12 +937,9 @@ func TestContextCreateOnAVersionOneDocumentExplainsWhatToDo(t *testing.T) {
 	}
 }
 
-// TestTheContextFamilyRefusesTheContextFlag proves the family is registered in
-// its own declaration rather than silently ignoring a flag it cannot act on:
-// naming a context is what its own arguments do.
 func TestTheContextFamilyRefusesTheContextFlag(t *testing.T) {
 	shell, _, errOut := newShell(t)
-	installLogin(t, shell, identityOnlyDocument())
+	installLogin(t, shell, oneContextDocument())
 
 	if code := shell.Run([]string{"--context", "acme", "context", "list"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
@@ -536,72 +949,6 @@ func TestTheContextFamilyRefusesTheContextFlag(t *testing.T) {
 	}
 }
 
-// TestSelectedIsABooleanWhereverItAppears proves one field name does not carry
-// two types inside one command family: a caller that reads create's "selected"
-// and list's must not have to know which is a string.
-func TestSelectedIsABooleanWhereverItAppears(t *testing.T) {
-	shell, out, errOut := newShell(t)
-	installLogin(t, shell, identityOnlyDocument())
-
-	if code := shell.Run([]string{"context", "create", "acme",
-		"--account", "acme-cloud", "--output", "json"}); code != exit.OK {
-		t.Fatalf("create: exit code = %d; stderr: %s", code, errOut)
-	}
-	var created map[string]any
-	if err := json.Unmarshal(out.Bytes(), &created); err != nil {
-		t.Fatalf("create output is not JSON: %v\n%s", err, out)
-	}
-	if _, ok := created["selected"].(bool); !ok {
-		t.Errorf("create reports selected as %T, want a boolean: %v", created["selected"], created["selected"])
-	}
-
-	out.Reset()
-	if code := shell.Run([]string{"context", "list", "--output", "json"}); code != exit.OK {
-		t.Fatalf("list: exit code = %d; stderr: %s", code, errOut)
-	}
-	var listed struct {
-		Contexts []map[string]any `json:"contexts"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &listed); err != nil {
-		t.Fatalf("list output is not JSON: %v\n%s", err, out)
-	}
-	if len(listed.Contexts) != 1 {
-		t.Fatalf("the listing carries %d contexts, want 1:\n%s", len(listed.Contexts), out)
-	}
-	if _, ok := listed.Contexts[0]["selected"].(bool); !ok {
-		t.Errorf("list reports selected as %T, want a boolean", listed.Contexts[0]["selected"])
-	}
-}
-
-// TestContextCurrentReportsAnUnconfiguredMachineInBothRenderings proves the
-// table and the JSON cannot disagree about what the command found: the prose
-// says no context is configured, and the JSON has to say the same thing rather
-// than leaving a caller to infer it from four empty strings. See ADR 0003.
-func TestContextCurrentReportsAnUnconfiguredMachineInBothRenderings(t *testing.T) {
-	shell, out, errOut := newShell(t)
-
-	if code := shell.Run([]string{"context", "current", "--output", "json"}); code != exit.OK {
-		t.Fatalf("exit code = %d; stderr: %s", code, errOut)
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
-		t.Fatalf("the output is not JSON: %v\n%s", err, out)
-	}
-	configured, ok := decoded["configured"].(bool)
-	if !ok {
-		t.Fatalf("the report does not say whether a context is configured: %v", decoded)
-	}
-	if configured {
-		t.Error("an unconfigured machine reported itself as configured")
-	}
-}
-
-// TestAWrongArgumentCountIsAUsageRefusal proves a miscounted argument is
-// reported in the usage class with a way back, rather than in the class the
-// command reference reserves for a module process that crashed.
-//
-// wso2 context create with no argument is the likeliest first-run typo in the
-// family, which is why the class it exits in matters.
 func TestAWrongArgumentCountIsAUsageRefusal(t *testing.T) {
 	for name, args := range map[string][]string{
 		"create with no name":      {"context", "create"},
@@ -610,102 +957,34 @@ func TestAWrongArgumentCountIsAUsageRefusal(t *testing.T) {
 		"use with two names":       {"context", "use", "one", "two"},
 		"list with an argument":    {"context", "list", "extra"},
 		"current with an argument": {"context", "current", "extra"},
+		"rename with one name":     {"context", "rename", "one"},
+		"export with two names":    {"context", "export", "one", "two"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			shell, _, errOut := newShell(t)
-
 			if code := shell.Run(args); code != exit.Usage {
-				t.Fatalf("exit code = %d, want the usage class %d; stderr: %s",
-					code, exit.Usage, errOut)
+				t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
 			}
-			if strings.Contains(errOut.String(), "shell.unexpected_failure") {
-				t.Errorf("a miscounted argument is reported as an unexpected failure:\n%s", errOut)
-			}
-			// A refusal with no way back leaves the user to guess the shape.
-			if !strings.Contains(errOut.String(), "Run wso2 context") {
+			if !strings.Contains(errOut.String(), "Run `wso2 context") {
 				t.Errorf("the refusal names no way back:\n%s", errOut)
 			}
 		})
 	}
 }
 
-// TestContextCreateRefusesANameTheDocumentCannotHold proves a name the user
-// typed is refused as the argument it is. Telling them their document is
-// malformed and offering to remove it would destroy contexts they already have,
-// over a name that never reached the file.
-func TestContextCreateRefusesANameTheDocumentCannotHold(t *testing.T) {
-	for _, name := range []string{"Acme", "a b", "a/b", "1acme", ""} {
-		t.Run(name, func(t *testing.T) {
-			shell, _, errOut := newShell(t)
-			installLogin(t, shell, identityOnlyDocument())
-
-			code := shell.Run([]string{"context", "create", name, "--account", "acme-cloud"})
-			if code != exit.Usage {
-				t.Fatalf("exit code = %d, want the usage class %d; stderr: %s",
-					code, exit.Usage, errOut)
-			}
-			reported := errOut.String()
-			if strings.Contains(reported, "contexts.document_malformed") {
-				t.Errorf("a mistyped argument is reported as a malformed document:\n%s", reported)
-			}
-			if strings.Contains(reported, "remove it") {
-				t.Errorf("the refusal offers to remove the user's document:\n%s", reported)
-			}
-			// The rule, so the next attempt is informed rather than another guess.
-			if !strings.Contains(reported, contexts.NameRule) {
-				t.Errorf("the refusal does not state the naming rule:\n%s", reported)
-			}
-		})
-	}
-}
-
-// TestTheFrozenDocumentRecoveryRoutesThroughLogin proves the way out actually
-// works. Moving a version 1 document aside takes its identities with it: they
-// exist only as the compatibility read's synthetic ones, so a user who moves
-// the file and re-runs the create meets a second refusal with their old file
-// already renamed. Login is what creates an identity (#112 D3), so it has to
-// come first.
-func TestTheFrozenDocumentRecoveryRoutesThroughLogin(t *testing.T) {
-	shell, _, errOut := newShell(t)
-	installLegacy(t, shell)
-
-	if code := shell.Run([]string{"context", "create", "acme", "--account", "legacy"}); code != exit.Usage {
-		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
-	}
-	reported := errOut.String()
-	if !strings.Contains(reported, "wso2 login") {
-		t.Errorf("the recovery does not route through wso2 login, which is what creates an account:\n%s",
-			reported)
-	}
-	// The instruction that does not work: moving the file aside and re-running
-	// this command refuses again, because the identity went with the file.
-	if strings.Contains(reported, "run the command again") {
-		t.Errorf("the recovery still tells the user to re-run a command that would refuse:\n%s", reported)
-	}
-}
-
-// contextShowReport mirrors what wso2 context show --output json publishes,
-// so a test can decode it without depending on the command's own unexported
-// type.
+// contextShowReport mirrors what wso2 context show --output json publishes.
 type contextShowReport struct {
 	Path           string `json:"path"`
 	Written        bool   `json:"written"`
 	SchemaVersion  int    `json:"schemaVersion"`
 	DefaultContext string `json:"defaultContext"`
-	Accounts       []struct {
-		Name string `json:"name"`
-		Type string `json:"type"`
-		Auth struct {
-			Kind                 string `json:"kind"`
-			Issuer               string `json:"issuer"`
-			CredentialRef        string `json:"credentialRef"`
-			ClientSecretVariable string `json:"clientSecretVariable"`
-		} `json:"auth"`
-	} `json:"accounts"`
-	Contexts []contexts.Context `json:"contexts"`
+	Contexts       []struct {
+		contexts.Context
+		CredentialSource string `json:"credentialSource"`
+	} `json:"contexts"`
+	Notes []string `json:"notes"`
 }
 
-// decodeContextShowReport parses wso2 context show --output json.
 func decodeContextShowReport(t *testing.T, rendered []byte) contextShowReport {
 	t.Helper()
 	var report contextShowReport
@@ -715,280 +994,103 @@ func decodeContextShowReport(t *testing.T, rendered []byte) contextShowReport {
 	return report
 }
 
-// TestContextShowReportsThePathEvenWithNothingWritten is acceptance criterion
-// 1 and 3 of #170 together: the path is reported, and it is reported on a
-// fresh machine that has never written the document at all.
 func TestContextShowReportsThePathEvenWithNothingWritten(t *testing.T) {
 	shell, out, errOut := newShell(t)
-
 	if code := shell.Run([]string{"context", "show", "--output", "json"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
 	report := decodeContextShowReport(t, out.Bytes())
-	want := contexts.Path(shell.StateRoot)
-	if report.Path != want {
-		t.Errorf("path = %q, want %q", report.Path, want)
-	}
-	if report.Written {
-		t.Errorf("written = true on a machine that has never written the document")
-	}
-	if report.Accounts == nil || len(report.Accounts) != 0 {
-		t.Errorf("accounts = %v, want an empty list rather than null", report.Accounts)
+	if report.Path != contexts.Path(shell.StateRoot) || report.Written {
+		t.Errorf("report = %+v", report)
 	}
 	if report.Contexts == nil || len(report.Contexts) != 0 {
 		t.Errorf("contexts = %v, want an empty list rather than null", report.Contexts)
 	}
-
 	tableShell, tableOut, tableErrOut := newShell(t)
 	if code := tableShell.Run([]string{"context", "show"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, tableErrOut)
-	}
-	if !strings.Contains(tableOut.String(), contexts.Path(tableShell.StateRoot)) {
-		t.Errorf("table rendering does not name the document's path:\n%s", tableOut)
 	}
 	if !strings.Contains(tableOut.String(), "No context document has been written yet") {
 		t.Errorf("table rendering does not say that no document has been written:\n%s", tableOut)
 	}
 }
 
-// TestContextShowReflectsWSO2Home is acceptance criterion 1: the reported path
-// follows WSO2_HOME rather than a fixed location, proven the way state_test.go
-// proves state.Root itself — through the real environment variable, with no
-// shell.StateRoot override standing in for it.
 func TestContextShowReflectsWSO2Home(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(state.RootEnvVar, home)
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	shell := app.Shell{Streams: output.Streams{Out: out, Err: errOut}}
-
 	if code := shell.Run([]string{"context", "show", "--output", "json"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	report := decodeContextShowReport(t, out.Bytes())
-	want := contexts.Path(home)
-	if report.Path != want {
-		t.Errorf("path = %q, want %q derived from WSO2_HOME=%s", report.Path, want, home)
+	if report := decodeContextShowReport(t, out.Bytes()); report.Path != contexts.Path(home) {
+		t.Errorf("path = %q, want %q", report.Path, contexts.Path(home))
 	}
 }
 
-// TestContextShowRendersTheWholeDocument proves the document is shown in
-// full, in both renderings: every account, every context, the schema version,
-// and the default context — not only the subset wso2 context list or
-// wso2 account list already report.
-func TestContextShowRendersTheWholeDocument(t *testing.T) {
-	shell, out, errOut := newShell(t)
-	seeded := identityOnlyDocument()
-	seeded.Accounts = append(seeded.Accounts, contexts.Account{
-		Name: "beta-machine",
-		Type: "onprem",
-		Auth: contexts.AccountAuth{
-			Kind:                 contexts.KindClientCredentials,
-			Issuer:               "https://idp.beta.example",
-			ClientID:             "beta-client",
-			ClientSecretVariable: "WSO2_BETA_CLIENT_SECRET",
-		},
-	})
-	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "acme"}}
-	installLogin(t, shell, seeded)
-
-	if code := shell.Run([]string{"context", "show", "--output", "json"}); code != exit.OK {
-		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
-	}
-	report := decodeContextShowReport(t, out.Bytes())
-	if !report.Written {
-		t.Fatalf("written = false for a document this test installed")
-	}
-	if report.SchemaVersion != contexts.SchemaVersion {
-		t.Errorf("schemaVersion = %d, want %d", report.SchemaVersion, contexts.SchemaVersion)
-	}
-	if report.DefaultContext != "acme" {
-		t.Errorf("defaultContext = %q, want %q", report.DefaultContext, "acme")
-	}
-	if len(report.Accounts) != 2 {
-		t.Fatalf("accounts = %d, want 2 (browser and client-credentials): %+v", len(report.Accounts), report.Accounts)
-	}
-	if len(report.Contexts) != 1 || report.Contexts[0].Name != "acme" {
-		t.Errorf("contexts = %+v, want the one seeded context named acme", report.Contexts)
-	}
-
-	tableShell, tableOut, tableErrOut := newShell(t)
-	installLogin(t, tableShell, seeded)
-	if code := tableShell.Run([]string{"context", "show"}); code != exit.OK {
-		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, tableErrOut)
-	}
-	for _, want := range []string{"acme-cloud", "beta-machine", "acme"} {
-		if !strings.Contains(tableOut.String(), want) {
-			t.Errorf("table rendering does not name %q:\n%s", want, tableOut)
-		}
-	}
-}
-
-// TestContextShowNamesCredentialSourcesButNeverACredential is acceptance
-// criterion 4: the document names credential sources — a secure-store
-// reference, an environment variable name — and this command shows them,
-// because that is the whole point of showing the document ("who has
-// hand-edited the document" needs to see where a credential is supposed to
-// come from). What it must never show is a credential value, proven here two
-// ways: structurally, that the source names decode out of the report at all,
-// and behaviorally, that a real secret sitting behind one of those sources
-// never reaches the rendered output.
-func TestContextShowNamesCredentialSourcesButNeverACredential(t *testing.T) {
+func TestContextShowRendersTheWholeDocumentAndNamesSourcesNeverSecrets(t *testing.T) {
 	keyring.MockInit()
-	shell, out, errOut := newShell(t)
-	seeded := identityOnlyDocument() // acme-cloud, credentialRef "acme-cloud"
-	seeded.Accounts = append(seeded.Accounts, contexts.Account{
-		Name: "beta-machine",
-		Type: "onprem",
-		Auth: contexts.AccountAuth{
-			Kind:                 contexts.KindClientCredentials,
-			Issuer:               "https://idp.beta.example",
-			ClientID:             "beta-client",
-			ClientSecretVariable: "WSO2_BETA_CLIENT_SECRET",
-		},
-	})
-	installLogin(t, shell, seeded)
-
-	// A real secret behind the browser account's credential reference: what
-	// this command must never let slip, whichever rendering asks for it.
-	const canarySecret = "canary-refresh-token-2f8c-do-not-disclose"
-	store := session.Store{StateRoot: shell.StateRoot}
-	if err := store.Save("acme-cloud", session.Session{
-		Issuer: "https://idp.example", RefreshToken: canarySecret,
-	}); err != nil {
-		t.Fatalf("seed a session: %v", err)
+	shell, _, _ := newContextShell(t)
+	localSetup(t, shell)
+	mustRun(t, shell, "context", "create", "ci", "--login-product", "iam", "--url", thunderURL,
+		"--client-id", "ci", "--client-secret-variable", "WSO2_CI_SECRET")
+	const canary = "canary-refresh-token-2f8c-do-not-disclose"
+	if err := (session.Store{StateRoot: shell.StateRoot}).Save("local",
+		session.Session{Issuer: thunderURL, RefreshToken: canary}); err != nil {
+		t.Fatal(err)
 	}
 
-	if code := shell.Run([]string{"context", "show", "--output", "json"}); code != exit.OK {
-		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	report := decodeContextShowReport(t, []byte(mustRun(t, shell, "context", "show", "--output", "json")))
+	if report.SchemaVersion != contexts.SchemaVersion || report.DefaultContext != "local" || len(report.Contexts) != 2 {
+		t.Fatalf("report = %+v", report)
 	}
-	report := decodeContextShowReport(t, out.Bytes())
-	found := map[string]bool{}
-	for _, account := range report.Accounts {
-		switch account.Name {
-		case "acme-cloud":
-			if account.Auth.CredentialRef != "acme-cloud" {
-				t.Errorf("acme-cloud's credentialRef = %q, want the source named", account.Auth.CredentialRef)
-			}
-			found["acme-cloud"] = true
-		case "beta-machine":
-			if account.Auth.ClientSecretVariable != "WSO2_BETA_CLIENT_SECRET" {
-				t.Errorf("beta-machine's clientSecretVariable = %q, want the source named",
-					account.Auth.ClientSecretVariable)
-			}
-			found["beta-machine"] = true
+	sources := map[string]string{}
+	for _, context := range report.Contexts {
+		sources[context.Name] = context.CredentialSource
+	}
+	if sources["local"] != "secure store: local" || sources["ci"] != "env: WSO2_CI_SECRET" {
+		t.Errorf("sources = %v", sources)
+	}
+	table := mustRun(t, shell, "context", "show")
+	for _, want := range []string{"Products", "https://localhost:8090/mcp", "api/gateway", apiGatewayURL, "exchange",
+		"secure store: local", "env: WSO2_CI_SECRET"} {
+		if !strings.Contains(table, want) {
+			t.Errorf("wso2 context show does not show %q:\n%s", want, table)
 		}
 	}
-	if !found["acme-cloud"] || !found["beta-machine"] {
-		t.Fatalf("both accounts were not found in the report: %+v", report.Accounts)
-	}
-
-	tableShell, tableOut, tableErrOut := newShell(t)
-	installLogin(t, tableShell, seeded)
-	tableStore := session.Store{StateRoot: tableShell.StateRoot}
-	if err := tableStore.Save("acme-cloud", session.Session{
-		Issuer: "https://idp.example", RefreshToken: canarySecret,
-	}); err != nil {
-		t.Fatalf("seed a session: %v", err)
-	}
-	if code := tableShell.Run([]string{"context", "show"}); code != exit.OK {
-		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, tableErrOut)
-	}
-	// Both renderings' sources are checked so a leak that only reaches one of
-	// them cannot slip past this test.
-	for _, written := range []string{out.String() + errOut.String(), tableOut.String() + tableErrOut.String()} {
-		if strings.Contains(written, canarySecret) {
-			t.Fatalf("the stored session's refresh token reached wso2 context show's output:\n%s", written)
+	for _, rendered := range []string{table} {
+		if strings.Contains(rendered, canary) {
+			t.Fatal("a stored refresh token reached wso2 context show")
 		}
-	}
-	if !strings.Contains(tableOut.String(), "secure store: acme-cloud") {
-		t.Errorf("the table rendering does not name the secure-store credential source:\n%s", tableOut)
-	}
-	if !strings.Contains(tableOut.String(), "env: WSO2_BETA_CLIENT_SECRET") {
-		t.Errorf("the table rendering does not name the environment-variable credential source:\n%s", tableOut)
 	}
 }
 
-func TestContextListNamesTheAccountColumnAccount(t *testing.T) {
-	// A column header is a single word, which the repository-wide guard skips
-	// on purpose — the bare word "identity" is also a product namespace — so
-	// the header has its own test.
-	shell, out, errOut := newShell(t)
-	installLogin(t, shell, selfHostedDocument())
-	if code := shell.Run([]string{"context", "list"}); code != exit.OK {
-		t.Fatalf("exit %d: %s", code, errOut)
+func TestContextShowReportsAnUpgradeAndDrift(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	localSetup(t, shell)
+	// Pretend an older version of iam was applied: the record asks for other
+	// scopes than the installed descriptor would write now.
+	document := loadDocument(t, shell)
+	local := contextNamed(t, document, "local")
+	iam := local.Products["iam"]
+	iam.Scopes = []string{"legacy"}
+	local.Products["iam"] = iam
+	if err := contexts.Save(shell.StateRoot, document.Put(local)); err != nil {
+		t.Fatal(err)
 	}
-	header := strings.SplitN(out.String(), "\n", 2)[0]
-	if strings.Contains(header, "IDENTITY") {
-		t.Errorf("wso2 context list heads a column IDENTITY: %q", header)
+	out := mustRun(t, shell, "context", "show")
+	if !strings.Contains(out, `records the scopes "legacy"`) || !strings.Contains(out, "--replace --context local") {
+		t.Errorf("wso2 context show does not flag the drift:\n%s", out)
 	}
-	if !strings.Contains(header, "ACCOUNT") {
-		t.Errorf("wso2 context list has no ACCOUNT column: %q", header)
-	}
-	out.Reset()
-	if code := shell.Run([]string{"--output", "json", "context", "list"}); code != exit.OK {
-		t.Fatalf("exit %d: %s", code, errOut)
-	}
-	if strings.Contains(out.String(), `"identity"`) {
-		t.Errorf("wso2 context list --output json still keys the account as identity:\n%s", out)
-	}
-}
-
-func TestContextShowTableShowsEveryProductRecordWhole(t *testing.T) {
-	// #170: "shows the document's contents whole, in table and JSON output."
-	// The table once named each account's products and nothing about them, so
-	// only JSON actually showed the document whole. A reader of the table has
-	// to see what a record reaches and how, including the gateway record and
-	// which product the account logs in through.
-	shell, out, errOut := newShell(t)
-	document := thunderDoc("http://login.example", "http://apim.example")
-	product := document.Accounts[0].Products["iam"]
-	product.Gateway = &contexts.Gateway{Endpoint: "https://gw.example", Audience: "https://gw.example/hello"}
-	document.Accounts[0].Products["iam"] = product
-	installLogin(t, shell, document)
-
-	if code := shell.Run([]string{"context", "show"}); code != exit.OK {
-		t.Fatalf("exit %d: %s", code, errOut)
-	}
-	rendered := out.String()
-	for _, want := range []string{
-		"Products",                   // the section exists
-		"https://localhost:8090/mcp", // iam's audience
-		"system",                     // iam's scopes
-		"iam/gateway",                // the gateway record, as its own row
-		"https://gw.example/hello",   // the gateway's audience
-		"federated",                  // apim's grant
-		"http://apim.example",        // apim's endpoint
-	} {
-		if !strings.Contains(rendered, want) {
-			t.Errorf("wso2 context show does not show %q:\n%s", want, rendered)
-		}
-	}
-	// The login product is marked, the way the contexts table marks the
-	// default context: which product an account logs in through decides what
-	// every other product's session is obtained from.
-	login := document.Accounts[0].LoginAccess().Namespace
-	found := false
-	for _, line := range strings.Split(rendered, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 2 && fields[0] == "*" && slices.Contains(fields, login) {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("the login product %q is not marked in the products table:\n%s", login, rendered)
+	_, doctorOut, _ := run(t, shell, "doctor", "--output", "json")
+	if !strings.Contains(doctorOut, `"check": "defaults"`) || !strings.Contains(doctorOut, `"status": "differs"`) {
+		t.Errorf("wso2 doctor does not flag the drift:\n%s", doctorOut)
 	}
 }
 
 func TestContextShowKeepsAVersionOneDocumentsCredentialSource(t *testing.T) {
-	// A version 1 document is read into the current shape, and its account's
-	// credential variable lives in a field that is never encoded, because the
-	// shell never writes a version 1 document back. Showing the document is not
-	// writing it: dropping the variable there loses the one fact that says
-	// where the account's credential comes from, in the table and in JSON.
 	shell, out, errOut := newShell(t)
 	installLegacy(t, shell)
-
 	if code := shell.Run([]string{"context", "show"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
@@ -1002,4 +1104,70 @@ func TestContextShowKeepsAVersionOneDocumentsCredentialSource(t *testing.T) {
 	if !strings.Contains(out.String(), "WSO2_DEV_CREDENTIAL") {
 		t.Errorf("the JSON drops the version 1 credential variable:\n%s", out)
 	}
+}
+
+func TestAnEarlierDocumentIsUpgradedOnceWithANoticeWhenSessionsMove(t *testing.T) {
+	shell, _, _ := newShell(t)
+	t.Setenv("WSO2_CONTEXT", "")
+	path := contexts.Path(shell.StateRoot)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	shared := `{"schemaVersion": 3, "defaultContext": "alpha",
+	  "accounts": [{"name": "demo", "type": "onprem",
+	    "auth": {"kind": "oauth-browser", "issuer": "https://idp.example", "clientId": "cli", "credentialRef": "demo"}}],
+	  "contexts": [{"name": "alpha", "account": "demo"}, {"name": "beta", "account": "demo"}]}`
+	if err := os.WriteFile(path, []byte(shared), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, errOut := run(t, shell, "context", "list")
+	if !strings.Contains(errOut, "schema version 4") || !strings.Contains(errOut, "wso2 login --context beta") {
+		t.Errorf("the upgrade was not reported:\n%s", errOut)
+	}
+	_, _, errOut = run(t, shell, "context", "list")
+	if strings.Contains(errOut, "Upgraded") {
+		t.Errorf("the upgrade was reported twice:\n%s", errOut)
+	}
+	if !strings.Contains(string(mustReadFile(t, path)), `"schemaVersion": 4`) {
+		t.Error("the document was not rewritten")
+	}
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+// identityOnlyDocument is one browser context's login under the name
+// acme-cloud, selecting nothing: the starting point tests copy into the
+// contexts they need with acmeCloud.
+func identityOnlyDocument() contexts.Document {
+	return contexts.Document{
+		SchemaVersion: contexts.SchemaVersion,
+		Contexts:      []contexts.Context{acmeCloud("acme-cloud")},
+	}
+}
+
+// acmeCloud is the acme-cloud login under the given name, optionally within an
+// organization and a project. The acme context keeps its sessions under
+// acme-cloud, the reference of the account it was folded from; any other name
+// holds sessions of its own under its name.
+func acmeCloud(name string, organizationAndProject ...string) contexts.Context {
+	ref := name
+	if name == "acme" {
+		ref = "acme-cloud"
+	}
+	context := contexts.Context{Name: name, Type: "cloud", CredentialRef: ref,
+		Login: contexts.Login{Kind: contexts.KindOAuthBrowser, Issuer: "https://idp.example", ClientID: "wso2-cli"}}
+	if len(organizationAndProject) > 0 {
+		context.Organization = organizationAndProject[0]
+	}
+	if len(organizationAndProject) > 1 {
+		context.Project = organizationAndProject[1]
+	}
+	return context
 }

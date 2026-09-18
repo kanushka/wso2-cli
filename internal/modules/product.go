@@ -85,6 +85,22 @@ type ProductDescriptor struct {
 	// identity's login provider for the API's own resource server. Absent
 	// for a product without a gateway, which has connect --gateway refused.
 	Gateway *GatewayDescriptor `json:"gateway,omitempty"`
+	// Invocation declares that the module calls the APIs its product serves
+	// the way their consumers would, and so asks for access bound to a
+	// resource no context records. Absent for a module that does not, which
+	// has the api record refused.
+	Invocation *InvocationDescriptor `json:"invocation,omitempty"`
+}
+
+// InvocationDescriptor is what a module declares about calling the APIs its
+// product serves. It names no scopes and no grant: the access is exchanged
+// from the login session for the one resource a request states, and the API
+// authorizes the call from the claims the token carries.
+type InvocationDescriptor struct {
+	// Audience is the kind of value an API's audience is. Only
+	// AudienceResource is implemented: an API is named by its resource
+	// identifier.
+	Audience string `json:"audience"`
 }
 
 // GatewayDescriptor is what a module declares about its product's gateway
@@ -192,8 +208,19 @@ func (d ProductDescriptor) validate() error {
 		for _, strategy := range d.Gateway.Machine {
 			if strategy != MachineInline {
 				return refuse(fmt.Sprintf("whose gateway block has a machine strategy %q this shell does not implement "+
-					"for a gateway, which is reached only from the account's own client (%s)", strategy, MachineInline))
+					"for a gateway, which is reached only from the context's own client (%s)", strategy, MachineInline))
 			}
+		}
+	}
+	if d.Invocation != nil {
+		if d.Invocation.Audience != AudienceResource {
+			return refuse(fmt.Sprintf("whose invocation block has an audience kind %q, and an API is named only by %s",
+				d.Invocation.Audience, AudienceResource))
+		}
+		// The access is exchanged from the login session, so a product reached
+		// any other way has nothing to exchange.
+		if d.Grant != contexts.GrantExchange {
+			return refuse("whose invocation block needs the exchange grant, which the descriptor does not name")
 		}
 	}
 	return nil

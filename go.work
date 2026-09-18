@@ -1,11 +1,11 @@
-go 1.25.0
+go 1.25.8
 
 // The workspace composes the SDK and the product modules from source during
 // local development, so a change to the SDK is testable before it is tagged.
 //
-// It declares no replacements. sdk/v0.2.0 is published, so every module
-// requires a version the module proxy can serve and nothing here has to stand
-// in for it.
+// The replacement below is a release bootstrap and is temporary: the modules
+// require sdk v0.3.0, which nothing has published yet. Drop it once sdk/v0.3.0
+// is pushed, and bump sdkPublishedVersion in internal/boundaries with it.
 //
 // One replacement is permitted, and only while an SDK release is in flight: the
 // release gate compares its tag against the version modules/reference requires,
@@ -17,10 +17,13 @@ go 1.25.0
 // built against yet".
 //
 // Committed replace directives remain prohibited in every go.mod; the workspace
-// is the sanctioned place for one. See docs/plans/first-cli-vertical-slice.md
-// section 4 and docs/adr/0009-sdk-versioning-and-publication.md.
+// is the sanctioned place for one, so a module's own go.mod always resolves
+// against a real, tagged SDK release even though this workspace builds
+// against source. See docs/adr/0009-sdk-versioning-and-publication.md.
 use (
 	.
 	./modules/reference
 	./sdk
 )
+
+replace github.com/wso2/wso2-cli/sdk v0.3.0 => ./sdk

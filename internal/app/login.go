@@ -25,6 +25,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/wso2/wso2-cli/internal/auth"
 	"github.com/wso2/wso2-cli/internal/auth/oauthflow"
 	"github.com/wso2/wso2-cli/internal/auth/session"
@@ -58,6 +60,9 @@ var deviceLoginDeadline = 15 * time.Minute
 // loginFlags are the flags wso2 login acts on. --context is the shell's own,
 // read off the root's flag set; the other three are declared by loginCommand.
 type loginFlags struct {
+	// command is the running wso2 login, which the setup wizard renders the
+	// context it creates through.
+	command *cobra.Command
 	// contextName selects the context to log in to, and on the creating path
 	// names both the identity and the context that login creates. One flag
 	// answers both because it answers one question — which context this login
@@ -98,6 +103,19 @@ func (s Shell) login(flags loginFlags) error {
 			"--only and --no-products both narrow which sessions this login establishes").
 			WithRecovery("Pass --only <namespace> to authorize one product, " +
 				"or --no-products to authorize the login session alone, not both.")
+	}
+	if flags.issuer == "" && flags.clientID == "" {
+		// Which context this login is about, asked when the flags leave it
+		// open (#186). An answer that sets up a new context arrives as
+		// --url, so it takes the creating path below like the flag would.
+		resolved, err := s.resolveLoginTarget(flags)
+		if errors.Is(err, errNoLoginNeeded) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		flags = resolved
 	}
 	if flags.issuer != "" {
 		return s.loginCreating(flags)
@@ -173,7 +191,7 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 		// docs is written that way — so the honest advice names the file.
 		return loginOutcome{}, problem.New(problem.CategoryAuthPolicy, "auth.non_interactive",
 			mode+" cannot run in non-interactive mode, which "+control+" asked for").
-			WithRecovery(fmt.Sprintf("Automation uses a client-credentials account, which "+
+			WithRecovery(fmt.Sprintf("Automation uses a client-credentials context, which "+
 				"acquires access inline without a login step. No command creates one yet: "+
 				"declare it in the context document at %s.", contexts.Path(root)))
 	}
@@ -265,10 +283,10 @@ func (s Shell) loginAccesses(selected contexts.Selection, flags loginFlags) ([]c
 		access, recorded := selected.Identity.Access(flags.only)
 		if !recorded {
 			return nil, problem.New(problem.CategoryUsage, "shell.invalid_argument",
-				fmt.Sprintf("the %q account records no %q product to authorize",
+				fmt.Sprintf("the %q context records no %q product to authorize",
 					selected.Identity.Name, flags.only)).
-				WithRecovery("Name a product the account records, or one record of it as " +
-					"<namespace>/gateway; wso2 account list shows them.")
+				WithRecovery("Name a product the context records, or one record of it as " +
+					"<namespace>/gateway; wso2 context show shows them.")
 		}
 		accesses := []contexts.ProductAccess{access}
 		// A product namespace names the whole product: its own record and its
@@ -325,9 +343,9 @@ func checkLoginAccessBinds(identity contexts.Account) error {
 		return nil
 	}
 	return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
-		fmt.Sprintf("the %q account records no product its login can bind to; every product it "+
+		fmt.Sprintf("the %q context records no product its login can bind to; every product it "+
 			"records is reached by a grant", identity.Name)).
-		WithRecovery("Record a direct product with wso2 account add-product, then run wso2 login.")
+		WithRecovery("Record a direct product with wso2 context product add <product> --url <url>, then run wso2 login.")
 }
 
 // checkDerivedResource refuses to open a browser for a derived access this
@@ -345,8 +363,9 @@ func checkDerivedResource(identity contexts.Account, access contexts.ProductAcce
 	return problem.New(problem.CategoryAuthPolicy, "auth.product_not_configured",
 		fmt.Sprintf("the %q product's jwt-bearer grant names no resource for its assertion "+
 			"session, which this deployment binds access by", access.Namespace)).
-		WithRecovery(fmt.Sprintf("Record the resource with wso2 account add-product --replace "+
-			"--grant-resource <uri>, then run wso2 login --only %s.", access.Namespace))
+		WithRecovery(fmt.Sprintf("Set products.%s.grant.resource in the context (wso2 context edit, or "+
+			"the context file and wso2 context apply), then run wso2 login --only %s.",
+			access.Namespace, access.Namespace))
 }
 
 // establishProduct runs one authorization at access's issuer, as its client,
@@ -425,6 +444,9 @@ func (s Shell) establishProduct(selected contexts.Selection, access contexts.Pro
 			Strategy:         access.Strategy,
 			ClientID:         access.ClientID,
 			Scopes:           access.Scopes,
+			Resource:         access.Resource,
+			Audience:         access.Audience,
+			Bound:            true,
 		})
 	})
 	if err != nil {
@@ -496,7 +518,7 @@ func (s Shell) reportLogin(selected contexts.Selection, outcome loginOutcome) er
 	// defined to carry one and the session does not depend on it. An empty
 	// label would claim the shell knows something it does not.
 	if outcome.first.Subject != "" {
-		fields = append(fields, [2]string{"Subject", outcome.first.Subject})
+		fields = append(fields, [2]string{"User ID", outcome.first.Subject})
 	}
 	if outcome.first.Email != "" {
 		fields = append(fields, [2]string{"Email", outcome.first.Email})

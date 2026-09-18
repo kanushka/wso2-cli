@@ -152,8 +152,9 @@ func permittedVersions(file NamespaceFile, policy Policy) ([]Version, error) {
 
 // publishedChannels names every channel the history publishes on, sorted, so a
 // refusal can tell the user what to choose instead of telling them to choose.
-// The published file already carries the answer the user would otherwise go
-// looking for with wso2 product available. Which of those names are channels at
+// The published file already carries the answer the user would otherwise have
+// no command for: wso2 product list names each product on one channel only.
+// Which of those names are channels at
 // all is the channels list in catalog.go.
 func publishedChannels(versions []Version) []string {
 	// Named for what it holds rather than "channels", which is the package's

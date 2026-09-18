@@ -351,6 +351,7 @@ func TestVerboseIsHonoredAfterTheCommandName(t *testing.T) {
 	// mistake. Stripping the flag before the argument check settles both.
 	t.Run("product list", func(t *testing.T) {
 		shell, _, errOut := newShell(t)
+		catalogServing(t, emptyCatalog)
 		if code := shell.Run([]string{"product", "list", "--verbose"}); code != exit.OK {
 			t.Fatalf("module list failed: exit %d, stderr %s", code, errOut)
 		}
@@ -367,6 +368,7 @@ func TestVerboseIsHonoredAfterTheCommandName(t *testing.T) {
 // it.
 func TestVerboseWrittenTwiceEnablesTheLogOnce(t *testing.T) {
 	shell, _, errOut := newShell(t)
+	catalogServing(t, emptyCatalog)
 	if code := shell.Run([]string{"--verbose", "product", "list", "--verbose"}); code != exit.OK {
 		t.Fatalf("module list failed: exit %d, stderr %s", code, errOut)
 	}
@@ -378,6 +380,9 @@ func TestVerboseWrittenTwiceEnablesTheLogOnce(t *testing.T) {
 // TestVerboseWithAnExplicitValueIsRead pins the --verbose=false spelling: it is
 // stripped like any other, and it does not turn the log on.
 func TestVerboseWithAnExplicitValueIsRead(t *testing.T) {
+	// A reachable catalog, so the only thing that could write to stderr is
+	// the log this test is about.
+	catalogServing(t, emptyCatalog)
 	shell, _, errOut := newShell(t)
 	if code := shell.Run([]string{"product", "list", "--verbose=false"}); code != exit.OK {
 		t.Fatalf("module list failed: exit %d, stderr %s", code, errOut)
@@ -422,6 +427,7 @@ func followAuthorizationURL() func(string) error {
 // name and the opposite after it — and the user reading a log they had just
 // switched off is the worse half of that.
 func TestVerboseTakesItsLastOccurrence(t *testing.T) {
+	catalogServing(t, emptyCatalog)
 	tests := []struct {
 		name string
 		args []string

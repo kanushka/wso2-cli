@@ -22,7 +22,9 @@
 # default `go test ./...` by accident.
 #
 # See test/smoke/RUNNING.md for the variables the live targets read, and
-# docs/guides/login.md for how to register the application they read them from.
+# docs/guides/setup-asgardeo.md, docs/guides/setup-identity-server-7.x.md, or
+# docs/guides/setup-thunder.md for how to register the application they read
+# them from, per product.
 
 GO ?= go
 
@@ -97,8 +99,8 @@ help:
 	@echo '  make test-module NAMESPACE=<namespace>   Run that one namespace, with the race detector.'
 	@echo '  make install-module NAMESPACE=<namespace> [SHELL_VERSION=<version>]'
 	@echo '                                           Build a shell, install the module for it, ready to run.'
-	@echo '  make build-shell [SHELL_VERSION=<version>]'
-	@echo '                                           Build a wso2 that can launch a module, into bin/.'
+	@echo '  make build-shell [SHELL_VERSION=<version>] [CLI_NAME=<name>]'
+	@echo '                                           Build a shell that can launch a module, into bin/$$CLI_NAME.'
 	@echo '  make gate-module NAMESPACE=<namespace> VERSION=<version>'
 	@echo '                                           Ask whether a released shell could launch it.'
 	@echo ''
@@ -119,7 +121,7 @@ help:
 # The namespace is the first word of every command the module will answer, so it
 # is refused when it is already taken, when a shell command owns it, when it is
 # the reference module's reserved namespace, or when it is not something a user
-# could type. See docs/guides/building-product-modules.md.
+# could type. See docs/guides/build-module-quickstart.md.
 .PHONY: new-module
 new-module:
 ifndef NAMESPACE
@@ -160,6 +162,13 @@ endif
 # run built, which is what makes the bare command work.
 DEFAULT_SHELL_VERSION := 1.0.0-dev
 
+# The command the shell is built as. Every message is written with "wso2" and
+# renamed as it is rendered, so this is the only place the command is named; a
+# release reads the same variable (.goreleaser.yaml). CLI_NAME=<name> builds
+# another one.
+CLI_NAME ?= ws
+export CLI_NAME
+
 # Builds a shell that can actually launch a module, into bin/.
 #
 # An uninjected build reports 0.0.0-dev, and a module's declared shell range
@@ -176,9 +185,9 @@ DEFAULT_SHELL_VERSION := 1.0.0-dev
 build-shell:
 	@mkdir -p bin
 	$(GO) build -ldflags \
-		"-X github.com/wso2/wso2-cli/internal/version.shellVersion=$(or $(SHELL_VERSION),$(DEFAULT_SHELL_VERSION))" \
-		-o bin/wso2 ./cmd/wso2
-	@echo "Built bin/wso2 reporting version $(or $(SHELL_VERSION),$(DEFAULT_SHELL_VERSION))."
+		"-X github.com/wso2/wso2-cli/internal/version.shellVersion=$(or $(SHELL_VERSION),$(DEFAULT_SHELL_VERSION)) -X github.com/wso2/wso2-cli/internal/output.commandName=$(CLI_NAME)" \
+		-o bin/$(CLI_NAME) ./cmd/wso2
+	@echo "Built bin/$(CLI_NAME) reporting version $(or $(SHELL_VERSION),$(DEFAULT_SHELL_VERSION))."
 
 # Installs a module from this checkout, unpublished, so its author can run it
 # under the real shell before tagging anything. The module is built, packed, and
@@ -188,7 +197,7 @@ build-shell:
 # docs/adr/0011-local-module-install-through-a-development-origin.md.
 #
 # The version is a pinned prerelease, so nothing following stable is ever
-# offered it and `wso2 module update` leaves it alone. `wso2 module remove
+# offered it and `wso2 product update` leaves it alone. `wso2 product remove
 # <namespace>` takes it off again. VERSION names another one, for rehearsing
 # what a specific release will look like installed.
 #
@@ -211,7 +220,7 @@ endif
 		$(if $(VERSION),-version '$(VERSION)') \
 		-shell-version '$(or $(SHELL_VERSION),$(DEFAULT_SHELL_VERSION))' \
 		-shell-protocols checkout \
-		-shell-path ./bin/wso2
+		-shell-path ./bin/$(CLI_NAME)
 
 # Answers the one question a tag cannot take back: whether any shell a user
 # already has can launch the module about to be published. The decision is the
@@ -222,7 +231,7 @@ endif
 #
 #   make gate-module NAMESPACE=reference VERSION=v4.5.0-rc.1
 #
-# See docs/guides/building-product-modules.md section 6.
+# See docs/reference/module-manifest.md (compatibility.protocolVersions).
 .PHONY: gate-module
 gate-module:
 ifndef NAMESPACE

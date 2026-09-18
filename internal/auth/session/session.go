@@ -92,6 +92,17 @@ type Session struct {
 	IDToken  string   `json:"idToken,omitempty"`
 	ClientID string   `json:"clientId,omitempty"`
 	Scopes   []string `json:"scopes,omitempty"`
+	// Resource is the RFC 8707 resource indicator the session was authorized
+	// for, and Audience the audience its tokens are proved against. Bound
+	// records that this entry carries them at all: an entry written before
+	// they existed decodes with Bound false, and is reused only by a record
+	// that asks for no resource, since nothing says which resource it holds.
+	// Together with Issuer, ClientID, Scopes and Strategy they are the
+	// session's binding, which sessionSource.renew compares with the record
+	// asking before it presents the session (ADR 0016).
+	Resource string `json:"resource,omitempty"`
+	Audience string `json:"audience,omitempty"`
+	Bound    bool   `json:"bound,omitempty"`
 }
 
 // Store reads and writes sessions in the OS secure store.

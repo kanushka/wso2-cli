@@ -27,6 +27,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
+	"github.com/wso2/wso2-cli/internal/output"
 )
 
 // DeviceLogin runs one RFC 8628 Device Authorization Grant login.
@@ -94,7 +95,7 @@ func (d DeviceLogin) Run(ctx context.Context) (Result, error) {
 		return Result{}, discoveryFailed(
 			"the identity provider does not advertise the device authorization grant",
 			"Enable the device authorization grant on the registered OAuth application, or select a "+
-				"context whose account logs in through the browser. Not every deployment offers this "+
+				"context that logs in through the browser. Not every deployment offers this "+
 				"grant.")
 	}
 	// A public client names itself in the request body, as RFC 6749 requires of
@@ -183,7 +184,7 @@ func (d DeviceLogin) present(authorization *oauth2.DeviceAuthResponse) error {
 	// a deployment publishing one.
 	if authorization.VerificationURIComplete != "" {
 		_, _ = fmt.Fprintf(d.out(), "Or open this link, which carries the code:\n\n    %s\n\n",
-			authorization.VerificationURIComplete)
+			output.Subtle(d.out(), authorization.VerificationURIComplete))
 	}
 	_, _ = fmt.Fprint(d.out(), "Waiting for you to approve this login...\n")
 	return nil

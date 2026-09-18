@@ -79,7 +79,7 @@ func TestWhoamiReportsAnExchangedProductAsServedByTheLoginSession(t *testing.T) 
 	shell, out, errOut := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
 	document := thunderDoc("http://login.example", "http://apim.example")
-	document.Accounts[0].Products["apip"] = contexts.Product{
+	document.Contexts[0].Products["apip"] = contexts.Product{
 		Endpoint: "http://apip.example", Audience: "http://apip.example",
 		Grant: &contexts.Grant{Kind: contexts.GrantExchange}}
 	installLogin(t, shell, document)
@@ -91,7 +91,7 @@ func TestWhoamiReportsAnExchangedProductAsServedByTheLoginSession(t *testing.T) 
 	if code := shell.Run([]string{"whoami"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !strings.Contains(out.String(), "apip: exchanged, exchanged") {
+	if !strings.Contains(out.String(), "apip: by exchange (not checked)") {
 		t.Fatalf("an exchanged product was not reported as served by the login session:\n%s", out)
 	}
 }

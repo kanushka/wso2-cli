@@ -1,9 +1,9 @@
 # Module SDK
 
-**Status:** Proposed reference
-**Related:** [Building a product module](../guides/building-product-modules.md),
+**Status:** Reference
+**Related:** [Building a product module](../guides/build-module-quickstart.md),
 [module manifest](module-manifest.md),
-[troubleshooting a module](../guides/troubleshooting-modules.md)
+[troubleshooting a module](../guides/troubleshoot-module.md)
 **Last reviewed:** 2026-09-10
 
 What a command handler receives, and what it may return. A module imports the
@@ -167,6 +167,8 @@ is not passed at all.
 type AccessRequest struct {
 	Audience string
 	Scopes   []string
+	Record   string
+	Resource string
 }
 
 type Access struct {
@@ -178,25 +180,44 @@ Acquire(ctx context.Context, request AccessRequest) (Access, error)
 ```
 
 The shell intersects the request with what the installed module's receipt
-declares, finds the selected context and account, obtains or reuses the
+declares, finds the selected context, obtains or reuses the
 product's session, and returns short-lived access for this one invocation. An
 undeclared audience is refused with `auth.audience_not_declared`, and a scope
-neither the receipt nor the account's product entry for this namespace names
+neither the receipt nor the context's product entry for this namespace names
 is refused with `auth.scope_not_declared`, rather than narrowed away: a module
 silently granted less than it asked for would proceed believing it holds access
 it does not.
 
 `Scopes` may be empty, and ordinarily is. An empty list asks for exactly the
-scopes recorded on the account's product entry for this namespace, which the
-user or the product's `connect` wrote down when the product was recorded, and
+scopes recorded on the context's product entry for this namespace, which the
+user or the product's descriptor wrote down when the product was recorded, and
 those recorded scopes are the ceiling for every request whichever side named
 them. So a module declares every scope its commands can need once, in
 `module.json` and `Options`, and a handler names scopes only when one command
 should hold fewer than the entry allows.
 
-The token is opaque. Do not parse it, log it, return it, persist it, or pass it
-in command-line arguments. `ExpiresAt` lets a module fail early; the audience
-enforces expiry regardless.
+`Record` names which record of the product the access is for: empty for the
+product's own, `module.RecordGateway` for its gateway record, or
+`module.RecordAPI` for one API the product serves. The first two are bound by
+what the context records. The third is bound by `Resource`, the audience the
+API itself declares, which the module reads from the API's definition and no
+context records; it is granted only to a module whose descriptor declares
+`invocation`, only for a product reached by the exchange grant from an
+interactive login, and never for a resource that is the audience of any record
+the context holds (`auth.invocation_refused`). The identity provider is the
+allowlist beyond that: a resource it does not register is refused
+(`auth.exchange_unavailable`), and a token it issues is proved bound to exactly
+the resource asked for before the module sees it. ADR 0018 records the rule.
+
+A command is granted each record once. A command that calls an API holds two
+accesses by design, its product's to find the API and the API's own to call it,
+and asks for each once.
+
+The token is opaque. Do not parse it, log it, persist it, or pass it in
+command-line arguments. `ExpiresAt` lets a module fail early; the audience
+enforces expiry regardless. The one command that returns a token as its result
+is one whose whole purpose is to hand it over (`wso2 api apis token`), and it
+says on standard error that the token is stored nowhere.
 
 A denial arrives as a typed problem and should be returned unchanged.
 
@@ -239,6 +260,10 @@ By convention the last field is named `next` and says what a user most likely
 runs next; the shell renders it as a trailing line under the table. The
 generated module follows the convention and its generated test checks it.
 
+A value that spans lines, such as an API's answer or a document, is not a
+column either: the shell renders it under its label as a block after the
+table, before the next line. JSON output carries it as the string it is.
+
 Every `Value` is a string, so a module formats its own times and numbers. This
 is a deliberate limit of the architecture proof rather than a lasting design:
 giving values their own types is a protocol change and belongs to a slice that
@@ -261,7 +286,7 @@ report := result.New("identity.resourceServers/v1").
 for _, server := range found {
 	report = report.WithRow(server.Name, server.Identifier)
 }
-return report.With("next", "Next", "Record one with wso2 account add-product."), nil
+return report.With("next", "Next", "Record one with wso2 context product add."), nil
 ```
 
 The columns are declared once rather than restated by every row, which is what
@@ -387,7 +412,7 @@ capabilities the way the broker does, so a handler asking for an audience that
 `module.json` does not declare passes its tests and is refused on a user's
 machine with `auth.audience_not_declared`. Install the module and run it under
 a real shell before tagging: see the guide's
-[Run it under the real shell](../guides/building-product-modules.md#run-it-under-the-real-shell-before-you-tag).
+[Install it into a local shell](../guides/build-module-quickstart.md#3-install-it-into-a-local-shell).
 
 ## Naming your own commands
 

@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/wso2/wso2-cli/internal/app"
+	"github.com/wso2/wso2-cli/internal/catalog"
 	"github.com/wso2/wso2-cli/internal/exit"
 	"github.com/wso2/wso2-cli/internal/modules/fixture"
 	"github.com/wso2/wso2-cli/internal/output"
@@ -32,7 +33,7 @@ import (
 )
 
 func TestCommandNamesAreDerivedFromTheShellCommandTree(t *testing.T) {
-	if got, want := app.CommandNames(), []string{"account", "config", "context", "doctor", "help", "login", "logout", "module", "org", "product", "version", "whoami"}; !slices.Equal(got, want) {
+	if got, want := app.CommandNames(), []string{"completion", "config", "context", "doctor", "help", "login", "logout", "module", "org", "product", "version", "whoami"}; !slices.Equal(got, want) {
 		t.Errorf("CommandNames() = %v, want %v", got, want)
 	}
 }
@@ -50,7 +51,7 @@ func TestHelpListsEveryShellCommand(t *testing.T) {
 	// product, and a help page that advertised it would teach the word the
 	// deprecation exists to retire. It still resolves, which
 	// TestTheProductCommandReplacesModuleAndModuleStaysAsAnAlias proves.
-	for _, command := range []string{"account", "config", "context", "doctor", "help", "login", "logout", "org", "product", "version", "whoami"} {
+	for _, command := range []string{"completion", "config", "context", "doctor", "help", "login", "logout", "org", "product", "version", "whoami"} {
 		if !strings.Contains(out.String(), command) {
 			t.Errorf("help does not list the %q command:\n%s", command, out)
 		}
@@ -58,8 +59,8 @@ func TestHelpListsEveryShellCommand(t *testing.T) {
 	if strings.Contains(out.String(), "   module ") {
 		t.Errorf("help advertises the deprecated module spelling:\n%s", out)
 	}
-	if !strings.Contains(out.String(), "installed products") {
-		t.Errorf("help does not say product commands come from installed products:\n%s", out)
+	if !strings.Contains(out.String(), "Product commands") {
+		t.Errorf("help has no product commands section:\n%s", out)
 	}
 }
 
@@ -89,6 +90,94 @@ func TestAMisspelledCommandSuggestsTheClosestOne(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "wso2 version") {
 		t.Fatalf("stderr does not suggest the version command:\n%s", errOut)
+	}
+}
+
+// TestAMisspelledProductNamespaceSuggestsTheInstalledOne proves suggestions
+// reach across the boundary between shell commands and product namespaces,
+// which never enter Cobra's tree.
+func TestAMisspelledProductNamespaceSuggestsTheInstalledOne(t *testing.T) {
+	for _, test := range []struct{ typed, want string }{
+		{"refrence", "Did you mean `wso2 reference`?"},
+		{"ref", "Did you mean `wso2 reference`?"},
+		{"idenity", "Did you mean `wso2 identity`?"},
+		{"contxt", "Did you mean `wso2 context`?"},
+	} {
+		t.Run(test.typed, func(t *testing.T) {
+			shell, _, errOut := newShell(t)
+			installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+			installFixture(t, shell, fixture.Module{Namespace: "identity", Version: "0.1.0"})
+			// A namespace a built-in shadows is never offered.
+			installFixture(t, shell, fixture.Module{Namespace: "version", Version: "0.1.0"})
+
+			if code := shell.Run([]string{test.typed}); code != exit.Usage {
+				t.Fatalf("exit code = %d, want the usage class %d", code, exit.Usage)
+			}
+			if !strings.Contains(errOut.String(), test.want) {
+				t.Fatalf("stderr does not say %q:\n%s", test.want, errOut)
+			}
+		})
+	}
+}
+
+// TestAProductCommandTypedWithoutItsNamespaceSuggestsTheNamespace proves a
+// product's own command is found among every installed product's declared
+// tree, so a user who left out the namespace is told which one it belongs to.
+func TestAProductCommandTypedWithoutItsNamespaceSuggestsTheNamespace(t *testing.T) {
+	for _, test := range []struct{ typed, want, not string }{
+		{"status", "Did you mean `wso2 reference status`?", ""},
+		{"stauts", "Did you mean `wso2 reference status`?", ""},
+		// A close product command is not offered beside a close shell command.
+		{"vesion", "Did you mean `wso2 version`?", "wso2 reference versions"},
+	} {
+		t.Run(test.typed, func(t *testing.T) {
+			shell, _, errOut := newShell(t)
+			installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0",
+				CommandTree: commandtree.New([]commandtree.Command{
+					{Path: nil, Short: "Explore the reference product."},
+					{Path: []string{"status"}, Runnable: true},
+					{Path: []string{"versions"}, Runnable: true},
+					{Path: []string{"hidden"}, Runnable: true, Hidden: true},
+				})})
+
+			if code := shell.Run([]string{test.typed}); code != exit.Usage {
+				t.Fatalf("exit code = %d, want the usage class %d", code, exit.Usage)
+			}
+			if !strings.Contains(errOut.String(), test.want) {
+				t.Fatalf("stderr does not say %q:\n%s", test.want, errOut)
+			}
+			if test.not != "" && strings.Contains(errOut.String(), test.not) {
+				t.Fatalf("stderr offers %q:\n%s", test.not, errOut)
+			}
+		})
+	}
+}
+
+func TestAHiddenProductCommandIsNeverSuggested(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0",
+		CommandTree: commandtree.New([]commandtree.Command{
+			{Path: nil},
+			{Path: []string{"secret"}, Runnable: true, Hidden: true},
+		})})
+
+	if code := shell.Run([]string{"secret"}); code != exit.Usage {
+		t.Fatalf("exit code = %d, want the usage class %d", code, exit.Usage)
+	}
+	if strings.Contains(errOut.String(), "reference secret") {
+		t.Fatalf("stderr offers a hidden command:\n%s", errOut)
+	}
+}
+
+func TestANameFarFromEverythingSuggestsNothing(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+
+	if code := shell.Run([]string{"zzzzzz"}); code != exit.Usage {
+		t.Fatalf("exit code = %d, want the usage class %d", code, exit.Usage)
+	}
+	if strings.Contains(errOut.String(), "Did you mean") {
+		t.Fatalf("stderr suggests something for an unrelated name:\n%s", errOut)
 	}
 }
 
@@ -199,21 +288,6 @@ func TestAProductFlagStillReachesTheModule(t *testing.T) {
 				t.Fatalf("the shell rejected a flag that belongs to the module:\n%s", errOut)
 			}
 		})
-	}
-}
-
-// TestCompletionIsNotOffered proves the framework's generated completion command
-// is absent. Until a module declares its command tree, completion would know
-// every built-in and no product command, which a user reads as absence of the
-// command rather than absence of information.
-func TestCompletionIsNotOffered(t *testing.T) {
-	shell, out, _ := newShell(t)
-
-	if code := shell.Run([]string{"help"}); code != exit.OK {
-		t.Fatalf("exit code = %d, want %d", code, exit.OK)
-	}
-	if strings.Contains(out.String(), "completion") {
-		t.Fatalf("help offers a completion command:\n%s", out)
 	}
 }
 
@@ -356,8 +430,8 @@ func TestAFailureInsideACommandIsNotReportedAsAUsageProblem(t *testing.T) {
 // A bare family name is an incomplete command, not a failed one. It used to be
 // refused as shell.missing_argument at exit 64, which said "this command is
 // broken" about five families whose every subcommand works — clearly enough
-// that a reader of docs/examples/user-flow-review.md proposed hiding config and
-// org from the tree until their subcommands were "implemented" (F8).
+// that a design reviewer proposed hiding config and org from the tree until
+// their subcommands were "implemented" (F8).
 //
 // The refusal that matters is pinned by
 // TestEveryCommandFamilyRefusesAnUnknownSubcommand below, and the two must not
@@ -367,8 +441,7 @@ func TestEveryCommandFamilyAnswersABareNameWithHelp(t *testing.T) {
 	// Each family and one subcommand its help has to name.
 	families := map[string]string{
 		"context": "create",
-		"account": "add-product",
-		"module":  "available",
+		"module":  "list",
 		"org":     "current",
 		"config":  "set",
 	}
@@ -412,7 +485,7 @@ func TestEveryCommandFamilyAnswersABareNameWithHelp(t *testing.T) {
 // families refuse instead, and giving the bare form back to help must not take
 // that with it.
 func TestEveryCommandFamilyRefusesAnUnknownSubcommand(t *testing.T) {
-	for _, family := range []string{"context", "account", "product", "org", "config"} {
+	for _, family := range []string{"context", "product", "org", "config"} {
 		t.Run(family, func(t *testing.T) {
 			shell, _, errOut := newShell(t)
 
@@ -519,38 +592,145 @@ func referenceTree() commandtree.Tree {
 	})
 }
 
-// TestHelpListsTheInstalledModuleNamespaces pins the fix for the highest-rated
-// usability finding: a user who has just installed a module looks at help
-// first, and a footer that never mentioned the installation read as the
-// installation having failed.
-func TestHelpListsTheInstalledModuleNamespaces(t *testing.T) {
+// releasedWith sets the catalog index a test shell reports it was released
+// with, standing in for the copy a release build carries.
+func releasedWith(shell *app.Shell, products ...catalog.IndexModule) {
+	shell.ReleasedIndex = &catalog.Index{SchemaVersion: catalog.SchemaVersion, Modules: products}
+}
+
+// stable is a product the release's copy knows a stable version of.
+func stable(namespace, title string) catalog.IndexModule {
+	return catalog.IndexModule{Namespace: namespace, Title: title,
+		Channels: []catalog.IndexChannel{{Channel: catalog.ChannelStable, Version: "1.0.0"}}}
+}
+
+// TestHelpGroupsCoreProductAndOtherCommands pins the root page ADR 0015 asks
+// for: what a machine can reach, before anything is installed. The products a
+// release knows about sit between the shell commands a user starts with and the
+// ones they reach for later, each named by its title and marked when this
+// machine has not installed it. A product installed without being in the
+// release's copy — one installed from a development origin — is still listed,
+// named by its declared command tree.
+func TestHelpGroupsCoreProductAndOtherCommands(t *testing.T) {
 	shell, out, errOut := newShell(t)
-	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+	releasedWith(&shell,
+		stable("api", "API Platform"), stable("identity", "Identity"))
+	installFixture(t, shell, fixture.Module{Namespace: "identity", Version: "0.1.0"})
+	installFixture(t, shell, fixture.Module{
+		Namespace: "reference", Version: "0.1.0", CommandTree: referenceTree(),
+	})
 
 	if code := shell.Run([]string{"help"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	if !strings.Contains(out.String(), "Installed: reference") {
-		t.Errorf("help does not name the installed namespace:\n%s", out)
-	}
-	if !strings.Contains(out.String(), "wso2 <namespace> --help") {
-		t.Errorf("help does not say how to see a product's commands:\n%s", out)
+	const want = `Usage: wso2 <command> [arguments]
+
+Core commands
+   context       Set up, select, and inspect the contexts commands run against.
+   login         Log in to the selected context, or create one when an issuer is named.
+   logout        End the selected context's session.
+   org           Show and change the organization the selected context runs within.
+   product       Install, list, and update the WSO2 product CLIs from the catalog.
+   whoami        Show who is signed in, to which context, and with what session.
+
+Product commands
+   api           API Platform (not installed)
+   identity      Identity
+   reference     Explore the reference product.
+
+Other commands
+   completion    Write the tab completion script for a shell.
+   config        Show and change shell preferences.
+   doctor        Check the shell's context, secure-store, and session health.
+   help          Show the shell command tree.
+   version       Show the shell, protocol, and installed product versions.
+
+Flags
+      --context string   Use the named context instead of the selected one.
+  -h, --help             Show help for a command.
+  -o, --output string    Render results as table or json. (default "table")
+      --verbose          Write diagnostics about what the shell attempted to stderr.
+
+Run wso2 <product> --help to see an installed product's commands.
+Run wso2 product install <product> to install one marked not installed.
+`
+	if out.String() != want {
+		t.Errorf("help rendered\n%s\nwant\n%s", out, want)
 	}
 }
 
-// TestHelpSaysWhenNoModuleIsInstalled proves the footer stays truthful in the
-// empty state and points at the way out of it.
+// TestHelpSaysWhenNoModuleIsInstalled proves the product section stays
+// truthful when a build knows of no released product and nothing is installed,
+// which is a development build on a fresh machine, and points at the way out.
 func TestHelpSaysWhenNoModuleIsInstalled(t *testing.T) {
 	shell, out, errOut := newShell(t)
+	releasedWith(&shell)
 
 	if code := shell.Run([]string{"help"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	if !strings.Contains(out.String(), "None are installed") {
-		t.Errorf("help does not say no modules are installed:\n%s", out)
+	const want = "\nProduct commands\n" +
+		"   No products are installed. Run wso2 product list to see what can be.\n\nOther commands\n"
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("help does not say no products are installed:\n%s", out)
 	}
-	if !strings.Contains(out.String(), "wso2 product available") {
-		t.Errorf("help does not point at wso2 product available:\n%s", out)
+}
+
+// TestHelpOmitsAProductWithNoStableRelease proves help never advertises a
+// product wso2 product install would then fail to find: install selects the
+// stable channel, so a product the copy knows only as a prerelease is left out
+// rather than marked.
+func TestHelpOmitsAProductWithNoStableRelease(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	releasedWith(&shell,
+		catalog.IndexModule{Namespace: "api", Title: "API Platform",
+			Channels: []catalog.IndexChannel{{Channel: catalog.ChannelStable, Version: "1.0.0"}}},
+		catalog.IndexModule{Namespace: "agent", Title: "Agent Platform",
+			Channels: []catalog.IndexChannel{{Channel: catalog.ChannelPrerelease, Version: "0.1.0-rc.1"}}})
+
+	if code := shell.Run([]string{"help"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "   api ") {
+		t.Errorf("help does not list the product released on the stable channel:\n%s", out)
+	}
+	if strings.Contains(out.String(), "   agent ") {
+		t.Errorf("help lists a product with no stable release:\n%s", out)
+	}
+}
+
+// TestHelpSaysWhenItCannotTellWhatIsInstalled proves an unreadable store
+// costs the page its marks and says so, rather than listing every released
+// product as though it could be run.
+func TestHelpSaysWhenItCannotTellWhatIsInstalled(t *testing.T) {
+	t.Setenv(state.RootEnvVar, "relative/not-absolute")
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	shell := app.Shell{Streams: output.Streams{Out: out, Err: errOut}}
+	releasedWith(&shell, stable("api", "API Platform"))
+
+	if code := shell.Run([]string{"help"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "   api           API Platform\n") {
+		t.Errorf("help does not list the released product unmarked:\n%s", out)
+	}
+	if !strings.Contains(out.String(), "The installed products could not be read, so none is marked.\n") {
+		t.Errorf("help does not say the installed products are unknown:\n%s", out)
+	}
+}
+
+// TestHelpPrintsAReleasedTitleSanitized proves a title is printed as a name and
+// nothing more. The generator refuses a title that could drive a terminal, but
+// the shell prints what it carries, so it strips one all the same.
+func TestHelpPrintsAReleasedTitleSanitized(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	releasedWith(&shell, stable("api", "API\x1b[2J Platform\u202e"))
+
+	if code := shell.Run([]string{"help"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "   api           API[2J Platform (not installed)\n") {
+		t.Errorf("help did not print the title stripped of its control characters:\n%q", out)
 	}
 }
 

@@ -25,8 +25,8 @@
 // the two ways a live run wastes a human's attention, and both are decided
 // before any browser opens.
 //
-// See test/smoke/RUNNING.md for what to export and docs/guides/login-*.md for how
-// to register the application the variables describe.
+// See test/smoke/RUNNING.md for what to export and docs/guides/setup-*.md for
+// how to register the application the variables describe.
 package smoke
 
 import (
@@ -250,7 +250,7 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	if declared := read(IdentityTypeVar); declared != "" {
 		if declared != "cloud" && declared != "onprem" {
 			return Config{}, fmt.Errorf(
-				"%s: %q is not an account type the context schema accepts; use cloud or onprem",
+				"%s: %q is not a context type the schema accepts; use cloud or onprem",
 				IdentityTypeVar, declared)
 		}
 		config.IdentityType = declared
@@ -327,37 +327,15 @@ func (c Config) Document() contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: ContextName,
-		Accounts: []contexts.Account{{
-			Name: IdentityName,
-			Type: c.IdentityType,
-			Auth: contexts.AccountAuth{
-				Kind:          kind,
-				Issuer:        c.Issuer,
-				ClientID:      c.ClientID,
-				Tenant:        c.Tenant,
-				CredentialRef: CredentialRef,
-				// Naming the provider is what makes the run derive the way the
-				// deployment requires. Left empty it is simply absent from the
-				// document, which is the open-world case and what every run
-				// against Asgardeo or Identity Server describes.
-				Provider: c.Provider,
-			},
-			Products: map[string]contexts.Product{
-				Namespace: {
-					Endpoint: c.Endpoint,
-					Audience: c.Audience,
-					Scopes:   slices.Clone(c.Scopes),
-				},
+
+		Contexts: []contexts.Context{{Name: ContextName, Type: c.IdentityType, CredentialRef: CredentialRef, Login: contexts.Login{Kind: kind, Issuer: c.Issuer, ClientID: c.ClientID, Tenant: c.Tenant, Provider: c.Provider}, Organization: c.Tenant, Products: map[string]contexts.Product{
+			Namespace: {
+				Endpoint: c.Endpoint,
+				Audience: c.Audience,
+				Scopes:   slices.Clone(c.Scopes),
 			},
 		}},
-		Contexts: []contexts.Context{{
-			Name:    ContextName,
-			Account: IdentityName,
-			// The context stays in the identity's home tenant. Naming any other
-			// organization would provoke auth.organization_switch_unsupported,
-			// which is a refusal about the document rather than the deployment.
-			Organization: c.Tenant,
-		}},
+		},
 	}
 }
 
@@ -374,34 +352,15 @@ func (c Config) CIDocument() contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: CIContextName,
-		Accounts: []contexts.Account{{
-			Name: CIIdentityName,
-			Type: c.IdentityType,
-			Auth: contexts.AccountAuth{
-				Kind:     contexts.KindClientCredentials,
-				Issuer:   c.Issuer,
-				ClientID: c.CIClientID,
-				Tenant:   c.Tenant,
-				// The deployment is the same deployment, so it derives the same
-				// way. A confidential client on a deployment that binds by
-				// resource needs the indicator too, and has no earlier
-				// authorization to inherit one from.
-				Provider:             c.Provider,
-				ClientSecretVariable: SecretVariable,
-			},
-			Products: map[string]contexts.Product{
-				Namespace: {
-					Endpoint: c.Endpoint,
-					Audience: c.Audience,
-					Scopes:   slices.Clone(c.Scopes),
-				},
+
+		Contexts: []contexts.Context{{Name: CIContextName, Type: c.IdentityType, Login: contexts.Login{Kind: contexts.KindClientCredentials, Issuer: c.Issuer, ClientID: c.CIClientID, Tenant: c.Tenant, Provider: c.Provider, ClientSecretVariable: SecretVariable}, Organization: c.Tenant, Products: map[string]contexts.Product{
+			Namespace: {
+				Endpoint: c.Endpoint,
+				Audience: c.Audience,
+				Scopes:   slices.Clone(c.Scopes),
 			},
 		}},
-		Contexts: []contexts.Context{{
-			Name:         CIContextName,
-			Account:      CIIdentityName,
-			Organization: c.Tenant,
-		}},
+		},
 	}
 }
 

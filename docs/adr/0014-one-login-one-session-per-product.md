@@ -80,5 +80,62 @@ product namespace; `wso2 login` acquires every recorded product's session
 and a command acquires a missing one on first use, refusing under
 `--no-input`; `wso2 whoami`, `wso2 doctor` and `wso2 logout` report and
 act per product; a client-credentials identity is healthy with no session.
-The measurements are in `docs/research/2026-09-06-single-login-spikes.md`
-and the two proof documents it cites.
+The measurements are summarised under Evidence below.
+
+## Evidence
+
+Measured 2026-09-06 and 2026-09-07 against ThunderID 1.0.1, API Manager
+4.7.0 and Identity Server 7.1.0 in local containers, first with curl and then
+through the shell. The full write-ups (three research notes) are in git
+history; this is what the decision rests on.
+
+| Case | Result | Prompts | Redirects |
+| --- | --- | --- | --- |
+| ThunderID login serving the ThunderID product (`direct`) | Pass | 1 | 2 |
+| Same login serving API Manager management (`federated`) | Pass, no second password | 0 | 5 |
+| First use of a product after `wso2 login --no-products` | Pass, authorized through the sign-on | 0 | 5 |
+| Same under `--no-input` | Refused before any browser opens (`auth.session_required`) | 0 | 0 |
+| Identity Server login serving API Manager (`derived`, jwt-bearer) | Pass; commands needing different scopes answer in turn | 1 | 4 |
+| API Manager gateway at the login provider (`sibling`) | Pass for the shell's leg; gateway answered 200 | 1 | 4 |
+| User with no mapped group | Sessions established; both products refuse at the command | 1 | 7 |
+| CI, one machine client, ThunderID product | Pass, no login step | 0 | 0 |
+| CI, same machine client, API Manager | Refused as designed; needs its own client credential | 0 | 0 |
+| Asgardeo | Not run, no tenant | | |
+
+Findings the design depends on:
+
+- **ThunderID binds one authorization to one resource server.** It refuses an
+  authorization with no resource indicator when no default resource server is
+  configured, so a resource-less ThunderID session is impossible.
+- **Refresh narrowing is permanent on both providers.** ThunderID binds the
+  refresh token to one resource server's scopes; Identity Server narrows it to
+  the smallest scope set ever requested and never widens it back. A shared
+  session narrowed per command therefore breaks the next product's command.
+  Per-product sessions remove the conflict.
+- **API Manager's jwt-bearer grant accepts only `typ: JWT`.** Every ThunderID
+  access token is typed `at+jwt` (RFC 9068) and is refused with "Signature
+  validation failed" whatever its audience, with the same signing key. The
+  ThunderID ID token (`typ: JWT`, `aud` the CLI client) is accepted, so
+  `derived` needs an ID token and stays an interactive strategy; a machine
+  client has none.
+- **The assertion's audience must match the identity provider alias** API
+  Manager records; an ID token issued to another client is refused.
+- **The assertion scopes are load-bearing.** Without `groups` in the ID token,
+  API Manager maps no role and issues `default` only, for administrators too.
+- **API Manager does not narrow a management session per command.** A module
+  that named one scope per command looped into `auth.narrowing_unavailable`;
+  modules now send no scopes and inherit the product record's scope set.
+- **ThunderID grants `system` to a client-credentials client** holding a role
+  with that permission, so ThunderID administration works from CI.
+- **Federation to ThunderID from API Manager needs just-in-time provisioning**;
+  without it the federated user's roles never reach the scope issuer.
+- **Access-token expiry was not measured**; renewal through the sign-on is
+  inferred from the first-use path.
+
+## Amendment (ADR 0016)
+
+What this ADR calls an identity is now a context, which owns its login and its
+sessions: product sessions are keyed by the context's credential reference,
+and no two contexts share one. A stored session also records the resource and
+audience it was authorized for, and is presented only for a record that still
+asks for them.

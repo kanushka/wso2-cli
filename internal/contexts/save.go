@@ -227,13 +227,12 @@ func refuseFrozenDocument(stateRoot string) error {
 	if probe.SchemaVersion == SchemaVersion {
 		return nil
 	}
-	// The schema before the rename is understood completely — the accounts
-	// were named identities and nothing else differed — so it is upgraded in
-	// place rather than frozen. Freezing it would make every document an
+	// The two schemas before this one are understood completely, and Decode
+	// migrates them to the current shape (migrate.go), so they are upgraded
+	// in place rather than frozen. Freezing them would make every document an
 	// earlier shell wrote read-only, and the first command after an upgrade
-	// would refuse instead of working. Decode has already rewritten it to the
-	// current shape by the time anything is written back.
-	if probe.SchemaVersion == SchemaVersionAccounts {
+	// would refuse instead of working.
+	if probe.SchemaVersion == SchemaVersionAccounts || probe.SchemaVersion == SchemaVersionIdentities {
 		return nil
 	}
 	return documentFrozen(path, probe.SchemaVersion)
@@ -296,3 +295,36 @@ func documentUnwritable(cause error) error {
 // is where the answer that decides anything is given. What this rules out is
 // the deterministic case, which is the one that costs the user a credential.
 func Writable(stateRoot string) error { return refuseFrozenDocument(stateRoot) }
+
+// Upgrade rewrites a schema version 2 or 3 document as the current version,
+// under the document lock, and reports what the migration changed. A document
+// already current, absent, or of any other version is left exactly as it is,
+// and reports false.
+//
+// Every writer upgrades on its way through, so this exists for the moment
+// before any of them runs: the shell upgrades once, at the start of the first
+// invocation after an update, so that what the migration changed is reported
+// then rather than at whichever command happens to write first.
+func Upgrade(stateRoot string) (Migration, bool, error) {
+	data, err := os.ReadFile(Path(stateRoot))
+	if err != nil {
+		return Migration{}, false, nil
+	}
+	var probe struct {
+		SchemaVersion int `json:"schemaVersion"`
+	}
+	if err := json.NewDecoder(bytes.NewReader(data)).Decode(&probe); err != nil ||
+		(probe.SchemaVersion != SchemaVersionAccounts && probe.SchemaVersion != SchemaVersionIdentities) {
+		return Migration{}, false, nil
+	}
+	var migration Migration
+	var migrated bool
+	err = Update(stateRoot, func(document Document) (Document, error) {
+		migration, migrated = document.Migrated()
+		return document, nil
+	})
+	if err != nil {
+		return Migration{}, false, err
+	}
+	return migration, migrated, nil
+}

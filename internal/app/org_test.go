@@ -37,7 +37,7 @@ func TestOrgCurrentOnAnUnconfiguredMachineReportsAState(t *testing.T) {
 	if errOut.Len() != 0 {
 		t.Errorf("an unconfigured machine wrote to stderr:\n%s", errOut)
 	}
-	if !strings.Contains(out.String(), "wso2 login") {
+	if !strings.Contains(out.String(), "wso2 context apply") {
 		t.Errorf("the report does not name what to run next:\n%s", out)
 	}
 }
@@ -50,7 +50,7 @@ func TestOrgCurrentWithAContextButNoOrganizationSaysSoDistinctly(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
+	seeded.Contexts = []contexts.Context{acmeCloud("acme")}
 	installLogin(t, shell, seeded)
 
 	if code := shell.Run([]string{"org", "current"}); code != exit.OK {
@@ -71,7 +71,7 @@ func TestOrgCurrentReportsTheSelectedOrganization(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "acme-org"}}
+	seeded.Contexts = []contexts.Context{acmeCloud("acme", "acme-org")}
 	installLogin(t, shell, seeded)
 
 	if code := shell.Run([]string{"org", "current"}); code != exit.OK {
@@ -91,8 +91,8 @@ func TestOrgUseWritesTheOrganizationAndNamesTheContext(t *testing.T) {
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
 	seeded.Contexts = []contexts.Context{
-		{Name: "acme", Account: "acme-cloud", Organization: "old-org"},
-		{Name: "beta", Account: "acme-cloud", Organization: "beta-org"},
+		acmeCloud("acme", "old-org"),
+		acmeCloud("beta", "beta-org"),
 	}
 	installLogin(t, shell, seeded)
 
@@ -132,7 +132,7 @@ func TestOrgUseWarnsThatABoundSessionNoLongerMatches(t *testing.T) {
 			shell, out, errOut := newShell(t)
 			seeded := identityOnlyDocument()
 			seeded.DefaultContext = "acme"
-			seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "old-org"}}
+			seeded.Contexts = []contexts.Context{acmeCloud("acme", "old-org")}
 			installLogin(t, shell, seeded)
 
 			if code := shell.Run(args); code != exit.OK {
@@ -166,7 +166,7 @@ func TestOrgUseOnAMachineWithNoContextsRefusesWithGuidance(t *testing.T) {
 	if !strings.Contains(errOut.String(), "shell.no_context_configured") {
 		t.Errorf("stderr does not carry shell.no_context_configured:\n%s", errOut)
 	}
-	if !strings.Contains(errOut.String(), "wso2 login") {
+	if !strings.Contains(errOut.String(), "wso2 context apply") {
 		t.Errorf("the refusal does not name what to run next:\n%s", errOut)
 	}
 }
@@ -180,7 +180,7 @@ func TestOrgUseWriteSurvivesAConcurrentWriterTheWayContextUseDoes(t *testing.T) 
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
 	seeded.Contexts = []contexts.Context{
-		{Name: "acme", Account: "acme-cloud", Organization: "old-org", Project: "retail"},
+		acmeCloud("acme", "old-org", "retail"),
 	}
 	installLogin(t, shell, seeded)
 	before := loadDocument(t, shell)
@@ -231,7 +231,7 @@ func TestEveryOrgSubcommandRendersJSON(t *testing.T) {
 			shell, out, errOut := newShell(t)
 			seeded := identityOnlyDocument()
 			seeded.DefaultContext = "acme"
-			seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "acme-org"}}
+			seeded.Contexts = []contexts.Context{acmeCloud("acme", "acme-org")}
 			installLogin(t, shell, seeded)
 
 			if code := shell.Run(args); code != exit.OK {
@@ -310,7 +310,7 @@ func TestOrgUseSaysNothingAboutASessionWhenNothingChanged(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "same-org"}}
+	seeded.Contexts = []contexts.Context{acmeCloud("acme", "same-org")}
 	installLogin(t, shell, seeded)
 
 	if code := shell.Run([]string{"org", "use", "same-org"}); code != exit.OK {
@@ -329,13 +329,13 @@ func TestOrgUseIsRefusedOnAProviderWithoutOrganizationSwitch(t *testing.T) {
 		t.Run(provider, func(t *testing.T) {
 			shell, _, errOut := newShell(t)
 			seeded := identityOnlyDocument()
-			seeded.Accounts[0].Auth.Provider = provider
+			seeded.Contexts = []contexts.Context{acmeCloud("acme")}
+			seeded.Contexts[0].Login.Provider = provider
 			if provider == contexts.ProviderThunder {
-				seeded.Accounts[0].Products = map[string]contexts.Product{"iam": {
+				seeded.Contexts[0].Products = map[string]contexts.Product{"iam": {
 					Endpoint: "http://localhost:8492", Audience: "https://localhost:8090/mcp", Scopes: []string{"system"}}}
 			}
 			seeded.DefaultContext = "acme"
-			seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud"}}
 			installLogin(t, shell, seeded)
 
 			if code := shell.Run([]string{"org", "use", "org-2"}); code != exit.AuthPolicy {
@@ -365,13 +365,13 @@ func TestOrgUseClearsTheOrganizationOnAProviderWithoutOrganizationSwitch(t *test
 		t.Run(provider, func(t *testing.T) {
 			shell, out, errOut := newShell(t)
 			seeded := identityOnlyDocument()
-			seeded.Accounts[0].Auth.Provider = provider
+			seeded.Contexts = []contexts.Context{acmeCloud("acme", "stuck-org")}
+			seeded.Contexts[0].Login.Provider = provider
 			if provider == contexts.ProviderThunder {
-				seeded.Accounts[0].Products = map[string]contexts.Product{"iam": {
+				seeded.Contexts[0].Products = map[string]contexts.Product{"iam": {
 					Endpoint: "http://localhost:8492", Audience: "https://localhost:8090/mcp", Scopes: []string{"system"}}}
 			}
 			seeded.DefaultContext = "acme"
-			seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "stuck-org"}}
 			installLogin(t, shell, seeded)
 
 			if code := shell.Run([]string{"org", "use", ""}); code != exit.OK {

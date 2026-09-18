@@ -108,7 +108,7 @@ func TestDeviceLoginSmoke(t *testing.T) {
 	// The unmeasured behaviour, reported rather than asserted. The shell prints
 	// a subject only when it verified an identity token, so the report is the
 	// honest witness for whether this deployment's device grant returned one.
-	if bytes.Contains(captured.Bytes(), []byte("Subject")) {
+	if bytes.Contains(captured.Bytes(), []byte("User ID")) {
 		t.Log("DEVICE LOGIN SMOKE: this deployment's device grant returned a verifiable identity token")
 	} else {
 		t.Log("DEVICE LOGIN SMOKE: this deployment's device grant returned no identity token — " +

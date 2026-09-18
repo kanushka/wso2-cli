@@ -119,3 +119,15 @@ func TestAModuleThatDeclaresNoTreeStillDeclaresItsIdentity(t *testing.T) {
 		t.Errorf("a module that declared no tree reported %+v", written.CommandTree)
 	}
 }
+
+// TestServeReportsAnUnwritableDeclarationPath proves a module that cannot write
+// its declaration fails loudly rather than silently reporting nothing to the
+// installer.
+func TestServeReportsAnUnwritableDeclarationPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "no-such-directory", "declaration.json")
+	t.Setenv(module.CommandTreeEnv, path)
+
+	if err := module.Serve(context.Background(), module.Options{Namespace: "reference"}); err == nil {
+		t.Fatal("Serve succeeded despite the declaration path's directory not existing")
+	}
+}

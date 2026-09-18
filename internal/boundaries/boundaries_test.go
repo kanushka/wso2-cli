@@ -792,16 +792,17 @@ var protectedIdentityTerms = []string{
 	"identity provider", "Identity Provider", "identity providers", "Identity Providers",
 	"identity token", "Identity token", "identity tokens",
 	"Identity Server", "identity-server",
-	"wso2 identity %s is now wso2 account %s",
 	// "wso2 identity ..." is the product namespace's own command line, which
 	// ADR 0015 gave that word to. It is the one place the word is not the
 	// account concept, and a module naming its own commands has to use it.
 	"wso2 identity",
-	// The namespace argument of add-product, for the identity product itself.
-	"add-product <account> identity",
+	// The login product a context names, when it is the identity product.
+	"--login-product identity", "such as identity",
 	// The product the identity namespace reaches, named in its own prose. The
 	// rename turned it into "the account product", which names nothing.
 	"identity product",
+	// The Identity Platform is the proper name of the product.
+	"Identity Platform",
 }
 
 // TestNoUserVisibleStringCallsAnAccountAnIdentity holds the rename ADR 0015
@@ -844,6 +845,48 @@ func TestNoUserVisibleStringCallsAnAccountAnIdentity(t *testing.T) {
 				if strings.Contains(strings.ToLower(held), "identit") {
 					t.Errorf("%s: a user-visible string calls an account an identity: %q",
 						relative, literal)
+				}
+			}
+		}
+	}
+}
+
+// accountTermHolders are the files where "account" still names something real:
+// the redirects that answer the retired account commands, and the migration
+// that reads schema version 3 accounts and reports what became of them.
+var accountTermHolders = []string{
+	filepath.Join("internal", "app", "redirects.go"),
+	filepath.Join("internal", "contexts", "migrate.go"),
+}
+
+// protectedAccountTerms are English uses of the word that name no concept.
+var protectedAccountTerms = []string{"accounts for", "account of", "into account", "runtime account",
+	"module account"}
+
+// TestNoUserVisibleStringNamesAnAccount holds the retirement ADR 0016 made. A
+// context holds its own login and products, so a message still naming an
+// account sends a user looking for a record and a command that no longer
+// exist. Prose only, for the reason the identity guard above states.
+func TestNoUserVisibleStringNamesAnAccount(t *testing.T) {
+	root := repoRoot(t)
+	for _, module := range goModules(t) {
+		for _, path := range goFiles(t, filepath.Join(root, module)) {
+			relative, _ := filepath.Rel(root, path)
+			if strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, ".pb.go") ||
+				strings.Contains(relative, filepath.Join("internal", "boundaries")) ||
+				slices.Contains(accountTermHolders, relative) {
+				continue
+			}
+			for _, literal := range stringLiterals(t, path) {
+				if !strings.Contains(literal, " ") {
+					continue
+				}
+				held := strings.ToLower(literal)
+				for _, term := range protectedAccountTerms {
+					held = strings.ReplaceAll(held, term, "")
+				}
+				if strings.Contains(held, "account") {
+					t.Errorf("%s: a user-visible string names an account: %q", relative, literal)
 				}
 			}
 		}

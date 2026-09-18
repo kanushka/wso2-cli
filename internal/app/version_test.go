@@ -128,6 +128,10 @@ func newShell(t *testing.T) (app.Shell, *bytes.Buffer, *bytes.Buffer) {
 	return app.Shell{
 		StateRoot: t.TempDir(),
 		Streams:   output.Streams{Out: out, Err: errOut},
+		OpenBrowser: func(target string) error {
+			t.Fatalf("test unexpectedly opened a browser at %q", target)
+			return nil
+		},
 	}, out, errOut
 }
 

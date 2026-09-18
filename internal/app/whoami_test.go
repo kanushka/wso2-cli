@@ -29,6 +29,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/exit"
+	"github.com/wso2/wso2-cli/internal/output"
 )
 
 // whoamiReport mirrors what wso2 whoami --output json publishes, so a test can
@@ -68,7 +69,7 @@ func decodeWhoamiReport(t *testing.T, rendered []byte) whoamiReport {
 func whoamiSeededDocument() contexts.Document {
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
-	seeded.Contexts = []contexts.Context{{Name: "acme", Account: "acme-cloud", Organization: "acme-org"}}
+	seeded.Contexts = []contexts.Context{acmeCloud("acme", "acme-org")}
 	return seeded
 }
 
@@ -407,6 +408,39 @@ func TestWhoamiClaimsNoNameWhenNoneWasStored(t *testing.T) {
 	}
 }
 
+// TestWhoamiLeavesOutAnOrganizationTheContextDoesNotName proves a context
+// with no organization gets no Organization row, rather than a blank one that
+// reads as a value the shell failed to load, while JSON still carries the
+// field for a script to test.
+func TestWhoamiLeavesOutAnOrganizationTheContextDoesNotName(t *testing.T) {
+	keyring.MockInit()
+	shell, out, errOut := newShell(t)
+	document := whoamiSeededDocument()
+	document.Contexts[0].Organization = ""
+	installLogin(t, shell, document)
+
+	if code := shell.Run([]string{"whoami"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "Organization") {
+			t.Errorf("the table carries an Organization row for a context with none: %q", line)
+		}
+	}
+
+	out.Reset()
+	if code := shell.Run([]string{"whoami", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(out.Bytes(), &raw); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if _, present := raw["organization"]; !present {
+		t.Errorf("the JSON dropped the organization field: %s", out)
+	}
+}
+
 // TestWhoamiRefusesAnUnknownContextAsUsage proves an unresolvable --context
 // name is refused as the argument mistake it is, rather than folded into the
 // report as a state.
@@ -431,17 +465,9 @@ func TestWhoamiRefusesAnUnknownContextAsUsage(t *testing.T) {
 func TestWhoamiHonorsContextPrecedence(t *testing.T) {
 	keyring.MockInit()
 	seeded := whoamiSeededDocument()
-	seeded.Accounts = append(seeded.Accounts, contexts.Account{
-		Name: "beta-cloud",
-		Type: "cloud",
-		Auth: contexts.AccountAuth{
-			Kind:          contexts.KindOAuthBrowser,
-			Issuer:        "https://idp.example",
-			ClientID:      "wso2-cli",
-			CredentialRef: "beta-cloud",
-		},
-	})
-	seeded.Contexts = append(seeded.Contexts, contexts.Context{Name: "beta", Account: "beta-cloud"})
+	beta := acmeCloud("beta")
+	beta.CredentialRef = "beta-cloud"
+	seeded.Contexts = append(seeded.Contexts, beta)
 	seedBetaSession := func(t *testing.T, shell app.Shell) {
 		t.Helper()
 		installLogin(t, shell, seeded)
@@ -545,7 +571,7 @@ func TestWhoamiBothRenderingsAgree(t *testing.T) {
 	// left this test green before this fix; it now fails that mutation.
 	for _, want := range []string{
 		report.Context, report.Identity, report.Organization, report.Name, report.Subject,
-		report.Session, report.SessionExpiry, report.Recovery,
+		report.Session, report.SessionExpiry, output.Hint(tableOut, report.Recovery),
 	} {
 		if !strings.Contains(tableOut.String(), want) {
 			t.Errorf("the table rendering is missing %q, present in JSON:\n%s", want, tableOut)

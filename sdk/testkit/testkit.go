@@ -64,6 +64,11 @@ type Invocation struct {
 	// Access denies access, so a handler that expects a grant it never
 	// arranged fails rather than passing by accident.
 	Access *Access
+	// AccessByRecord scripts the answer for one record, keyed by
+	// AccessRequest.Record, ahead of Access. It is how a handler that holds
+	// two accesses, its product's and an API's, is proved to present each
+	// where it belongs.
+	AccessByRecord map[string]*Access
 }
 
 // Access scripts the peer's answer to a module's access request.
@@ -223,8 +228,13 @@ func exchange(toModule io.WriteCloser, fromModule io.Reader, options module.Opti
 			Audience: request.GetAudience(),
 			Scopes:   request.GetScopes(),
 			Record:   request.GetRecord(),
+			Resource: request.GetResource(),
 		})
-		if err := answerAccess(writer, invocationID, envelope.GetCorrelationId(), invocation.Access); err != nil {
+		scripted := invocation.Access
+		if forRecord, ok := invocation.AccessByRecord[request.GetRecord()]; ok {
+			scripted = forRecord
+		}
+		if err := answerAccess(writer, invocationID, envelope.GetCorrelationId(), scripted); err != nil {
 			outcome.Err = err
 			return outcome
 		}

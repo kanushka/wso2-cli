@@ -91,12 +91,13 @@ the installed version or none, and the available update or, when the catalog
 cannot be reached, that it is unknown.
 
 Dated documents keep the words they were written with. The decision records in
-`docs/adr` and the findings in `docs/research` say what was decided and what was
-measured on a given day, and a measurement rewritten to use vocabulary that did
-not exist when it was taken is no longer a record of anything. This ADR is where
+`docs/adr` and the research findings (now in git history) say what was decided
+and what was measured on a given day, and a measurement rewritten to use
+vocabulary that did not exist when it was taken is no longer a record of
+anything. This ADR is where
 the vocabulary changed, so it is the one place a reader needs in order to read
 the earlier ones. Everything a reader is meant to act on today — the guides, the
-reference, the examples, and `CONTEXT.md` — moves.
+reference, and `CONTEXT.md` — moves.
 
 Consequences: `wso2 product list` is the only thing that reports an available
 update, so a machine that never runs it never learns of one. Reusing the
@@ -130,3 +131,33 @@ shipping them in one release costs users one migration rather than two.
 - Rendering the help list from a cached catalog index, refreshed whenever a
   command reaches the network, is self-updating and empty on a fresh machine,
   which is the same failure as the option above arriving later.
+
+## Amendment: the shell commands are split around the products
+
+The help page carries three sections rather than two. The shell commands a user
+starts with — `account`, `context`, `login`, `logout`, `org`, `product` and
+`whoami` — come first, the product section follows, and every other shell
+command comes last under its own heading. A product is what a user came for,
+and listing it after `config`, `doctor` and `version` buried it below commands
+most users never run. A shell command not named as core is listed under the last
+heading, so adding one cannot drop it from the page.
+
+The release's copy of the catalog is injected into the binary at build time
+rather than committed, because a committed copy would either be edited by the
+release job, which leaves the tree dirty for the release build, or go stale
+between releases. A development build carries none. The product section also
+names every installed product the copy does not know, such as one installed
+from a development origin, by the summary its declared command tree gives, so
+the page never omits a namespace the shell would dispatch. A product the copy
+knows only as a prerelease is left out, because install selects the stable
+channel. When the installed products cannot be read, the copy is listed
+unmarked and the page says it could not tell.
+
+## Amendment: the account is retired (ADR 0016)
+
+ADR 0016 folds the account into the context and removes the `wso2 account`
+family and `wso2 <namespace> connect`, answering the rejection above ("several
+contexts may name one account") by giving each context its own sessions. The
+redirect this ADR introduced for the moved identity verbs now names the
+`wso2 context` commands, and the core commands on the help page are `context`,
+`login`, `logout`, `org`, `product` and `whoami`.

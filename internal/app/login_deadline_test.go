@@ -48,17 +48,8 @@ func TestLoginGivesUpWhenTheBrowserNeverComesBack(t *testing.T) {
 	if err := fixture.WriteV2(root, contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: "acme-dev",
-		Accounts: []contexts.Account{{
-			Name: "acme-cloud",
-			Type: "cloud",
-			Auth: contexts.AccountAuth{
-				Kind:          contexts.KindOAuthBrowser,
-				Issuer:        issuer.URL,
-				ClientID:      "client-123",
-				CredentialRef: "acme-cloud-login",
-			},
-		}},
-		Contexts: []contexts.Context{{Name: "acme-dev", Account: "acme-cloud", Organization: "acme"}},
+
+		Contexts: []contexts.Context{{Name: "acme-dev", Type: "cloud", CredentialRef: "acme-cloud-login", Login: contexts.Login{Kind: contexts.KindOAuthBrowser, Issuer: issuer.URL, ClientID: "client-123"}, Organization: "acme"}},
 	}); err != nil {
 		t.Fatalf("install context document: %v", err)
 	}

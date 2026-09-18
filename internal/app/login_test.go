@@ -41,25 +41,15 @@ func browserDoc(issuerURL string) contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: "acme-dev",
-		Accounts: []contexts.Account{{
-			Name: "acme-cloud",
-			Type: "cloud",
-			Auth: contexts.AccountAuth{
-				Kind:          contexts.KindOAuthBrowser,
-				Issuer:        issuerURL,
-				ClientID:      "client-123",
-				Tenant:        "acme",
-				CredentialRef: credentialRef,
-			},
-			Products: map[string]contexts.Product{
-				"reference": {
-					Endpoint: "https://reference.example.test",
-					Audience: "reference-status",
-					Scopes:   []string{"reference:status:read"},
-				},
+
+		Contexts: []contexts.Context{{Name: "acme-dev", Type: "cloud", CredentialRef: credentialRef, Login: contexts.Login{Kind: contexts.KindOAuthBrowser, Issuer: issuerURL, ClientID: "client-123", Tenant: "acme"}, Organization: "acme", Products: map[string]contexts.Product{
+			"reference": {
+				Endpoint: "https://reference.example.test",
+				Audience: "reference-status",
+				Scopes:   []string{"reference:status:read"},
 			},
 		}},
-		Contexts: []contexts.Context{{Name: "acme-dev", Account: "acme-cloud", Organization: "acme"}},
+		},
 	}
 }
 
@@ -67,10 +57,10 @@ func browserDoc(issuerURL string) contexts.Document {
 func identityDoc(kind string) func(string) contexts.Document {
 	return func(issuerURL string) contexts.Document {
 		document := browserDoc(issuerURL)
-		document.Accounts[0].Auth.Kind = kind
+		document.Contexts[0].Login.Kind = kind
 		if kind == contexts.KindClientCredentials {
-			document.Accounts[0].Auth.CredentialRef = ""
-			document.Accounts[0].Auth.ClientSecretVariable = "WSO2_ACME_CLIENT_SECRET"
+			document.Contexts[0].CredentialRef = ""
+			document.Contexts[0].Login.ClientSecretVariable = "WSO2_ACME_CLIENT_SECRET"
 		}
 		return document
 	}
@@ -519,18 +509,17 @@ func TestLoginCompletesFromThePrintedURL(t *testing.T) {
 func TestLoginSelectsTheContextNamedByTheFlag(t *testing.T) {
 	shell, _, errOut := newLoginShell(t)
 	document := browserDoc("https://issuer.example.test")
-	document.Accounts = append(document.Accounts, contexts.Account{
+	document.Contexts = append(document.Contexts, contexts.Context{
 		Name: "acme-ci",
 		Type: "cloud",
-		Auth: contexts.AccountAuth{
+		Login: contexts.Login{
 			Kind:                 contexts.KindClientCredentials,
 			Issuer:               "https://issuer.example.test",
 			ClientID:             "client-ci",
 			ClientSecretVariable: "WSO2_ACME_CLIENT_SECRET",
 		},
+		Organization: "acme",
 	})
-	document.Contexts = append(document.Contexts,
-		contexts.Context{Name: "acme-ci", Account: "acme-ci", Organization: "acme"})
 	installLogin(t, shell, document)
 
 	if code := shell.Run([]string{"login", "--context", "acme-ci"}); code != exit.AuthPolicy {
@@ -548,7 +537,10 @@ func TestLoginRefusesAContextTheDocumentDoesNotDeclare(t *testing.T) {
 	if code := shell.Run([]string{"login", "--context", "nonexistent"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
 	}
-	if !strings.Contains(errOut.String(), "contexts.unknown_context") {
+	// A login is the command that creates a context, so an undeclared one is
+	// refused with the flags that would create it (#186).
+	if !strings.Contains(errOut.String(), "shell.missing_required_flag") ||
+		!strings.Contains(errOut.String(), "wso2 login --context nonexistent --url") {
 		t.Fatalf("an undeclared context was not refused by name:\n%s", errOut)
 	}
 }

@@ -49,31 +49,20 @@ func sessionEstablisherDoc(loginIssuer string) contexts.Document {
 	return contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: "acme-dev",
-		Accounts: []contexts.Account{{
-			Name: "acme-cloud",
-			Type: "cloud",
-			Auth: contexts.AccountAuth{
-				Kind:          contexts.KindOAuthBrowser,
-				Provider:      contexts.ProviderThunder,
-				Issuer:        loginIssuer,
-				ClientID:      "client-123",
-				Tenant:        "acme",
-				CredentialRef: sessionEstablisherCredentialRef,
+
+		Contexts: []contexts.Context{{Name: "acme-dev", Type: "cloud", CredentialRef: sessionEstablisherCredentialRef, Login: contexts.Login{Kind: contexts.KindOAuthBrowser, Issuer: loginIssuer, ClientID: "client-123", Tenant: "acme", Provider: contexts.ProviderThunder}, Organization: "acme", Products: map[string]contexts.Product{
+			"gateway": {
+				Endpoint: "https://gw.example",
+				Audience: "http://localhost:18080/mockapi",
+				Scopes:   []string{"orders:read"},
 			},
-			Products: map[string]contexts.Product{
-				"gateway": {
-					Endpoint: "https://gw.example",
-					Audience: "http://localhost:18080/mockapi",
-					Scopes:   []string{"orders:read"},
-				},
-				"iam": {
-					Endpoint: loginIssuer,
-					Audience: "https://localhost:8090/mcp",
-					Scopes:   []string{"system"},
-				},
+			"iam": {
+				Endpoint: loginIssuer,
+				Audience: "https://localhost:8090/mcp",
+				Scopes:   []string{"system"},
 			},
 		}},
-		Contexts: []contexts.Context{{Name: "acme-dev", Account: "acme-cloud", Organization: "acme"}},
+		},
 	}
 }
 

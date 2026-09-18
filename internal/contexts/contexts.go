@@ -16,19 +16,18 @@
 
 // Package contexts reads and writes the shell-owned invocation contexts.
 //
-// A document separates identities — how the shell authenticates and what it
-// can reach — from contexts, which say what a command runs against. Neither
-// ever contains a credential: they name where one comes from, and the types
-// have nowhere to put a value even if a writer tried. See
-// docs/examples/authentication-contexts.md.
+// A document is one list of contexts. Each context says how the shell logs in
+// (its login block), what it can reach (its products), which secure-store
+// entries hold its sessions (its credential reference), and optionally which
+// organization and project commands run within. Nothing in it is a credential:
+// it names where one comes from, and the types have nowhere to put a value
+// even if a writer tried. See docs/reference/context-file.md and
+// docs/adr/0016-a-context-owns-its-login-and-sessions.md.
 //
 // The shell both reads and writes this document; Save and Update in save.go are
 // the only production writers. Nothing about that grants access: as above, the
 // artifact cannot carry a credential, so which command writes one is not a
-// security question. The guarantee is a property of what gets written rather
-// than of who writes it, which is what lets wso2 login both write a document
-// and authenticate against it. See
-// docs/adr/0012-writing-a-context-or-identity-grants-nothing.md.
+// security question. See docs/adr/0012-writing-a-context-or-identity-grants-nothing.md.
 package contexts
 
 import (
@@ -46,15 +45,21 @@ import (
 )
 
 // SchemaVersion is the current context-document schema. The shell also reads
-// SchemaVersionLegacy documents through a compatibility mapping; any other
-// version fails closed rather than being partly interpreted.
-const SchemaVersion = 3
+// the earlier schemas: version 1 through a read-only compatibility mapping,
+// and versions 2 and 3 through a migration that is written back as this
+// version. Any other version fails closed rather than being partly
+// interpreted.
+const SchemaVersion = 4
 
-// SchemaVersionAccounts is the schema before the identity concept became the
-// account one. It differs from the current schema in one member name — the
-// document's list of accounts was called "identities" — so it is read into the
-// same shape and written back at the current version.
-const SchemaVersionAccounts = 2
+// SchemaVersionAccounts is the schema that kept accounts and contexts in two
+// lists, each context naming the account it authenticated as. It is migrated
+// on read (migrate.go).
+const SchemaVersionAccounts = 3
+
+// SchemaVersionIdentities is the schema before the identity concept became the
+// account one. It differs from SchemaVersionAccounts in two member names, and
+// is migrated the same way.
+const SchemaVersionIdentities = 2
 
 // FileName is the context document's fixed name inside the shell state tree.
 const FileName = "contexts.json"
@@ -63,8 +68,8 @@ const FileName = "contexts.json"
 // method: the shell reads a development credential from a named environment
 // variable and exchanges it for a short-lived fixture token.
 //
-// It is not a production method and not a legal v2 kind: it reaches the
-// in-memory document only through the v1 compatibility read.
+// It is not a production method and not a legal kind: it reaches the in-memory
+// document only through the v1 compatibility read.
 const MethodDevelopmentCredential = "development-credential"
 
 // namePattern constrains a context name to one readable word.
@@ -80,9 +85,7 @@ const NameRule = "lower-case letters, digits and hyphens, starting with a letter
 // It is exported so that a command can refuse a name a user typed before that
 // name reaches the document. The refusal then reads as a complaint about the
 // argument, which the user can retype, rather than as a complaint about the
-// file, which they did not write and must not be told to remove. Both sides ask
-// this one pattern, so a command and the document cannot disagree about what is
-// legal.
+// file, which they did not write and must not be told to remove.
 func ValidName(name string) bool { return namePattern.MatchString(name) }
 
 // variablePattern constrains a credential source to something that is
@@ -90,37 +93,178 @@ func ValidName(name string) bool { return namePattern.MatchString(name) }
 // variable name belongs is rejected rather than stored.
 var variablePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
 
+// ValidVariable reports whether a value is shaped like an environment variable
+// name, the only thing a document accepts as a secret's source.
+func ValidVariable(name string) bool { return variablePattern.MatchString(name) }
+
 // Document is the shell's context store.
 type Document struct {
 	// SchemaVersion identifies the document format.
 	SchemaVersion int `json:"schemaVersion"`
-	// DefaultContext is the name of the context commands run against.
-	DefaultContext string `json:"defaultContext"`
-	// Accounts are the authentication arrangements contexts reference.
-	Accounts []Account `json:"accounts"`
+	// DefaultContext is the name of the context commands run against. Empty
+	// when nothing is selected, which is legal: wso2 context apply adds
+	// contexts without selecting one unless asked to.
+	DefaultContext string `json:"defaultContext,omitempty"`
 	// Contexts are the configured contexts.
 	Contexts []Context `json:"contexts"`
+
+	// migration records what reading an earlier schema changed. It is never
+	// encoded: the next write produces a current document and the record has
+	// done its job.
+	migration *Migration
 }
 
-// Context is one target a command can run against. It references an account
-// for authentication and narrows it to an organization and project.
+// Context is one target a command can run against: how the shell logs in, the
+// products it reaches, and the sessions it holds.
 type Context struct {
 	// Name identifies the context.
 	Name string `json:"name"`
-	// Account names the account this context authenticates as.
-	Account string `json:"account"`
+	// Type says whether the context targets a cloud or on-premises deployment.
+	// It is "cloud" or "onprem".
+	Type string `json:"type"`
+	// CredentialRef names the secure-store entries this context's sessions
+	// live under: the login session under the reference itself, and each
+	// product's own under ProductSessionRef. It is a stable identifier, not a
+	// name: renaming the context leaves it alone, so no stored session moves.
+	// No two contexts share one (see validate). Empty for a client-credentials
+	// context, which stores nothing.
+	CredentialRef string `json:"credentialRef,omitempty"`
+	// Login says how the shell authenticates for this context.
+	Login Login `json:"login"`
 	// Organization is the organization commands run within. Access is bound
 	// to it, so a token minted here is refused elsewhere.
 	Organization string `json:"organization,omitempty"`
 	// Project further narrows the target inside the organization.
 	Project string `json:"project,omitempty"`
+	// Products are the product services reachable from this context, keyed by
+	// product namespace.
+	Products map[string]Product `json:"products,omitempty"`
+
+	// synthetic marks a context manufactured by the v1 compatibility read. It
+	// is never encodable.
+	synthetic bool
+	// credentialVariable exists only on synthetic v1 contexts. Never encoded.
+	credentialVariable string
 }
 
-// Selection is one resolved context together with its identity.
+// Login is a context's authentication arrangement. Every member is a name or a
+// location; none holds a credential.
+type Login struct {
+	// Kind identifies how the shell obtains access: KindOAuthBrowser,
+	// KindOAuthDevice, KindClientCredentials or KindPAT.
+	Kind string `json:"kind"`
+	// Issuer is the token issuer the shell authenticates against.
+	Issuer string `json:"issuer,omitempty"`
+	// ClientID is the OAuth client this shell presents itself as.
+	ClientID string `json:"clientId,omitempty"`
+	// Tenant is the context's home tenant, when the issuer is multi-tenant.
+	Tenant string `json:"tenant,omitempty"`
+	// Provider names the identity provider behind the issuer. It is optional,
+	// and it implies a derivation rather than being one.
+	Provider string `json:"provider,omitempty"`
+	// Narrowing names the derivation explicitly, for a deployment that does not
+	// match what its provider ordinarily requires. It wins over Provider.
+	Narrowing string `json:"narrowing,omitempty"`
+	// ClientSecretVariable names the environment variable holding the client
+	// secret for the client-credentials kind. It is a name, never a value.
+	ClientSecretVariable string `json:"clientSecretVariable,omitempty"`
+	// Product names the direct product the login authorization is run for.
+	// Written whenever the context reaches a direct product, so that adding a
+	// product which sorts earlier never moves the login from under the
+	// sessions already stored. Empty for a login through a bare issuer.
+	Product string `json:"product,omitempty"`
+}
+
+// Selection is one resolved context together with the authentication view the
+// broker reads it through.
 type Selection struct {
-	Context  Context
+	Context Context
+	// Identity is the context's authentication arrangement as the broker and
+	// the access plan read it (Context.Account).
 	Identity Account
 }
+
+// Account is the authentication view of a context: its login block, its
+// credential reference and its products, in the shape the access plan
+// (access.go) and the broker read. It is not a separate record in the
+// document; Context.Account builds it, and nothing writes one.
+//
+// Name is the context's name. Refusals and reports that name "the context"
+// read it from here.
+type Account struct {
+	Name         string
+	Type         string
+	Auth         AccountAuth
+	Products     map[string]Product
+	LoginProduct string
+	synthetic    bool
+	// noun is what a refusal calls the record: empty for a context, "account"
+	// while a migration validates a schema version 3 account.
+	noun string
+}
+
+// AccountAuth is the authentication view's login arrangement: the context's
+// login block plus its credential reference. The JSON tags are the schema
+// version 3 spelling, which migrate.go decodes through this type.
+type AccountAuth struct {
+	Kind                 string `json:"kind"`
+	Issuer               string `json:"issuer,omitempty"`
+	ClientID             string `json:"clientId,omitempty"`
+	Tenant               string `json:"tenant,omitempty"`
+	CredentialRef        string `json:"credentialRef,omitempty"`
+	ClientSecretVariable string `json:"clientSecretVariable,omitempty"`
+	Provider             string `json:"provider,omitempty"`
+	Narrowing            string `json:"narrowing,omitempty"`
+	// CredentialVariable exists only on synthetic v1 contexts. Never encoded.
+	CredentialVariable string `json:"-"`
+}
+
+// Account builds the context's authentication view.
+func (c Context) Account() Account {
+	return Account{
+		Name: c.Name,
+		Type: c.Type,
+		Auth: AccountAuth{
+			Kind:                 c.Login.Kind,
+			Issuer:               c.Login.Issuer,
+			ClientID:             c.Login.ClientID,
+			Tenant:               c.Login.Tenant,
+			CredentialRef:        c.CredentialRef,
+			ClientSecretVariable: c.Login.ClientSecretVariable,
+			Provider:             c.Login.Provider,
+			Narrowing:            c.Login.Narrowing,
+			CredentialVariable:   c.credentialVariable,
+		},
+		Products:     c.Products,
+		LoginProduct: c.Login.Product,
+		synthetic:    c.synthetic,
+	}
+}
+
+// FromAccount is the context an authentication view describes, named name:
+// the inverse of Context.Account. It exists for code that builds the view
+// first, which the access plan's own tests do.
+func FromAccount(name string, account Account) Context {
+	return Context{
+		Name:          name,
+		Type:          account.Type,
+		CredentialRef: account.Auth.CredentialRef,
+		Login: Login{
+			Kind: account.Auth.Kind, Issuer: account.Auth.Issuer, ClientID: account.Auth.ClientID,
+			Tenant: account.Auth.Tenant, Provider: account.Auth.Provider, Narrowing: account.Auth.Narrowing,
+			ClientSecretVariable: account.Auth.ClientSecretVariable, Product: account.LoginProduct,
+		},
+		Products: account.Products,
+	}
+}
+
+// Synthetic reports whether this context was manufactured by the v1
+// compatibility read. A synthetic context is readable but never written back.
+func (c Context) Synthetic() bool { return c.synthetic }
+
+// CredentialVariable is the environment variable a v1 context reads its
+// development credential from, and empty for every other context.
+func (c Context) CredentialVariable() string { return c.credentialVariable }
 
 // Path reports the context document's location inside a state root.
 func Path(stateRoot string) string {
@@ -147,9 +291,9 @@ func Load(stateRoot string) (Document, error) {
 
 // Decode parses and validates a context document.
 //
-// The schema version is probed first: the current version decodes directly, a
-// legacy version decodes through the compatibility mapping, and any other
-// version fails closed rather than being partly interpreted.
+// The schema version is probed first: the current version decodes directly,
+// versions 2 and 3 decode through the migration, version 1 through the
+// read-only compatibility mapping, and any other version fails closed.
 func Decode(data []byte) (Document, error) {
 	var probe struct {
 		SchemaVersion int `json:"schemaVersion"`
@@ -161,8 +305,8 @@ func Decode(data []byte) (Document, error) {
 	switch probe.SchemaVersion {
 	case SchemaVersionLegacy:
 		return decodeLegacy(data)
-	case SchemaVersionAccounts:
-		return decodeAccountsSchema(data)
+	case SchemaVersionIdentities, SchemaVersionAccounts:
+		return decodeAccounts(data, probe.SchemaVersion)
 	case SchemaVersion:
 		return decodeCurrent(data)
 	default:
@@ -170,62 +314,6 @@ func Decode(data []byte) (Document, error) {
 			fmt.Sprintf("context document schema version %d is not supported by this shell", probe.SchemaVersion),
 			"Update the WSO2 CLI, or run the WSO2 CLI version that manages this document.")
 	}
-}
-
-// decodeAccountsSchema reads a document written before the rename, whose only
-// difference from the current schema is that the accounts were called
-// identities.
-//
-// The rewrite is textual and confined to the one member name at the document's
-// top level, so nothing inside an account — a product's own members, a
-// credential reference — is touched by it. The document then decodes through
-// exactly the path a current one does, which is what keeps one schema's
-// validation from drifting from the other's.
-func decodeAccountsSchema(data []byte) (Document, error) {
-	// Both spellings the rename changed are read here: the document's list of
-	// accounts, and each context's reference to one. A shim that read only the
-	// first would decode every context with an empty account reference, which
-	// validation would then refuse as a context naming no account — a refusal
-	// whose cause is this decode rather than anything the user wrote.
-	type shimContext struct {
-		Name string `json:"name"`
-		// The pre-rename spelling, deliberately: this shim exists to read a
-		// document written before the rename, and reading it under the new key
-		// would decode every context with an empty account reference.
-		Account      string `json:"identity"`
-		Organization string `json:"organization,omitempty"`
-		Project      string `json:"project,omitempty"`
-	}
-	var shim struct {
-		SchemaVersion  int           `json:"schemaVersion"`
-		DefaultContext string        `json:"defaultContext"`
-		Accounts       []Account     `json:"identities"`
-		Contexts       []shimContext `json:"contexts"`
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	if err := decoder.Decode(&shim); err != nil {
-		return Document{}, malformed("is not valid JSON")
-	}
-	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		return Document{}, malformed("contains more than one JSON document")
-	}
-	document := Document{
-		SchemaVersion:  SchemaVersion,
-		DefaultContext: shim.DefaultContext,
-		Accounts:       shim.Accounts,
-	}
-	// A conversion rather than a field-by-field copy: shimContext differs from
-	// Context only in the JSON tag of its account member, and Go converts
-	// between struct types whose fields agree in everything but their tags.
-	// The conversion is also what breaks the build if the two ever drift
-	// apart, where a copy would silently drop a field Context gained.
-	for _, c := range shim.Contexts {
-		document.Contexts = append(document.Contexts, Context(c))
-	}
-	if err := document.validate(); err != nil {
-		return Document{}, err
-	}
-	return document, nil
 }
 
 // decodeCurrent is the strict single-document decode of the current schema.
@@ -252,14 +340,19 @@ func decodeCurrent(data []byte) (Document, error) {
 // Encode renders the document as the canonical on-disk form, refusing a
 // document this shell would not read back.
 //
-// A compatibility-read document refuses outright: the shell never rewrites a
-// version 1 document into version 2 behind its author's back.
+// The login product of every context is frozen first (Freeze), so a document
+// assembled in memory is written complete. A compatibility-read document
+// refuses outright: the shell never rewrites a version 1 document behind its
+// author's back.
 func (d Document) Encode() ([]byte, error) {
 	if d.compatibilityRead() {
 		return nil, contextProblem("contexts.document_malformed",
 			"a compatibility-read context document cannot be written back",
-			"Author a schema version 2 document. The shell does not rewrite version 1 documents in place.")
+			fmt.Sprintf("Author a schema version %d document. The shell does not rewrite version 1 "+
+				"documents in place.", SchemaVersion))
 	}
+	d = d.Freeze()
+	d.SchemaVersion = SchemaVersion
 	if err := d.validate(); err != nil {
 		return nil, err
 	}
@@ -270,26 +363,45 @@ func (d Document) Encode() ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
+// Freeze returns the document with every context's login product written out:
+// the product its login already runs for, pinned so that recording another
+// product can never move it. A context that already names one, reaches no
+// direct product, or logs in through nothing is left as it is.
+func (d Document) Freeze() Document {
+	frozen := slices.Clone(d.Contexts)
+	for index, candidate := range frozen {
+		frozen[index] = candidate.Freeze()
+	}
+	d.Contexts = frozen
+	return d
+}
+
+// Freeze returns the context with its login product written out; see
+// Document.Freeze.
+func (c Context) Freeze() Context {
+	if c.Login.Product != "" || c.Login.Kind == KindClientCredentials || c.synthetic {
+		return c
+	}
+	c.Login.Product = c.Account().LoginAccess().Namespace
+	return c
+}
+
 // compatibilityRead reports whether this document reached memory through the
 // v1 compatibility mapping.
-//
-// A synthetic identity marks the usual case, but a v1 document that declared no
-// contexts produces no identity to mark, so the version it was read at answers
-// as well. Either way the shell refuses to write it back.
 func (d Document) compatibilityRead() bool {
 	if d.SchemaVersion == SchemaVersionLegacy {
 		return true
 	}
-	for _, identity := range d.Accounts {
-		if identity.synthetic {
+	for _, candidate := range d.Contexts {
+		if candidate.synthetic {
 			return true
 		}
 	}
 	return false
 }
 
-// Select resolves the named context and its identity. An empty name selects
-// the document's default context.
+// Select resolves the named context. An empty name selects the document's
+// default context.
 //
 // A shell with no contexts configured runs against the empty selection: no
 // name, no target, no authentication. Its empty name is deliberate — a context
@@ -308,49 +420,90 @@ func (d Document) Select(name string) (Selection, error) {
 	if wanted == "" {
 		wanted = d.DefaultContext
 	}
+	if wanted == "" {
+		return Selection{}, noContextSelected()
+	}
 	for _, candidate := range d.Contexts {
 		if candidate.Name == wanted {
-			return Selection{Context: candidate, Identity: d.identity(candidate.Account)}, nil
+			return Selection{Context: candidate, Identity: candidate.Account()}, nil
 		}
 	}
 	return Selection{}, unknownContext(wanted)
 }
 
-// ContextsUsingCredential names every context whose identity keeps its session
-// under the given credential reference, sorted.
-//
-// The reference, not the identity name, is what decides who shares a session:
-// it is the key the secure store holds the session under. Two identity records
-// may name the same one, because the document requires identity names to be
-// unique and says nothing about their references — so the contexts reaching a
-// single session can arrive through more than one identity, and a caller that
-// matched on the identity name would miss them.
-//
-// An empty reference matches nothing rather than matching every identity that
-// keeps no session.
-func (d Document) ContextsUsingCredential(ref string) []string {
-	if ref == "" {
-		return nil
-	}
-	var names []string
+// Find returns the named context and whether the document declares it.
+func (d Document) Find(name string) (Context, bool) {
 	for _, candidate := range d.Contexts {
-		if d.identity(candidate.Account).Auth.CredentialRef == ref {
-			names = append(names, candidate.Name)
+		if candidate.Name == name {
+			return candidate, true
 		}
 	}
-	slices.Sort(names)
-	return names
+	return Context{}, false
 }
 
-func (d Document) identity(name string) Account {
-	for _, candidate := range d.Accounts {
-		if candidate.Name == name {
+// Put returns the document with the context added, or replacing the one of
+// the same name in place. The receiver's list is not modified.
+func (d Document) Put(context Context) Document {
+	contexts := slices.Clone(d.Contexts)
+	position := slices.IndexFunc(contexts, func(candidate Context) bool { return candidate.Name == context.Name })
+	if position < 0 {
+		contexts = append(contexts, context)
+	} else {
+		contexts[position] = context
+	}
+	d.Contexts = contexts
+	return d
+}
+
+// Without returns the document with the named context removed, clearing the
+// selection when it named that context. The receiver's list is not modified.
+func (d Document) Without(name string) Document {
+	d.Contexts = slices.DeleteFunc(slices.Clone(d.Contexts), func(candidate Context) bool {
+		return candidate.Name == name
+	})
+	if d.DefaultContext == name {
+		d.DefaultContext = ""
+	}
+	return d
+}
+
+// NewCredentialRef is a credential reference no context in the document holds:
+// the base itself when it is free, else the base with the lowest free numeric
+// suffix. The base is a context name, so the result is legal by construction.
+func (d Document) NewCredentialRef(base string) string {
+	taken := map[string]bool{}
+	for _, candidate := range d.Contexts {
+		taken[candidate.CredentialRef] = true
+	}
+	return freeName(base, taken)
+}
+
+// freeName is base when taken does not hold it, else base-N for the lowest N
+// that it does not. The base is shortened when the suffix would take it past
+// the 64 characters a name or reference may have.
+func freeName(base string, taken map[string]bool) string {
+	if !taken[base] {
+		return base
+	}
+	for number := 2; ; number++ {
+		suffix := fmt.Sprintf("-%d", number)
+		stem := base
+		if len(stem)+len(suffix) > 64 {
+			stem = stem[:64-len(suffix)]
+		}
+		if candidate := stem + suffix; !taken[candidate] {
 			return candidate
 		}
 	}
-	// Unreachable for a validated document: every context references a
-	// declared identity.
-	return Account{}
+}
+
+// Migrated reports what reading an earlier schema changed, and whether the
+// document was read from one at all. A current document reports nothing.
+func (d Document) Migrated() (Migration, bool) {
+	if d.migration == nil {
+		return Migration{}, false
+	}
+	return *d.migration, true
 }
 
 func unknownContext(name string) problem.Problem {
@@ -360,6 +513,15 @@ func unknownContext(name string) problem.Problem {
 			"to select one.")
 }
 
+// noContextSelected refuses a selection on a document that has contexts and
+// selects none of them, which wso2 context apply leaves behind by design.
+func noContextSelected() problem.Problem {
+	return contextProblem("contexts.no_context_selected",
+		"no context is selected",
+		"Run wso2 context list to see the configured contexts, then wso2 context use <name> "+
+			"to select one, or pass --context <name>.")
+}
+
 // noContextConfigured refuses a named selection on a shell that has no
 // contexts at all. It is a separate refusal from unknownContext because the
 // recovery differs: there is no list to consult and nothing to select, so the
@@ -367,8 +529,8 @@ func unknownContext(name string) problem.Problem {
 func noContextConfigured(name string) problem.Problem {
 	return contextProblem("contexts.unknown_context",
 		fmt.Sprintf("no context named %q is configured, and no contexts exist", name),
-		"Run wso2 login --url <issuer> --client-id <id> to create an account and a context, "+
-			"or wso2 context create <name> --account <account> if you already have one.")
+		"Run wso2 context create <name> --login-product <product> --url <url>, "+
+			"wso2 context apply -f <file>, or wso2 login --url <issuer> --client-id <id> to create one.")
 }
 
 // validate proves the document is internally consistent before any command
@@ -379,19 +541,8 @@ func (d Document) validate() error {
 			fmt.Sprintf("context document schema version %d is not supported by this shell", d.SchemaVersion),
 			"Update the WSO2 CLI, or run the WSO2 CLI version that manages this document.")
 	}
-
-	identities := make(map[string]struct{}, len(d.Accounts))
-	for _, identity := range d.Accounts {
-		if _, duplicate := identities[identity.Name]; duplicate {
-			return malformed(fmt.Sprintf("declares the account %q more than once", identity.Name))
-		}
-		identities[identity.Name] = struct{}{}
-		if err := identity.validate(); err != nil {
-			return err
-		}
-	}
-
 	seen := make(map[string]struct{}, len(d.Contexts))
+	refs := make(map[string]string, len(d.Contexts))
 	for _, candidate := range d.Contexts {
 		if !namePattern.MatchString(candidate.Name) {
 			return malformed(fmt.Sprintf("declares an invalid context name %q", candidate.Name))
@@ -400,17 +551,49 @@ func (d Document) validate() error {
 			return malformed(fmt.Sprintf("declares the context %q more than once", candidate.Name))
 		}
 		seen[candidate.Name] = struct{}{}
-		if _, found := identities[candidate.Account]; !found {
-			return malformed(fmt.Sprintf("the context %q references the account %q, which the document does not declare",
-				candidate.Name, candidate.Account))
+		if err := candidate.validate(); err != nil {
+			return err
+		}
+		// One reference, one owner. Two contexts sharing a reference would
+		// each present the other's sessions the moment either changed a
+		// product's URL or grant, and ending one context's sessions would end
+		// the other's. See ADR 0016.
+		if ref := candidate.CredentialRef; ref != "" {
+			if owner, taken := refs[ref]; taken {
+				return contextProblem("contexts.document_malformed",
+					fmt.Sprintf("the contexts %q and %q declare the same credential reference, and each "+
+						"context owns its own sessions", owner, candidate.Name),
+					"Give one of them another credentialRef, then run wso2 login for it. Sessions are "+
+						"never shared between contexts.")
+			}
+			refs[ref] = candidate.Name
 		}
 	}
-
-	if len(d.Contexts) == 0 {
+	if d.DefaultContext == "" {
 		return nil
 	}
 	if _, found := seen[d.DefaultContext]; !found {
 		return malformed(fmt.Sprintf("selects the context %q, which it does not declare", d.DefaultContext))
+	}
+	return nil
+}
+
+// validate proves one context is complete and consistent.
+func (c Context) validate() error {
+	if err := c.Account().validate(); err != nil {
+		return err
+	}
+	// Frozen defaults (ADR 0016): an interactive context that reaches a direct
+	// product names the one its login runs for. Without it the login would
+	// follow the namespace order, and recording a product that sorts earlier
+	// would move the login session from under the sessions already stored.
+	// Every writer freezes it (Freeze), so only a hand edit can leave it out.
+	if c.Login.Product == "" && c.Login.Kind != KindClientCredentials &&
+		c.Account().LoginAccess().Namespace != "" {
+		return contextProblem("contexts.document_malformed",
+			fmt.Sprintf("the context %q reaches a direct product and does not name its login product", c.Name),
+			"Set login.product to the product the context logs in through, or re-apply the context "+
+				"with wso2 context apply -f <file>.")
 	}
 	return nil
 }
@@ -424,17 +607,10 @@ func (d Document) validate() error {
 // carries specific advice of its own, which several do. See
 // CarriesDefaultDocumentRecovery.
 const DefaultDocumentRecovery = "Correct the context document (the cli/contexts.json file under " +
-	"the WSO2 CLI state directory), or remove it to run without a context."
+	"the WSO2 CLI state directory; wso2 context edit opens it), or remove it to run without a context."
 
 // CarriesDefaultDocumentRecovery reports whether err offers only the generic
 // document recovery above, rather than advice specific to what was wrong.
-//
-// A writer that rewords a refusal asks this first. Refusals raised through
-// contextProblem — an endpoint embedding user information is the one that
-// matters most — carry a sentence naming the exact thing to change, and
-// replacing that with anything generic makes the refusal worse. Gating on the
-// problem code alone cannot tell the two apart: both are
-// contexts.document_malformed.
 func CarriesDefaultDocumentRecovery(err error) bool {
 	var typed problem.Problem
 	return errors.As(err, &typed) && typed.Recovery == DefaultDocumentRecovery

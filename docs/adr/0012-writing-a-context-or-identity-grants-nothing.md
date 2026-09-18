@@ -89,3 +89,11 @@ showed a reference like `keychain://wso2/acme-cloud`, not the bare opaque word
 the validator accepts; [#115](https://github.com/wso2/wso2-cli/issues/115)
 corrected the published examples to bare words and added a test that decodes
 them, so the two cannot drift apart again.
+
+## Amendment (ADR 0016)
+
+There is no longer a separate identity or account record: a context holds its
+own login block and products. The invariant is unchanged and now reads "writing
+a context grants nothing", and it covers `wso2 context apply` and
+`wso2 context edit` as it covers `create`. An input file is refused if it names
+a credential reference, which belongs to one machine's secure store.

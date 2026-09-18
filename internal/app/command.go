@@ -17,8 +17,11 @@
 package app
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -43,30 +46,27 @@ const (
 // left to Cobra's default layout. What Cobra supplies is that the command list
 // is walked from the real tree, so it cannot omit a command that exists.
 //
-// The product-commands footer is read from an annotation rather than written
-// here, because what it says depends on what is installed: productFooter fills
-// it in when a help page is rendered, and only then, so a command that never
-// shows help still reads no module store.
+// The root page's command sections and closing lines are read from annotations
+// rather than written here, because its product section depends on what is
+// installed: rootHelp fills them in when a help page is rendered, and only
+// then, so a command that never shows help still reads no module store.
 const helpTemplate = `Usage: {{.UseLine}}
 {{if .Long}}
 {{.Long}}
-{{end}}{{if .HasAvailableSubCommands}}
+{{end}}{{if not .HasParent}}{{with .Annotations.commandSections}}{{.}}{{end}}{{else if .HasAvailableSubCommands}}
 Shell commands
 {{range .Commands}}{{if or .IsAvailableCommand (eq .Name "help")}}   {{rpad .Name .NamePadding}}   {{.Short}}
 {{end}}{{end}}{{end}}{{if .HasAvailableFlags}}
 Flags
-{{.Flags.FlagUsages}}{{end}}{{if not .HasParent}}
-{{.Annotations.productFooter}}
-{{end}}`
+{{.Flags.FlagUsages}}{{end}}{{if not .HasParent}}{{with .Annotations.productFooter}}
+{{.}}{{end}}{{end}}`
 
-// productFooterAnnotation names the root annotation the help template reads
-// the product-commands footer from.
-const productFooterAnnotation = "productFooter"
-
-// genericProductFooter is what the footer says when the module store cannot
-// say more. Help has to render whatever state the machine is in, so an
-// unreadable store costs the reader the listing, never the page.
-const genericProductFooter = "Product commands are provided by installed products."
+// The root annotations the help template reads its command sections and its
+// closing lines from.
+const (
+	commandSectionsAnnotation = "commandSections"
+	productFooterAnnotation   = "productFooter"
+)
 
 // rootCommand builds the shell's command tree.
 //
@@ -76,9 +76,30 @@ const genericProductFooter = "Product commands are provided by installed product
 // lookup and a command set discovered at runtime. The store is read for help
 // exactly once, when a page that names the installed modules is rendered, and
 // never to build the tree.
+// renderPage renders one help or usage page through Cobra, naming shell
+// commands after the name the shell was invoked as. Cobra writes the page
+// itself, so it is captured and renamed as a whole: a help page is all prose.
+func (s Shell) renderPage(root *cobra.Command, render func() error) error {
+	name := output.NameOf(s.Streams.Out)
+	if name == output.SourceName {
+		return render()
+	}
+	var out, errOut bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&errOut)
+	defer func() {
+		root.SetOut(s.Streams.Out)
+		root.SetErr(s.Streams.Err)
+	}()
+	err := render()
+	_, _ = io.WriteString(s.Streams.Out, output.RenameLines(out.String(), name))
+	_, _ = io.WriteString(s.Streams.Err, output.RenameLines(errOut.String(), name))
+	return err
+}
+
 func (s Shell) rootCommand() *cobra.Command {
 	root := &cobra.Command{
-		Use:  "wso2 <command> [arguments]",
+		Use:  output.NameOf(s.Streams.Out) + " <command> [arguments]",
 		Args: cobra.ArbitraryArgs,
 		// The shell reports every failure as a typed problem through one exit
 		// path, so Cobra must not write errors or usage itself.
@@ -87,8 +108,8 @@ func (s Shell) rootCommand() *cobra.Command {
 		// A shell flag is accepted on either side of a command name.
 		TraverseChildren:      true,
 		DisableFlagsInUseLine: true,
-		// The shell offers its own suggestions, so that they can later cover
-		// resolved namespaces as well as built-in commands.
+		// The shell offers its own suggestions, so that they cover installed
+		// product namespaces as well as built-in commands (suggestionFor).
 		DisableSuggestions: true,
 		// SuggestionsFor is used directly, so the distance Cobra would default
 		// during Execute has to be set here.
@@ -107,11 +128,6 @@ func (s Shell) rootCommand() *cobra.Command {
 				forwardToNamespace(command, args[1:]))
 		},
 	}
-	// Completion is deliberately absent. Until a module declares its command
-	// tree, a generated completion would know every built-in and no product
-	// command, which reads as "that command does not exist" rather than as
-	// missing information.
-	root.CompletionOptions.DisableDefaultCmd = true
 	// Only a flag-parsing failure becomes a usage problem. Cobra reports one
 	// through this hook, so wrapping here keeps every other error a command
 	// returns — an unwritable stream, a failed lookup — classified as what it
@@ -121,18 +137,27 @@ func (s Shell) rootCommand() *cobra.Command {
 	})
 	root.SetHelpTemplate(helpTemplate)
 	root.SetUsageTemplate(helpTemplate)
-	// The footer starts generic so that a usage render — which skips the help
-	// hook below — still has something truthful to say, and is filled in from
-	// the installed inventory only when a help page is actually shown. A user
-	// who has just installed a module looks at help first, and a footer that
-	// never mentioned the installation read as the installation having failed.
-	root.Annotations = map[string]string{productFooterAnnotation: genericProductFooter}
-	renderHelp := root.HelpFunc()
-	root.SetHelpFunc(func(command *cobra.Command, args []string) {
+	// The root page's sections are filled in from the installed inventory only
+	// when a help page is actually shown. A user who has just installed a
+	// module looks at help first, and a page that never mentioned the
+	// installation read as the installation having failed. A usage render
+	// shares the template, so it fills them in the same way rather than
+	// printing a root page with no command sections.
+	root.Annotations = map[string]string{}
+	fillRootPage := func(command *cobra.Command) {
 		if !command.HasParent() {
-			command.Annotations[productFooterAnnotation] = s.productFooter()
+			command.Annotations[commandSectionsAnnotation], command.Annotations[productFooterAnnotation] =
+				s.rootHelp(command)
 		}
-		renderHelp(command, args)
+	}
+	renderHelp, renderUsage := root.HelpFunc(), root.UsageFunc()
+	root.SetHelpFunc(func(command *cobra.Command, args []string) {
+		fillRootPage(command)
+		_ = s.renderPage(root, func() error { renderHelp(command, args); return nil })
+	})
+	root.SetUsageFunc(func(command *cobra.Command) error {
+		fillRootPage(command)
+		return s.renderPage(root, func() error { return renderUsage(command) })
 	})
 	root.SetOut(s.Streams.Out)
 	root.SetErr(s.Streams.Err)
@@ -159,7 +184,7 @@ func (s Shell) rootCommand() *cobra.Command {
 	declareContextFlag(root.Flags())
 	declareOutputFlag(root.Flags())
 
-	root.AddCommand(s.configCommand(), s.contextCommand(), s.doctorCommand(), s.accountCommand(),
+	root.AddCommand(s.configCommand(), s.contextCommand(), s.doctorCommand(),
 		s.loginCommand(), s.logoutCommand(), s.productCommand(), s.moduleAliasCommand(), s.orgCommand(), s.versionCommand(),
 		s.whoamiCommand())
 
@@ -171,7 +196,16 @@ func (s Shell) rootCommand() *cobra.Command {
 	// answers a product namespace from its declaration and refuses an unknown
 	// name the way dispatch does.
 	root.InitDefaultHelpCmd()
+
+	// Completion covers product commands as well as built-ins, because every
+	// module declares its command tree in its receipt (completion.go). The
+	// command is added here rather than by Execute so that dispatch finds it
+	// among the shell's own commands.
+	root.InitDefaultCompletionCmd()
 	for _, command := range root.Commands() {
+		if command.Name() == "completion" {
+			command.Short = "Write the tab completion script for a shell."
+		}
 		if command.Name() == "help" {
 			command.Short = "Show the shell command tree."
 			command.Run = nil
@@ -181,30 +215,6 @@ func (s Shell) rootCommand() *cobra.Command {
 		}
 	}
 	return root
-}
-
-// productFooter renders the help page's product-commands footer from the same
-// receipts wso2 version reports from. Nothing is launched to do it, and a
-// store that cannot be read degrades to the generic footer: a broken state
-// root must not take the help page with it.
-func (s Shell) productFooter() string {
-	store, err := s.store()
-	if err != nil {
-		return genericProductFooter
-	}
-	installed, _, err := store.Inventory()
-	if err != nil {
-		return genericProductFooter
-	}
-	if len(installed) == 0 {
-		return genericProductFooter + " None are installed; run wso2 product available to see what can be."
-	}
-	namespaces := make([]string, 0, len(installed))
-	for _, entry := range installed {
-		namespaces = append(namespaces, entry.Namespace)
-	}
-	return fmt.Sprintf("%s Installed: %s.\nRun wso2 <namespace> --help to see a product's commands.",
-		genericProductFooter, strings.Join(namespaces, ", "))
 }
 
 // applyShellFlags refuses an unusable value for a shell-owned flag before any
@@ -618,7 +628,7 @@ func (s Shell) loginCommand() *cobra.Command {
 	var flags loginFlags
 	command := &cobra.Command{
 		Use:                   "login",
-		Short:                 "Log in, creating the account and context when an issuer is named.",
+		Short:                 "Log in to the selected context, or create one when an issuer is named.",
 		DisableFlagsInUseLine: true,
 		Args:                  noArguments(loginUsageRecovery),
 		RunE: func(command *cobra.Command, args []string) error {
@@ -630,11 +640,12 @@ func (s Shell) loginCommand() *cobra.Command {
 			if flag := shellFlag(command, contextFlag); flag != nil {
 				flags.contextName = flag.Value.String()
 			}
+			flags.command = command
 			return s.login(flags)
 		},
 	}
 	command.Flags().StringVar(&flags.issuer, "url", "",
-		"Log in against this issuer, creating the account and context it authenticates.")
+		"Log in against this issuer, creating the context it authenticates.")
 	command.Flags().StringVar(&flags.clientID, "client-id", "",
 		"Present this registered OAuth application. Required with --url.")
 	command.Flags().BoolVar(&flags.noInput, "no-input", false,
@@ -736,10 +747,55 @@ func usageProblemWithRecovery(err error, recovery string) error {
 	return wrapped
 }
 
-// suggestionFor reports the shell command closest to an unrecognized name, so a
-// typo costs a keystroke rather than a search through the documentation.
-func suggestionFor(root *cobra.Command, name string) string {
+// installedProduct is what a suggestion can offer from one installed product:
+// its namespace and the commands its declared tree names directly beneath it.
+type installedProduct struct {
+	namespace string
+	commands  []string
+}
+
+// suggestionFor reports the shell commands, installed product namespaces, and
+// product commands closest to an unrecognized name, so a typo costs a
+// keystroke rather than a search through the documentation.
+//
+// Cobra suggests only the commands in its tree, and a namespace never enters
+// it, so installed namespaces are offered on the same terms beside them: within
+// the same distance, or starting with what was typed. A namespace a built-in
+// shadows is left out, because dispatch would never reach it.
+//
+// A product's own command is offered with its namespace in front, for the user
+// who typed it without one. One that matches exactly is always offered; one
+// that is only close is offered when nothing else is, because every product
+// has short command names and a near miss on each of them is noise.
+func suggestionFor(root *cobra.Command, name string, installed []installedProduct) string {
 	candidates := root.SuggestionsFor(name)
+	typed := strings.ToLower(name)
+	for _, product := range installed {
+		if isShellCommand(root, product.namespace) || slices.Contains(candidates, product.namespace) {
+			continue
+		}
+		if editDistance(typed, product.namespace) <= suggestionDistance || strings.HasPrefix(product.namespace, typed) {
+			candidates = append(candidates, product.namespace)
+		}
+	}
+	var exact, near []string
+	for _, product := range installed {
+		if isShellCommand(root, product.namespace) {
+			continue
+		}
+		for _, command := range product.commands {
+			switch distance := editDistance(typed, command); {
+			case distance == 0:
+				exact = append(exact, product.namespace+" "+command)
+			case distance <= suggestionDistance:
+				near = append(near, product.namespace+" "+command)
+			}
+		}
+	}
+	candidates = append(candidates, exact...)
+	if len(candidates) == 0 {
+		candidates = near
+	}
 	if len(candidates) == 0 {
 		return ""
 	}

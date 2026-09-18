@@ -1,8 +1,6 @@
 # Release artifacts
 
-**Status:** Accepted
-**Related:** [Distribution research](../research/root-cli-installation-distribution.md),
-[module catalog](module-catalog.md), [architecture](../architecture.md)
+**Related:** [module catalog](module-catalog.md), [architecture](../architecture.md)
 **Last reviewed:** 2026-08-20
 
 This document is the naming contract between a published release and the
@@ -19,9 +17,8 @@ that publishes it is `.github/workflows/release.yml`.
 GitHub Releases on `wso2/wso2-cli`. A pushed tag matching `v*` publishes one
 release named for that tag.
 
-This is the interim distribution channel. The signed, per-platform channels in
-[the distribution research](../research/root-cli-installation-distribution.md)
-remain the destination, and the archives described here are the inputs those
+This is the interim distribution channel. Signed, per-platform channels remain
+the destination, and the archives described here are the inputs those
 channels package.
 
 ## Archive names
@@ -87,7 +84,8 @@ every pull request would break in a tag rather than in the change that broke it.
 
 Each archive contains, at its root and in no subdirectory:
 
-- `wso2`, the shell binary, named `wso2.exe` on Windows
+- the shell binary, named at build time by `CLI_NAME` and `ws` by default
+  (`ws.exe` on Windows)
 - `LICENSE`
 - `NOTICE`
 
@@ -126,7 +124,7 @@ users a protocol generation behind.
 The release workflow proves this rather than assuming it. It downloads the
 published assets back from the release page, checks that the published checksum
 file is the one that was built and that it lists every archive beside it, then
-extracts the Linux archive and runs `wso2 version`. The release fails if the
+extracts the Linux archive and runs the binary's `version` command. The release fails if the
 binary reports the development placeholder, reports a version unrelated to the
 tag, or reports a protocol window that disagrees with the one the shell's own
 source declares.

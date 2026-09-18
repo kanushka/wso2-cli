@@ -42,7 +42,7 @@ sees a credential and cannot obtain a second token.
 `modules/reference` is the worked example: a client on the product's REST
 API, two read-only commands, and tests that drive the module through the
 contract against a fake deployment. The guide at
-`docs/guides/building-product-modules.md` walks through it.
+`docs/guides/build-module-quickstart.md` walks through it.
 
 ## What this module must not do
 

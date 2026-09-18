@@ -157,8 +157,8 @@ func TestAProductCredentialIsBothVariablesOrNeither(t *testing.T) {
 	identity.Auth.ClientSecretVariable = "WSO2_CI_SECRET"
 	identity.Products["apim"] = contexts.Product{Endpoint: "https://localhost:9443", Audience: "https://localhost:9443/apim",
 		ClientIDVariable: "WSO2_APIM_CLIENT_ID"}
-	document := contexts.Document{SchemaVersion: contexts.SchemaVersion, Accounts: []contexts.Account{identity},
-		Contexts: []contexts.Context{{Name: "ci", Account: "thunder"}}, DefaultContext: "ci"}
+	document := contexts.Document{SchemaVersion: contexts.SchemaVersion,
+		Contexts: []contexts.Context{contexts.FromAccount("ci", identity)}, DefaultContext: "ci"}
 	if _, err := document.Encode(); err == nil {
 		t.Fatal("a product naming only a client id variable was accepted")
 	}
@@ -173,9 +173,9 @@ func TestAProductCredentialIsBothVariablesOrNeither(t *testing.T) {
 	// Auth is a plain struct, not a map: the document copied it by value when
 	// built above, so the mutation above has to be re-applied to the document
 	// itself, not just to the local identity variable, to be seen.
-	document.Accounts = []contexts.Account{identity}
+	document.Contexts = []contexts.Context{contexts.FromAccount("ci", identity)}
 	if _, err := document.Encode(); err == nil {
-		t.Fatal("a product credential on a browser account was accepted")
+		t.Fatal("a product credential on a browser context was accepted")
 	}
 }
 
@@ -226,8 +226,7 @@ func TestAPinNamingAnUnreachableProductIsMalformed(t *testing.T) {
 		identity := thunderIdentity()
 		identity.LoginProduct = pin
 		document := contexts.Document{SchemaVersion: contexts.SchemaVersion, DefaultContext: "thunder",
-			Accounts: []contexts.Account{identity},
-			Contexts: []contexts.Context{{Name: "thunder", Account: "thunder"}}}
+			Contexts: []contexts.Context{contexts.FromAccount("thunder", identity)}}
 		root := t.TempDir()
 		if err := contexts.Save(root, document); err == nil {
 			t.Errorf("a pin naming %q was written", pin)

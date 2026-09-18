@@ -209,29 +209,15 @@ func installOAuthContext(t *testing.T, stateRoot, issuerURL, endpoint string) {
 	if err := contextfixture.WriteV2(stateRoot, contexts.Document{
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: referenceContextName,
-		Accounts: []contexts.Account{{
-			Name: oauthIdentityName,
-			Type: "cloud",
-			Auth: contexts.AccountAuth{
-				Kind:                 contexts.KindClientCredentials,
-				Issuer:               issuerURL,
-				ClientID:             oauthClientID,
-				Tenant:               referenceOrganization,
-				ClientSecretVariable: oauthSecretVariable,
-			},
-			Products: map[string]contexts.Product{
-				"reference": {
-					Endpoint: endpoint,
-					Audience: referenceAudience,
-					Scopes:   []string{referenceReadScope},
-				},
+
+		Contexts: []contexts.Context{{Name: referenceContextName, Type: "cloud", Login: contexts.Login{Kind: contexts.KindClientCredentials, Issuer: issuerURL, ClientID: oauthClientID, Tenant: referenceOrganization, ClientSecretVariable: oauthSecretVariable}, Organization: referenceOrganization, Products: map[string]contexts.Product{
+			"reference": {
+				Endpoint: endpoint,
+				Audience: referenceAudience,
+				Scopes:   []string{referenceReadScope},
 			},
 		}},
-		Contexts: []contexts.Context{{
-			Name:         referenceContextName,
-			Account:      oauthIdentityName,
-			Organization: referenceOrganization,
-		}},
+		},
 	}); err != nil {
 		t.Fatalf("installing the v2 context document: %v", err)
 	}

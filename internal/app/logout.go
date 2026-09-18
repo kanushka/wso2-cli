@@ -84,7 +84,7 @@ const (
 // report names what the first achieved rather than letting the command's name
 // imply it. See docs/adr/0010-best-effort-revocation-on-session-end.md.
 func (s Shell) logout(flags logoutFlags) error {
-	selected, document, err := s.selectionAndDocument(flags.contextName)
+	selected, err := s.selection(flags.contextName)
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,6 @@ func (s Shell) logout(flags logoutFlags) error {
 	if err != nil {
 		return err
 	}
-	shared := document.ContextsUsingCredential(selected.Identity.Auth.CredentialRef)
 	store := session.Store{StateRoot: root}
 
 	accesses := selected.Identity.Accesses()
@@ -114,8 +113,7 @@ func (s Shell) logout(flags logoutFlags) error {
 		"context", selected.Context.Name,
 		"issuer", login.Issuer,
 		"client_id", login.ClientID,
-		"credential_ref", login.SessionRef,
-		"shared_contexts", len(shared))
+		"credential_ref", login.SessionRef)
 	loginOutcome, err := s.endSession(store, login.SessionRef, login.Issuer, login.ClientID)
 	if err != nil {
 		return err
@@ -123,7 +121,6 @@ func (s Shell) logout(flags logoutFlags) error {
 	ended := logoutOutcome{
 		sessionEnded:   loginOutcome.sessionEnded,
 		revocation:     loginOutcome.revocation,
-		shared:         shared,
 		browserSession: browserSessionUnaffected,
 	}
 	// One sign-out per provider and client, however many sessions were
@@ -326,9 +323,6 @@ type logoutOutcome struct {
 	sessionEnded bool
 	// revocation is what the issuer was established to have been told.
 	revocation oauthflow.Revocation
-	// shared names every context reaching this session, the selected one
-	// included.
-	shared []string
 	// productSessions names, in namespace order, what happened to every
 	// session beyond the login one: "<ns> ended" or "<ns> none" per product.
 	// It is nil for a client-credentials account and for one with no
@@ -369,11 +363,9 @@ func (s Shell) reportLogout(mode output.Mode, selected contexts.Selection,
 	}
 	reported := result.New(logoutSchema).
 		With("context", "Context", selected.Context.Name).
-		With("identity", "Identity", selected.Context.Account).
 		With("session", "Session", state).
 		With("revocation", "Revocation", string(ended.revocation)).
 		With("productSessions", "Product sessions", productSessions).
-		With("sharedContexts", "Shared with", strings.Join(ended.shared, ", ")).
 		// A field rather than prose because it is the one thing users read
 		// into this command that is not automatically true, and the table
 		// note that explains it does not reach a JSON caller.
@@ -430,9 +422,14 @@ func logoutNotes(ended logoutOutcome) []string {
 		notes = append(notes, "The identity providers' browser sessions were left in place, so a "+
 			"later login may not prompt for credentials.")
 	}
-	if len(ended.shared) > 1 {
-		notes = append(notes, fmt.Sprintf("These contexts share one session and are all affected: %s.",
-			strings.Join(ended.shared, ", ")))
+	// A context's sessions are its own, so nothing another context holds was
+	// ended. The identity provider's own sign-on is outside the shell's
+	// control, though, and some providers end the user's other refresh
+	// tokens with it; that is said rather than claimed either way.
+	if strings.HasPrefix(ended.browserSession, browserSessionOpened) ||
+		strings.HasPrefix(ended.browserSession, browserSessionPrinted) {
+		notes = append(notes, "Only this context's sessions were ended. Ending the browser sign-on may "+
+			"also end other sessions the identity provider issued to you, depending on the provider.")
 	}
 	return notes
 }

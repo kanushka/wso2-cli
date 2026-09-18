@@ -77,7 +77,7 @@ func TestALegacyContextWithoutAnEndpointCarriesNoProduct(t *testing.T) {
 	if err != nil {
 		t.Fatalf("legacy decode: %v", err)
 	}
-	if products := document.Accounts[0].Products; len(products) != 0 {
+	if products := document.Contexts[0].Products; len(products) != 0 {
 		t.Fatalf("an endpointless v1 context grew products: %+v", products)
 	}
 }
@@ -91,8 +91,8 @@ func TestALegacyContextNamingAnotherMethodStillLoads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("legacy decode: %v", err)
 	}
-	if document.Accounts[0].Auth.Kind != "browser-pkce" {
-		t.Fatalf("the mapped identity reports kind %q, want it as written", document.Accounts[0].Auth.Kind)
+	if document.Contexts[0].Login.Kind != "browser-pkce" {
+		t.Fatalf("the mapped identity reports kind %q, want it as written", document.Contexts[0].Login.Kind)
 	}
 }
 

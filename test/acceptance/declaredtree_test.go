@@ -165,7 +165,7 @@ func TestAMistypedProductCommandIsSuggested(t *testing.T) {
 	if !errors.As(err, &exitError) || exitError.ExitCode() != 64 {
 		t.Fatalf("exit status = %v, want 64\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
-	if !strings.Contains(stderr, "Did you mean wso2 reference status?") {
+	if !strings.Contains(stderr, "Did you mean `wso2 reference status`?") {
 		t.Errorf("no suggestion was offered:\n%s", stderr)
 	}
 }

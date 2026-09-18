@@ -299,7 +299,7 @@ remove_block() {
 print_manual_path_instructions() {
 	local state_root="$1" bin_dir="$2" reason="$3"
 	printf '\n%s\n' "$reason"
-	printf 'Add these lines to your shell profile to run wso2 by name:\n\n'
+	printf 'Add these lines to your shell profile to run the WSO2 CLI by name:\n\n'
 	printf '    export WSO2_HOME="%s"\n' "$state_root"
 	printf '    export PATH="%s:$PATH"\n' "$bin_dir"
 }
@@ -352,8 +352,21 @@ main() {
 
 	mkdir -p "${TEMP_DIR}/unpacked"
 	extract "$TEMP_DIR" "$archive" "${TEMP_DIR}/unpacked"
-	[ -f "${TEMP_DIR}/unpacked/wso2" ] ||
-		fail "the archive did not contain the expected wso2 binary."
+	# The command's name is chosen when a release is built, so it is read from
+	# the archive rather than assumed: the binary is the one file beside the
+	# licence and notice.
+	local cli_name='' entry
+	for entry in "${TEMP_DIR}/unpacked"/*; do
+		case "${entry##*/}" in
+		LICENSE* | NOTICE* | README* | *.md) continue ;;
+		esac
+		[ -f "$entry" ] || continue
+		[ -z "$cli_name" ] ||
+			fail "the archive holds more than one candidate binary: ${cli_name} and ${entry##*/}."
+		cli_name="${entry##*/}"
+	done
+	[ -n "$cli_name" ] ||
+		fail "the archive did not contain the expected binary."
 
 	mkdir -p "$bin_dir"
 	# Installing over a running binary fails on some systems, and a partially
@@ -364,11 +377,25 @@ main() {
 	# filesystems.
 	STAGED_BINARY="${bin_dir}/.wso2.install.$$"
 	rm -rf "$STAGED_BINARY"
-	mv "${TEMP_DIR}/unpacked/wso2" "$STAGED_BINARY"
+	mv "${TEMP_DIR}/unpacked/${cli_name}" "$STAGED_BINARY"
 	chmod +x "$STAGED_BINARY"
-	mv "$STAGED_BINARY" "${bin_dir}/wso2"
+	mv "$STAGED_BINARY" "${bin_dir}/${cli_name}"
 	STAGED_BINARY=''
-	printf 'Installed %s\n' "${bin_dir}/wso2"
+	printf 'Installed %s\n' "${bin_dir}/${cli_name}"
+
+	# An earlier install under another name would otherwise stay on PATH and
+	# never be updated again. The name installed is recorded so the uninstaller
+	# knows what to remove; an install from before the record was named wso2.
+	local previous_name
+	previous_name="$(cat "${bin_dir}/.cli-name" 2>/dev/null || printf 'wso2')"
+	case "$previous_name" in
+	'' | */* | . | ..) previous_name=wso2 ;;
+	esac
+	if [ "$previous_name" != "$cli_name" ] && [ -f "${bin_dir}/${previous_name}" ]; then
+		rm -f "${bin_dir}/${previous_name}"
+		printf 'Removed %s: the command is now %s.\n' "${bin_dir}/${previous_name}" "$cli_name"
+	fi
+	printf '%s\n' "$cli_name" >"${bin_dir}/.cli-name"
 
 	if [ -n "${WSO2_CLI_NO_PROFILE:-}" ]; then
 		print_manual_path_instructions "$state_root" "$bin_dir" \
@@ -395,7 +422,7 @@ main() {
 		fi
 	fi
 
-	printf '\nThe WSO2 CLI %s is installed. Run: wso2 --help\n' "$version"
+	printf '\nThe WSO2 CLI %s is installed. Run: %s --help\n' "$version" "$cli_name"
 }
 
 main "$@"

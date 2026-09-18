@@ -106,6 +106,10 @@ type Options struct {
 	// textual and looks for 127.0.0.1, so it does nothing for a test server
 	// bound to an IPv6 loopback address.
 	Host string
+	// IssuerPath is appended to the server URL to name the issuer, as in
+	// "/oauth2/token" for Identity Server and Asgardeo, whose issuer is not
+	// the bare host. Every endpoint is served below it.
+	IssuerPath string
 	// Audience is the aud claim minted into access tokens. A request carrying a
 	// resource indicator overrides it, exactly as a deployment that binds tokens
 	// to a named resource server does.
@@ -380,7 +384,11 @@ func New(t *testing.T, opts Options) *Issuer {
 	mux.HandleFunc("POST /revoke", issuer.handleRevoke)
 	mux.HandleFunc("GET /logout", issuer.handleLogout)
 	mux.HandleFunc("POST /device_authorize", issuer.handleDeviceAuthorize)
-	server := httptest.NewServer(mux)
+	var handler http.Handler = mux
+	if opts.IssuerPath != "" {
+		handler = http.StripPrefix(opts.IssuerPath, mux)
+	}
+	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	issuer.URL = server.URL
 	if opts.Host != "" {
@@ -390,6 +398,7 @@ func New(t *testing.T, opts Options) *Issuer {
 		// by the client rather than serving the test.
 		issuer.URL = strings.Replace(server.URL, "127.0.0.1", opts.Host, 1)
 	}
+	issuer.URL += opts.IssuerPath
 	issuer.client = server.Client()
 	return issuer
 }
@@ -700,6 +709,10 @@ func (i *Issuer) exchangeGrant(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = subject
 	audience := r.PostForm.Get("resource")
+	if i.opts.RegisteredResource != "" && audience != i.opts.RegisteredResource {
+		oauthError(w, http.StatusBadRequest, "invalid_target")
+		return
+	}
 	if i.opts.ExchangeAudience != "" {
 		audience = i.opts.ExchangeAudience
 	}

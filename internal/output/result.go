@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/wso2/wso2-cli/sdk/result"
 )
@@ -78,19 +79,32 @@ func resultTable(w io.Writer, produced result.Result) error {
 	}
 	headers := make([]string, 0, len(produced.Fields))
 	values := make([]string, 0, len(produced.Fields))
+	// A value that spans lines — an API's answer, a document — cannot be a
+	// column: it is rendered under its label after the table, in the order
+	// the fields came, before the next line.
+	var blocks [][2]string
 	next := ""
 	for _, field := range produced.Fields {
 		if field.Name == NextField {
 			next = field.Value
 			continue
 		}
+		if strings.Contains(field.Value, "\n") {
+			blocks = append(blocks, [2]string{field.DisplayLabel(), field.Value})
+			continue
+		}
 		headers = append(headers, field.DisplayLabel())
-		values = append(values, field.Value)
+		values = append(values, fieldText(w, field))
 	}
 	if len(headers) > 0 {
 		table := NewTable(headers...)
 		table.Append(values...)
 		if err := table.Render(w); err != nil {
+			return err
+		}
+	}
+	for _, block := range blocks {
+		if _, err := fmt.Fprintf(w, "\n%s\n%s\n", block[0], strings.TrimRight(block[1], "\n")); err != nil {
 			return err
 		}
 	}
@@ -115,7 +129,7 @@ func listingTable(w io.Writer, produced result.Result) error {
 			next = field.Value
 			continue
 		}
-		summary = append(summary, [2]string{field.DisplayLabel(), field.Value})
+		summary = append(summary, [2]string{field.DisplayLabel(), fieldText(w, field)})
 	}
 	if len(summary) > 0 {
 		if err := Fields(w, summary); err != nil {
@@ -139,12 +153,18 @@ func listingTable(w io.Writer, produced result.Result) error {
 	return nextLine(w, next)
 }
 
+// NextStep writes the trailing next-step line a shell command ends with, or
+// nothing when there is none, the same way a module result's next field ends.
+func NextStep(w io.Writer, next string) error {
+	return nextLine(w, next)
+}
+
 // nextLine writes the trailing next-step line, or nothing when there is none.
 func nextLine(w io.Writer, next string) error {
 	if next == "" {
 		return nil
 	}
-	_, err := fmt.Fprintf(w, "\nNext  %s\n", next)
+	_, err := fmt.Fprintf(w, "\nNext  %s\n", Hint(w, next))
 	return err
 }
 
@@ -183,7 +203,7 @@ func resultJSON(w io.Writer, produced result.Result) error {
 		if err != nil {
 			return fmt.Errorf("output: cannot encode the field name %q: %w", field.Name, err)
 		}
-		value, err := json.Marshal(field.Value)
+		value, err := json.Marshal(fieldText(w, field))
 		if err != nil {
 			return fmt.Errorf("output: cannot encode the value of %q: %w", field.Name, err)
 		}

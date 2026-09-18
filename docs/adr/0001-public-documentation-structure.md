@@ -126,3 +126,43 @@ This structure creates a stable location for future specifications and
 architecture decisions while keeping GitHub-recognized repository files
 discoverable at the root. Existing Markdown paths will change, so all relative
 links must be updated as part of the migration.
+
+## Amendment (2026-09-17): research, plans and examples leave the tree
+
+The layout above is replaced by:
+
+```text
+docs/
+├── README.md
+├── product-requirements.md
+├── architecture.md
+├── adr/          decisions
+├── agents/       instructions for coding agents
+├── guides/       short task documents
+└── reference/    what is built
+```
+
+- **No `research/` or `plans/` directory.** Research notes and delivery plans
+  go stale as soon as the work lands, and readers mistook them for current
+  behaviour. Open work lives in GitHub issues; the removed documents stay in
+  git history.
+- **No `examples/` directory.** Context examples live in
+  `reference/context-file.md`.
+- **Decisions live in ADRs.** A measurement a decision rests on is summarised
+  in that ADR.
+- **Guides are short task documents**: one task, the commands to run, and what
+  success looks like.
+- **Reference describes what is built**, not what is planned.
+
+The authority hierarchy becomes: product requirements, architecture, ADRs,
+reference, guides.
+
+- **No per-document status label outside `adr/`.** An ADR keeps its status
+  (Proposed, Accepted, Superseded). The status line other documents carried
+  ("Proposed reference", "Working draft") dated from a tree where most pages
+  described unbuilt interfaces. Where a document lives now says what it
+  is, and a page that describes something unbuilt says so in the sentence that
+  describes it.
+
+**Rule: do not commit research or plan documents.** Put findings and plans in
+a GitHub issue, and record the decision that follows in an ADR.

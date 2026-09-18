@@ -68,11 +68,16 @@ func seedBrowserSession(t *testing.T, options fakeissuer.Options) browserDeploym
 	// one names the product's. Seeding without it would model a session no such
 	// deployment can issue.
 	seeded := issuer.SeedSession([]string{readScope, writeScope})
+	stored := session.Session{Issuer: issuer.URL}
 	if options.RequireResource {
 		seeded = issuer.SeedSessionFor([]string{readScope, writeScope}, audience)
+		// A session a login stores now records the resource it was bound
+		// to; one that did not would be refused for a resource-bound record.
+		stored.Bound, stored.Resource = true, audience
 	}
+	stored.RefreshToken = seeded
 	store := session.Store{StateRoot: root}
-	if err := store.Save(sessionRef, session.Session{Issuer: issuer.URL, RefreshToken: seeded}); err != nil {
+	if err := store.Save(sessionRef, stored); err != nil {
 		t.Fatalf("seeding the stored session: %v", err)
 	}
 	return browserDeployment{issuer: issuer, stateRoot: root, seeded: seeded}

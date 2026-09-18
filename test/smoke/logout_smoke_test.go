@@ -50,12 +50,13 @@ import (
 // and measures what that achieved at the issuer.
 //
 // It exists because the design of wso2 logout was settled without any of these
-// facts. Nothing in docs/research/ records whether Asgardeo, Identity Server or
-// ThunderID advertises a revocation endpoint, whether one accepts a public
-// client at it, or whether revoking a refresh token there actually stops the
-// session renewing. ADR 0010 chose a shape that survives not knowing — each
-// outcome discovered at runtime and reported for what it is — and said the
-// first live run against each deployment should be recorded. This is that run.
+// facts. Nothing on record before this test ran said whether Asgardeo,
+// Identity Server or ThunderID advertises a revocation endpoint, whether one
+// accepts a public client at it, or whether revoking a refresh token there
+// actually stops the session renewing. ADR 0010 chose a shape that survives
+// not knowing — each outcome discovered at runtime and reported for what it
+// is — and said the first live run against each deployment should be
+// recorded. This is that run.
 //
 // **Every outcome below is a pass.** A deployment that advertises no revocation
 // endpoint, or refuses this shell at it, is not a broken deployment and not a
@@ -66,7 +67,7 @@ import (
 // the issuer then does.
 //
 // The verdict lines go to standard output so they survive without -v and can be
-// pasted into the research record.
+// pasted into test/smoke/RUNNING.md's "Measured product verdicts" section.
 func TestLogoutSmoke(t *testing.T) {
 	config := requireDeployment(t)
 
@@ -125,7 +126,9 @@ func TestLogoutSmoke(t *testing.T) {
 			"nothing about what revoking it achieved")
 	}
 	// A deployment configured to renew refresh tokens retires the one just
-	// presented and hands back a replacement. The secure store now holds a token
+	// presented and hands back a replacement. (Rotation is opt-in on the shared
+	// Asgardeo/Identity Server platform — off by default, so the same refresh
+	// token is normally reused across renewals.) The secure store now holds a token
 	// the deployment has already killed, and logging out would revoke a corpse:
 	// the check after logout would report the session dead for a reason that has
 	// nothing to do with revocation, which is the opposite of what this run
@@ -223,7 +226,7 @@ func reportRevocation(t *testing.T, question, verdict string, config smoke.Confi
 	t.Helper()
 	_, _ = fmt.Fprintf(os.Stdout, "\n%s: %s\n  deployment: %s\n  recorded in: %s\n\n",
 		question, verdict, config.Issuer,
-		"docs/research/wso2-authentication-landscape.md, per product")
+		"test/smoke/RUNNING.md, Measured product verdicts, per product")
 	t.Logf("%s: %s", question, verdict)
 }
 

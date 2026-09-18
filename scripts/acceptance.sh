@@ -23,8 +23,9 @@
 # proof depends on, ending with the black-box runs that drive the built shell
 # and the built module through the same external seam a user does.
 #
-# See docs/plans/first-cli-vertical-slice.md for what each layer proves, and
-# docs/plans/architecture-proof-review.md for the review this gate supports.
+# Each layer proves one thing: the modules build against the released SDK,
+# unit and integration tests pass, then the black-box runs drive the built
+# shell and the built module through the same external seam a user does.
 #
 # It needs a Go toolchain and a warm or reachable module cache. It needs no
 # Protobuf toolchain, no network catalog, no WSO2 credentials, and no real

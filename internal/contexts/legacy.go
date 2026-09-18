@@ -26,7 +26,7 @@ import (
 )
 
 // SchemaVersionLegacy is the architecture proof's schema. Documents written in
-// it stay readable through a compatibility mapping onto synthetic identities;
+// it stay readable through a compatibility mapping onto synthetic contexts;
 // they are never written back.
 const SchemaVersionLegacy = 1
 
@@ -50,11 +50,11 @@ type legacyAuth struct {
 	CredentialVariable string `json:"credentialVariable"`
 }
 
-// decodeLegacy maps a v1 document onto the v2 in-memory shape.
+// decodeLegacy maps a v1 document onto the current in-memory shape.
 //
-// Each v1 context becomes a synthetic identity carrying the v1 method and
-// credential variable plus a context referencing it by the same name. The v1
-// validation rules are enforced with the same problem codes as before.
+// Each v1 context becomes a synthetic context carrying the v1 method and
+// credential variable. The v1 validation rules are enforced with the same
+// problem codes as before.
 func decodeLegacy(data []byte) (Document, error) {
 	var legacy legacyDocument
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -73,26 +73,20 @@ func decodeLegacy(data []byte) (Document, error) {
 		DefaultContext: legacy.DefaultContext,
 	}
 	for _, candidate := range legacy.Contexts {
-		identity := Account{
-			Name: candidate.Name,
-			Type: "onprem",
-			Auth: AccountAuth{
-				Kind:               candidate.Auth.Method,
-				CredentialVariable: candidate.Auth.CredentialVariable,
-			},
-			synthetic: true,
+		context := Context{
+			Name:               candidate.Name,
+			Type:               TypeOnprem,
+			Login:              Login{Kind: candidate.Auth.Method},
+			Organization:       candidate.OrganizationID,
+			synthetic:          true,
+			credentialVariable: candidate.Auth.CredentialVariable,
 		}
 		if candidate.Endpoint != "" {
-			identity.Products = map[string]Product{
+			context.Products = map[string]Product{
 				"reference": {Endpoint: candidate.Endpoint},
 			}
 		}
-		document.Accounts = append(document.Accounts, identity)
-		document.Contexts = append(document.Contexts, Context{
-			Name:         candidate.Name,
-			Account:      candidate.Name,
-			Organization: candidate.OrganizationID,
-		})
+		document.Contexts = append(document.Contexts, context)
 	}
 	return document, nil
 }

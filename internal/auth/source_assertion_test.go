@@ -145,7 +145,7 @@ func TestATargetThatIssuesNoneOfTheScopesAskedSaysTheUserIsNotAuthorized(t *test
 	if !strings.Contains(denial.Problem.Recovery, deployment.target.URL) {
 		t.Fatalf("the recovery does not name the issuer to ask: %q", denial.Problem.Recovery)
 	}
-	if !strings.Contains(denial.Problem.Recovery, "--grant-scopes") {
+	if !strings.Contains(denial.Problem.Recovery, "grant.scopes") {
 		t.Fatalf("the recovery does not name the assertion scopes: %q", denial.Problem.Recovery)
 	}
 	if strings.Contains(denial.Problem.Recovery, "API resource registration") {

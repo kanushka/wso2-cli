@@ -49,7 +49,16 @@ cp "${root}/scripts/install.sh" "${root}/scripts/install.ps1" \
 # these files are rather than a directory listing or a 404. It is a file rather
 # than a heredoc so it can be opened in a browser and edited as a page; nothing
 # else on this origin depends on it.
-cp "${root}/scripts/site/index.html" "${site}/"
+# The page names the command the shell is released as, which is chosen at
+# build time (CLI_NAME, as in the Makefile and .goreleaser.yaml).
+cli_name="${CLI_NAME:-ws}"
+case "${cli_name}" in
+*[!A-Za-z0-9._-]*)
+	echo "CLI_NAME must be a plain command name, not ${cli_name}" >&2
+	exit 1
+	;;
+esac
+sed "s/{{CLI_NAME}}/${cli_name}/g" "${root}/scripts/site/index.html" >"${site}/index.html"
 
 input="$(mktemp)"
 trap 'rm -f "${input}"' EXIT

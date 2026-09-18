@@ -32,6 +32,9 @@ func main() {
 	shell := app.Shell{
 		Streams: output.Streams{Out: os.Stdout, Err: os.Stderr},
 		Reader:  os.Stdin,
+		// Named after how it was invoked, so a renamed or symlinked binary
+		// suggests commands under its own name.
+		Name: output.InvokedName(os.Args[0]),
 	}
 	os.Exit(int(shell.Run(os.Args[1:])))
 }

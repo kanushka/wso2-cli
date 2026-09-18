@@ -137,6 +137,21 @@ func TestGenerateRefusesWhatCannotBePublished(t *testing.T) {
 			Modules:   []catalog.Declaration{{SchemaVersion: 99, Namespace: "reference"}},
 			Published: map[string]catalog.Release{tag: sound},
 		},
+		// A title is printed into a user's terminal by every shell carrying the
+		// index, so one that could move the cursor or paint the screen is refused
+		// where it is published rather than trusted where it is read.
+		"a title carrying a control character": {
+			Tags: []string{tag},
+			Modules: []catalog.Declaration{{SchemaVersion: catalog.SchemaVersion, Namespace: "reference",
+				Title: "Reference\x1b[2J"}},
+			Published: map[string]catalog.Release{tag: sound},
+		},
+		"a title longer than a help line holds": {
+			Tags: []string{tag},
+			Modules: []catalog.Declaration{{SchemaVersion: catalog.SchemaVersion, Namespace: "reference",
+				Title: strings.Repeat("r", catalog.MaxTitleLength+1)}},
+			Published: map[string]catalog.Release{tag: sound},
+		},
 	}
 
 	for name, input := range cases {
@@ -155,6 +170,68 @@ func TestGenerateRefusesWhatCannotBePublished(t *testing.T) {
 		Published: map[string]catalog.Release{tag: sound},
 	}); err != nil {
 		t.Fatalf("generating over a sound input returned %v", err)
+	}
+}
+
+// The help page names a product by the title its module declares, and reads it
+// from the index, so the title has to reach the index a shell release carries a
+// copy of. A module that declares none keeps the key out of the index entirely.
+func TestGenerateCarriesTheDeclaredTitleIntoTheIndex(t *testing.T) {
+	sound := catalog.Release{
+		Compatibility: modules.Compatibility{Shell: ">=0.1.0 <2.0.0", ProtocolVersions: []int{1}},
+		Artifacts: []catalog.Artifact{{
+			Platform: modules.Platform{OS: "linux", Arch: "amd64"},
+			URL:      "https://downloads.example.invalid/product.tar.gz",
+			Size:     1024,
+			SHA256:   validDigest,
+		}},
+	}
+	generated, err := catalog.Generate(catalog.Input{
+		Tags: []string{"api/v1.0.0", "reference/v1.0.0"},
+		Modules: []catalog.Declaration{
+			{SchemaVersion: catalog.SchemaVersion, Namespace: "api", Title: "API Platform"},
+			{SchemaVersion: catalog.SchemaVersion, Namespace: "reference"},
+		},
+		Published: map[string]catalog.Release{"api/v1.0.0": sound, "reference/v1.0.0": sound},
+	})
+	if err != nil {
+		t.Fatalf("generating returned %v", err)
+	}
+	files, err := generated.Files()
+	if err != nil {
+		t.Fatalf("rendering the catalog returned %v", err)
+	}
+	index := string(files[0].Content)
+
+	const want = `{
+  "schemaVersion": 1,
+  "modules": [
+    {
+      "namespace": "api",
+      "title": "API Platform",
+      "path": "modules/api.json",
+      "channels": [
+        {
+          "channel": "stable",
+          "version": "1.0.0"
+        }
+      ]
+    },
+    {
+      "namespace": "reference",
+      "path": "modules/reference.json",
+      "channels": [
+        {
+          "channel": "stable",
+          "version": "1.0.0"
+        }
+      ]
+    }
+  ]
+}
+`
+	if index != want {
+		t.Errorf("the rendered index is\n%s\nwant\n%s", index, want)
 	}
 }
 
@@ -241,5 +318,69 @@ func TestWriteIsRepeatable(t *testing.T) {
 		if !bytes.Equal(written, file.Content) {
 			t.Errorf("the written %s is not what was rendered:\n%s", file.Path, written)
 		}
+	}
+}
+
+// TestPublishesReportsWhetherAChannelHasARelease pins IndexModule.Publishes,
+// which a command asks before offering --channel as a choice: a channel with
+// no release is not worth offering.
+func TestPublishesReportsWhetherAChannelHasARelease(t *testing.T) {
+	module := catalog.IndexModule{
+		Namespace: "reference",
+		Channels:  []catalog.IndexChannel{{Channel: catalog.ChannelStable, Version: "1.0.0"}},
+	}
+	if !module.Publishes(catalog.ChannelStable) {
+		t.Error("Publishes(stable) = false, want true")
+	}
+	if module.Publishes(catalog.ChannelPrerelease) {
+		t.Error("Publishes(prerelease) = true, want false: nothing was published there")
+	}
+}
+
+// TestWriteOverAnAbsentModulesDirectoryCreatesIt pins the other side of
+// pruneNamespaceFiles: a site directory with no modules subdirectory yet is
+// not an error, since a first generation has nothing stale to prune.
+func TestWriteOverAnAbsentModulesDirectoryCreatesIt(t *testing.T) {
+	generated := catalog.Catalog{Index: catalog.Index{SchemaVersion: catalog.SchemaVersion, Modules: []catalog.IndexModule{}}}
+	directory := t.TempDir()
+	if err := catalog.Write(directory, generated); err != nil {
+		t.Fatalf("writing an empty catalog into a fresh directory returned %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, "index.json")); err != nil {
+		t.Errorf("the index was not written: %v", err)
+	}
+}
+
+// TestDiscoverRefusesAModuleDeclarationThatIsNotReadableJSON pins
+// readDeclaration's failure path through Discover: a module directory whose
+// declaration is not valid JSON must fail generation rather than being
+// silently skipped, which would publish a catalog with a namespace missing
+// from it for a reason nobody could see.
+func TestDiscoverRefusesAModuleDeclarationThatIsNotReadableJSON(t *testing.T) {
+	root := t.TempDir()
+	moduleDir := filepath.Join(root, "modules", "broken")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatalf("creating the module directory returned %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(moduleDir, catalog.DeclarationFileName),
+		[]byte("{not json"), 0o644); err != nil {
+		t.Fatalf("writing the malformed declaration returned %v", err)
+	}
+
+	if _, err := catalog.Discover(root); err == nil {
+		t.Fatal("Discover over a malformed declaration succeeded, want a refusal")
+	}
+}
+
+// TestDiscoverOverARepositoryWithNoModulesDirectoryReportsNone pins that a
+// repository with no modules/ directory at all is a catalog with no product
+// namespaces, not an error.
+func TestDiscoverOverARepositoryWithNoModulesDirectoryReportsNone(t *testing.T) {
+	declarations, err := catalog.Discover(t.TempDir())
+	if err != nil {
+		t.Fatalf("Discover returned %v", err)
+	}
+	if len(declarations) != 0 {
+		t.Errorf("Discover = %v, want none", declarations)
 	}
 }
