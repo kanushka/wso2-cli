@@ -838,13 +838,16 @@ func (s Shell) moduleUpdate(opts updateOptions) error {
 		// installed, or everything installed pinned. Asking permission to do
 		// nothing trains a person to answer without reading, so this run
 		// skips straight to reporting that outcome instead of asking first.
-		// It is deliberately not a full "would this change anything" answer
-		// (that costs the same index request the run itself pays), so this
-		// can still ask before a run that turns out to find everything
-		// already current.
+		// When something might move, everythingCurrent asks the catalog
+		// whether anything would (#217): that costs the index request the
+		// run itself pays a second time, which is cheaper than a prompt — or,
+		// off a terminal, a refusal — over a run that changes nothing.
 		skip, err := installer.NothingWouldMove(opts.namespaces)
 		if err != nil {
 			return err
+		}
+		if !skip {
+			skip = s.everythingCurrent(installer)
 		}
 		if !skip {
 			if may, reason := s.mayPrompt(opts.noInput); !may {
@@ -900,6 +903,24 @@ func (s Shell) moduleUpdate(opts updateOptions) error {
 		output.Diagnostic(s.Streams.Err, asProblem(failure))
 	}
 	return failures[0]
+}
+
+// everythingCurrent reports whether the catalog says wso2 product update
+// --all would update nothing. A catalog that cannot be read answers false, so
+// the run asks as it always did and then reports that failure itself.
+func (s Shell) everythingCurrent(installer install.Installer) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), catalogTimeout)
+	defer cancel()
+	statuses, err := installer.Check(ctx)
+	if err != nil {
+		return false
+	}
+	for _, status := range statuses {
+		if status.Update {
+			return false
+		}
+	}
+	return true
 }
 
 // reportUpdatePlan renders what wso2 product update would do without doing it.

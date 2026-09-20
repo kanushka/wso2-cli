@@ -318,6 +318,11 @@ func catalogServing(t *testing.T, body string) {
 func TestModuleUpdateAllRefusesToPromptOnPipedStdin(t *testing.T) {
 	shell, out, errOut := newModuleShell(t)
 	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+	// And the catalog publishes a newer version, so the run would move
+	// something: one that would move nothing has nothing to confirm (#217).
+	catalogServing(t, `{"schemaVersion":1,"modules":[`+
+		`{"namespace":"reference","path":"reference","channels":`+
+		`[{"channel":"stable","version":"0.2.0"}]}]}`)
 
 	if code := shell.Run([]string{"product", "update", "--all"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
@@ -332,6 +337,25 @@ func TestModuleUpdateAllRefusesToPromptOnPipedStdin(t *testing.T) {
 	}
 	if out.String() != "" {
 		t.Errorf("a refused update wrote to standard output:\n%s", out)
+	}
+}
+
+// TestModuleUpdateAllSkipsThePromptWhenEverythingIsCurrent is #217: a run that
+// the catalog says would move nothing has nothing to confirm, so it reports
+// that and exits 0 on the same piped standard input the test above refuses on.
+func TestModuleUpdateAllSkipsThePromptWhenEverythingIsCurrent(t *testing.T) {
+	shell, out, errOut := newModuleShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+	shell.Reader = failIfReadReader{t}
+	catalogServing(t, `{"schemaVersion":1,"modules":[`+
+		`{"namespace":"reference","path":"reference","channels":`+
+		`[{"channel":"stable","version":"0.1.0"}]}]}`)
+
+	if code := shell.Run([]string{"product", "update", "--all"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "reference is current at v0.1.0.") {
+		t.Errorf("stdout does not report the product as current:\n%s", out)
 	}
 }
 
@@ -412,6 +436,11 @@ func TestModuleUpdateAllAnsweringNoChangesNothing(t *testing.T) {
 	shell, out, errOut := newModuleShell(t)
 	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
 	shell.Reader = strings.NewReader("no\n")
+	// An update is pending, because a run that would move nothing no longer
+	// asks (#217) and there would be no prompt to answer no to.
+	catalogServing(t, `{"schemaVersion":1,"modules":[`+
+		`{"namespace":"reference","path":"reference","channels":`+
+		`[{"channel":"stable","version":"0.2.0"}]}]}`)
 
 	if code := shell.Run([]string{"product", "update", "--all"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
