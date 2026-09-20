@@ -138,6 +138,28 @@ func TestLoginNoProductsEstablishesTheLoginSessionAlone(t *testing.T) {
 	}
 }
 
+// TestLoginReportsAnExchangedProductAsReachedByExchange is #219: an exchanged
+// product runs no authorization, so without a row of its own the report reads
+// as though a sign-in for it were still to come.
+func TestLoginReportsAnExchangedProductAsReachedByExchange(t *testing.T) {
+	keyring.MockInit()
+	login := fakeissuer.New(t, fakeissuer.Options{RequireResource: true})
+	product := fakeissuer.New(t, fakeissuer.Options{Audience: "apim-cli"})
+	shell, out, errOut := newLoginShell(t)
+	document := thunderDoc(login.URL, product.URL)
+	document.Contexts[0].Products["api"] = contexts.Product{
+		Endpoint: "http://api.example", Audience: "http://api.example",
+		Grant: &contexts.Grant{Kind: contexts.GrantExchange}}
+	installLogin(t, shell, document)
+	followBrowser(&shell)
+	if code := shell.Run([]string{"login", "--no-products"}); code != exit.OK {
+		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
+	}
+	if !hasField(out.String(), "api", "by exchange, no sign-in of its own") {
+		t.Fatalf("the report does not say how api is reached:\n%s", out)
+	}
+}
+
 // TestLoginWithNoProductsReportsTheBareSession covers D4: an identity that
 // records no product at all still has a login session, and the report
 // labels it "Session" rather than naming a namespace it does not have.

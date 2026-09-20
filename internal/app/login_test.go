@@ -196,14 +196,11 @@ func TestTheNoInputRefusalNamesTheControlThatFired(t *testing.T) {
 			if !strings.Contains(errOut.String(), "non-interactive mode") {
 				t.Errorf("the refusal no longer names non-interactive mode:\n%s", errOut)
 			}
-			// No command creates the client-credentials identity automation
-			// needs, so the recovery must say so and name the file to edit
-			// rather than advertise a command that does not exist.
-			if !strings.Contains(errOut.String(), "No command creates one yet") {
-				t.Errorf("the recovery does not say no command creates a client-credentials account:\n%s", errOut)
-			}
-			if !strings.Contains(errOut.String(), contexts.Path(shell.StateRoot)) {
-				t.Errorf("the recovery does not name the context document's path:\n%s", errOut)
+			// wso2 context create --client-secret-variable creates the
+			// client-credentials context automation needs (#220), so the
+			// recovery names that command rather than a file to edit by hand.
+			if !strings.Contains(errOut.String(), "--client-secret-variable") {
+				t.Errorf("the recovery does not name the command that creates a client-credentials context:\n%s", errOut)
 			}
 		})
 	}

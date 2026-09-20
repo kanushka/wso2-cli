@@ -165,10 +165,6 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 	if err := loginKindGate.check(selected); err != nil {
 		return loginOutcome{}, err
 	}
-	root, err := s.stateRoot()
-	if err != nil {
-		return loginOutcome{}, err
-	}
 	// nonInteractiveControl is the same check resolveClientID's mayPrompt
 	// consults, kept to one implementation (prompt.go) so a login's browser
 	// gate and a text prompt's gate cannot drift into two different answers to
@@ -184,16 +180,15 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 		if selected.Identity.Auth.Kind == contexts.KindOAuthDevice {
 			mode = "device login"
 		}
-		// The recovery does not name a command, because no command creates
-		// the identity automation needs: wso2 login writes browser identities
-		// only. What does work today is declaring one by hand — the schema
-		// carries the kind, the broker serves it, and the CI example in the
-		// docs is written that way — so the honest advice names the file.
+		// wso2 login writes interactive contexts only, so the recovery names
+		// the command that creates the kind automation needs rather than
+		// leaving a reader to find the context document's schema.
 		return loginOutcome{}, problem.New(problem.CategoryAuthPolicy, "auth.non_interactive",
 			mode+" cannot run in non-interactive mode, which "+control+" asked for").
-			WithRecovery(fmt.Sprintf("Automation uses a client-credentials context, which "+
-				"acquires access inline without a login step. No command creates one yet: "+
-				"declare it in the context document at %s.", contexts.Path(root)))
+			WithRecovery("Automation uses a client-credentials context, which acquires access " +
+				"inline without a login step. Create one with wso2 context create <name> " +
+				"--login-product <product> --url <url> --client-id <id> " +
+				"--client-secret-variable <VARIABLE>, where the variable holds the client secret.")
 	}
 
 	accesses, err := s.loginAccesses(selected, flags)
@@ -536,6 +531,18 @@ func (s Shell) reportLogin(selected contexts.Selection, outcome loginOutcome) er
 			label = access.Namespace
 		}
 		fields = append(fields, [2]string{label, access.Strategy + ", established"})
+	}
+	// An exchanged product runs no authorization, so it is never among the
+	// established. It gets a field all the same: left out, the report reads as
+	// though a sign-in for it were still to come, when the login session above
+	// is what every command against it exchanges from.
+	for _, namespace := range slices.Sorted(maps.Keys(selected.Identity.Products)) {
+		for _, key := range []string{namespace, contexts.GatewayKey(namespace)} {
+			access, recorded := selected.Identity.Access(key)
+			if recorded && access.Strategy == contexts.StrategyExchanged {
+				fields = append(fields, [2]string{key, "by exchange, no sign-in of its own"})
+			}
+		}
 	}
 	return output.Fields(s.Streams.Out, fields)
 }
