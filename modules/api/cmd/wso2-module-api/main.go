@@ -121,7 +121,7 @@ func commands() *cobratree.Tree {
 	}
 	projectsCommand := &cobra.Command{
 		Use:   "projects",
-		Short: "Read and create the projects this organization holds.",
+		Short: "Read, create and delete the projects this organization holds.",
 	}
 	projectsListCommand := &cobra.Command{
 		Use:   "list",
@@ -138,17 +138,26 @@ func commands() *cobratree.Tree {
 		"A description of the project.")
 	projectsCommand.AddCommand(projectsCreateCommand)
 
+	projectsDeleteCommand := &cobra.Command{
+		Use:   "delete <project-id> --yes",
+		Short: "Delete a project.",
+	}
+	projectsDeleteFlags := &removalFlags{}
+	projectsDeleteCommand.Flags().BoolVar(&projectsDeleteFlags.yes, "yes", false,
+		"Confirm the deletion, which cannot be undone.")
+	projectsCommand.AddCommand(projectsDeleteCommand)
+
 	apisCommand := &cobra.Command{
 		Use:   "apis",
 		Short: "Read and design the APIs a project holds.",
 	}
 	apisListCommand := &cobra.Command{
-		Use:   "list --project <id>",
-		Short: "List the APIs a project holds.",
+		Use:   "list [--project <id>]",
+		Short: "List the APIs of one project, or of every project.",
 	}
 	var project string
 	apisListCommand.Flags().StringVar(&project, "project", "",
-		"The project whose APIs to list; wso2 api projects list shows the ids.")
+		"The one project whose APIs to list; every project's by default.")
 	apisCommand.AddCommand(apisListCommand)
 
 	apisCreateCommand := &cobra.Command{
@@ -174,6 +183,24 @@ func commands() *cobratree.Tree {
 	apisDeployCommand.Flags().StringVar(&deployFlags.gatewayID, "gateway-id", "",
 		"The handle of the gateway to deploy the API to.")
 	apisCommand.AddCommand(apisDeployCommand)
+
+	apisUndeployCommand := &cobra.Command{
+		Use:   "undeploy <api-id> [--gateway-id <gateway-id>]",
+		Short: "Undeploy an API from one gateway, or from every gateway.",
+	}
+	undeployFlags := &apisUndeployFlags{}
+	apisUndeployCommand.Flags().StringVar(&undeployFlags.gatewayID, "gateway-id", "",
+		"The handle of the one gateway to undeploy from; every gateway by default.")
+	apisCommand.AddCommand(apisUndeployCommand)
+
+	apisDeleteCommand := &cobra.Command{
+		Use:   "delete <api-id> --yes",
+		Short: "Undeploy an API everywhere and delete it.",
+	}
+	apisDeleteFlags := &removalFlags{}
+	apisDeleteCommand.Flags().BoolVar(&apisDeleteFlags.yes, "yes", false,
+		"Confirm the deletion, which cannot be undone.")
+	apisCommand.AddCommand(apisDeleteCommand)
 
 	apisInvokeCommand := &cobra.Command{
 		Use:   "invoke <api-id> [path] [-X <method>] [-H <name: value>]... [-d <body>] [--gateway-id <id>] [--no-token]",
@@ -246,6 +273,9 @@ func commands() *cobratree.Tree {
 		Handle(apisListCommand, apisList(apisListCommand, &project)).
 		Handle(apisCreateCommand, apisCreate(apisCreateCommand, createFlags)).
 		Handle(apisDeployCommand, apisDeploy(apisDeployCommand, deployFlags)).
+		Handle(apisUndeployCommand, apisUndeploy(apisUndeployCommand, undeployFlags)).
+		Handle(apisDeleteCommand, apisDelete(apisDeleteCommand, apisDeleteFlags)).
+		Handle(projectsDeleteCommand, projectsDelete(projectsDeleteCommand, projectsDeleteFlags)).
 		Handle(apisInvokeCommand, apisInvoke(apisInvokeCommand, invokeFlags)).
 		Handle(apisTokenCommand, apisToken(apisTokenCommand, tokenFlags)).
 		Handle(gatewayRegisterCommand, gatewayRegister(gatewayRegisterCommand, registerFlags)).

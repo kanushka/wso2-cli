@@ -93,25 +93,6 @@ func TestProjectsListReportsARowPerProject(t *testing.T) {
 	}
 }
 
-func TestApisListNeedsTheProjectItListsWithin(t *testing.T) {
-	// Measured against API Platform 0.16.0: the control plane refuses
-	// /rest-apis without projectId, and its refusal names a query parameter
-	// rather than the flag a user would have to pass. Saying it here means the
-	// user is told what to type.
-	stub := newPlatformStub(t, map[string]string{})
-	outcome := testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
-		Command: []string{"apis", "list"},
-		Context: module.Context{Name: "c1", Endpoint: stub.URL},
-		Access:  &testkit.Access{Token: "control-plane-token"},
-	})
-	if outcome.Problem == nil {
-		t.Fatalf("apis list ran without a project: %+v", outcome.Result)
-	}
-	if !strings.Contains(outcome.Problem.Recovery, "--project") {
-		t.Fatalf("the refusal does not name the flag to pass: %q", outcome.Problem.Recovery)
-	}
-}
-
 func TestApisListAsksTheControlPlaneForOneProject(t *testing.T) {
 	stub := newPlatformStub(t, map[string]string{
 		"/api/v0.9/rest-apis": `{"count":1,"list":[
