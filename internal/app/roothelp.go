@@ -162,6 +162,8 @@ func productRows(products []helpProduct, inventoryRead bool) ([]helpRow, string)
 // find. It is named by its title, and an installed product the copy does not
 // know by its declared command tree. Both arrive from outside the shell, so
 // both are printed sanitized.
+//
+// Under a "catalog-origin" preference only installed products are listed.
 func (s Shell) helpProducts() ([]helpProduct, bool) {
 	released := catalog.ReleasedIndex()
 	if s.ReleasedIndex != nil {
@@ -179,6 +181,17 @@ func (s Shell) helpProducts() ([]helpProduct, bool) {
 	}
 
 	inventoryRead := s.markInstalled(entries)
+
+	// The release's copy describes the built-in origin. Under a configured
+	// one it still titles what is installed, but a product it names may not
+	// be published there, so nothing uninstalled is advertised from it.
+	if root, err := s.stateRoot(); err == nil && inventoryRead && catalog.OriginConfigured(root) {
+		for namespace, entry := range entries {
+			if !entry.installed {
+				delete(entries, namespace)
+			}
+		}
+	}
 
 	ordered := make([]helpProduct, 0, len(entries))
 	for _, entry := range entries {

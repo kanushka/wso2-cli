@@ -87,38 +87,63 @@ func projectsList(ctx context.Context, request module.Request) (result.Result, e
 	return report.With(NextField, "Next", next), nil
 }
 
-// apisList answers "wso2 api apis list".
+// apisList answers "wso2 api apis list [--project <id>]".
 //
-// The project is required because the control plane requires it: measured
-// against API Platform 0.16.0, /rest-apis without projectId is refused, and
-// the refusal names a query parameter rather than the flag a user would pass.
-func apisList(command *cobra.Command, project *string) module.Handler {
+// The control plane requires a project: measured against API Platform 0.16.0,
+// /rest-apis without projectId is refused. So with no --project this reads the
+// projects first and lists each one's APIs beside the project that holds them,
+// rather than making a user run one listing per project to find an API.
+func apisList(command *cobra.Command, projectID *string) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		_ = command
-		if *project == "" {
-			return result.Result{}, usageProblem(
-				"wso2 api apis list needs the project whose APIs it lists",
-				"Run wso2 api apis list --project <id>. wso2 api projects list shows the ids.")
-		}
 		client, err := controlPlane(ctx, request)
 		if err != nil {
 			return result.Result{}, err
 		}
-		query := url.Values{"projectId": {*project}}
-		var listing page[restAPI]
-		if err := client.Get(ctx, controlPlanePath+"/rest-apis?"+query.Encode(), &listing); err != nil {
-			return result.Result{}, callFailed(err, "read the APIs", request.Context.Endpoint)
+		projects := []string{*projectID}
+		if *projectID == "" {
+			var listing page[project]
+			if err := client.Get(ctx, controlPlanePath+"/projects", &listing); err != nil {
+				return result.Result{}, callFailed(err, "read the projects", request.Context.Endpoint)
+			}
+			projects = projects[:0]
+			for _, p := range listing.List {
+				projects = append(projects, p.ID)
+			}
 		}
-		report := result.New(ApisSchema).
-			With("project", "Project", *project).
-			With("count", "APIs", strconv.Itoa(listing.Count)).
+
+		report := result.New(ApisSchema)
+		if *projectID != "" {
+			report = report.With("project", "Project", *projectID)
+		}
+		count := 0
+		rows := [][]string{}
+		for _, id := range projects {
+			query := url.Values{"projectId": {id}}
+			var listing page[restAPI]
+			if err := client.Get(ctx, controlPlanePath+"/rest-apis?"+query.Encode(), &listing); err != nil {
+				return result.Result{}, callFailed(err, "read the APIs", request.Context.Endpoint)
+			}
+			count += listing.Count
+			for _, api := range listing.List {
+				rows = append(rows, []string{api.DisplayName, api.Version, api.Context,
+					api.LifeCycleStatus, api.ID, id})
+			}
+		}
+		report = report.With("count", "APIs", strconv.Itoa(count)).
 			WithColumn("displayName", "Name").
 			WithColumn("version", "Version").
 			WithColumn("context", "Context").
 			WithColumn("lifeCycleStatus", "Lifecycle").
 			WithColumn("id", "ID")
-		for _, api := range listing.List {
-			report = report.WithRow(api.DisplayName, api.Version, api.Context, api.LifeCycleStatus, api.ID)
+		if *projectID == "" {
+			report = report.WithColumn("projectId", "Project")
+		}
+		for _, row := range rows {
+			if *projectID != "" {
+				row = row[:5]
+			}
+			report = report.WithRow(row...)
 		}
 		return report.With(NextField, "Next",
 			"Run wso2 api gateway apis list to see which of these a gateway is serving."), nil

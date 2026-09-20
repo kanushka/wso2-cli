@@ -99,6 +99,7 @@ help:
 	@echo '  make test-module NAMESPACE=<namespace>   Run that one namespace, with the race detector.'
 	@echo '  make install-module NAMESPACE=<namespace> [SHELL_VERSION=<version>]'
 	@echo '                                           Build a shell, install the module for it, ready to run.'
+	@echo '  make build                               The same as make build-shell.'
 	@echo '  make build-shell [SHELL_VERSION=<version>] [CLI_NAME=<name>]'
 	@echo '                                           Build a shell that can launch a module, into bin/$$CLI_NAME.'
 	@echo '  make gate-module NAMESPACE=<namespace> VERSION=<version>'
@@ -181,6 +182,11 @@ export CLI_NAME
 #
 # This is a development build and says so in its version. It is not how a
 # release is built; see .goreleaser.yaml for that.
+# build is the name a contributor reaches for first. Without it, make build
+# fails and an old bin/ stays on PATH unnoticed.
+.PHONY: build
+build: build-shell
+
 .PHONY: build-shell
 build-shell:
 	@mkdir -p bin

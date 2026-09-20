@@ -127,7 +127,7 @@ func commands() *cobratree.Tree {
 
 	resourceServersCommand := &cobra.Command{
 		Use:   "resource-servers",
-		Short: "Read and create the resource servers products are known by.",
+		Short: "Read, create and delete the resource servers products are known by.",
 	}
 	resourceServersListCommand := &cobra.Command{
 		Use:   "list",
@@ -150,7 +150,15 @@ func commands() *cobratree.Tree {
 	resourceServersCreateCommand.Flags().StringVar(&createFlags.ou, "ou", "",
 		"The organization unit that owns it, by id or handle. Defaults to the "+
 			"deployment's only organization unit; required when it records more than one.")
-	resourceServersCommand.AddCommand(resourceServersListCommand, resourceServersCreateCommand)
+	resourceServersDeleteCommand := &cobra.Command{
+		Use:   "delete <id-or-identifier> --yes",
+		Short: "Delete a resource server and its permissions.",
+	}
+	deleteFlags := resourceServerDeleteFlags{}
+	resourceServersDeleteCommand.Flags().BoolVar(&deleteFlags.yes, "yes", false,
+		"Confirm the deletion, which cannot be undone.")
+	resourceServersCommand.AddCommand(resourceServersListCommand, resourceServersCreateCommand,
+		resourceServersDeleteCommand)
 
 	appsCommand := &cobra.Command{
 		Use:   "apps",
@@ -169,7 +177,8 @@ func commands() *cobratree.Tree {
 		Handle(usersListCommand, usersList).
 		Handle(appsListCommand, appsList).
 		Handle(resourceServersListCommand, resourceServersList).
-		Handle(resourceServersCreateCommand, resourceServersCreate(resourceServersCreateCommand, &createFlags))
+		Handle(resourceServersCreateCommand, resourceServersCreate(resourceServersCreateCommand, &createFlags)).
+		Handle(resourceServersDeleteCommand, resourceServersDelete(resourceServersDeleteCommand, &deleteFlags))
 }
 
 // status answers "wso2 identity status".

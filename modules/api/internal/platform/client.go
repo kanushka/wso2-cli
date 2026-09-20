@@ -88,6 +88,12 @@ func (c Client) Post(ctx context.Context, path string, body, out any) error {
 	return c.do(ctx, http.MethodPost, path, body, out)
 }
 
+// Delete removes one management resource. The control plane answers 204 with
+// no body, so there is nothing to read.
+func (c Client) Delete(ctx context.Context, path string) error {
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
 func (c Client) do(ctx context.Context, method, path string, body, out any) error {
 	var reader io.Reader
 	if body != nil {
