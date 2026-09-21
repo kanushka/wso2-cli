@@ -838,13 +838,19 @@ func (s Shell) moduleUpdate(opts updateOptions) error {
 		// installed, or everything installed pinned. Asking permission to do
 		// nothing trains a person to answer without reading, so this run
 		// skips straight to reporting that outcome instead of asking first.
-		// It is deliberately not a full "would this change anything" answer
-		// (that costs the same index request the run itself pays), so this
-		// can still ask before a run that turns out to find everything
-		// already current.
+		// When something might move, everythingCurrent asks the catalog
+		// whether anything would (#217). That answer is then the whole run:
+		// it is reported as read, with no second catalog request, so a
+		// version published between two requests cannot be installed by a run
+		// that never asked.
 		skip, err := installer.NothingWouldMove(opts.namespaces)
 		if err != nil {
 			return err
+		}
+		if !skip {
+			if statuses, current := s.everythingCurrent(installer); current {
+				return s.reportUpdateOutcomes(install.Outcomes(statuses))
+			}
 		}
 		if !skip {
 			if may, reason := s.mayPrompt(opts.noInput); !may {
@@ -875,6 +881,12 @@ func (s Shell) moduleUpdate(opts updateOptions) error {
 	if err != nil {
 		return err
 	}
+	return s.reportUpdateOutcomes(outcomes)
+}
+
+// reportUpdateOutcomes renders what an update run did, one line per product,
+// and returns the first refusal when any product's update was refused.
+func (s Shell) reportUpdateOutcomes(outcomes []install.Outcome) error {
 	if len(outcomes) == 0 {
 		_, err := fmt.Fprintln(s.Streams.Out, "No products are installed.")
 		return err
@@ -900,6 +912,26 @@ func (s Shell) moduleUpdate(opts updateOptions) error {
 		output.Diagnostic(s.Streams.Err, asProblem(failure))
 	}
 	return failures[0]
+}
+
+// everythingCurrent reports whether the catalog says wso2 product update
+// --all would update nothing. A catalog that cannot be read answers false, so
+// the run asks as it always did and then reports that failure itself. The
+// statuses read are returned so the caller reports them rather than asking
+// the catalog again.
+func (s Shell) everythingCurrent(installer install.Installer) ([]install.Status, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), catalogTimeout)
+	defer cancel()
+	statuses, err := installer.Check(ctx)
+	if err != nil {
+		return nil, false
+	}
+	for _, status := range statuses {
+		if status.Update {
+			return nil, false
+		}
+	}
+	return statuses, true
 }
 
 // reportUpdatePlan renders what wso2 product update would do without doing it.

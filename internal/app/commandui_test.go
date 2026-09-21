@@ -604,6 +604,31 @@ func stable(namespace, title string) catalog.IndexModule {
 		Channels: []catalog.IndexChannel{{Channel: catalog.ChannelStable, Version: "1.0.0"}}}
 }
 
+// TestHelpOmitsReleasedProductsUnderAConfiguredCatalogOrigin pins that the
+// release's catalog copy describes the built-in origin only. Once the
+// "catalog-origin" preference points the shell at another catalog, a product
+// that copy names may not be published there, so help lists what is installed
+// and advertises nothing wso2 product install could then fail to find.
+func TestHelpOmitsReleasedProductsUnderAConfiguredCatalogOrigin(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	releasedWith(&shell, stable("api", "API Platform"), stable("reference", "Reference Product"))
+	installFixture(t, shell, fixture.Module{Namespace: "api", Version: "0.1.0"})
+	if code := shell.Run([]string{"config", "set", "catalog-origin", "https://example.test/catalog"}); code != exit.OK {
+		t.Fatalf("config set exited %d; stderr: %s", code, errOut)
+	}
+	out.Reset()
+
+	if code := shell.Run([]string{"help"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if strings.Contains(out.String(), "Reference Product") || strings.Contains(out.String(), "not installed") {
+		t.Errorf("help advertises a product from the release's copy under a configured origin:\n%s", out)
+	}
+	if !strings.Contains(out.String(), "API Platform") {
+		t.Errorf("help dropped the released title of an installed product:\n%s", out)
+	}
+}
+
 // TestHelpGroupsCoreProductAndOtherCommands pins the root page ADR 0015 asks
 // for: what a machine can reach, before anything is installed. The products a
 // release knows about sit between the shell commands a user starts with and the
