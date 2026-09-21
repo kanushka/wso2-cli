@@ -21,7 +21,8 @@ Installs the wso2 shell on Windows.
 .DESCRIPTION
 Downloads the published archive for this machine, verifies it against the
 checksum file published beside it, and installs the binary under the WSO2 state
-root with its directory added to the per-user PATH.
+root with its directory added to the per-user PATH and tab completion set up in
+the PowerShell profile.
 
 Nothing here needs administrator rights: no symbolic link is created, no machine
 level environment variable is written, and no installer is registered. A run that
@@ -43,12 +44,17 @@ iwr <install url> -useb | iex
 .NOTES
 Environment variables it reads:
 
-  WSO2_HOME                  State root to install into. Default ~\.wso2.
-  WSO2_CLI_PRERELEASE=true   Resolve the newest prerelease, not the newest
-                             stable release.
-  WSO2_CLI_NO_PROFILE=1      Install without changing any environment variable.
-  WSO2_CLI_RELEASE_BASE_URL  Where releases are downloaded from. Overridden by
-  WSO2_CLI_RELEASE_API_URL   the tests; users have no reason to set either.
+  WSO2_HOME                    State root to install into. Default ~\.wso2.
+  WSO2_CLI_PRERELEASE=true     Resolve the newest prerelease, not the newest
+                               stable release.
+  WSO2_CLI_NO_PROFILE=1        Install without changing any environment
+                               variable or setting up tab completion.
+  WSO2_CLI_RELEASE_BASE_URL    Where releases are downloaded from.
+  WSO2_CLI_RELEASE_API_URL
+  WSO2_CLI_POWERSHELL_PROFILE  The PowerShell profile tab completion is set up
+                               in, in place of $PROFILE.
+
+  The last three are overridden by the tests; users have no reason to set them.
 #>
 param(
     [string] $Version
@@ -233,6 +239,44 @@ function Write-ManualPathInstructions {
     Write-Output "    `$env:Path += ';$BinDir'"
 }
 
+# Get-PowerShellProfile reports the profile to set tab completion up in: the
+# one this PowerShell reads, unless the tests name another.
+function Get-PowerShellProfile {
+    if ($env:WSO2_CLI_POWERSHELL_PROFILE) { return $env:WSO2_CLI_POWERSHELL_PROFILE }
+    return $PROFILE
+}
+
+function Write-ManualCompletionInstructions {
+    param([string] $CliName)
+    Write-Output ''
+    Write-Output 'For tab completion, add this line to your PowerShell profile ($PROFILE):'
+    Write-Output ''
+    Write-Output "    $CliName completion powershell | Out-String | Invoke-Expression"
+}
+
+# Add-TabCompletion has the installed shell add tab completion to the profile
+# this PowerShell reads. The shell owns that edit, so this script and a user
+# running it by hand make the same one.
+#
+# A failure is a warning: the CLI is installed and on PATH either way. An
+# execution policy that refuses unsigned scripts would refuse the profile too,
+# and a profile that fails at every start is worse than none, so none is written.
+function Add-TabCompletion {
+    param([string] $Binary, [string] $CliName)
+
+    Write-Output ''
+    $policy = Get-ExecutionPolicy
+    if ("$policy" -in @('Restricted', 'AllSigned')) {
+        [Console]::Error.WriteLine("warning: PowerShell's execution policy is $policy, so it would not load a profile; tab completion was not set up.")
+        Write-ManualCompletionInstructions -CliName $CliName
+        return
+    }
+    & $Binary completion install powershell --profile (Get-PowerShellProfile)
+    if ($LASTEXITCODE -ne 0) {
+        [Console]::Error.WriteLine("warning: tab completion was not set up. Set it up later with: $CliName completion install")
+    }
+}
+
 function Invoke-Install {
     param([string] $Requested)
 
@@ -319,6 +363,7 @@ function Invoke-Install {
         if ($env:WSO2_CLI_NO_PROFILE) {
             Write-ManualPathInstructions -StateRoot $stateRoot -BinDir $binDir `
                 -Reason 'Left your environment untouched, as asked.'
+            Write-ManualCompletionInstructions -CliName $cliName
         } else {
             # The state root is recorded, not just used: an installation under a
             # non-default WSO2_HOME would otherwise leave the installed shell reading
@@ -326,6 +371,7 @@ function Invoke-Install {
             [Environment]::SetEnvironmentVariable('WSO2_HOME', $stateRoot, 'User')
             $env:WSO2_HOME = $stateRoot
             Add-ToUserPath -Directory $binDir
+            Add-TabCompletion -Binary $installed -CliName $cliName
         }
 
         Write-Output ''

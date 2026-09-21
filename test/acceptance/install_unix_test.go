@@ -117,6 +117,9 @@ func TestInstallScriptIsIdempotent(t *testing.T) {
 	if blocks := strings.Count(profile, installBlockMarker); blocks != 1 {
 		t.Errorf("profile carries %d install blocks after two runs, want exactly 1:\n%s", blocks, profile)
 	}
+	if lines := strings.Count(profile, bashCompletionLine); lines != 1 {
+		t.Errorf("profile loads completion %d times after two runs, want exactly 1:\n%s", lines, profile)
+	}
 }
 
 func TestInstallScriptRefusesAnArchiveThatFailsItsChecksum(t *testing.T) {
@@ -273,6 +276,10 @@ func TestInstallScriptReplacesABlockPointingSomewhereElse(t *testing.T) {
 	if want := filepath.Join(elsewhere, "bin"); !strings.Contains(profile, want) {
 		t.Errorf("profile does not put the new %s on PATH:\n%s", want, profile)
 	}
+	// Rewriting the block for the new root must not lose completion.
+	if lines := strings.Count(profile, bashCompletionLine); lines != 1 {
+		t.Errorf("profile loads completion %d times, want exactly 1:\n%s", lines, profile)
+	}
 	// The lines that were in the profile before any install must survive a rewrite.
 	if !strings.Contains(profile, "# existing profile") {
 		t.Errorf("rewriting the block dropped the user's own profile lines:\n%s", profile)
@@ -314,6 +321,13 @@ func TestInstallScriptLeavesTheProfileAloneWhenAsked(t *testing.T) {
 	// Someone who opted out still has to be told what to do to reach the binary.
 	if want := filepath.Join(install.stateRoot, "bin"); !strings.Contains(stdout, want) {
 		t.Errorf("output does not tell the user to add %s to PATH:\n%s", want, stdout)
+	}
+	// And how to get tab completion, without it being set up for them.
+	if !strings.Contains(stdout, bashCompletionLine) {
+		t.Errorf("output does not print the completion line to add by hand:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "Tab completion added") {
+		t.Errorf("completion was set up despite the opt-out:\n%s", stdout)
 	}
 }
 
@@ -397,6 +411,78 @@ func TestInstallScriptHonoursTheStateRootVariable(t *testing.T) {
 	// would put the binary somewhere the shell it installed does not look.
 	if _, statErr := os.Stat(filepath.Join(elsewhere, "bin", "wso2")); statErr != nil {
 		t.Errorf("the binary was not installed under WSO2_HOME: %v", statErr)
+	}
+}
+
+// bashCompletionLine is what the installer adds for a bash user, inside its
+// block, so that every new terminal loads the completion script.
+const bashCompletionLine = `eval "$(wso2 completion bash)"`
+
+func TestInstallScriptSetsUpTabCompletion(t *testing.T) {
+	install := newInstallHarness(t)
+
+	stdout, stderr, err := install.run()
+	if err != nil {
+		t.Fatalf("install.sh failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "Tab completion added for bash.") {
+		t.Errorf("the summary does not say completion was set up:\n%s", stdout)
+	}
+	profile := install.readProfile(t)
+	block := profile[strings.Index(profile, installBlockMarker):]
+	if !strings.Contains(block, bashCompletionLine) {
+		t.Errorf("the install block does not load completion:\n%s", profile)
+	}
+
+	// What a new terminal does: read the profile, which puts the installed
+	// binary on PATH and registers its completion.
+	command := exec.Command("bash", "-c", `source "$HOME/.bashrc" && complete -p wso2`)
+	command.Env = []string{"HOME=" + install.home, "PATH=" + os.Getenv("PATH")}
+	registered, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("a new bash did not register completion for wso2: %v\n%s", err, registered)
+	}
+	if !strings.Contains(string(registered), "wso2") {
+		t.Errorf("complete -p wso2 = %q", registered)
+	}
+}
+
+func TestInstallScriptSetsUpTabCompletionForZsh(t *testing.T) {
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh is not installed")
+	}
+	install := newInstallHarness(t)
+	install.profilePath = filepath.Join(install.home, ".zshrc")
+	install.environment = append(install.environment, "SHELL="+zsh)
+
+	if stdout, stderr, err := install.run(); err != nil {
+		t.Fatalf("install.sh failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	// A plain zsh profile never runs compinit, so the block has to, and the
+	// script it loads has to have registered wso2 once it has.
+	command := exec.Command(zsh, "-c", `source "$HOME/.zshrc" && print -r -- "${_comps[wso2]}"`)
+	command.Env = []string{"HOME=" + install.home, "PATH=" + os.Getenv("PATH")}
+	registered, err := command.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(registered)) != "_wso2" {
+		t.Fatalf("a new zsh did not register completion for wso2: %v\n%s\nprofile:\n%s",
+			err, registered, install.readProfile(t))
+	}
+}
+
+func TestInstallScriptWarnsWhenCompletionCannotBeSetUp(t *testing.T) {
+	install := newInstallHarness(t)
+	install.environment = append(install.environment, "SHELL=/bin/tcsh")
+
+	stdout, stderr, err := install.run()
+	if err != nil {
+		t.Fatalf("a completion failure failed the install: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "warning: tab completion was not set up") {
+		t.Errorf("stderr does not warn that completion was not set up:\n%s", stderr)
+	}
+	if _, statErr := os.Stat(install.installedBinary()); statErr != nil {
+		t.Errorf("no binary was installed: %v", statErr)
 	}
 }
 

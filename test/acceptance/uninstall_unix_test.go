@@ -213,6 +213,74 @@ func TestUninstallRemovesABlockFromAProfileTheRunningShellIsNotWiredIn(t *testin
 	}
 }
 
+func TestUninstallRemovesTabCompletion(t *testing.T) {
+	install := newInstallHarness(t)
+	if _, stderr, err := install.run(); err != nil {
+		t.Fatalf("install.sh failed: %v\nstderr:\n%s", err, stderr)
+	}
+	if profile := install.readProfile(t); !strings.Contains(profile, "wso2 completion bash") {
+		t.Fatalf("the install did not set up completion, so this proves nothing:\n%s", profile)
+	}
+
+	if _, stderr, err := install.runUninstall(); err != nil {
+		t.Fatalf("uninstall.sh failed: %v\nstderr:\n%s", err, stderr)
+	}
+	if profile := install.readProfile(t); strings.Contains(profile, "completion") {
+		t.Errorf("the profile still loads completion:\n%s", profile)
+	}
+}
+
+func TestUninstallRemovesTheFishCompletionFile(t *testing.T) {
+	install := newInstallHarness(t)
+	install.environment = append(install.environment, "SHELL=/usr/bin/fish")
+	if _, stderr, err := install.run(); err != nil {
+		t.Fatalf("install.sh failed: %v\nstderr:\n%s", err, stderr)
+	}
+	file := filepath.Join(install.home, ".config", "fish", "completions", "wso2.fish")
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("the install wrote no fish completion file, so this proves nothing: %v", err)
+	}
+	// A completion file of the user's own, for another command, stays.
+	other := filepath.Join(filepath.Dir(file), "git.fish")
+	if err := os.WriteFile(other, []byte("# mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := install.runUninstall()
+	if err != nil {
+		t.Fatalf("uninstall.sh failed: %v\nstderr:\n%s", err, stderr)
+	}
+	if _, statErr := os.Stat(file); !os.IsNotExist(statErr) {
+		t.Errorf("the fish completion file is still at %s", file)
+	}
+	if _, statErr := os.Stat(other); statErr != nil {
+		t.Errorf("the user's own completion file was removed: %v", statErr)
+	}
+	if !strings.Contains(stdout, file) {
+		t.Errorf("output does not name the file it removed:\n%s", stdout)
+	}
+}
+
+func TestUninstallLeavesAFishFileItDidNotWrite(t *testing.T) {
+	install := newInstallHarness(t)
+	if _, stderr, err := install.run(); err != nil {
+		t.Fatalf("install.sh failed: %v\nstderr:\n%s", err, stderr)
+	}
+	file := filepath.Join(install.home, ".config", "fish", "completions", "wso2.fish")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("# written by hand\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, stderr, err := install.runUninstall(); err != nil {
+		t.Fatalf("uninstall.sh failed: %v\nstderr:\n%s", err, stderr)
+	}
+	if _, statErr := os.Stat(file); statErr != nil {
+		t.Errorf("a completion file the installer did not write was removed: %v", statErr)
+	}
+}
+
 // runUninstall invokes the uninstall script against the same isolated home and
 // state root the install ran in.
 func (i *installHarness) runUninstall(args ...string) (string, string, error) {

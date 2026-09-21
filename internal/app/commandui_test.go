@@ -639,7 +639,7 @@ Product commands
    reference     Explore the reference product.
 
 Other commands
-   completion    Write the tab completion script for a shell.
+   completion    Set up tab completion, or print a shell's completion script.
    config        Show and change shell preferences.
    doctor        Check the shell's context, secure-store, and session health.
    help          Show the shell command tree.

@@ -123,6 +123,32 @@ Checksum verified, no admin rights, nothing outside your WSO2 state root.
 </p>
 </section>
 
+<section id="completion">
+<h2>Tab completion</h2>
+<div class="term"><pre><span class="p">$</span> {{CLI_NAME}} completion install</pre></div>
+<p class="note">
+The installers run this for you. Or add the line for your shell to its profile:
+</p>
+<div class="commands">
+<div>
+<span class="os">zsh, in ~/.zshrc after compinit</span>
+<div class="term"><pre>source &lt;({{CLI_NAME}} completion zsh)</pre></div>
+</div>
+<div>
+<span class="os">bash, in ~/.bashrc</span>
+<div class="term"><pre>eval "$({{CLI_NAME}} completion bash)"</pre></div>
+</div>
+<div>
+<span class="os">fish, in ~/.config/fish/completions/{{CLI_NAME}}.fish</span>
+<div class="term"><pre>{{CLI_NAME}} completion fish | source</pre></div>
+</div>
+<div>
+<span class="os">PowerShell, in $PROFILE</span>
+<div class="term"><pre>{{CLI_NAME}} completion powershell | Out-String | Invoke-Expression</pre></div>
+</div>
+</div>
+</section>
+
 <section>
 <h2>First run</h2>
 <div class="term"><pre><span class="p">$</span> {{CLI_NAME}} login

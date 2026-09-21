@@ -20,9 +20,9 @@
 // Unix runs are: what has to be removed is what the installer wrote, not what a
 // test could arrange to look like it.
 //
-// What differs from Unix is the target. There is no profile block; the per-user
-// PATH entry and the per-user WSO2_HOME variable are what must go, and every
-// other entry in that PATH must survive untouched.
+// What differs from Unix is the target. The per-user PATH entry and the per-user
+// WSO2_HOME variable are what must go, with the tab completion block in the
+// PowerShell profile, and every other entry in that PATH must survive untouched.
 package acceptance_test
 
 import (
@@ -141,6 +141,35 @@ func TestUninstallSucceedsWhenNothingIsInstalled(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "Nothing to remove") {
 		t.Errorf("output does not say there was nothing to do:\n%s", stdout)
+	}
+}
+
+func TestUninstallRemovesTabCompletion(t *testing.T) {
+	install := newInstallHarness(t)
+	defer install.restoreUserEnvironment(t)
+	if err := os.MkdirAll(filepath.Dir(install.powerShellProfile()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(install.powerShellProfile(), []byte("# existing profile\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, stderr, err := install.run(); err != nil {
+		t.Fatalf("install.ps1 failed: %v\nstderr:\n%s", err, stderr)
+	}
+	if profile := install.readPowerShellProfile(t); !strings.Contains(profile, powerShellCompletionLine) {
+		t.Fatalf("the install did not set up completion, so this proves nothing:\n%s", profile)
+	}
+
+	stdout, stderr, err := install.runUninstall()
+	if err != nil {
+		t.Fatalf("uninstall.ps1 failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	profile := install.readPowerShellProfile(t)
+	if strings.Contains(profile, installBlockMarker) || strings.Contains(profile, "completion") {
+		t.Errorf("the profile still loads completion:\n%s", profile)
+	}
+	if !strings.Contains(profile, "# existing profile") {
+		t.Errorf("uninstalling dropped the user's own profile lines:\n%s", profile)
 	}
 }
 
