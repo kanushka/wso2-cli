@@ -32,6 +32,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/wso2/wso2-cli/internal/app"
@@ -353,6 +354,38 @@ func TestModuleUpdateAllSkipsThePromptWhenEverythingIsCurrent(t *testing.T) {
 
 	if code := shell.Run([]string{"product", "update", "--all"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if !strings.Contains(out.String(), "reference is current at v0.1.0.") {
+		t.Errorf("stdout does not report the product as current:\n%s", out)
+	}
+}
+
+// TestModuleUpdateAllReportsTheCatalogReadItSkippedThePromptOn pins that the
+// run which skips the prompt is decided by one catalog read: a version
+// published after that read must not be installed by a run that never asked.
+func TestModuleUpdateAllReportsTheCatalogReadItSkippedThePromptOn(t *testing.T) {
+	shell, out, errOut := newModuleShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0"})
+	shell.Reader = failIfReadReader{t}
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		version := "0.1.0"
+		if requests.Add(1) > 1 {
+			version = "0.2.0"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"schemaVersion":1,"modules":[` +
+			`{"namespace":"reference","path":"reference","channels":` +
+			`[{"channel":"stable","version":"` + version + `"}]}]}`))
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv(catalog.OriginEnvVar, server.URL)
+
+	if code := shell.Run([]string{"product", "update", "--all"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Errorf("catalog requests = %d, want 1", got)
 	}
 	if !strings.Contains(out.String(), "reference is current at v0.1.0.") {
 		t.Errorf("stdout does not report the product as current:\n%s", out)
