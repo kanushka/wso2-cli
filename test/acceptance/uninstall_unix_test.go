@@ -184,6 +184,59 @@ func TestUninstallLeavesAProfileAloneWhenTheBlockHasNoEnd(t *testing.T) {
 	}
 }
 
+// Markers that do not form exactly one begin-then-end pair leave no safe way to
+// tell the block from the user's own lines: the rewrite would treat everything
+// after a stray begin, or between two, as the block and drop it. Each shape is
+// refused, the profile is left byte for byte, and the user is told why.
+func TestUninstallLeavesAProfileAloneWhenTheMarkersDoNotPairUp(t *testing.T) {
+	const (
+		begin = installBlockMarker
+		end   = "# <<< wso2 cli <<<"
+		user  = "export EDITOR=vim\nalias gs='git status'\n"
+	)
+	for _, tc := range []struct {
+		name    string
+		profile string
+		reason  string
+	}{
+		{
+			name:    "reversed",
+			profile: "# existing profile\n" + end + "\n" + user + begin + "\nexport PATH=\"/somewhere/bin:$PATH\"\n" + user,
+			reason:  "end marker before its start marker",
+		},
+		{
+			name:    "duplicate begin",
+			profile: "# existing profile\n" + begin + "\nexport PATH=\"/somewhere/bin:$PATH\"\n" + user + begin + "\n" + user + end + "\n" + user,
+			reason:  "more than one wso2 block start marker",
+		},
+		{
+			name:    "duplicate end",
+			profile: "# existing profile\n" + begin + "\nexport PATH=\"/somewhere/bin:$PATH\"\n" + end + "\n" + user + end + "\n" + user,
+			reason:  "more than one wso2 block end marker",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			install := newInstallHarness(t)
+			if err := os.WriteFile(install.profilePath, []byte(tc.profile), 0o644); err != nil {
+				t.Fatalf("writing the damaged profile returned %v", err)
+			}
+
+			stdout, stderr, err := install.runUninstall()
+			if err != nil {
+				t.Fatalf("uninstall.sh failed on a malformed profile: %v\nstderr:\n%s", err, stderr)
+			}
+
+			if profile := install.readProfile(t); profile != tc.profile {
+				t.Errorf("the profile was rewritten:\nwant:\n%s\ngot:\n%s", tc.profile, profile)
+			}
+			if !strings.Contains(stderr, install.profilePath) || !strings.Contains(stderr, tc.reason) {
+				t.Errorf("nothing told the user why the block was left in place (want %q):\nstdout:\n%s\nstderr:\n%s",
+					tc.reason, stdout, stderr)
+			}
+		})
+	}
+}
+
 func TestUninstallRemovesABlockFromAProfileTheRunningShellIsNotWiredIn(t *testing.T) {
 	install := newInstallHarness(t)
 	// Installed under zsh, uninstalled by a bash user: the block is in .zshrc and
