@@ -60,6 +60,48 @@ state_root="${WSO2_HOME:-$HOME/.wso2}"
 bin_dir="${state_root}/bin"
 removed=0
 
+# --purge deletes the state root recursively, and WSO2_HOME chooses it. A
+# mistaken or inherited value — "/", the home directory, a directory above it —
+# would turn a purge into the loss of unrelated data. So the root is resolved
+# the way the filesystem sees it (symlinks, "..", trailing slashes) and refused
+# when it is, or contains, the home directory. This is checked before anything
+# is removed, so a refused purge changes nothing.
+if [ "$PURGE" -eq 1 ] && [ -d "$state_root" ]; then
+	case "$state_root" in
+	/*) ;;
+	*)
+		printf 'error: WSO2_HOME must be an absolute path, got %s.\n' "$state_root" >&2
+		printf 'Refusing to purge. Nothing was removed.\n' >&2
+		exit 1
+		;;
+	esac
+	resolved_root="$(cd -P -- "$state_root" && pwd -P)"
+	resolved_home="$(cd -P -- "$HOME" 2>/dev/null && pwd -P || printf '%s' "$HOME")"
+	# pwd may keep a leading "//", which POSIX leaves implementation-defined;
+	# on the systems this script supports it is the same directory as "/".
+	while :; do
+		case "$resolved_root" in //*) resolved_root="${resolved_root#/}" ;; *) break ;; esac
+	done
+	while :; do
+		case "$resolved_home" in //*) resolved_home="${resolved_home#/}" ;; *) break ;; esac
+	done
+	unsafe=''
+	if [ "$resolved_root" = / ]; then
+		unsafe='the filesystem root'
+	elif [ "$resolved_root" = "$resolved_home" ]; then
+		unsafe='your home directory'
+	else
+		case "${resolved_home%/}/" in
+		"${resolved_root%/}/"*) unsafe='a directory that contains your home directory' ;;
+		esac
+	fi
+	if [ -n "$unsafe" ]; then
+		printf 'error: the state root %s resolves to %s (%s).\n' "$state_root" "$resolved_root" "$unsafe" >&2
+		printf 'Refusing to purge it. Nothing was removed. Check WSO2_HOME.\n' >&2
+		exit 1
+	fi
+fi
+
 # The binary, under the name the installer recorded (an install from before
 # the record was named wso2), and any staging file an interrupted install left
 # beside it.

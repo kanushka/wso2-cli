@@ -114,6 +114,96 @@ func TestUninstallWithPurgeRemovesTheStateRoot(t *testing.T) {
 	}
 }
 
+// WSO2_HOME chooses what --purge deletes recursively, so a mistaken or inherited
+// value pointing at the home directory — however it is spelled — must be refused
+// before anything is removed. These run with the real rm: a guard that failed
+// would only delete a temporary directory.
+func TestUninstallPurgeRefusesTheHomeDirectory(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		stateFor func(home string) string
+	}{
+		{"home", func(home string) string { return home }},
+		{"trailing slash", func(home string) string { return home + "//" }},
+		{"dot dot", func(home string) string { return filepath.Join(home, "sub") + "/.." }},
+		{"symlink", func(home string) string {
+			link := filepath.Join(filepath.Dir(home), "link-to-home")
+			if err := os.Symlink(home, link); err != nil {
+				t.Fatal(err)
+			}
+			return link
+		}},
+		{"parent of home", func(home string) string { return filepath.Dir(home) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			install := newInstallHarness(t)
+			if _, stderr, err := install.run(); err != nil {
+				t.Fatalf("install.sh failed: %v\nstderr:\n%s", err, stderr)
+			}
+			if err := os.MkdirAll(filepath.Join(install.home, "sub"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			mine := filepath.Join(install.home, "notes.txt")
+			if err := os.WriteFile(mine, []byte("mine\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			stateRoot := tc.stateFor(install.home)
+			install.environment = append(install.environment, "WSO2_HOME="+stateRoot)
+			profileBefore := install.readProfile(t)
+
+			stdout, stderr, err := install.runUninstall("--purge")
+			if err == nil {
+				t.Fatalf("uninstall.sh --purge with WSO2_HOME=%s succeeded, want a refusal\nstdout:\n%s\nstderr:\n%s",
+					stateRoot, stdout, stderr)
+			}
+			if _, statErr := os.Stat(mine); statErr != nil {
+				t.Errorf("a refused purge removed a file in the home directory: %v", statErr)
+			}
+			if _, statErr := os.Stat(install.installedBinary()); statErr != nil {
+				t.Errorf("a refused purge still removed the binary: %v", statErr)
+			}
+			if profile := install.readProfile(t); profile != profileBefore {
+				t.Errorf("a refused purge still rewrote the profile:\n%s", profile)
+			}
+			if !strings.Contains(stderr, "Refusing to purge") {
+				t.Errorf("nothing told the user why the purge was refused:\nstderr:\n%s", stderr)
+			}
+		})
+	}
+}
+
+// The filesystem root and a relative WSO2_HOME cannot be tried against the real
+// rm safely, so these run with a stand-in rm that only records what it was asked
+// to delete. A refusal has to come before any removal, so it is asked nothing.
+func TestUninstallPurgeRefusesTheFilesystemRootAndRelativePaths(t *testing.T) {
+	for _, stateRoot := range []string{"/", "//", "/.", "/tmp/..", "."} {
+		t.Run(stateRoot, func(t *testing.T) {
+			install := newInstallHarness(t)
+			stub := t.TempDir()
+			log := filepath.Join(stub, "rm.log")
+			script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >>'" + log + "'\n"
+			if err := os.WriteFile(filepath.Join(stub, "rm"), []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			install.environment = append(install.environment,
+				"PATH="+stub+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"WSO2_HOME="+stateRoot)
+
+			stdout, stderr, err := install.runUninstall("--purge")
+			if err == nil {
+				t.Fatalf("uninstall.sh --purge with WSO2_HOME=%s succeeded, want a refusal\nstdout:\n%s\nstderr:\n%s",
+					stateRoot, stdout, stderr)
+			}
+			if asked, readErr := os.ReadFile(log); readErr == nil {
+				t.Errorf("a refused purge still ran rm:\n%s", asked)
+			}
+			if !strings.Contains(stderr, "Refusing to purge") {
+				t.Errorf("nothing told the user why the purge was refused:\nstderr:\n%s", stderr)
+			}
+		})
+	}
+}
+
 func TestUninstallSucceedsWhenNothingIsInstalled(t *testing.T) {
 	install := newInstallHarness(t)
 	if install.writeProfile {
