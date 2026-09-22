@@ -31,13 +31,13 @@ func TestWhoamiReportsEveryProductSession(t *testing.T) {
 	keyring.MockInit()
 	shell, out, errOut := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
-	installLogin(t, shell, thunderDoc("http://login.example", "http://apim.example"))
+	installLogin(t, shell, thunderDoc("https://login.example", "https://apim.example"))
 	store := session.Store{StateRoot: shell.StateRoot}
-	if err := store.Save(credentialRef, session.Session{Issuer: "http://login.example", RefreshToken: "rt", Subject: "user-1"}); err != nil {
+	if err := store.Save(credentialRef, session.Session{Issuer: "https://login.example", RefreshToken: "rt", Subject: "user-1"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Save(contexts.ProductSessionRef(credentialRef, "iam"),
-		session.Session{Issuer: "http://login.example", RefreshToken: "rt2", Strategy: contexts.StrategySibling}); err != nil {
+		session.Session{Issuer: "https://login.example", RefreshToken: "rt2", Strategy: contexts.StrategySibling}); err != nil {
 		t.Fatal(err)
 	}
 	if code := shell.Run([]string{"whoami"}); code != exit.OK {
@@ -62,7 +62,7 @@ func TestWhoamiReportsAClientCredentialsIdentityAsInline(t *testing.T) {
 	keyring.MockInit()
 	shell, out, errOut := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
-	installLogin(t, shell, identityDoc(contexts.KindClientCredentials)("http://login.example"))
+	installLogin(t, shell, identityDoc(contexts.KindClientCredentials)("https://login.example"))
 	if code := shell.Run([]string{"whoami"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
@@ -78,14 +78,14 @@ func TestWhoamiReportsAnExchangedProductAsServedByTheLoginSession(t *testing.T) 
 	keyring.MockInit()
 	shell, out, errOut := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
-	document := thunderDoc("http://login.example", "http://apim.example")
+	document := thunderDoc("https://login.example", "https://apim.example")
 	document.Contexts[0].Products["apip"] = contexts.Product{
 		Endpoint: "http://apip.example", Audience: "http://apip.example",
 		Grant: &contexts.Grant{Kind: contexts.GrantExchange}}
 	installLogin(t, shell, document)
 	store := session.Store{StateRoot: shell.StateRoot}
 	if err := store.Save(credentialRef, session.Session{
-		Issuer: "http://login.example", RefreshToken: "rt", Subject: "user-1"}); err != nil {
+		Issuer: "https://login.example", RefreshToken: "rt", Subject: "user-1"}); err != nil {
 		t.Fatal(err)
 	}
 	if code := shell.Run([]string{"whoami"}); code != exit.OK {

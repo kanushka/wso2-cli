@@ -62,6 +62,9 @@ func discover(ctx context.Context, client *http.Client, issuer string) (*oidc.Pr
 	if err != nil {
 		return nil, issuerUnreadable(err, issuer)
 	}
+	if issuertrust.Plaintext(provider.Claims) {
+		return nil, Denial{Problem: issuertrust.PlaintextProblem()}
+	}
 	return provider, nil
 }
 

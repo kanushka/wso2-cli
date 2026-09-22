@@ -357,7 +357,7 @@ func TestProductAddReplaceEndsTheSessionsItRebinds(t *testing.T) {
 func TestProductAddTargetsTheContextFlagOverTheSelection(t *testing.T) {
 	shell, _, _ := newContextShell(t)
 	localSetup(t, shell)
-	mustRun(t, shell, "context", "create", "other", "--login-product", "iam", "--url", "http://other:8501")
+	mustRun(t, shell, "context", "create", "other", "--login-product", "iam", "--url", "https://other:8501")
 	mustRun(t, shell, "context", "product", "add", "api", "--url", "http://other:9251", "--context", "other")
 	document := loadDocument(t, shell)
 	if _, recorded := contextNamed(t, document, "other").Products["api"]; !recorded {

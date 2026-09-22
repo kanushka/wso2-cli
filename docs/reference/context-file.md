@@ -98,7 +98,7 @@ authorize.
 | `contexts[].type` | `cloud` or `onprem`. Selects defaults and wording, never structure. Required here; `context apply` derives it from the issuer when an input file omits it. |
 | `contexts[].credentialRef` | The name this context's sessions are stored under in the OS secure store: the login session under the reference, and each product's own under `<ref>.<product>`. **Required** for `oauth-browser`, `oauth-device` and `pat`; **not allowed** for `client-credentials`. Unique across the document; it stays when the context is renamed, so no session moves. |
 | `login.kind` | `oauth-browser` for a person at a browser, `oauth-device` for a context that can only be established without one, `client-credentials` for CI. `pat` is named by the schema but not implemented in this release. |
-| `login.issuer` | The issuer, verbatim from its discovery document. |
+| `login.issuer` | The issuer, verbatim from its discovery document. Must be `https`; plain `http` is accepted only on a loopback host (`localhost`, `127.0.0.0/8`, `::1`), because the shell sends credentials to it. The same rule applies to a grant's own issuer and to every endpoint the issuer's discovery document names — a plaintext one is refused as `auth.discovery_failed`. |
 | `login.clientId` | The registered public client. |
 | `login.tenant` | The home tenant the login belongs to at the issuer; derived from an Asgardeo issuer when absent. Not the same as `organization`, which is what commands target. |
 | `login.provider` | Names the product when the shell must ask it for tokens in a product-specific shape: `asgardeo`, `identity-server` or `thunder`. Required for Thunder. |
