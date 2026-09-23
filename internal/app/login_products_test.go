@@ -148,7 +148,7 @@ func TestLoginReportsAnExchangedProductAsReachedByExchange(t *testing.T) {
 	shell, out, errOut := newLoginShell(t)
 	document := thunderDoc(login.URL, product.URL)
 	document.Contexts[0].Products["api"] = contexts.Product{
-		Endpoint: "http://api.example", Audience: "http://api.example",
+		Endpoint: "https://api.example", Audience: "http://api.example",
 		Grant: &contexts.Grant{Kind: contexts.GrantExchange}}
 	installLogin(t, shell, document)
 	followBrowser(&shell)
@@ -273,7 +273,7 @@ func TestLoginOnlyAnExchangedProductAuthorizesNothing(t *testing.T) {
 	shell, out, errOut := newLoginShell(t)
 	document := thunderDoc("https://login.example", "https://apim.example")
 	document.Contexts[0].Products["api"] = contexts.Product{
-		Endpoint: "http://api.example", Audience: "http://api.example",
+		Endpoint: "https://api.example", Audience: "http://api.example",
 		Grant: &contexts.Grant{Kind: contexts.GrantExchange}}
 	installLogin(t, shell, document)
 	shell.OpenBrowser = func(string) error {

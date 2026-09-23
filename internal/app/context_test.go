@@ -358,7 +358,7 @@ func TestProductAddTargetsTheContextFlagOverTheSelection(t *testing.T) {
 	shell, _, _ := newContextShell(t)
 	localSetup(t, shell)
 	mustRun(t, shell, "context", "create", "other", "--login-product", "iam", "--url", "https://other:8501")
-	mustRun(t, shell, "context", "product", "add", "api", "--url", "http://other:9251", "--context", "other")
+	mustRun(t, shell, "context", "product", "add", "api", "--url", "https://other:9251", "--context", "other")
 	document := loadDocument(t, shell)
 	if _, recorded := contextNamed(t, document, "other").Products["api"]; !recorded {
 		t.Error("--context did not target the other context")

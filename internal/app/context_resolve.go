@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
 	"github.com/wso2/wso2-cli/internal/catalog"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/install"
@@ -414,6 +415,14 @@ func productURL(flag, raw string) (string, error) {
 			fmt.Sprintf("the %s value carries a user name or password, which a URL here may not", flag)).
 			WithRecovery("Pass the URL on its own. The shell authenticates through wso2 login, so a " +
 				"credential in the URL is never used. The value is not repeated here.")
+	}
+	// The document would refuse the URL anyway; refusing it here names the
+	// flag, before anything is installed or asked for.
+	if !issuertrust.Secure(parsed) {
+		return "", problem.New(problem.CategoryUsage, "shell.invalid_argument",
+			fmt.Sprintf("the %s value is not served over HTTPS", flag)).
+			WithRecovery("Use an https:// URL. Plain http is accepted only on a loopback host (localhost, " +
+				"127.0.0.1, ::1), because the access token for it is sent there.")
 	}
 	return strings.TrimRight(raw, "/"), nil
 }

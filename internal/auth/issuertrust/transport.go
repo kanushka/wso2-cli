@@ -28,10 +28,11 @@ import (
 // or over plain HTTP only when the host is this machine's loopback interface.
 //
 // It is the one rule for every URL the shell sends a credential to or takes a
-// token or key from — the issuer a context names and every endpoint that
-// issuer's configuration advertises. A client secret, a refresh token, or a
-// key set carried in plaintext across a network is readable and replaceable by
-// anyone on the path; on loopback there is no path, which is why a local
+// token or key from — the issuer a context names, every endpoint that
+// issuer's configuration advertises, and each product and gateway url a
+// module is handed an access token for. A client secret, a refresh or access
+// token, or a key set carried in plaintext across a network is readable and
+// replaceable by anyone on the path; on loopback there is no path, which is why a local
 // deployment may run without a certificate.
 func Secure(target *url.URL) bool {
 	if target == nil {

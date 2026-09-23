@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+
+	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
 )
 
 // SchemaVersionLegacy is the architecture proof's schema. Documents written in
@@ -135,6 +137,9 @@ func (c legacyContext) validate() error {
 				fmt.Sprintf("the endpoint of the context %q embeds credentials in its URL", c.Name),
 				"Remove the user information from the endpoint. A context names a credential source; "+
 					"it never carries a credential.")
+		}
+		if !issuertrust.Secure(parsed) {
+			return plaintextEndpoint(fmt.Sprintf("the endpoint of the context %q", c.Name))
 		}
 	}
 	if c.Auth.CredentialVariable != "" && !variablePattern.MatchString(c.Auth.CredentialVariable) {

@@ -106,12 +106,12 @@ authorize.
 | `login.product` | The product the login authorization runs for. **Required** once the context reaches a direct product, so recording another product can never move the login from under the sessions already stored. |
 | `login.clientSecretVariable` | `client-credentials` only. The **name** of an environment variable holding the secret, never the secret. |
 | `products.<namespace>` | What this context may reach for one module. The namespace follows the same character rules as a context name. |
-| `products.<namespace>.url` | The product's base URL. **Required**, and must be an absolute `http` or `https` URL with a host. |
+| `products.<namespace>.url` | The product's base URL. **Required**, and must be an absolute `https` URL with a host; plain `http` is accepted only on a loopback host (`localhost`, `127.0.0.0/8`, `::1`), because the access token for the product is sent to it. A plaintext one is refused as `contexts.document_malformed`. |
 | `products.<namespace>.audience` | What the issued token's `aud` claim must carry. Not compared against the audience a module asks for by its own logical name — this is the concrete string *this* deployment stamps into `aud`. |
 | `products.<namespace>.scopes` | The permissions this context carries. A module asking for one that is not listed is refused. |
 | `products.<namespace>.grant` | How a product is reached when the login session does not already cover it: `exchange` (the login session's token exchanged per command, RFC 8693), `jwt-bearer` (an identity token from the login session presented at the product's own issuer), or `federated` (a public client at the product's own issuer, through the same browser sign-on). Absent for a product the login session covers directly. |
 | `products.<namespace>.clientIdVariable` / `clientSecretVariable` | A credential of the product's own, for a `client-credentials` context whose machine client the product cannot map to its roles. Names, never values. |
-| `products.<namespace>.gateway` | The product's gateway, when it has one: its own `url`, `audience` and `scopes`. |
+| `products.<namespace>.gateway` | The product's gateway, when it has one: its own `url`, `audience` and `scopes`. Its `url` follows the product `url`'s rule: `https`, or plain `http` only on a loopback host. |
 | `contexts[].organization` | The organization to act within. Either leave it out, or set it to `login.tenant` — this release cannot switch a session out of its home tenant. |
 | `contexts[].project` | The project inside the organization to narrow the target to. |
 
@@ -225,6 +225,7 @@ Apply refuses the whole file and writes nothing. The message names the cause:
 | `selects a context (defaultContext), and a shared file never does` | a selection in the file |
 | `logs the context "x" in through the "y" product, which it does not list under products` | `login.product` names a namespace with no `products` entry |
 | `gives the context "x" neither a login product nor an issuer and client id` | no way to log in |
+| `the y url on x value is not served over HTTPS` | a product or gateway `url` in plain `http` on a host that is not loopback |
 | `json: unknown field "logn"` | a misspelled or unsupported member |
 
 With `--no-install`, a login product that is not installed must also state
