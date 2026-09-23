@@ -218,7 +218,7 @@ func TestUninstallRemovesTabCompletion(t *testing.T) {
 	if _, stderr, err := install.run(); err != nil {
 		t.Fatalf("install.sh failed: %v\nstderr:\n%s", err, stderr)
 	}
-	if profile := install.readProfile(t); !strings.Contains(profile, "wso2 completion bash") {
+	if profile := install.readProfile(t); !strings.Contains(profile, install.bashCompletionLine()) {
 		t.Fatalf("the install did not set up completion, so this proves nothing:\n%s", profile)
 	}
 

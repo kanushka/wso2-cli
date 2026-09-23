@@ -155,13 +155,17 @@ func (s Shell) completionInstall(command *cobra.Command, args []string, profile 
 	if err != nil {
 		return err
 	}
-	s.log.Debug("setting up tab completion", "shell", shell, "file", target)
+	executable, err := completionExecutable(name)
+	if err != nil {
+		return err
+	}
+	s.log.Debug("setting up tab completion", "shell", shell, "file", target, "executable", executable)
 
 	var changed bool
 	if shell == shellFish {
-		changed, err = writeFishCompletion(target, name)
+		changed, err = writeFishCompletion(target, executable)
 	} else {
-		changed, err = addToProfile(target, completionLines(shell, name))
+		changed, err = addToProfile(target, shell, completionLines(shell, executable))
 	}
 	if err != nil {
 		return err
@@ -234,21 +238,114 @@ func completionShellTitle(shell string) string {
 // script through eval, because the bash 3.2 macOS ships cannot source a
 // process substitution.
 //
-// Both load the script only when the command is on PATH. The installer may
-// have put it there in a file only a login shell reads, and a line that fails
-// in every other terminal is worse than no completion there.
-func completionLines(shell, name string) []string {
+// Each runs the executable by its absolute path, never by name: the line
+// evaluates what the command prints, so running it by name would evaluate the
+// output of whichever same-named program comes first on PATH, at every shell
+// start. Each runs it only when it is still there, because a line that fails
+// in every terminal after the binary was moved or removed is worse than no
+// completion.
+func completionLines(shell, executable string) []string {
 	switch shell {
 	case shellZsh:
+		quoted := posixQuote(executable)
 		return []string{
 			"(( $+functions[compdef] )) || { autoload -Uz compinit && compinit; }",
-			"(( $+commands[" + name + "] )) && source <(" + name + " completion zsh)",
+			"[[ -x " + quoted + " ]] && source <(" + quoted + " completion zsh)",
 		}
 	case shellBash:
-		return []string{"command -v " + name + ` >/dev/null 2>&1 && eval "$(` + name + ` completion bash)"`}
+		quoted := posixQuote(executable)
+		return []string{"[ -x " + quoted + ` ] && eval "$(` + quoted + ` completion bash)"`}
 	default:
-		return []string{name + " completion powershell | Out-String | Invoke-Expression"}
+		quoted := powerShellQuote(executable)
+		return []string{"if (Test-Path -LiteralPath " + quoted + " -PathType Leaf) { & " + quoted +
+			" completion powershell | Out-String | Invoke-Expression }"}
 	}
+}
+
+// fishCompletionLine is what the fish completion file runs, on the same terms
+// as completionLines.
+func fishCompletionLine(executable string) string {
+	quoted := fishQuote(executable)
+	return "test -x " + quoted + "; and " + quoted + " completion fish | source"
+}
+
+// isCompletionLine reports whether a line in the wso2 block loads shell's
+// completion script, as this or an earlier version wrote it. One that is not
+// the line being written is replaced rather than kept beside it: an earlier
+// version ran the command by name, and one naming an old path loads nothing.
+func isCompletionLine(shell, line string) bool {
+	return strings.Contains(line, " completion "+shell)
+}
+
+// completionExecutable reports the absolute path of the running executable,
+// for the profile to run.
+//
+// The name on PATH is preferred when it is this very file: a package manager
+// links its versioned binary into a stable directory, and the link outlives an
+// upgrade that the file it points to does not.
+func completionExecutable(name string) (string, error) {
+	unknown := func(reason string) error {
+		return problem.New(problem.CategoryUsage, "shell.completion_executable_unknown",
+			"cannot tell where this command is installed: "+reason).
+			WithRecovery("Run the WSO2 CLI from where it is installed and try again.")
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return "", unknown(err.Error())
+	}
+	if executable, err = filepath.Abs(executable); err != nil {
+		return "", unknown(err.Error())
+	}
+	if found, err := exec.LookPath(name); err == nil {
+		if found, err = filepath.Abs(found); err == nil && sameFile(found, executable) {
+			executable = found
+		}
+	}
+	// A line break would end the quoted path early and put the rest of it on
+	// a line of its own, where the shell reads it as a command.
+	if strings.ContainsAny(executable, "\x00\r\n") {
+		return "", unknown(fmt.Sprintf("its path %q cannot be written into a shell profile", executable))
+	}
+	return executable, nil
+}
+
+func sameFile(a, b string) bool {
+	left, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	right, err := os.Stat(b)
+	return err == nil && os.SameFile(left, right)
+}
+
+// posixQuote quotes path for bash and zsh, where nothing inside single quotes
+// is special: a single quote closes the string, adds an escaped quote and
+// opens it again.
+func posixQuote(path string) string {
+	return "'" + strings.ReplaceAll(path, "'", `'\''`) + "'"
+}
+
+// fishQuote quotes path for fish, where a backslash and a single quote are the
+// two characters escaped inside single quotes.
+func fishQuote(path string) string {
+	return "'" + strings.NewReplacer(`\`, `\\`, "'", `\'`).Replace(path) + "'"
+}
+
+// powerShellQuote quotes path for PowerShell, where a single-quoted string has
+// no escapes and a quote is doubled. PowerShell reads the typographic single
+// quotes (U+2018 to U+201B) as quotes too, so they are doubled as well.
+func powerShellQuote(path string) string {
+	var quoted strings.Builder
+	quoted.WriteByte('\'')
+	for _, r := range path {
+		quoted.WriteRune(r)
+		switch r {
+		case '\'', 0x2018, 0x2019, 0x201A, 0x201B:
+			quoted.WriteRune(r)
+		}
+	}
+	quoted.WriteByte('\'')
+	return quoted.String()
 }
 
 // completionTarget reports the file to write for a shell.
@@ -345,12 +442,12 @@ func powerShellProfile() (string, error) {
 
 // addToProfile puts the completion lines inside the profile's wso2 block,
 // adding the block when there is none, and reports whether it changed the file.
-func addToProfile(path string, lines []string) (bool, error) {
+func addToProfile(path, shell string, lines []string) (bool, error) {
 	current, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false, profileFailure(path, err)
 	}
-	updated, changed, err := withCompletionLines(string(current), lines, path)
+	updated, changed, err := withCompletionLines(string(current), lines, shell, path)
 	if err != nil || !changed {
 		return false, err
 	}
@@ -358,9 +455,10 @@ func addToProfile(path string, lines []string) (bool, error) {
 }
 
 // withCompletionLines returns contents with lines inside its wso2 block, in
-// order, and reports whether it had to change anything. Every other line is
-// kept byte for byte, including a Windows line ending.
-func withCompletionLines(contents string, lines []string, path string) (string, bool, error) {
+// order, and reports whether it had to change anything. Any other line in the
+// block that loads shell's completion is dropped. Every other line is kept
+// byte for byte, including a Windows line ending.
+func withCompletionLines(contents string, lines []string, shell, path string) (string, bool, error) {
 	newline := "\n"
 	if strings.Contains(contents, "\r\n") {
 		newline = "\r\n"
@@ -397,15 +495,20 @@ func withCompletionLines(contents string, lines []string, path string) (string, 
 	// Any of the lines already there are taken out and all of them written
 	// again, in order, so a block that lost one gets it back where it belongs.
 	var kept []string
-	present := 0
+	present, stale := 0, 0
 	for _, line := range existing[begin+1 : end] {
-		if slices.Contains(lines, strings.TrimSuffix(line, "\r")) {
+		bare := strings.TrimSuffix(line, "\r")
+		if slices.Contains(lines, bare) {
 			present++
+			continue
+		}
+		if isCompletionLine(shell, bare) {
+			stale++
 			continue
 		}
 		kept = append(kept, line)
 	}
-	if present == len(lines) {
+	if present == len(lines) && stale == 0 {
 		return contents, false, nil
 	}
 	rebuilt := make([]string, 0, len(existing)+len(lines))
@@ -419,11 +522,12 @@ func withCompletionLines(contents string, lines []string, path string) (string, 
 }
 
 // writeFishCompletion writes the file fish loads when it first completes the
-// command. The file loads the script rather than holding it, for the same
-// reason the profile line does, and carries the wso2 markers so an uninstall
-// can tell it from a file the user wrote. A file without them is left alone.
-func writeFishCompletion(path, name string) (bool, error) {
-	want := strings.Join([]string{profileBlockBegin, name + " completion fish | source", profileBlockEnd}, "\n") + "\n"
+// command. The file loads the script rather than holding it, by the
+// executable's absolute path, for the same reasons the profile line does, and
+// carries the wso2 markers so an uninstall can tell it from a file the user
+// wrote. A file without them is left alone.
+func writeFishCompletion(path, executable string) (bool, error) {
+	want := strings.Join([]string{profileBlockBegin, fishCompletionLine(executable), profileBlockEnd}, "\n") + "\n"
 	current, err := os.ReadFile(path)
 	switch {
 	case err == nil && string(current) == want:

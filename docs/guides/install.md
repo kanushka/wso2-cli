@@ -77,7 +77,7 @@ On Unix the installer adds this block to your shell profile, here for bash:
 # >>> wso2 cli >>>
 export WSO2_HOME="/home/you/.wso2"
 export PATH="/home/you/.wso2/bin:$PATH"
-command -v wso2 >/dev/null 2>&1 && eval "$(wso2 completion bash)"
+[ -x '/home/you/.wso2/bin/wso2' ] && eval "$('/home/you/.wso2/bin/wso2' completion bash)"
 # <<< wso2 cli <<<
 ```
 
@@ -94,19 +94,26 @@ wso2 completion install [bash|zsh|fish|powershell]
 It detects the shell from `$SHELL` (PowerShell on Windows) and changes nothing
 when completion is already set up:
 
-- zsh: adds `source <(wso2 completion zsh)` to the block in `~/.zshrc`, after a
-  `compinit` that runs only when nothing else has run one.
-- bash: adds `eval "$(wso2 completion bash)"` to the block in `~/.bashrc` (or
-  `~/.bash_profile`). Completion needs the `bash-completion` package.
+- zsh: adds `source <('<path>' completion zsh)` to the block in `~/.zshrc`,
+  after a `compinit` that runs only when nothing else has run one.
+- bash: adds `eval "$('<path>' completion bash)"` to the block in `~/.bashrc`
+  (or `~/.bash_profile`). Completion needs the `bash-completion` package.
 - fish: writes `~/.config/fish/completions/wso2.fish`, which runs
-  `wso2 completion fish | source`.
-- PowerShell: adds `wso2 completion powershell | Out-String | Invoke-Expression`
+  `'<path>' completion fish | source`.
+- PowerShell: adds `& '<path>' completion powershell | Out-String | Invoke-Expression`
   to the block in `$PROFILE`. An execution policy of `Restricted` or `AllSigned`
   would stop the profile loading, so it is refused.
 
+`<path>` is the full path of the binary that ran `completion install`, quoted
+for the shell. The line evaluates what that command prints, so it never runs
+the command by name, which would evaluate whatever same-named program comes
+first on `PATH`. Each line runs only while the binary is at that path, so a
+moved or removed binary leaves a line that does nothing; run
+`wso2 completion install` again to point it at the new place.
+
 `--profile <file>` edits another file. Every line loads the script when a
-terminal opens, and only when the command is on `PATH`, so it never goes stale,
-and a product you install completes at once. `wso2 completion <shell>` prints the script itself when its output is piped;
+terminal opens, so it never goes stale, and a product you install completes at
+once. `wso2 completion <shell>` prints the script itself when its output is piped;
 typed at a terminal it says how to set completion up, and `--print` prints the
 script anyway.
 

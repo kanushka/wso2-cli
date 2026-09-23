@@ -170,6 +170,43 @@ func runInstall(t *testing.T, args ...string) (string, string, exit.Code) {
 	return out.String(), errOut.String(), code
 }
 
+// testExecutable is the path completion install writes into the profile when
+// run from this test binary: the running executable's own.
+func testExecutable(t *testing.T) string {
+	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err = filepath.Abs(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return executable
+}
+
+// A same-named command earlier on PATH is not what the profile runs: it runs
+// the executable that set completion up, by path.
+func TestCompletionInstallRunsTheExecutableByPathNotByName(t *testing.T) {
+	profile := filepath.Join(completionHome(t, "/bin/bash"), ".bashrc")
+	hostile := t.TempDir()
+	if err := os.WriteFile(filepath.Join(hostile, "wso2"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", hostile+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if _, errOut, code := runInstall(t, "bash", "--profile", profile); code != exit.OK {
+		t.Fatalf("exit %d; stderr: %s", code, errOut)
+	}
+	contents := readFile(t, profile)
+	if strings.Contains(contents, "$(wso2 ") || strings.Contains(contents, hostile) {
+		t.Errorf("the profile runs the command by name, or the one earlier on PATH:\n%s", contents)
+	}
+	if !strings.Contains(contents, "'"+testExecutable(t)+"' completion bash") {
+		t.Errorf("the profile does not run %s:\n%s", testExecutable(t), contents)
+	}
+}
+
 func readFile(t *testing.T, path string) string {
 	t.Helper()
 	contents, err := os.ReadFile(path)
@@ -201,7 +238,7 @@ func TestCompletionInstallAddsOneLineHoweverOftenItRuns(t *testing.T) {
 		t.Errorf("the second run does not say nothing changed:\n%s", out)
 	}
 	contents := readFile(t, profile)
-	if got := strings.Count(contents, "source <(wso2 completion zsh)"); got != 1 {
+	if got := strings.Count(contents, "source <('"+testExecutable(t)+"' completion zsh)"); got != 1 {
 		t.Errorf("profile loads the script %d times, want 1:\n%s", got, contents)
 	}
 	if !strings.Contains(contents, "compinit") {
@@ -221,7 +258,7 @@ func TestCompletionInstallJoinsTheInstallersBlock(t *testing.T) {
 		t.Fatalf("exit %d; stderr: %s", code, errOut)
 	}
 	want := "# mine\n\n# >>> wso2 cli >>>\nexport PATH=\"/x/bin:$PATH\"\n" +
-		"command -v wso2 >/dev/null 2>&1 && eval \"$(wso2 completion bash)\"\n# <<< wso2 cli <<<\n"
+		"[ -x '" + testExecutable(t) + "' ] && eval \"$('" + testExecutable(t) + "' completion bash)\"\n# <<< wso2 cli <<<\n"
 	if got := readFile(t, profile); got != want {
 		t.Errorf("profile =\n%s\nwant\n%s", got, want)
 	}
@@ -239,7 +276,7 @@ func TestCompletionInstallWritesAFishCompletionFile(t *testing.T) {
 	if _, errOut, code := runInstall(t); code != exit.OK {
 		t.Fatalf("exit %d; stderr: %s", code, errOut)
 	}
-	if got := readFile(t, file); !strings.Contains(got, "wso2 completion fish | source") {
+	if got := readFile(t, file); !strings.Contains(got, "'"+testExecutable(t)+"' completion fish | source") {
 		t.Errorf("the fish file does not load the script:\n%s", got)
 	}
 	if out, errOut, code := runInstall(t); code != exit.OK || !strings.Contains(out, "already set up") {
@@ -272,7 +309,7 @@ func TestCompletionInstallEditsANamedPowerShellProfile(t *testing.T) {
 	if _, errOut, code := runInstall(t, "powershell", "--profile", profile); code != exit.OK {
 		t.Fatalf("exit %d; stderr: %s", code, errOut)
 	}
-	if got := readFile(t, profile); !strings.Contains(got, "wso2 completion powershell | Out-String | Invoke-Expression") ||
+	if got := readFile(t, profile); !strings.Contains(got, "& '"+testExecutable(t)+"' completion powershell | Out-String | Invoke-Expression") ||
 		!strings.Contains(got, "# >>> wso2 cli >>>") {
 		t.Errorf("the profile does not load the script inside the wso2 block:\n%s", got)
 	}
@@ -324,7 +361,7 @@ func TestCompletionInstallWritesThroughALinkedProfile(t *testing.T) {
 	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
 		t.Errorf("the linked profile is no longer a link")
 	}
-	if got := readFile(t, real); !strings.Contains(got, "wso2 completion zsh") {
+	if got := readFile(t, real); !strings.Contains(got, " completion zsh") {
 		t.Errorf("the linked file was not written:\n%s", got)
 	}
 }

@@ -235,7 +235,7 @@ func TestInstallScriptLeavesTheEnvironmentAloneWhenAsked(t *testing.T) {
 	if profile := install.readPowerShellProfile(t); profile != "" {
 		t.Errorf("the PowerShell profile was written despite the opt-out:\n%s", profile)
 	}
-	if !strings.Contains(stdout, powerShellCompletionLine) {
+	if !strings.Contains(stdout, install.powerShellCompletionLine()) {
 		t.Errorf("output does not print the completion line to add by hand:\n%s", stdout)
 	}
 }
@@ -257,8 +257,73 @@ func TestInstallScriptHonoursTheStateRootVariable(t *testing.T) {
 }
 
 // powerShellCompletionLine is what the installer adds to the PowerShell
-// profile, inside its block, so that every new session loads completion.
-const powerShellCompletionLine = "wso2 completion powershell | Out-String | Invoke-Expression"
+// profile, inside its block, so that every new session loads completion: the
+// installed binary run by its full path, and only while it is there.
+//
+// It is matched from the closing quote of that path on, because the path is
+// the one the binary reports for itself, which may be the short 8.3 form of
+// the temporary directory the test installed into. The bare-name line an
+// earlier version wrote has neither the quote nor the brace.
+func (i *installHarness) powerShellCompletionLine() string {
+	return "' completion powershell | Out-String | Invoke-Expression }"
+}
+
+// The installer appends its directory to PATH, so any same-named command
+// already on PATH comes first. The profile evaluates what the completion
+// command prints, so it must run the installed binary by its path, and a
+// binary that has since gone must not make every session complain.
+func TestInstalledCompletionIgnoresAnEarlierSameNamedCommand(t *testing.T) {
+	install := newInstallHarness(t)
+	defer install.restoreUserEnvironment(t)
+
+	if stdout, stderr, err := install.run(); err != nil {
+		t.Fatalf("install.ps1 failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	profile := install.readPowerShellProfile(t)
+	if !strings.Contains(profile, install.powerShellCompletionLine()) {
+		t.Fatalf("the install did not set up completion, so this proves nothing:\n%s", profile)
+	}
+	if !strings.Contains(profile, "if (Test-Path -LiteralPath '") || !strings.Contains(profile, "{ & '") {
+		t.Errorf("the profile does not run the binary by a quoted path, guarded by Test-Path:\n%s", profile)
+	}
+
+	hostile := t.TempDir()
+	ran := filepath.Join(t.TempDir(), "hostile-ran")
+	stub := "@echo off\r\ntype nul > \"" + ran + "\"\r\n"
+	if err := os.WriteFile(filepath.Join(hostile, "wso2.cmd"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	newSession := func() string {
+		t.Helper()
+		command := exec.Command(powerShell(), "-NoLogo", "-NoProfile", "-NonInteractive",
+			"-ExecutionPolicy", "Bypass", "-Command", ". '"+strings.ReplaceAll(install.powerShellProfile(), "'", "''")+"'")
+		command.Env = append(install.scriptEnvironment(), "PATH="+hostile+";"+os.Getenv("PATH"))
+		var stderr strings.Builder
+		command.Stderr = &stderr
+		if err := command.Run(); err != nil {
+			t.Errorf("loading the profile failed: %v\n%s", err, stderr.String())
+		}
+		return stderr.String()
+	}
+
+	if stderr := newSession(); stderr != "" {
+		t.Errorf("loading the profile wrote to stderr:\n%s", stderr)
+	}
+	if _, err := os.Stat(ran); err == nil {
+		t.Error("a new session ran the same-named command earlier on PATH")
+	}
+
+	if err := os.Remove(install.installedBinary()); err != nil {
+		t.Fatal(err)
+	}
+	if stderr := newSession(); stderr != "" {
+		t.Errorf("a new session complains once the binary is gone:\n%s", stderr)
+	}
+	if _, err := os.Stat(ran); err == nil {
+		t.Error("with the binary gone, a new session ran the same-named command earlier on PATH")
+	}
+}
 
 // powerShellProfile is the profile the scripts are pointed at in place of
 // $PROFILE, inside the run's own home directory.
@@ -292,14 +357,14 @@ func TestInstallScriptSetsUpTabCompletion(t *testing.T) {
 		t.Errorf("the summary does not say completion was set up:\n%s", stdout)
 	}
 	profile := install.readPowerShellProfile(t)
-	if !strings.Contains(profile, installBlockMarker) || !strings.Contains(profile, powerShellCompletionLine) {
+	if !strings.Contains(profile, installBlockMarker) || !strings.Contains(profile, install.powerShellCompletionLine()) {
 		t.Errorf("the profile does not load completion inside the wso2 block:\n%s", profile)
 	}
 
 	if _, stderr, err := install.run(); err != nil {
 		t.Fatalf("second install failed: %v\nstderr:\n%s", err, stderr)
 	}
-	if lines := strings.Count(install.readPowerShellProfile(t), powerShellCompletionLine); lines != 1 {
+	if lines := strings.Count(install.readPowerShellProfile(t), install.powerShellCompletionLine()); lines != 1 {
 		t.Errorf("the profile loads completion %d times after two runs, want exactly 1:\n%s",
 			lines, install.readPowerShellProfile(t))
 	}

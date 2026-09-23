@@ -156,7 +156,7 @@ func TestUninstallRemovesTabCompletion(t *testing.T) {
 	if _, stderr, err := install.run(); err != nil {
 		t.Fatalf("install.ps1 failed: %v\nstderr:\n%s", err, stderr)
 	}
-	if profile := install.readPowerShellProfile(t); !strings.Contains(profile, powerShellCompletionLine) {
+	if profile := install.readPowerShellProfile(t); !strings.Contains(profile, install.powerShellCompletionLine()) {
 		t.Fatalf("the install did not set up completion, so this proves nothing:\n%s", profile)
 	}
 

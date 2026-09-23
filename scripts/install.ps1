@@ -246,12 +246,17 @@ function Get-PowerShellProfile {
     return $PROFILE
 }
 
+# Write-ManualCompletionInstructions prints the line `completion install` would
+# add. It runs the installed binary by its path, never by name: the profile
+# evaluates what the command prints, so running it by name would evaluate
+# whatever same-named program comes first on PATH at every start.
 function Write-ManualCompletionInstructions {
-    param([string] $CliName)
+    param([string] $Binary)
+    $quoted = "'" + ($Binary -replace '[''\u2018\u2019\u201A\u201B]', '$0$0') + "'"
     Write-Output ''
     Write-Output 'For tab completion, add this line to your PowerShell profile ($PROFILE):'
     Write-Output ''
-    Write-Output "    $CliName completion powershell | Out-String | Invoke-Expression"
+    Write-Output "    if (Test-Path -LiteralPath $quoted -PathType Leaf) { & $quoted completion powershell | Out-String | Invoke-Expression }"
 }
 
 # Add-TabCompletion has the installed shell add tab completion to the profile
@@ -268,7 +273,7 @@ function Add-TabCompletion {
     $policy = Get-ExecutionPolicy
     if ("$policy" -in @('Restricted', 'AllSigned')) {
         [Console]::Error.WriteLine("warning: PowerShell's execution policy is $policy, so it would not load a profile; tab completion was not set up.")
-        Write-ManualCompletionInstructions -CliName $CliName
+        Write-ManualCompletionInstructions -Binary $Binary
         return
     }
     & $Binary completion install powershell --profile (Get-PowerShellProfile)
@@ -363,7 +368,7 @@ function Invoke-Install {
         if ($env:WSO2_CLI_NO_PROFILE) {
             Write-ManualPathInstructions -StateRoot $stateRoot -BinDir $binDir `
                 -Reason 'Left your environment untouched, as asked.'
-            Write-ManualCompletionInstructions -CliName $cliName
+            Write-ManualCompletionInstructions -Binary $installed
         } else {
             # The state root is recorded, not just used: an installation under a
             # non-default WSO2_HOME would otherwise leave the installed shell reading
