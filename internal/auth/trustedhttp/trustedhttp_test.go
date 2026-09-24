@@ -66,7 +66,7 @@ func TestARedirectToHTTPSOrLoopbackIsFollowed(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}
-		response.Body.Close()
+		_ = response.Body.Close()
 		if response.StatusCode != http.StatusNoContent {
 			t.Fatalf("%s: status = %d, want %d", path, response.StatusCode, http.StatusNoContent)
 		}
