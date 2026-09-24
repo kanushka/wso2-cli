@@ -114,6 +114,96 @@ func TestUninstallWithPurgeRemovesTheStateRoot(t *testing.T) {
 	}
 }
 
+// WSO2_HOME chooses what --purge deletes recursively, so a mistaken or inherited
+// value pointing at the home directory — however it is spelled — must be refused
+// before anything is removed. These run with the real rm: a guard that failed
+// would only delete a temporary directory.
+func TestUninstallPurgeRefusesTheHomeDirectory(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		stateFor func(home string) string
+	}{
+		{"home", func(home string) string { return home }},
+		{"trailing slash", func(home string) string { return home + "//" }},
+		{"dot dot", func(home string) string { return filepath.Join(home, "sub") + "/.." }},
+		{"symlink", func(home string) string {
+			link := filepath.Join(filepath.Dir(home), "link-to-home")
+			if err := os.Symlink(home, link); err != nil {
+				t.Fatal(err)
+			}
+			return link
+		}},
+		{"parent of home", func(home string) string { return filepath.Dir(home) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			install := newInstallHarness(t)
+			if _, stderr, err := install.run(); err != nil {
+				t.Fatalf("install.sh failed: %v\nstderr:\n%s", err, stderr)
+			}
+			if err := os.MkdirAll(filepath.Join(install.home, "sub"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			mine := filepath.Join(install.home, "notes.txt")
+			if err := os.WriteFile(mine, []byte("mine\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			stateRoot := tc.stateFor(install.home)
+			install.environment = append(install.environment, "WSO2_HOME="+stateRoot)
+			profileBefore := install.readProfile(t)
+
+			stdout, stderr, err := install.runUninstall("--purge")
+			if err == nil {
+				t.Fatalf("uninstall.sh --purge with WSO2_HOME=%s succeeded, want a refusal\nstdout:\n%s\nstderr:\n%s",
+					stateRoot, stdout, stderr)
+			}
+			if _, statErr := os.Stat(mine); statErr != nil {
+				t.Errorf("a refused purge removed a file in the home directory: %v", statErr)
+			}
+			if _, statErr := os.Stat(install.installedBinary()); statErr != nil {
+				t.Errorf("a refused purge still removed the binary: %v", statErr)
+			}
+			if profile := install.readProfile(t); profile != profileBefore {
+				t.Errorf("a refused purge still rewrote the profile:\n%s", profile)
+			}
+			if !strings.Contains(stderr, "Refusing to purge") {
+				t.Errorf("nothing told the user why the purge was refused:\nstderr:\n%s", stderr)
+			}
+		})
+	}
+}
+
+// The filesystem root and a relative WSO2_HOME cannot be tried against the real
+// rm safely, so these run with a stand-in rm that only records what it was asked
+// to delete. A refusal has to come before any removal, so it is asked nothing.
+func TestUninstallPurgeRefusesTheFilesystemRootAndRelativePaths(t *testing.T) {
+	for _, stateRoot := range []string{"/", "//", "/.", "/tmp/..", "."} {
+		t.Run(stateRoot, func(t *testing.T) {
+			install := newInstallHarness(t)
+			stub := t.TempDir()
+			log := filepath.Join(stub, "rm.log")
+			script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >>'" + log + "'\n"
+			if err := os.WriteFile(filepath.Join(stub, "rm"), []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			install.environment = append(install.environment,
+				"PATH="+stub+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"WSO2_HOME="+stateRoot)
+
+			stdout, stderr, err := install.runUninstall("--purge")
+			if err == nil {
+				t.Fatalf("uninstall.sh --purge with WSO2_HOME=%s succeeded, want a refusal\nstdout:\n%s\nstderr:\n%s",
+					stateRoot, stdout, stderr)
+			}
+			if asked, readErr := os.ReadFile(log); readErr == nil {
+				t.Errorf("a refused purge still ran rm:\n%s", asked)
+			}
+			if !strings.Contains(stderr, "Refusing to purge") {
+				t.Errorf("nothing told the user why the purge was refused:\nstderr:\n%s", stderr)
+			}
+		})
+	}
+}
+
 func TestUninstallSucceedsWhenNothingIsInstalled(t *testing.T) {
 	install := newInstallHarness(t)
 	if install.writeProfile {
@@ -181,6 +271,59 @@ func TestUninstallLeavesAProfileAloneWhenTheBlockHasNoEnd(t *testing.T) {
 	if !strings.Contains(stdout+stderr, "end marker") {
 		t.Errorf("nothing told the user the block was left in place:\nstdout:\n%s\nstderr:\n%s",
 			stdout, stderr)
+	}
+}
+
+// Markers that do not form exactly one begin-then-end pair leave no safe way to
+// tell the block from the user's own lines: the rewrite would treat everything
+// after a stray begin, or between two, as the block and drop it. Each shape is
+// refused, the profile is left byte for byte, and the user is told why.
+func TestUninstallLeavesAProfileAloneWhenTheMarkersDoNotPairUp(t *testing.T) {
+	const (
+		begin = installBlockMarker
+		end   = "# <<< wso2 cli <<<"
+		user  = "export EDITOR=vim\nalias gs='git status'\n"
+	)
+	for _, tc := range []struct {
+		name    string
+		profile string
+		reason  string
+	}{
+		{
+			name:    "reversed",
+			profile: "# existing profile\n" + end + "\n" + user + begin + "\nexport PATH=\"/somewhere/bin:$PATH\"\n" + user,
+			reason:  "end marker before its start marker",
+		},
+		{
+			name:    "duplicate begin",
+			profile: "# existing profile\n" + begin + "\nexport PATH=\"/somewhere/bin:$PATH\"\n" + user + begin + "\n" + user + end + "\n" + user,
+			reason:  "more than one wso2 block start marker",
+		},
+		{
+			name:    "duplicate end",
+			profile: "# existing profile\n" + begin + "\nexport PATH=\"/somewhere/bin:$PATH\"\n" + end + "\n" + user + end + "\n" + user,
+			reason:  "more than one wso2 block end marker",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			install := newInstallHarness(t)
+			if err := os.WriteFile(install.profilePath, []byte(tc.profile), 0o644); err != nil {
+				t.Fatalf("writing the damaged profile returned %v", err)
+			}
+
+			stdout, stderr, err := install.runUninstall()
+			if err != nil {
+				t.Fatalf("uninstall.sh failed on a malformed profile: %v\nstderr:\n%s", err, stderr)
+			}
+
+			if profile := install.readProfile(t); profile != tc.profile {
+				t.Errorf("the profile was rewritten:\nwant:\n%s\ngot:\n%s", tc.profile, profile)
+			}
+			if !strings.Contains(stderr, install.profilePath) || !strings.Contains(stderr, tc.reason) {
+				t.Errorf("nothing told the user why the block was left in place (want %q):\nstdout:\n%s\nstderr:\n%s",
+					tc.reason, stdout, stderr)
+			}
+		})
 	}
 }
 

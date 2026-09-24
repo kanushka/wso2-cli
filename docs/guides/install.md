@@ -144,7 +144,9 @@ wso2 context delete <name>
 ```
 
 `--purge` then deletes `$WSO2_HOME` itself. It cannot be undone, and a session
-left in the keychain survives it:
+left in the keychain survives it. It refuses, removing nothing, when
+`$WSO2_HOME` resolves to a filesystem or drive root, your home directory, or a
+directory above it:
 
 ```sh
 curl -fsSL https://wso2.github.io/wso2-cli/uninstall.sh | bash -s -- --purge

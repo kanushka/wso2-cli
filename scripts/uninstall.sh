@@ -60,6 +60,48 @@ state_root="${WSO2_HOME:-$HOME/.wso2}"
 bin_dir="${state_root}/bin"
 removed=0
 
+# --purge deletes the state root recursively, and WSO2_HOME chooses it. A
+# mistaken or inherited value — "/", the home directory, a directory above it —
+# would turn a purge into the loss of unrelated data. So the root is resolved
+# the way the filesystem sees it (symlinks, "..", trailing slashes) and refused
+# when it is, or contains, the home directory. This is checked before anything
+# is removed, so a refused purge changes nothing.
+if [ "$PURGE" -eq 1 ] && [ -d "$state_root" ]; then
+	case "$state_root" in
+	/*) ;;
+	*)
+		printf 'error: WSO2_HOME must be an absolute path, got %s.\n' "$state_root" >&2
+		printf 'Refusing to purge. Nothing was removed.\n' >&2
+		exit 1
+		;;
+	esac
+	resolved_root="$(cd -P -- "$state_root" && pwd -P)"
+	resolved_home="$(cd -P -- "$HOME" 2>/dev/null && pwd -P || printf '%s' "$HOME")"
+	# pwd may keep a leading "//", which POSIX leaves implementation-defined;
+	# on the systems this script supports it is the same directory as "/".
+	while :; do
+		case "$resolved_root" in //*) resolved_root="${resolved_root#/}" ;; *) break ;; esac
+	done
+	while :; do
+		case "$resolved_home" in //*) resolved_home="${resolved_home#/}" ;; *) break ;; esac
+	done
+	unsafe=''
+	if [ "$resolved_root" = / ]; then
+		unsafe='the filesystem root'
+	elif [ "$resolved_root" = "$resolved_home" ]; then
+		unsafe='your home directory'
+	else
+		case "${resolved_home%/}/" in
+		"${resolved_root%/}/"*) unsafe='a directory that contains your home directory' ;;
+		esac
+	fi
+	if [ -n "$unsafe" ]; then
+		printf 'error: the state root %s resolves to %s (%s).\n' "$state_root" "$resolved_root" "$unsafe" >&2
+		printf 'Refusing to purge it. Nothing was removed. Check WSO2_HOME.\n' >&2
+		exit 1
+	fi
+fi
+
 # The binary, under the name the installer recorded (an install from before
 # the record was named wso2), and any staging file an interrupted install left
 # beside it.
@@ -89,18 +131,33 @@ fi
 # on putting a directory that no longer exists on PATH.
 for profile in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.profile"; do
 	[ -f "$profile" ] || continue
-	grep -qF "$BLOCK_BEGIN" "$profile" || continue
+	grep -qF -e "$BLOCK_BEGIN" -e "$BLOCK_END" "$profile" || continue
 
-	# Both markers must be present. With only the opening one — a partial install,
-	# or a profile someone edited by hand — everything after it would be treated as
-	# inside the block and dropped, which is the user's own configuration.
-	# Refusing to guess and saying so is the only safe answer.
-	if ! grep -qF "$BLOCK_END" "$profile"; then
-		printf 'warning: %s has the wso2 block start but no end marker.\n' "$profile" >&2
-		printf 'Left it alone rather than guessing where it ends. Remove these lines by hand:\n' >&2
+	# Exactly one begin marker, then exactly one end marker after it. Any other
+	# shape — no end, end before begin, a second begin or end — would make the
+	# rewrite below treat the user's own configuration as inside the block and
+	# drop it. Refusing to guess, leaving the file as it is, and saying why is the
+	# only safe answer. This is the same rule uninstall.ps1 applies, narrowed to a
+	# single block because the installer only ever writes one.
+	problem="$(awk -v begin="$BLOCK_BEGIN" -v end="$BLOCK_END" '
+		$0 == begin { begins++; if (!first_begin) first_begin = NR }
+		$0 == end { ends++; if (!first_end) first_end = NR }
+		END {
+			if (begins == 0 && ends == 0) exit
+			if (begins > 1) print "more than one wso2 block start marker"
+			else if (ends > 1) print "more than one wso2 block end marker"
+			else if (begins == 0) print "a wso2 block end marker but no start marker"
+			else if (ends == 0) print "the wso2 block start but no end marker"
+			else if (first_end < first_begin) print "the wso2 block end marker before its start marker"
+		}' "$profile")"
+	if [ -n "$problem" ]; then
+		printf 'warning: %s has %s.\n' "$profile" "$problem" >&2
+		printf 'Left it alone rather than guessing where the block is. Remove these lines by hand:\n' >&2
 		printf '  %s ... %s\n' "$BLOCK_BEGIN" "$BLOCK_END" >&2
 		continue
 	fi
+	# Markers that only appear as part of longer lines are not a block.
+	grep -qxF "$BLOCK_BEGIN" "$profile" || continue
 
 	staged="${profile}.wso2-uninstall.$$"
 	# Only the lines between the markers go. Everything else is written back

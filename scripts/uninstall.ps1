@@ -44,6 +44,77 @@ $stateRoot = if ($env:WSO2_HOME) { $env:WSO2_HOME } else { Join-Path $HOME '.wso
 $binDir = Join-Path $stateRoot 'bin'
 $removed = $false
 
+# Resolve-RealPath reports where a path really leads: made absolute, ".." and
+# repeated or trailing separators folded, and every symbolic link or junction
+# along it followed. Windows folds ".." before it reaches the file system, so
+# doing that first matches what Remove-Item would act on.
+function Resolve-RealPath([string] $Path) {
+    $full = [System.IO.Path]::GetFullPath($Path)
+    for ($hop = 0; $hop -lt 64; $hop++) {
+        $root = [System.IO.Path]::GetPathRoot($full)
+        $parts = @($full.Substring($root.Length) -split '[\\/]' | Where-Object { $_ })
+        $current = $root
+        $followed = $false
+        for ($k = 0; $k -lt $parts.Count; $k++) {
+            $current = [System.IO.Path]::Combine($current, $parts[$k])
+            $item = Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
+            if ($item -and $item.LinkType -in @('SymbolicLink', 'Junction')) {
+                $target = @($item.Target)[0]
+                if (-not [System.IO.Path]::IsPathRooted($target)) {
+                    $target = [System.IO.Path]::Combine((Split-Path -LiteralPath $current -Parent), $target)
+                }
+                for ($rest = $k + 1; $rest -lt $parts.Count; $rest++) {
+                    $target = [System.IO.Path]::Combine($target, $parts[$rest])
+                }
+                $full = [System.IO.Path]::GetFullPath($target)
+                $followed = $true
+                break
+            }
+        }
+        if (-not $followed) {
+            $trimmed = $full.TrimEnd('\', '/')
+            $rootTrimmed = $root.TrimEnd('\', '/')
+            if ($trimmed.Length -le $rootTrimmed.Length) { return $root }
+            return $trimmed
+        }
+    }
+    throw "too many links while resolving $Path"
+}
+
+# -Purge deletes the state root recursively, and WSO2_HOME chooses it. A
+# mistaken or inherited value — a drive root, the home directory, a directory
+# above it — would turn a purge into the loss of unrelated data. So the root is
+# resolved the way the file system sees it and refused when it is a drive or
+# share root, or is or contains the home directory. This is checked before
+# anything is removed, so a refused purge changes nothing.
+if ($Purge -and (Test-Path -LiteralPath $stateRoot -PathType Container)) {
+    # Absolute means fully qualified: "C:\x" or "\\server\share\x". "\x" and
+    # "C:x" depend on the current drive or directory, as a relative path does.
+    if ($stateRoot -notmatch '^([A-Za-z]:[\\/]|[\\/]{2}[^\\/]|/)' ) {
+        [Console]::Error.WriteLine("error: WSO2_HOME must be an absolute path, got $stateRoot.")
+        [Console]::Error.WriteLine('Refusing to purge. Nothing was removed.')
+        exit 1
+    }
+    $resolvedRoot = Resolve-RealPath $stateRoot
+    $resolvedHome = Resolve-RealPath $HOME
+    $separators = [char[]]@('\', '/')
+    $unsafe = $null
+    if ($resolvedRoot.TrimEnd($separators) -ieq [System.IO.Path]::GetPathRoot($resolvedRoot).TrimEnd($separators)) {
+        $unsafe = 'a drive or file system root'
+    } elseif ($resolvedRoot -ieq $resolvedHome) {
+        $unsafe = 'your home directory'
+    } elseif (($resolvedHome.TrimEnd($separators) + '\').Replace('/', '\').StartsWith(
+            ($resolvedRoot.TrimEnd($separators) + '\').Replace('/', '\'),
+            [System.StringComparison]::OrdinalIgnoreCase)) {
+        $unsafe = 'a directory that contains your home directory'
+    }
+    if ($unsafe) {
+        [Console]::Error.WriteLine("error: the state root $stateRoot resolves to $resolvedRoot ($unsafe).")
+        [Console]::Error.WriteLine('Refusing to purge it. Nothing was removed. Check WSO2_HOME.')
+        exit 1
+    }
+}
+
 # The binary, under the name the installer recorded; an install from before
 # the record was named wso2.
 $nameRecord = Join-Path $binDir '.cli-name'

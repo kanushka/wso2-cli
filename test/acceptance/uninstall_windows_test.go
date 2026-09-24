@@ -130,6 +130,96 @@ func TestUninstallWithPurgeRemovesTheStateRoot(t *testing.T) {
 	}
 }
 
+// WSO2_HOME chooses what -Purge deletes recursively, so a mistaken or inherited
+// value pointing at the home directory — however it is spelled — must be refused
+// before anything is removed. A guard that failed would only delete a temporary
+// directory.
+func TestUninstallPurgeRefusesTheHomeDirectory(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		stateFor func(t *testing.T, home string) string
+	}{
+		{"home", func(t *testing.T, home string) string { return home }},
+		{"trailing separator", func(t *testing.T, home string) string { return home + `\\` }},
+		{"dot dot", func(t *testing.T, home string) string { return filepath.Join(home, "sub") + `\..` }},
+		{"junction", func(t *testing.T, home string) string {
+			link := filepath.Join(filepath.Dir(home), "link-to-home")
+			if output, err := exec.Command("cmd", "/c", "mklink", "/J", link, home).CombinedOutput(); err != nil {
+				t.Fatalf("creating a junction to the home directory returned %v\n%s", err, output)
+			}
+			return link
+		}},
+		{"parent of home", func(t *testing.T, home string) string { return filepath.Dir(home) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			install := newInstallHarness(t)
+			defer install.restoreUserEnvironment(t)
+			if err := os.MkdirAll(filepath.Join(install.home, "sub"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			mine := filepath.Join(install.home, "notes.txt")
+			if err := os.WriteFile(mine, []byte("mine\r\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			stateRoot := tc.stateFor(t, install.home)
+			install.environment = append(install.environment, "WSO2_HOME="+stateRoot)
+
+			stdout, stderr, err := install.runUninstall("-Purge")
+			if err == nil {
+				t.Fatalf("uninstall.ps1 -Purge with WSO2_HOME=%s succeeded, want a refusal\nstdout:\n%s\nstderr:\n%s",
+					stateRoot, stdout, stderr)
+			}
+			if _, statErr := os.Stat(mine); statErr != nil {
+				t.Errorf("a refused purge removed a file in the home directory: %v", statErr)
+			}
+			if !strings.Contains(stderr, "Refusing to purge") {
+				t.Errorf("nothing told the user why the purge was refused:\nstderr:\n%s", stderr)
+			}
+		})
+	}
+}
+
+// A drive root is tried through subst, which maps a spare drive letter onto a
+// temporary directory: a guard that failed would delete only that directory.
+func TestUninstallPurgeRefusesADriveRoot(t *testing.T) {
+	install := newInstallHarness(t)
+	defer install.restoreUserEnvironment(t)
+	target := t.TempDir()
+	mine := filepath.Join(target, "notes.txt")
+	if err := os.WriteFile(mine, []byte("mine\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	drive := ""
+	for letter := 'Z'; letter >= 'M'; letter-- {
+		candidate := string(letter) + ":"
+		if _, err := os.Stat(candidate + `\`); err == nil {
+			continue
+		}
+		if exec.Command("subst", candidate, target).Run() == nil {
+			drive = candidate
+			break
+		}
+	}
+	if drive == "" {
+		t.Skip("no spare drive letter could be mapped with subst")
+	}
+	t.Cleanup(func() { _ = exec.Command("subst", drive, "/D").Run() })
+
+	install.environment = append(install.environment, "WSO2_HOME="+drive+`\`)
+	stdout, stderr, err := install.runUninstall("-Purge")
+	if err == nil {
+		t.Fatalf("uninstall.ps1 -Purge with WSO2_HOME=%s\\ succeeded, want a refusal\nstdout:\n%s\nstderr:\n%s",
+			drive, stdout, stderr)
+	}
+	if _, statErr := os.Stat(mine); statErr != nil {
+		t.Errorf("a refused purge removed a file on the drive root: %v", statErr)
+	}
+	if !strings.Contains(stderr, "Refusing to purge") {
+		t.Errorf("nothing told the user why the purge was refused:\nstderr:\n%s", stderr)
+	}
+}
+
 func TestUninstallSucceedsWhenNothingIsInstalled(t *testing.T) {
 	install := newInstallHarness(t)
 	defer install.restoreUserEnvironment(t)
