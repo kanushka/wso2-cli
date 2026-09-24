@@ -19,6 +19,7 @@ package wizard
 import (
 	"errors"
 	"io"
+	"os"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -115,7 +116,11 @@ func (p formPrompter) runWith(field huh.Field, keymap *huh.KeyMap) (err error) {
 			err = ErrNoAnswer
 		}
 	}()
+	// huh reads numbered lines instead of keys when TERM is dumb. A dumb
+	// terminal is never Drawable, so it gets line prompts before reaching
+	// here; this form is drawn whatever TERM says.
 	err = huh.NewForm(huh.NewGroup(field)).
+		WithAccessible(false).
 		WithInput(p.in).
 		WithOutput(p.out).
 		WithWidth(p.width()).
@@ -130,14 +135,23 @@ func (p formPrompter) runWith(field huh.Field, keymap *huh.KeyMap) (err error) {
 
 // Drawable reports whether out is a terminal that reports a size a form can
 // be drawn in. A pseudo-terminal nobody sized reports zero rows, and a form
-// drawn there shows nothing, so such a terminal gets line prompts.
+// drawn there shows nothing, so such a terminal gets line prompts. So does a
+// terminal that TERM calls dumb, which cannot redraw a form in place.
 func Drawable(out io.Writer) bool {
+	if dumbTerminal() {
+		return false
+	}
 	file, ok := out.(interface{ Fd() uintptr })
 	if !ok {
 		return false
 	}
 	width, height, err := term.GetSize(file.Fd())
 	return err == nil && width > 0 && height > 0
+}
+
+// dumbTerminal reports whether TERM names a terminal without cursor movement.
+func dumbTerminal() bool {
+	return os.Getenv("TERM") == "dumb"
 }
 
 // width is the terminal's width, or a usual one when it cannot be read. huh
