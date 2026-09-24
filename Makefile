@@ -255,8 +255,10 @@ endif
 # test happened to be in flight when the alarm fired, which reads as a hung
 # test rather than as a suite that needed longer. See #147.
 #
-# scripts/acceptance.sh does not hit this, because the gate runs without -race
-# and stays inside the default. The two are meant to run the same tests, so the
+# scripts/acceptance.sh runs without -race but still needs longer than the
+# default on a loaded machine (#235), so it uses this same limit: `make
+# acceptance` passes it through, and the script's fallback for a direct run
+# must match the value here. The two are meant to run the same tests, so the
 # limit is stated here rather than the race detector dropped.
 TEST_TIMEOUT := 30m
 
@@ -279,7 +281,7 @@ lint:
 
 .PHONY: acceptance
 acceptance:
-	./scripts/acceptance.sh
+	TEST_TIMEOUT=$(TEST_TIMEOUT) ./scripts/acceptance.sh
 
 # Builds every release artifact into dist/ and publishes nothing. This is how a
 # contributor checks a change to .goreleaser.yaml, and how the artifact names and

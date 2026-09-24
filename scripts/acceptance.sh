@@ -57,6 +57,15 @@ done
 WSO2_HOME="$isolated_state"
 export WSO2_HOME
 
+# Every go test run below names its timeout rather than inheriting go test's
+# default of ten minutes per package binary. The acceptance package alone takes
+# close to that on an idle machine and past it on a loaded one, and a run that
+# hits the default dies as a panic naming whichever test was in flight, which
+# reads as a hung test rather than as a suite that needed longer. See #147 and
+# #235. The value is the Makefile's TEST_TIMEOUT, which `make acceptance` passes
+# through; the fallback here must match it for a direct run.
+test_timeout=${TEST_TIMEOUT:-30m}
+
 stage() {
 	printf '\n== %s ==\n' "$1"
 }
@@ -77,12 +86,12 @@ stage 'Build the reference module'
 
 # 2. The SDK's own boundary and contract tests, again without the workspace.
 stage 'Test the public SDK'
-(cd sdk && GOWORK=off go test ./...)
+(cd sdk && GOWORK=off go test -timeout "$test_timeout" ./...)
 
 # 3. The reference module's tests, which exercise the SDK as a module author
 #    meets it rather than as this repository composes it.
 stage 'Test the reference module'
-(cd modules/reference && go test ./...)
+(cd modules/reference && go test -timeout "$test_timeout" ./...)
 
 # 4. The shell's build boundaries, unit tests, and integration tests.
 #
@@ -90,7 +99,7 @@ stage 'Test the reference module'
 # an acceptance run that fails because the frame codec is broken reports a
 # module that would not answer, which is a long way from the defect.
 stage 'Test the shell'
-go test ./cmd/... ./internal/...
+go test -timeout "$test_timeout" ./cmd/... ./internal/...
 
 # 5. The black-box acceptance runs: the built shell and the built module, an
 #    isolated managed store and context, the local status service, and the
@@ -102,6 +111,6 @@ go test ./cmd/... ./internal/...
 # since they ran, so the test cache answers for them and only the black-box
 # runs cost anything.
 stage 'Run the black-box acceptance suite'
-go test ./...
+go test -timeout "$test_timeout" ./...
 
 printf '\nThe architecture-proof acceptance gate passed.\n'
