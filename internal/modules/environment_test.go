@@ -70,6 +70,25 @@ func TestAModuleSeesItsOwnNamespaceVariablesOnly(t *testing.T) {
 	}
 }
 
+// TestADeclaringModuleSeesNoWSO2VariableButTheCertificateFile pins the
+// declaration environment: a module asked what commands it serves runs no
+// command, so it is handed nothing under its own prefix or any other.
+func TestADeclaringModuleSeesNoWSO2VariableButTheCertificateFile(t *testing.T) {
+	t.Setenv("WSO2_REFERENCE_SECRET", "not-for-declaration")
+	t.Setenv("WSO2_HOME", "/nowhere")
+	t.Setenv(CAFileEnvVar, "/certs/deployment.pem")
+
+	environment := DeclarationEnvironment()
+	if !slices.Contains(environment, CAFileEnvVar+"=/certs/deployment.pem") {
+		t.Errorf("the certificate file was withheld from declaration: %q", environment)
+	}
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, "WSO2_") && !strings.HasPrefix(entry, CAFileEnvVar+"=") {
+			t.Errorf("a declaring module was handed %q", entry)
+		}
+	}
+}
+
 func TestAModuleNeverSeesTheShellsOwnCredentialVariables(t *testing.T) {
 	// The apim bootstrap suggests WSO2_APIM_CLIENT_SECRET for the identity's
 	// own secret, which sits under the module's prefix. The shell reads it;
