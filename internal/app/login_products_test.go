@@ -271,7 +271,7 @@ func TestLoginOnlyAnExchangedProductAuthorizesNothing(t *testing.T) {
 	// a browser.
 	keyring.MockInit()
 	shell, out, errOut := newLoginShell(t)
-	document := thunderDoc("http://login.example", "http://apim.example")
+	document := thunderDoc("https://login.example", "https://apim.example")
 	document.Contexts[0].Products["api"] = contexts.Product{
 		Endpoint: "http://api.example", Audience: "http://api.example",
 		Grant: &contexts.Grant{Kind: contexts.GrantExchange}}

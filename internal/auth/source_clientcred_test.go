@@ -17,9 +17,13 @@
 package auth_test
 
 import (
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -179,6 +183,66 @@ func TestAnInlineIdentityWithoutItsClientSecretRefusesAndTellsOnlyTheUserWhere(t
 				t.Errorf("the module-safe refusal names the credential source: %q", moduleSafe)
 			}
 		})
+	}
+}
+
+// recordingTransport notes every host a request is addressed to, and answers
+// none addressed anywhere but the one it serves.
+type recordingTransport struct {
+	serves  string
+	next    http.RoundTripper
+	mutex   sync.Mutex
+	strayed []string
+}
+
+func (r *recordingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.URL.Host != r.serves {
+		r.mutex.Lock()
+		r.strayed = append(r.strayed, request.URL.String())
+		r.mutex.Unlock()
+		return nil, errors.New("recordingTransport: refused a request to another host")
+	}
+	return r.next.RoundTrip(request)
+}
+
+func TestAnInlineIdentityRefusesATokenEndpointServedInPlainHTTP(t *testing.T) {
+	// The issuer itself is HTTPS, but its configuration names a plaintext
+	// token endpoint on the network. Following it would send the client secret
+	// in the clear, so the shell refuses before it makes the request.
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/.well-known/openid-configuration" {
+			http.NotFound(w, r)
+			return
+		}
+		issuer := "https://" + r.Host
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer":                 issuer,
+			"authorization_endpoint": issuer + "/authorize",
+			"token_endpoint":         "http://login.example.test/token",
+			"jwks_uri":               issuer + "/jwks",
+		})
+	}))
+	t.Cleanup(server.Close)
+	transport := &recordingTransport{
+		serves: strings.TrimPrefix(server.URL, "https://"),
+		next:   server.Client().Transport,
+	}
+	deployment := deployInline(t, fakeissuer.Options{})
+	broker := deployment.broker(t)
+	broker.Selection.Identity.Auth.Issuer = server.URL
+	broker.HTTPClient = &http.Client{Transport: transport}
+
+	refusal := denied(t, broker, declaredRequest())
+
+	if refusal.Problem.Code != "auth.discovery_failed" {
+		t.Errorf("code = %q, want auth.discovery_failed", refusal.Problem.Code)
+	}
+	if !strings.Contains(refusal.Problem.Message, "HTTPS") {
+		t.Errorf("the refusal does not name the cause: %q", refusal.Problem.Message)
+	}
+	if len(transport.strayed) != 0 {
+		t.Errorf("the shell followed the plaintext endpoint: %v", transport.strayed)
 	}
 }
 

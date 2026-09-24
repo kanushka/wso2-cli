@@ -58,7 +58,7 @@ func gatewayDoc(loginIssuer, productIssuer string) contexts.Document {
 func TestADocumentCarryingAGatewayRecordDecodesAndOneWithoutAnAudienceIsRefused(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
-	installLogin(t, shell, gatewayDoc("http://login.example", "http://apim.example"))
+	installLogin(t, shell, gatewayDoc("https://login.example", "https://apim.example"))
 	if code := shell.Run([]string{"context", "show"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
@@ -87,10 +87,10 @@ func TestDoctorCountsTheGatewaySessionBesideTheManagementOne(t *testing.T) {
 	keyring.MockInit()
 	shell, out, _ := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
-	installLogin(t, shell, gatewayDoc("http://login.example", "http://apim.example"))
+	installLogin(t, shell, gatewayDoc("https://login.example", "https://apim.example"))
 	store := session.Store{StateRoot: shell.StateRoot}
 	for _, ref := range []string{credentialRef, contexts.ProductSessionRef(credentialRef, "apim")} {
-		if err := store.Save(ref, session.Session{Issuer: "http://login.example", RefreshToken: "rt"}); err != nil {
+		if err := store.Save(ref, session.Session{Issuer: "https://login.example", RefreshToken: "rt"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -107,7 +107,7 @@ func TestDoctorCountsTheGatewaySessionBesideTheManagementOne(t *testing.T) {
 	// With the gateway session stored the check passes: every session the
 	// identity needs exists, the gateway's among them.
 	if err := store.Save(contexts.ProductSessionRef(credentialRef, contexts.GatewayKey("apim")),
-		session.Session{Issuer: "http://login.example", RefreshToken: "rt"}); err != nil {
+		session.Session{Issuer: "https://login.example", RefreshToken: "rt"}); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()
@@ -218,13 +218,13 @@ func TestWhoamiShowsTheGatewayRecordBesideTheManagementOne(t *testing.T) {
 	keyring.MockInit()
 	shell, out, errOut := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
-	installLogin(t, shell, gatewayDoc("http://login.example", "http://apim.example"))
+	installLogin(t, shell, gatewayDoc("https://login.example", "https://apim.example"))
 	store := session.Store{StateRoot: shell.StateRoot}
-	if err := store.Save(credentialRef, session.Session{Issuer: "http://login.example", RefreshToken: "rt", Subject: "user-1"}); err != nil {
+	if err := store.Save(credentialRef, session.Session{Issuer: "https://login.example", RefreshToken: "rt", Subject: "user-1"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Save(contexts.ProductSessionRef(credentialRef, contexts.GatewayKey("apim")),
-		session.Session{Issuer: "http://login.example", RefreshToken: "rt2", Strategy: contexts.StrategySibling}); err != nil {
+		session.Session{Issuer: "https://login.example", RefreshToken: "rt2", Strategy: contexts.StrategySibling}); err != nil {
 		t.Fatal(err)
 	}
 	if code := shell.Run([]string{"whoami"}); code != exit.OK {
@@ -246,7 +246,7 @@ func TestWhoamiShowsTheGatewayRecordBesideTheManagementOne(t *testing.T) {
 	}
 	// A client-credentials identity reaches the gateway inline, like every
 	// other record.
-	machine := gatewayDoc("http://login.example", "http://apim.example")
+	machine := gatewayDoc("https://login.example", "https://apim.example")
 	machine.Contexts[0].Login.Kind = contexts.KindClientCredentials
 	machine.Contexts[0].CredentialRef = ""
 	machine.Contexts[0].Login.ClientSecretVariable = "WSO2_CI_CLIENT_SECRET"

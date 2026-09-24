@@ -23,6 +23,8 @@ import (
 	"strings"
 
 	oidc "github.com/coreos/go-oidc/v3/oidc"
+
+	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
 )
 
 // Revocation is what the shell established about the issuer's own copy of a
@@ -99,6 +101,11 @@ func (r Revoke) Run(ctx context.Context) Revocation {
 		// unsupported deployment: the shell learned nothing either way, and
 		// reporting "publishes no revocation endpoint" would state a fact about
 		// a document it never read.
+		return RevocationFailed
+	}
+	// A revocation carries the refresh token, so an endpoint the shell may
+	// not speak to is a revocation it cannot make.
+	if issuertrust.Plaintext(provider.Claims) {
 		return RevocationFailed
 	}
 	var advertised struct {

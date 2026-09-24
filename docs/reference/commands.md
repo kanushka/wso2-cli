@@ -75,7 +75,7 @@ Every refusal `wso2 login` and a brokered command make carries a typed code.
 | Code | Meaning | Fix |
 | --- | --- | --- |
 | `auth.context_not_selected` | No context document exists, or none is selected. | `wso2 context use <name>`, `wso2 context apply -f <file>`, or `wso2 login --url <issuer> --client-id <id>`. |
-| `auth.discovery_failed` | The issuer's OpenID configuration could not be read or is unusable: an inexact `issuer`, no network path, no `S256` support, or no loopback port free. | Compare `issuer` to `<issuer>/.well-known/openid-configuration` character for character; check connectivity; enable PKCE `S256`; free a port in 10425-10428. |
+| `auth.discovery_failed` | The issuer's OpenID configuration could not be read or is unusable: an inexact `issuer`, no network path, no `S256` support, an endpoint advertised over plain `http` on a non-loopback host, or no loopback port free. | Compare `issuer` to `<issuer>/.well-known/openid-configuration` character for character; check connectivity; enable PKCE `S256`; serve every endpoint over `https`; free a port in 10425-10428. |
 | `auth.certificate_untrusted` | The issuer's TLS certificate is not trusted by this machine — the usual first failure against a fresh self-hosted install. | Trust the certificate, or set `WSO2_CA_FILE`; see [Trusting a deployment's certificate](#trusting-a-deployments-certificate). |
 | `auth.login_required` | No usable session for this `credentialRef`: never logged in, or the deployment stopped accepting the stored refresh token. | Run `wso2 login` again. |
 | `auth.keyring_unavailable` | The OS secure store could not be used (commonly no Secret Service on headless Linux). | Start a keyring daemon, or use a `client-credentials` context. |

@@ -23,6 +23,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
 )
 
 // The deployment kinds an identity may declare in its type member.
@@ -537,8 +539,20 @@ func (a AccountAuth) validate(identity string) error {
 		if parsed.User != nil {
 			return malformed(fmt.Sprintf("declares an issuer for the %s that embeds credentials in its URL", identity))
 		}
+		if !issuertrust.Secure(parsed) {
+			return plaintextIssuer(fmt.Sprintf("the issuer for the %s", identity))
+		}
 	}
 	return nil
+}
+
+// plaintextIssuer refuses an issuer the shell would send credentials to in the
+// clear. The issuer is not echoed, for the same reason no rejected URL is.
+func plaintextIssuer(subject string) error {
+	return contextProblem("contexts.document_malformed",
+		subject+" is not served over HTTPS",
+		"Use an https:// issuer. Plain http is accepted only on a loopback host (localhost, "+
+			"127.0.0.1, ::1), because the shell sends credentials to the issuer.")
 }
 
 func (p Product) validate(identity string) error {
@@ -664,6 +678,9 @@ func (g Grant) validate(identity string) error {
 			fmt.Sprintf("a product grant on the %s embeds credentials in its issuer URL", identity),
 			"Remove the user information from the issuer. A context names a credential source; "+
 				"it never carries a credential.")
+	}
+	if !issuertrust.Secure(parsed) {
+		return plaintextIssuer(fmt.Sprintf("a product grant's issuer on the %s", identity))
 	}
 	if g.Resource != "" && !absoluteURI(g.Resource) {
 		return malformed(fmt.Sprintf(

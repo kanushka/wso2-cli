@@ -182,6 +182,9 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 			"the shell could not read the identity provider's OpenID configuration",
 			"Check the issuer of the selected context and that this machine can reach it, then retry.")
 	}
+	if issuertrust.Plaintext(provider.Claims) {
+		return Result{}, issuertrust.PlaintextProblem()
+	}
 	var capabilities struct {
 		CodeChallengeMethods []string `json:"code_challenge_methods_supported"`
 	}

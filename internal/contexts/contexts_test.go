@@ -517,6 +517,38 @@ func duplicateElement(doc, member string) string {
 	return string(out)
 }
 
+func TestAnIssuerOverPlainHTTPIsRefusedUnlessItIsLoopback(t *testing.T) {
+	// The shell sends client secrets and refresh tokens to the issuer, so a
+	// plaintext issuer on the network hands them to anyone on the path. Only a
+	// loopback host, where there is no path, may be spoken to in plain HTTP.
+	const declared = `"issuer": "https://issuer.example.test/t/acme/oauth2/token"`
+	for issuer, wantCode := range map[string]string{
+		"http://issuer.example.test/t/acme/oauth2/token": "contexts.document_malformed",
+		"http://10.0.0.5:9443/oauth2/token":              "contexts.document_malformed",
+		"http://localhost.example.test/oauth2/token":     "contexts.document_malformed",
+		"http://localhost:9443/oauth2/token":             "",
+		"http://LOCALHOST:9443/oauth2/token":             "",
+		"http://127.0.0.1:8090":                          "",
+		"http://127.10.0.1:8090":                         "",
+		"http://[::1]:9443/oauth2/token":                 "",
+	} {
+		t.Run(issuer, func(t *testing.T) {
+			_, err := contexts.Decode([]byte(replace(declared, `"issuer": "`+issuer+`"`)(validV2())))
+			assertProblemCode(t, err, wantCode)
+			if wantCode == "" {
+				return
+			}
+			var typed problem.Problem
+			if errors.As(err, &typed) && !strings.Contains(typed.Message, "HTTPS") {
+				t.Errorf("the refusal does not name the cause: %q", typed.Message)
+			}
+			if strings.Contains(err.Error(), issuer) {
+				t.Errorf("the refusal echoes the issuer: %q", err.Error())
+			}
+		})
+	}
+}
+
 // assertProblemCode proves an error is a typed problem with the given code.
 func assertProblemCode(t *testing.T, err error, code string) {
 	t.Helper()

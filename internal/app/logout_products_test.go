@@ -66,7 +66,7 @@ func TestLogoutOnAClientCredentialsIdentityExitsCleanly(t *testing.T) {
 	keyring.MockInit()
 	shell, out, errOut := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
-	installLogin(t, shell, identityDoc(contexts.KindClientCredentials)("http://login.example"))
+	installLogin(t, shell, identityDoc(contexts.KindClientCredentials)("https://login.example"))
 	if code := shell.Run([]string{"logout"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}

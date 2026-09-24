@@ -241,3 +241,23 @@ func TestAnExchangeGrantWritesNoEmptyIssuerAndClient(t *testing.T) {
 		t.Fatalf("the exchange grant wrote empty issuer and client members:\n%s", encoded)
 	}
 }
+
+func TestAGrantIssuerOverPlainHTTPIsRefusedUnlessItIsLoopback(t *testing.T) {
+	for issuer, refused := range map[string]bool{
+		"http://apim.example.test/oauth2/token": true,
+		"http://localhost:9443/oauth2/token":    false,
+	} {
+		t.Run(issuer, func(t *testing.T) {
+			grant := strings.Replace(validGrant, `"issuer": "https://apim.example.test/oauth2/token"`,
+				`"issuer": "`+issuer+`"`, 1)
+			_, err := contexts.Decode([]byte(withGrantProduct(validV2(), grant)))
+			var typed problem.Problem
+			switch {
+			case refused && (!errors.As(err, &typed) || typed.Code != "contexts.document_malformed"):
+				t.Fatalf("a plaintext grant issuer was not refused: %v", err)
+			case !refused && err != nil:
+				t.Fatalf("a loopback grant issuer was refused: %v", err)
+			}
+		})
+	}
+}
