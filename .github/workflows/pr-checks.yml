@@ -19,7 +19,7 @@ jobs:
       sdk: ${{ steps.changes.outputs.sdk }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -35,12 +35,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.25.x'
           cache-dependency-path: |
@@ -131,18 +131,74 @@ jobs:
 
       - name: Lint shell
         if: needs.changes.outputs.shell == 'true'
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.12
 
       - name: Lint SDK
         if: needs.changes.outputs.sdk == 'true'
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         env:
           GOWORK: off
         with:
           version: v2.12
           working-directory: sdk
+
+  # A reachable advisory in the standard library or a dependency blocks the
+  # pull request. govulncheck exits non-zero only for vulnerable symbols the
+  # code actually calls, so an advisory in an unused corner of a dependency is
+  # reported without failing the job. The shell, the SDK, and every product
+  # module under modules/ are scanned. The SDK is scanned outside the workspace,
+  # as it is vetted above; the product modules resolve through the workspace,
+  # as they do in the rest of this gate.
+  vulnerabilities:
+    name: Vulnerability Scan
+    needs: changes
+    if: needs.changes.outputs.shell == 'true' || needs.changes.outputs.sdk == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: |
+            go.mod
+            sdk/go.mod
+
+      # govulncheck v1.8.0 needs Go 1.26 to build. Only the build uses that
+      # toolchain; the scans below run on the Go the project declares.
+      - name: Install govulncheck
+        env:
+          GOTOOLCHAIN: go1.26.4
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+
+      - name: Scan the shell
+        run: govulncheck ./...
+
+      - name: Scan the SDK
+        working-directory: sdk
+        env:
+          GOWORK: off
+        run: govulncheck ./...
+
+      - name: Scan the product modules
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          status=0
+          for mod in modules/*/go.mod; do
+            dir="$(dirname "$mod")"
+            echo "::group::govulncheck ${dir}"
+            (cd "$dir" && govulncheck ./...) || status=1
+            echo "::endgroup::"
+          done
+          exit "$status"
 
   # The Windows installer cannot be driven from the Linux gate: PowerShell, the
   # per-user environment variables it writes, and Expand-Archive only exist here.
@@ -156,12 +212,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.25.x'
           cache-dependency-path: |
@@ -180,12 +236,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.25.x'
           cache-dependency-path: |
@@ -217,12 +273,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.25.x'
           cache-dependency-path: |
