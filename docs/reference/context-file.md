@@ -225,7 +225,7 @@ Apply refuses the whole file and writes nothing. The message names the cause:
 | `selects a context (defaultContext), and a shared file never does` | a selection in the file |
 | `logs the context "x" in through the "y" product, which it does not list under products` | `login.product` names a namespace with no `products` entry |
 | `gives the context "x" neither a login product nor an issuer and client id` | no way to log in |
-| `the y url on x value is not served over HTTPS` | a product or gateway `url` in plain `http` on a host that is not loopback |
+| `a product url on the context "x" is not served over HTTPS` (or `a product gateway url on the context "x" …`) | a product or gateway `url` in plain `http` on a host that is not loopback |
 | `json: unknown field "logn"` | a misspelled or unsupported member |
 
 With `--no-install`, a login product that is not installed must also state
