@@ -114,7 +114,7 @@ func TestCompletionLinesGoInsideTheWso2Block(t *testing.T) {
 			"load\n\n" + profileBlockBegin + "\nfirst\nload\n" + profileBlockEnd + "\n", true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got, changed, err := withCompletionLines(test.contents, lines, "profile")
+			got, changed, err := withCompletionLines(test.contents, lines, shellZsh, "profile")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -126,7 +126,7 @@ func TestCompletionLinesGoInsideTheWso2Block(t *testing.T) {
 }
 
 func TestABlockWithNoEndIsLeftAlone(t *testing.T) {
-	_, _, err := withCompletionLines(profileBlockBegin+"\nexport X=1\n", []string{"load"}, "profile")
+	_, _, err := withCompletionLines(profileBlockBegin+"\nexport X=1\n", []string{"load"}, shellZsh, "profile")
 	if err == nil || !strings.Contains(err.Error(), profileBlockEnd) {
 		t.Fatalf("err = %v, want a refusal naming the end marker", err)
 	}

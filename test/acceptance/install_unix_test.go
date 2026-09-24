@@ -117,7 +117,7 @@ func TestInstallScriptIsIdempotent(t *testing.T) {
 	if blocks := strings.Count(profile, installBlockMarker); blocks != 1 {
 		t.Errorf("profile carries %d install blocks after two runs, want exactly 1:\n%s", blocks, profile)
 	}
-	if lines := strings.Count(profile, bashCompletionLine); lines != 1 {
+	if lines := strings.Count(profile, install.bashCompletionLine()); lines != 1 {
 		t.Errorf("profile loads completion %d times after two runs, want exactly 1:\n%s", lines, profile)
 	}
 }
@@ -277,7 +277,7 @@ func TestInstallScriptReplacesABlockPointingSomewhereElse(t *testing.T) {
 		t.Errorf("profile does not put the new %s on PATH:\n%s", want, profile)
 	}
 	// Rewriting the block for the new root must not lose completion.
-	if lines := strings.Count(profile, bashCompletionLine); lines != 1 {
+	if lines := strings.Count(profile, install.bashCompletionLine()); lines != 1 {
 		t.Errorf("profile loads completion %d times, want exactly 1:\n%s", lines, profile)
 	}
 	// The lines that were in the profile before any install must survive a rewrite.
@@ -323,7 +323,7 @@ func TestInstallScriptLeavesTheProfileAloneWhenAsked(t *testing.T) {
 		t.Errorf("output does not tell the user to add %s to PATH:\n%s", want, stdout)
 	}
 	// And how to get tab completion, without it being set up for them.
-	if !strings.Contains(stdout, bashCompletionLine) {
+	if !strings.Contains(stdout, install.bashCompletionLine()) {
 		t.Errorf("output does not print the completion line to add by hand:\n%s", stdout)
 	}
 	if strings.Contains(stdout, "Tab completion added") {
@@ -415,8 +415,64 @@ func TestInstallScriptHonoursTheStateRootVariable(t *testing.T) {
 }
 
 // bashCompletionLine is what the installer adds for a bash user, inside its
-// block, so that every new terminal loads the completion script.
-const bashCompletionLine = `eval "$(wso2 completion bash)"`
+// block, so that every new terminal loads the completion script: the installed
+// binary run by its path, and only while it is there.
+func (i *installHarness) bashCompletionLine() string {
+	quoted := "'" + strings.ReplaceAll(i.installedBinary(), "'", `'\''`) + "'"
+	return "[ -x " + quoted + ` ] && eval "$(` + quoted + ` completion bash)"`
+}
+
+// The profile evaluates what the completion command prints, so it must run the
+// installed binary and not whichever same-named program is first on PATH when
+// the line runs, and a binary that has since gone must not make every new
+// terminal complain.
+func TestInstalledCompletionIgnoresAnEarlierSameNamedCommand(t *testing.T) {
+	install := newInstallHarness(t)
+	if stdout, stderr, err := install.run(); err != nil {
+		t.Fatalf("install.sh failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+
+	hostile := t.TempDir()
+	ran := filepath.Join(t.TempDir(), "hostile-ran")
+	if err := os.WriteFile(filepath.Join(hostile, "wso2"), []byte("#!/bin/sh\ntouch '"+ran+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Something in the profile puts the other command first on PATH before the
+	// completion line runs.
+	profile := install.readProfile(t)
+	line := install.bashCompletionLine()
+	if !strings.Contains(profile, line) {
+		t.Fatalf("the install did not set up completion, so this proves nothing:\n%s", profile)
+	}
+	profile = strings.Replace(profile, line, `export PATH="`+hostile+`:$PATH"`+"\n"+line, 1)
+	if err := os.WriteFile(install.profilePath, []byte(profile), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	command := exec.Command("bash", "-c", `source "$HOME/.bashrc" && complete -p wso2`)
+	command.Env = []string{"HOME=" + install.home, "PATH=" + os.Getenv("PATH")}
+	if registered, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("a new bash did not register completion for wso2: %v\n%s", err, registered)
+	}
+	if _, err := os.Stat(ran); err == nil {
+		t.Error("a new terminal ran the same-named command earlier on PATH")
+	}
+
+	if err := os.Remove(install.installedBinary()); err != nil {
+		t.Fatal(err)
+	}
+	command = exec.Command("bash", "-c", `source "$HOME/.bashrc"`)
+	command.Env = []string{"HOME=" + install.home, "PATH=" + os.Getenv("PATH")}
+	var stderr strings.Builder
+	command.Stderr = &stderr
+	_ = command.Run()
+	if stderr.Len() != 0 {
+		t.Errorf("a new terminal complains once the binary is gone:\n%s", stderr.String())
+	}
+	if _, err := os.Stat(ran); err == nil {
+		t.Error("with the binary gone, a new terminal ran the same-named command earlier on PATH")
+	}
+}
 
 func TestInstallScriptSetsUpTabCompletion(t *testing.T) {
 	install := newInstallHarness(t)
@@ -430,7 +486,7 @@ func TestInstallScriptSetsUpTabCompletion(t *testing.T) {
 	}
 	profile := install.readProfile(t)
 	block := profile[strings.Index(profile, installBlockMarker):]
-	if !strings.Contains(block, bashCompletionLine) {
+	if !strings.Contains(block, install.bashCompletionLine()) {
 		t.Errorf("the install block does not load completion:\n%s", profile)
 	}
 

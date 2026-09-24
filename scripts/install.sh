@@ -308,18 +308,32 @@ print_manual_path_instructions() {
 # completion_lines reports the profile lines that load tab completion for the
 # running shell, or nothing for a shell the CLI cannot complete in. zsh needs
 # compinit first, which a plain zsh profile never runs.
+#
+# They run the installed binary by its path, as `completion install` writes
+# them: the shell evaluates what the command prints, so running it by name
+# would evaluate whatever same-named program comes first on PATH.
 completion_lines() {
-	local cli_name="$1"
+	local binary="$1" quoted
 	case "${SHELL##*/}" in
-	zsh) printf 'autoload -Uz compinit && compinit\nsource <(%s completion zsh)\n' "$cli_name" ;;
-	bash) printf 'eval "$(%s completion bash)"\n' "$cli_name" ;;
-	fish) printf '%s completion fish | source\n' "$cli_name" ;;
+	zsh | bash)
+		quoted="'$(printf '%s' "$binary" | sed "s/'/'\\\\''/g")'"
+		if [ "${SHELL##*/}" = zsh ]; then
+			printf 'autoload -Uz compinit && compinit\n[[ -x %s ]] && source <(%s completion zsh)\n' "$quoted" "$quoted"
+		else
+			# shellcheck disable=SC2016 # the $( ) is for the profile to run.
+			printf '[ -x %s ] && eval "$(%s completion bash)"\n' "$quoted" "$quoted"
+		fi
+		;;
+	fish)
+		quoted="'$(printf '%s' "$binary" | sed -e 's/\\/\\\\/g' -e "s/'/\\\\'/g")'"
+		printf 'test -x %s; and %s completion fish | source\n' "$quoted" "$quoted"
+		;;
 	esac
 }
 
 print_manual_completion_instructions() {
-	local cli_name="$1" lines line
-	lines="$(completion_lines "$cli_name")"
+	local binary="$1" lines line
+	lines="$(completion_lines "$binary")"
 	[ -n "$lines" ] || return 0
 	printf '\nFor tab completion, add this to your shell profile too:\n\n'
 	while IFS= read -r line; do
@@ -440,7 +454,7 @@ main() {
 	if [ -n "${WSO2_CLI_NO_PROFILE:-}" ]; then
 		print_manual_path_instructions "$state_root" "$bin_dir" \
 			'Left your shell profile untouched, as asked.'
-		print_manual_completion_instructions "$cli_name"
+		print_manual_completion_instructions "${bin_dir}/${cli_name}"
 	else
 		local profile
 		# Detecting nothing is an ordinary outcome, not a failure: the `|| true`
@@ -450,7 +464,7 @@ main() {
 		if [ -z "$profile" ]; then
 			print_manual_path_instructions "$state_root" "$bin_dir" \
 				'No shell profile was detected, so none was edited.'
-			print_manual_completion_instructions "$cli_name"
+			print_manual_completion_instructions "${bin_dir}/${cli_name}"
 		elif [ ! -w "$profile" ]; then
 			# The binary is already installed by this point. Failing here would
 			# abandon a working install over a file this script cannot write, and
@@ -458,7 +472,7 @@ main() {
 			# can act on.
 			print_manual_path_instructions "$state_root" "$bin_dir" \
 				"Your profile ${profile} is not writable, so it was left alone."
-			print_manual_completion_instructions "$cli_name"
+			print_manual_completion_instructions "${bin_dir}/${cli_name}"
 		else
 			wire_path "$state_root" "$bin_dir" "$profile"
 			set_up_completion "$state_root" "${bin_dir}/${cli_name}" "$cli_name"
