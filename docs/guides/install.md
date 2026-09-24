@@ -29,6 +29,27 @@ printed (`ws` for a stock release). Supported platforms: Linux (`amd64`, `arm64`
 To read the scripts first, see `scripts/install.sh` and `scripts/install.ps1`
 in this repository.
 
+## What the installer verifies
+
+The archive and `checksums.txt` come from the same GitHub release. The
+installer finds the checksum line whose file name matches the archive exactly,
+computes SHA-256, and refuses to extract on a mismatch or a missing line, so a
+failed check installs nothing.
+
+A matching checksum proves the archive is the one published beside it. It does
+not establish:
+
+- **The checksum file.** It is downloaded from the same release as the archive,
+  so whoever can replace one can replace both. Authenticity rests on HTTPS and
+  on control of this repository and its release workflow.
+- **The install script.** `curl ... | bash` runs the response from GitHub Pages
+  without checking a digest or signature first. Read `scripts/install.sh` here,
+  or install by hand, if that matters for your environment.
+- **The binary.** Releases are not signed or notarized, carry no provenance
+  attestation or SBOM, and neither the installer nor the release workflow runs
+  a malware or vulnerability scan. See
+  [release artifacts](../reference/release-artifacts.md).
+
 ## Install by hand
 
 1. On the [releases page](https://github.com/wso2/wso2-cli/releases), download
