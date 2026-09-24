@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/wso2/wso2-cli/internal/auth/session"
+	"github.com/wso2/wso2-cli/internal/auth/trustedhttp"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/modules"
 )
@@ -425,8 +426,5 @@ func (b *Broker) inlineSource(request Request) (source, error) {
 // rather than one this package builds, so a deployment's proxy and certificate
 // configuration applies to shell traffic exactly as it does to everything else.
 func (b *Broker) httpClient() *http.Client {
-	if b.HTTPClient != nil {
-		return b.HTTPClient
-	}
-	return http.DefaultClient
+	return trustedhttp.Client(b.HTTPClient)
 }

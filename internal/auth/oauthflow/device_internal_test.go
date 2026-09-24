@@ -18,6 +18,8 @@ package oauthflow
 
 import (
 	"math"
+	"net/http"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -76,5 +78,23 @@ func TestTheClampNeverPollsSoonerThanADeploymentAsked(t *testing.T) {
 	if ceiling := time.Duration(maxPollIntervalSeconds) * time.Second; ceiling <= longestLoginDeadline {
 		t.Fatalf("the interval ceiling %v is within the %v a login may run for, so clamping "+
 			"could make the shell poll sooner than a deployment asked", ceiling, longestLoginDeadline)
+	}
+}
+
+// Code exchange and device polling post the code or device code, and a 307
+// resends it. Both flows' clients refuse a redirect off HTTPS.
+func TestLoginAndDeviceClientsRefuseAPlaintextRedirect(t *testing.T) {
+	target, err := url.Parse("http://issuer.example/token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := &http.Request{URL: target}
+	for name, client := range map[string]*http.Client{
+		"login":  Login{}.httpClient(),
+		"device": DeviceLogin{}.httpClient(),
+	} {
+		if client.CheckRedirect == nil || client.CheckRedirect(request, nil) == nil {
+			t.Fatalf("%s: a redirect to plain http was allowed", name)
+		}
 	}
 }

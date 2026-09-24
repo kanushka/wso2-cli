@@ -58,6 +58,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
+	"github.com/wso2/wso2-cli/internal/auth/trustedhttp"
 	"github.com/wso2/wso2-cli/internal/output"
 
 	"github.com/wso2/wso2-cli/sdk/problem"
@@ -346,9 +347,9 @@ func (l Login) httpClient() *http.Client {
 	if l.HTTPClient != nil {
 		base = l.HTTPClient
 	}
-	stripped := *base
+	stripped := trustedhttp.Client(base)
 	stripped.Transport = certificateStripper{base: base.Transport}
-	return &stripped
+	return stripped
 }
 
 func (l Login) out() io.Writer {
