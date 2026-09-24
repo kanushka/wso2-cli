@@ -170,7 +170,11 @@ jobs:
             go.mod
             sdk/go.mod
 
+      # govulncheck v1.8.0 needs Go 1.26 to build. Only the build uses that
+      # toolchain; the scans below run on the Go the project declares.
       - name: Install govulncheck
+        env:
+          GOTOOLCHAIN: go1.26.4
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
 
       - name: Scan the shell
