@@ -60,8 +60,7 @@ The principal documents are:
 
 - [Architecture](docs/architecture.md)
 - [CLI commands](docs/reference/commands.md)
-- [Install](docs/guides/install.md)
-- [Use the CLI](docs/guides/using-the-cli.md)
+- [Install and use the CLI](docs/guides/install.md)
 - [Build a module](docs/guides/build-module-quickstart.md)
 - [Set up the example module](docs/guides/setup-example-module.md)
 - [Context file reference](docs/reference/context-file.md)

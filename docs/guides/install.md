@@ -1,4 +1,4 @@
-# Install the WSO2 CLI
+# Install and use the WSO2 CLI
 
 The installer downloads a release from GitHub, checks it against the
 published `checksums.txt`, and installs it under `~/.wso2`. It needs no
@@ -28,6 +28,68 @@ printed (`ws` for a stock release). Supported platforms: Linux (`amd64`, `arm64`
 
 To read the scripts first, see `scripts/install.sh` and `scripts/install.ps1`
 in this repository.
+
+## Install a product
+
+Products add commands to the CLI. List what the catalog offers, then install
+the product you need:
+
+```sh
+ws product list
+ws product install <product>
+ws product list
+```
+
+Replace `<product>` with a name from the list. The second list shows its
+installed version. Add `--channel prerelease` to install a prerelease, or use
+`ws product install <product>@<version>` to pin an exact version.
+
+## Create a context and log in
+
+A context records where to connect and how to sign in. In a terminal, run:
+
+```sh
+ws context create
+```
+
+Follow the prompts to name the context, choose a login method, and record the
+products it reaches. Then check the result and sign in:
+
+```sh
+ws context show
+ws login
+ws whoami
+```
+
+If your team provides a context file, use
+`ws context apply -f <file> --use <name>` instead. See the
+[context file reference](../reference/context-file.md).
+
+## Run product commands
+
+An installed product has its own help and commands:
+
+```sh
+ws <product> --help
+ws context list
+ws context use <name>
+```
+
+Use `--context <name>` on a command to target another context without changing
+the selected one. Run `ws context show` to check which context is selected and
+which product endpoints it records.
+
+## Update
+
+```sh
+ws product list
+ws product update <product>
+```
+
+Run `ws product update --all` to update all installed products that follow a
+channel. To update the CLI itself, run the installer again. Run `ws logout`
+when you finish using a context. For more commands and flags, see the
+[command reference](../reference/commands.md).
 
 ## What the installer verifies
 
@@ -137,17 +199,6 @@ terminal opens, so it never goes stale, and a product you install completes at
 once. `ws completion <shell>` prints the script itself when its output is piped;
 typed at a terminal it says how to set completion up, and `--print` prints the
 script anyway.
-
-## Install a product
-
-```sh
-ws product list
-ws product install reference
-ws product remove reference --yes
-```
-
-`ws product install <product>@<version>` pins an exact version.
-`--channel prerelease` installs from the prerelease channel.
 
 ## Uninstall
 

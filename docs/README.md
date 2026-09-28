@@ -17,8 +17,7 @@ that list wins.
 
 Short task documents.
 
-- [Install](guides/install.md) the CLI.
-- [Use the CLI](guides/using-the-cli.md): install, sign in, run commands, and update products.
+- [Install and use the CLI](guides/install.md): sign in, run commands, and update products.
 - Set up a login provider:
   [Asgardeo](guides/setup-asgardeo.md),
   [Identity Server 7.x](guides/setup-identity-server-7.x.md), or
