@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 LINK = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)|!\[[^\]]*\]\(([^)]+)\)")
-FENCE = re.compile(r"^\s*(`{3,}|~{3,})([^`]*)$")
+FENCE = re.compile(r"^ {0,3}(?:(`{3,})([^`]*)|(~{3,})(.*))$")
 PLACEHOLDER = re.compile(r"<[^>\n]+>")
 OLD_COMMAND = re.compile(r"^\s*(?:\$\s*)?wso2(?:\s|$)")
 
@@ -26,16 +26,21 @@ def check_file(page: Path, root: Path, check_format: bool = False) -> list[str]:
             errors.append(f"{page}: missing final newline")
 
     fence_start = None
+    opener = ""
     language = ""
     body = []
     for number, line in enumerate(lines, 1):
         match = FENCE.match(line)
         if match:
+            marker = match.group(1) or match.group(3)
+            info = (match.group(2) if match.group(1) else match.group(4)) or ""
             if fence_start is None:
                 fence_start = number
-                language = match.group(2).strip()
+                opener = marker
+                language = info.strip().split()[0] if info.strip() else ""
                 body = []
-            elif match.group(1)[0] == lines[fence_start - 1].lstrip()[0]:
+                continue
+            if marker[0] == opener[0] and len(marker) >= len(opener) and not info.strip():
                 if language in {"sh", "bash", "shell"}:
                     if page == root / "README.md" or (root / "docs" / "guides") in page.parents or (root / "docs" / "reference") in page.parents:
                         for offset, command in enumerate(body, fence_start + 1):
@@ -47,7 +52,7 @@ def check_file(page: Path, root: Path, check_format: bool = False) -> list[str]:
                     if result.returncode:
                         errors.append(f"{page}:{fence_start}: shell example has invalid syntax: {result.stderr.strip()}")
                 fence_start = None
-            continue
+                continue
         if fence_start is not None:
             body.append(line)
             continue

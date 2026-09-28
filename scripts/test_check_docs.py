@@ -48,6 +48,22 @@ class DocumentationChecks(unittest.TestCase):
             self.assertTrue(any("trailing whitespace" in error for error in check_file(page, root, True)))
             self.assertEqual(check_file(page, root, False), [])
 
+    def test_shorter_or_named_fence_does_not_close_shell_block(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            page = root / "guide.md"
+            page.write_text("````sh\n```\n```bash\nif true; then\n````\n")
+            errors = check_file(page, root)
+            self.assertTrue(any("shell example" in error for error in errors))
+            self.assertFalse(any("unclosed code fence" in error for error in errors))
+
+    def test_tilde_info_can_contain_backticks_and_code_links_are_ignored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            page = root / "guide.md"
+            page.write_text("~~~text `literal`\n[missing](other.md)\n~~~\n")
+            self.assertEqual(check_file(page, root), [])
+
 
 if __name__ == "__main__":
     unittest.main()

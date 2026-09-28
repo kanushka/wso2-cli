@@ -59,7 +59,9 @@ Then run:
 ```shell
 (govulncheck ./...)
 (cd sdk && GOWORK=off govulncheck ./...)
-(cd modules/reference && govulncheck ./...)
+for mod in modules/*/go.mod; do
+  (cd "$(dirname "$mod")" && govulncheck ./...)
+done
 ```
 
 Fix actionable findings by updating the affected dependency or code. If a

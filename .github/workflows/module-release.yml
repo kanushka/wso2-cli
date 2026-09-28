@@ -125,13 +125,25 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh release create "${GITHUB_REF_NAME}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --title "${GITHUB_REF_NAME}" \
-            --generate-notes \
-            --draft \
-            --verify-tag \
-            dist/*
+          if draft="$(gh release view "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [[ "${draft}" != true ]]; then
+              echo '::error::the release already exists and is public; refusing to replace its assets'
+              exit 1
+            fi
+            # A previous run may have stopped after creating the draft. Replace
+            # its assets, then repeat the verification and attestation steps.
+            gh release upload "${GITHUB_REF_NAME}" dist/* \
+              --repo "${GITHUB_REPOSITORY}" --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${GITHUB_REF_NAME}" \
+              --generate-notes \
+              --draft \
+              --verify-tag \
+              dist/*
+          fi
 
       # Proves what the catalog will point at by fetching it back from the
       # release page rather than by inspecting the build output. The catalog
