@@ -27,8 +27,8 @@ digest-checked artifacts, protocol and platform gates, and a generated
 catalog.
 
 The command name is chosen at build time (`CLI_NAME`, release default `ws`).
-The shell's own text is written with `wso2` and renamed as it is rendered, so
-this documentation uses `wso2` throughout.
+Source paths and development builds retain `wso2`. User-facing examples in
+the guides and reference use the released command name `ws`.
 
 ## 2. Principles
 
@@ -366,14 +366,19 @@ the context's credential reference.
 
 Not defended: a forged or rewritten catalog, rollback or freeze of catalog
 metadata, and unauthorized publication. The catalog is unsigned and there is
-no publisher identity.
+no publisher identity for the catalog itself. Artifact attestations let users
+authenticate downloaded release files separately.
 
 ### 9.2 Publishing trust
 
-Artifacts are integrity-checked, not signed. The shell checks a download
-against the catalog's size and SHA-256 before writing to the store, and
-every launch rechecks the executable against its receipt. That is the whole
-cryptographic guarantee.
+Artifacts are integrity-checked and carry GitHub artifact attestations. The
+release workflows attest archives and checksum files, then verify the uploaded
+copies before publishing the releases. Users can verify the attestations with
+`gh attestation verify`, as described in the
+[release artifact reference](reference/release-artifacts.md#checksums). The
+installers do not verify attestations. The shell checks a download against the
+catalog's size and SHA-256 before writing to the store, and every launch
+rechecks the executable against its receipt.
 
 A digest proves the downloaded artifact matches the catalog entry. It does
 not prove the entry is authentic: that rests on HTTPS and on control of the
@@ -383,8 +388,8 @@ mitigation is process: branch protection and required review on the release
 and deployment workflows. That is a repository setting, not something this
 checkout can prove.
 
-Out of scope, not pending: publisher keys, artifact and code signing,
-notarization, provenance, SBOMs, revocation, and a TUF-style hierarchy. With
+Out of scope, not pending: publisher keys, platform code signing,
+notarization, SBOMs, revocation, and a TUF-style hierarchy. With
 one organization owning every module, publisher authority has one answer.
 Catalog signing is an open follow-up (section 14).
 

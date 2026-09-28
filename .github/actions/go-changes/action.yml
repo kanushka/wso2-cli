@@ -34,7 +34,11 @@ runs:
         # a pull request that runs no checks at all.
         while IFS= read -r path; do
           case "$path" in
-            .github/actions/go-changes/*|.github/workflows/pr-checks.yml|scripts/acceptance.sh|scripts/previous-protocol.sh|go.work|go.work.sum|.golangci.yml|.golangci.yaml)
+            .github/actions/go-changes/*|.github/workflows/pr-checks.yml|\
+            .github/workflows/release.yml|.github/workflows/module-release.yml|\
+            .github/workflows/sdk-release.yml|.github/workflows/vulnerability-check.yml|\
+            .goreleaser.yaml|scripts/acceptance.sh|scripts/previous-protocol.sh|\
+            go.work|go.work.sum|.golangci.yml|.golangci.yaml)
               shell_changed=true
               sdk_changed=true
               ;;
@@ -42,10 +46,9 @@ runs:
               shell_changed=true
               sdk_changed=true
               ;;
-            modules/reference/*)
-              # The shell's own boundary and acceptance tests build the
-              # reference module, so a reference-module change is validated by
-              # the shell checks.
+            modules/*)
+              # A product-module change runs the shell gate, including the
+              # vulnerability scan that visits every module.
               shell_changed=true
               ;;
             *.go|go.mod|go.sum|cmd/*|internal/*|test/*)

@@ -11,8 +11,8 @@ on:
       - '*/v*'
 
 # Read-only by default. Only the job that publishes the release is granted write
-# access to repository contents, only the job that deploys the catalog is
-# granted Pages access, and nothing here is granted anything else.
+# access to repository contents and attestations, only the job that deploys
+# the catalog is granted Pages access.
 permissions:
   contents: read
 
@@ -83,6 +83,8 @@ jobs:
       # Creating the release for this tag and uploading its assets. Nothing
       # else: this release publishes no container image and no package.
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -127,6 +129,7 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
+            --draft \
             --verify-tag \
             dist/*
 
@@ -163,6 +166,32 @@ jobs:
             exit 1
           fi
           echo "$(wc -l <published-names.txt) archives published and all verified"
+
+      - name: Attest module archives and checksums
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/checksums.txt
+
+      - name: Verify published attestations
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          published="$(mktemp -d)"
+          gh release download "${GITHUB_REF_NAME}" --dir "${published}" --repo "${GITHUB_REPOSITORY}"
+          for artifact in "${published}"/*; do
+            gh attestation verify "${artifact}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/module-release.yml" \
+              --source-ref "${GITHUB_REF}"
+          done
+
+      - name: Publish verified module release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false
 
   # A successful release regenerates the catalog from the tags that exist and
   # deploys it to the origin that already serves the install scripts. The whole

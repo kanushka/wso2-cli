@@ -30,7 +30,7 @@ This creates `modules/abc/` with `go.mod`, `module.json`, `README.md`, and
 `cmd/wso2-module-abc/main.go` plus tests. Always use the generator: it fills in
 the SDK and protocol versions from your checkout.
 
-The namespace is the command users type (`wso2 abc`), the tag prefix
+The namespace is the command users type (`ws abc`), the tag prefix
 (`abc/v1.0.0`), and the program name (`wso2-module-abc`). Renaming it later is
 a migration, so choose carefully. The generator refuses shell command names,
 namespaces already in use, `reference`, and anything other than lowercase
@@ -139,10 +139,13 @@ checksums, and regenerates the catalog. Don't edit the catalog by hand.
 
 Users then install it:
 
+The commands below use `ws`, the default name of the released shell. Earlier
+steps used the source-built `./bin/ws`.
+
 ```sh
-wso2 product install abc --channel prerelease
-wso2 product install abc@0.1.0-rc.1   # pin an exact version
-wso2 product update abc
+ws product install abc --channel prerelease
+ws product install abc@0.1.0-rc.1   # pin an exact version
+ws product update abc
 ```
 
 Without `--channel`, `install` uses the stable channel only.

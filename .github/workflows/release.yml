@@ -7,8 +7,8 @@ on:
     tags:
       - 'v*'
 
-# Read-only by default. Only the job that publishes the release is granted write
-# access to repository contents, and nothing here is granted anything else.
+# Read-only by default. The release job receives only the permissions needed
+# to publish assets and attest their provenance.
 permissions:
   contents: read
 
@@ -50,6 +50,8 @@ jobs:
       # further: this release publishes no container image, no Homebrew tap, and
       # no package repository.
       contents: write
+      id-token: write
+      attestations: write
     env:
       # The command the shell is published as. GoReleaser names the binary and
       # the shell's own text after it; the repository variable CLI_NAME renames
@@ -210,3 +212,33 @@ jobs:
           # published binary: it proves GoReleaser injected the copy, not only
           # that the copy was sound.
           "${GITHUB_WORKSPACE}/scripts/help-lists-released-catalog.sh" "${workdir}/${CLI_NAME}" "${WSO2_RELEASED_CATALOG}"
+
+      # The published files were compared with dist above. Bind their digests
+      # to this release workflow's identity so users can authenticate them.
+      - name: Attest release archives and checksums
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+
+      - name: Verify published attestations
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          published="$(mktemp -d)"
+          gh release download "${GITHUB_REF_NAME}" --dir "${published}" --repo "${GITHUB_REPOSITORY}"
+          for artifact in "${published}"/*; do
+            gh attestation verify "${artifact}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release.yml" \
+              --source-ref "${GITHUB_REF}"
+          done
+
+      - name: Publish verified release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false
