@@ -31,9 +31,9 @@ Released binaries are checksum-verified but not code signed or notarized.
 Supported platforms are Linux on `amd64`, `arm64`, `arm`, and `386`, and macOS and
 Windows on `amd64` and `arm64`.
 
-The [installation guide](docs/guides/install.md) covers installing from the
-release page without running a remote script, pinning a version, release
-candidates, tab completion, where files go, and how to uninstall.
+The [install and use guide](docs/guides/install.md) walks through the first
+commands. [Installer details](docs/reference/installer.md) covers manual
+installation, pinned versions, completion, and removal options.
 
 ### Tab completion
 

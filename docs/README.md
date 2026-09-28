@@ -42,6 +42,8 @@ What is built.
   install, and update.
 - [Release artifacts](reference/release-artifacts.md): archives, checksums,
   and the release gate.
+- [Installer details](reference/installer.md): verification, manual installs,
+  version pinning, completion, and removal.
 
 ## For contributors and agents
 
