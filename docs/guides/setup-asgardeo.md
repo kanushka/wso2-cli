@@ -2,11 +2,16 @@
 
 This guide registers the CLI in an Asgardeo organization, creates a context
 for it, and logs in. The examples use the organization `acme` and the
-`example` product (`ws product install example`). For every field a
+`example` product. For every field a
 context can hold, see the [context file reference](../reference/context-file.md).
 
-Asgardeo was renamed WSO2 Identity Platform on 2026-06-15; the console paths
-below were written on 2026-08-06 and are unchanged by the rename.
+Install the example module from this checkout with the
+[local setup guide](setup-example-module.md). From the repository root, run
+`export PATH="$PWD/bin:$PATH"` in the same terminal so the `ws` commands below
+use that build. Keep the `WSO2_HOME` value from the local setup guide.
+
+The linked Asgardeo documentation now uses WSO2 Identity Platform branding.
+Console labels may differ from those shown below.
 
 ## 1. Register the application
 
@@ -34,7 +39,7 @@ In the Asgardeo Console, for your organization:
 ## 2. Add the API resource
 
 1. Go to **API Resources → New API Resource**. Set the identifier to
-   `reference-status` and add the scope `reference:status:read`.
+   `example-status` and add the scope `example:status:read`.
 2. **Requires authorization** can't be changed later. If you leave it
    checked, users get the scopes only through a role (step 3).
 3. In **Applications → WSO2 CLI → Authorization**, authorize the resource and
@@ -90,14 +95,14 @@ this:
     "clientId": "REPLACE_WITH_YOUR_CLIENT_ID",
     "tenant": "acme",
     "provider": "asgardeo",
-    "product": "reference"
+    "product": "example"
   },
   "organization": "acme",
   "products": {
-    "reference": {
+    "example": {
       "url": "https://api.asgardeo.io",
       "audience": "REPLACE_WITH_YOUR_CLIENT_ID",
-      "scopes": ["reference:status:read"]
+      "scopes": ["example:status:read"]
     }
   }
 }
@@ -134,7 +139,7 @@ CI uses a client-credentials context and doesn't run `ws login`.
      --client-id <m2m-client-id> --client-secret-variable WSO2_ACME_CI_SECRET
    ws context product add example --context acme-ci \
      --url https://api.asgardeo.io --audience <m2m-client-id> \
-     --scopes reference:status:read
+     --scopes example:status:read
    ```
 
 3. In the job, set `WSO2_CONTEXT=acme-ci`, `WSO2_NO_INPUT=1`, and

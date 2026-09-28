@@ -114,9 +114,11 @@ a command line.
 Declare the audience and scopes in two places, and keep them equal:
 
 ```json
-"capabilities": {
-  "authAudiences": ["abc-api"],
-  "authScopes": ["abc:things:read"]
+{
+  "capabilities": {
+    "authAudiences": ["abc-api"],
+    "authScopes": ["abc:things:read"]
+  }
 }
 ```
 
@@ -166,12 +168,16 @@ while you can still fix it.
 To exercise a real product, create a context and record yours:
 
 ```sh
-./bin/ws context create local --login-product identity --url https://idp.example --use
+./bin/ws context create local --issuer https://idp.example/oauth2/token \
+  --client-id <client-id> --use
 ./bin/ws context product add abc --url https://abc.example.com \
   --audience <audience> --scopes abc:things:read
 ./bin/ws login
 ./bin/ws abc list
 ```
+
+Replace the issuer, client ID, product URL, audience, and scopes with values
+from your deployment.
 
 ## 5. Test it
 
