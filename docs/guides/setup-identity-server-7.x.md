@@ -2,7 +2,7 @@
 
 This guide registers the CLI in WSO2 Identity Server 7.x, creates a context for
 it, and logs in. The examples use a server at `https://localhost:9443` and the
-`reference` product (`wso2 product install reference`). Tested against 7.3.0.
+`example` product (`ws product install example`). Tested against 7.3.0.
 For every field a context can hold, see the
 [context file reference](../reference/context-file.md).
 
@@ -28,7 +28,7 @@ openssl s_client -connect localhost:9443 -servername localhost </dev/null 2>/dev
 export WSO2_CA_FILE=$PWD/is-localhost.pem
 ```
 
-Set `WSO2_CA_FILE` in the shell that runs `wso2`. On macOS the CLI ignores
+Set `WSO2_CA_FILE` in the shell that runs `ws`. On macOS the CLI ignores
 `SSL_CERT_FILE`. The default Identity Server certificate is a CA whose private
 key ships with every download, so don't add it to your system trust store.
 
@@ -80,24 +80,24 @@ assign the user to it. Console changes apply at the next login.
 
 ## 6. Create the context
 
-The `wso2 context create` wizard lists **WSO2 Identity Server (coming soon)**
+The `ws context create` wizard lists **WSO2 Identity Server (coming soon)**
 and refuses it: no WSO2 product the CLI installs signs in at an Identity
 Server, so the wizard offers no path that ends anywhere. The `reference`
 product here is reached by its own grant rather than by being an Identity
 Server product, which is why the flags still work:
 
 ```sh
-wso2 context create is-local \
+ws context create is-local \
   --issuer https://localhost:9443/oauth2/token \
   --client-id <client-id> --provider identity-server --use
-wso2 context product add reference --url https://localhost:9443 \
-  --audience reference-status --scopes reference:status:read
+ws context product add example --url https://localhost:9443 \
+  --audience example-status --scopes example:status:read
 ```
 
 The issuer must match the `issuer` value in
 `https://localhost:9443/oauth2/token/.well-known/openid-configuration` exactly.
 
-`wso2 context show` prints what was written. The stored context looks like
+`ws context show` prints what was written. The stored context looks like
 this:
 
 ```json
@@ -125,20 +125,20 @@ this:
 ## 7. Log in and check
 
 ```sh
-wso2 login
-wso2 whoami
-wso2 reference status
+ws login
+ws whoami
+ws example status
 ```
 
-`wso2 login` opens the browser. `wso2 whoami` shows `Session  present` once
-you're logged in. `wso2 logout` ends the session.
+`ws login` opens the browser. `ws whoami` shows `Session  present` once
+you're logged in. `ws logout` ends the session.
 
 To log in from a machine with no browser, enable the **Device Code** grant
 (step 3) and create the context with `--device`.
 
 ## CI
 
-CI uses a client-credentials context and doesn't run `wso2 login`.
+CI uses a client-credentials context and doesn't run `ws login`.
 
 1. Create a second standard-based application with the **Client Credentials**
    grant only, not a public client. Authorize the same resource, add it to the
@@ -147,18 +147,18 @@ CI uses a client-credentials context and doesn't run `wso2 login`.
 2. Create the context:
 
    ```sh
-   wso2 context create is-ci \
+   ws context create is-ci \
      --issuer https://localhost:9443/oauth2/token \
      --client-id <ci-client-id> --client-secret-variable WSO2_IS_CI_SECRET
-   wso2 context product add reference --context is-ci \
-     --url https://localhost:9443 --audience reference-status \
-     --scopes reference:status:read
+   ws context product add example --context is-ci \
+     --url https://localhost:9443 --audience example-status \
+     --scopes example:status:read
    ```
 
 3. In the job, set `WSO2_CONTEXT=is-ci`, `WSO2_NO_INPUT=1`, `WSO2_CA_FILE` if
    needed, and `WSO2_IS_CI_SECRET` from your CI secret store. Then run product
-   commands directly. `wso2 context export is-ci` prints a file the job can
-   apply with `wso2 context apply -f <file> --use is-ci`.
+   commands directly. `ws context export is-ci` prints a file the job can
+   apply with `ws context apply -f <file> --use is-ci`.
 
 ## If login fails
 
@@ -168,9 +168,9 @@ CI uses a client-credentials context and doesn't run `wso2 login`.
 | `auth.discovery_failed` | The issuer doesn't match the discovery document exactly (check the port), or PKCE isn't **Mandatory**. If all four callback ports are busy, free one. |
 | `auth.narrowing_unavailable` naming the audience | Add `reference-status` to the application's **Audience** list (step 4), then log in again. |
 | `auth.narrowing_unavailable` naming permissions | The user holds no role with the scopes (step 5), or access tokens aren't JWT. |
-| `auth.product_not_configured` | The context doesn't record the product or one of its scopes. Run `wso2 context product add`. |
-| `auth.login_required` | The session expired or was revoked. Run `wso2 login`. |
-| `auth.context_not_selected` | Run `wso2 context use is-local`. |
+| `auth.product_not_configured` | The context doesn't record the product or one of its scopes. Run `ws context product add`. |
+| `auth.login_required` | The session expired or was revoked. Run `ws login`. |
+| `auth.context_not_selected` | Run `ws context use is-local`. |
 
 ## Sources
 

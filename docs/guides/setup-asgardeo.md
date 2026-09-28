@@ -2,7 +2,7 @@
 
 This guide registers the CLI in an Asgardeo organization, creates a context
 for it, and logs in. The examples use the organization `acme` and the
-`reference` product (`wso2 product install reference`). For every field a
+`example` product (`ws product install example`). For every field a
 context can hold, see the [context file reference](../reference/context-file.md).
 
 Asgardeo was renamed WSO2 Identity Platform on 2026-06-15; the console paths
@@ -59,24 +59,24 @@ Console changes apply at the next login.
 
 ## 4. Create the context
 
-Run `wso2 context create` with no flags to answer prompts: choose **Asgardeo**,
+Run `ws context create` with no flags to answer prompts: choose **Asgardeo**,
 then enter the organization name and client ID.
 
 Or pass flags:
 
 ```sh
-wso2 context create acme \
+ws context create acme \
   --issuer https://api.asgardeo.io/t/acme/oauth2/token \
   --client-id <client-id> --provider asgardeo --use
-wso2 context product add reference --url https://api.asgardeo.io \
-  --audience <client-id> --scopes reference:status:read
+ws context product add example --url https://api.asgardeo.io \
+  --audience <client-id> --scopes example:status:read
 ```
 
 The issuer must match the `issuer` value in
 `https://api.asgardeo.io/t/acme/oauth2/token/.well-known/openid-configuration`
 exactly.
 
-`wso2 context show` prints what was written. The stored context looks like
+`ws context show` prints what was written. The stored context looks like
 this:
 
 ```json
@@ -106,21 +106,21 @@ this:
 ## 5. Log in and check
 
 ```sh
-wso2 login
-wso2 whoami
-wso2 reference status
+ws login
+ws whoami
+ws example status
 ```
 
-`wso2 login` opens the browser. `wso2 whoami` shows `Session  present` once
-you're logged in. `wso2 logout` ends the session.
+`ws login` opens the browser. `ws whoami` shows `Session  present` once
+you're logged in. `ws logout` ends the session.
 
 To log in from a machine with no browser, enable the **Device Code** grant
-(step 1) and create the context with `--device`. `wso2 login` then prints a
+(step 1) and create the context with `--device`. `ws login` then prints a
 URL and a code to enter on another device.
 
 ## CI
 
-CI uses a client-credentials context and doesn't run `wso2 login`.
+CI uses a client-credentials context and doesn't run `ws login`.
 
 1. Create an **M2M Application** with the **Client Credentials** grant only.
    Authorize the same API resource and scopes, set the token type to **JWT**,
@@ -129,10 +129,10 @@ CI uses a client-credentials context and doesn't run `wso2 login`.
 2. Create the context. Its audience is the M2M application's client ID:
 
    ```sh
-   wso2 context create acme-ci \
+   ws context create acme-ci \
      --issuer https://api.asgardeo.io/t/acme/oauth2/token \
      --client-id <m2m-client-id> --client-secret-variable WSO2_ACME_CI_SECRET
-   wso2 context product add reference --context acme-ci \
+   ws context product add example --context acme-ci \
      --url https://api.asgardeo.io --audience <m2m-client-id> \
      --scopes reference:status:read
    ```
@@ -141,20 +141,20 @@ CI uses a client-credentials context and doesn't run `wso2 login`.
    `WSO2_ACME_CI_SECRET` from your CI secret store, then run product commands
    directly.
 
-To share the context, `wso2 context export acme-ci > context.json` writes a
-file the job applies with `wso2 context apply -f context.json --use acme-ci`.
+To share the context, `ws context export acme-ci > context.json` writes a
+file the job applies with `ws context apply -f context.json --use acme-ci`.
 
 ## If login fails
 
 | Error | Fix |
 | --- | --- |
 | `auth.discovery_failed` | The issuer doesn't match the discovery document exactly, or PKCE isn't set to **Mandatory**. If all four callback ports are busy, free one. |
-| `auth.narrowing_unavailable` naming the audience | Set the product's audience to the client ID: `wso2 context product add reference --url <url> --audience <client-id> --replace`. |
+| `auth.narrowing_unavailable` naming the audience | Set the product's audience to the client ID: `ws context product add example --url <url> --audience <client-id> --replace`. |
 | `auth.narrowing_unavailable` naming permissions | The user holds no role with the scopes (step 3), or the token type isn't **JWT**. |
-| `auth.product_not_configured` | The context doesn't record the product or one of its scopes. Run `wso2 context product add`. |
-| `auth.login_required` | The session expired or was revoked. Run `wso2 login`. |
+| `auth.product_not_configured` | The context doesn't record the product or one of its scopes. Run `ws context product add`. |
+| `auth.login_required` | The session expired or was revoked. Run `ws login`. |
 | `auth.keyring_unavailable` | No OS secure store. On headless Linux, start a keyring daemon or use a CI context. |
-| `auth.context_not_selected` | Run `wso2 context use acme`. |
+| `auth.context_not_selected` | Run `ws context use acme`. |
 | `auth.login_not_required` | The context uses client credentials. Run the product command directly. |
 
 ## Sources

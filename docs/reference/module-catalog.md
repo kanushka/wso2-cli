@@ -69,9 +69,9 @@ under the current shell, which is what makes declaring the older half of the
 window mean something.
 
 `capabilities` are the access requests the module is permitted to make and, when
-it declares a product descriptor, what `wso2 context create --login-product`,
-`wso2 context product add` and `wso2 context apply` read to fill a context's
-product record in from a URL alone (ADR 0016 removed `wso2 <namespace>
+it declares a product descriptor, what `ws context create --login-product`,
+`ws context product add` and `ws context apply` read to fill a context's
+product record in from a URL alone (ADR 0016 removed `ws <namespace>
 connect`, which used to read it). The authentication broker intersects a
 runtime request with what the installed receipt records, so a catalog entry
 that carried none would leave a module installed from the catalog denied every
@@ -174,9 +174,9 @@ usable.
 ## Installing from the catalog
 
 ```sh
-wso2 product install reference
-wso2 product install reference@4.5.0
-wso2 product install reference --channel prerelease
+ws product install reference
+ws product install reference@4.5.0
+ws product install reference --channel prerelease
 ```
 
 The shell reads `index.json` to find the namespace and where its history is
@@ -241,7 +241,7 @@ can drive the shell against a local origin serving a generated catalog.
 ## Discovering what can be installed
 
 ```sh
-wso2 product list
+ws product list
 ```
 
 One request, the index, lists every namespace the catalog publishes beside what
@@ -249,26 +249,26 @@ is installed. A namespace that is not installed is a row naming the channel a
 plain install would follow — stable, or the only channel it publishes on, which
 the install command beneath the table then names with `--channel` — and the
 latest version on it. What exists is therefore discoverable from the shell
-rather than from this document. `wso2 product available`, which listed the
+rather than from this document. `ws product available`, which listed the
 catalog on its own before ADR 0015 merged the two, is kept as a hidden,
-deprecated spelling of `wso2 product list`.
+deprecated spelling of `ws product list`.
 
-`wso2 help` answers the same question offline. A shell release carries a copy of
+`ws help` answers the same question offline. A shell release carries a copy of
 `index.json` taken when it was released, and its help page lists every product
 in that copy with a stable release by title, marking the ones this machine has
 not installed. A product released after the shell was is missing from that list
-until the next shell release; `wso2 product list` still finds it. A
+until the next shell release; `ws product list` still finds it. A
 development build carries no copy and lists only what is installed.
 
 ## Update checks, channels, and pins
 
 ```sh
-wso2 product list
-wso2 product update reference
-wso2 product update --all
+ws product list
+ws product update reference
+ws product update --all
 ```
 
-`wso2 product list` also reports which installed modules have an update
+`ws product list` also reports which installed modules have an update
 available. It costs one request whatever is installed, because `index.json`
 already carries the latest version per channel and no version history is
 fetched: a check selects nothing, and selecting is what a history is for.
@@ -294,9 +294,9 @@ An install records what it was asked for, and an update reads it back. That is
 what makes a channel a property of the module rather than of the shell, so a
 user takes a prerelease of one product without taking prereleases of all of
 them, and what makes a pin survive an update run rather than being a one-off
-argument. A pinned module is passed over by `wso2 product update --all` rather
+argument. A pinned module is passed over by `ws product update --all` rather
 than moved, so updating everything else cannot silently take a module off the
-version it is held at. Re-running `wso2 product install` is how a module's
+version it is held at. Re-running `ws product install` is how a module's
 channel or pin is changed, because what is recorded is what the last install
 asked for.
 

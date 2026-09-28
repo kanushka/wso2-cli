@@ -18,12 +18,14 @@ that list wins.
 Short task documents.
 
 - [Install](guides/install.md) the CLI.
+- [Use the CLI](guides/using-the-cli.md): install, sign in, run commands, and update products.
 - Set up a login provider:
   [Asgardeo](guides/setup-asgardeo.md),
   [Identity Server 7.x](guides/setup-identity-server-7.x.md), or
   [ThunderID](guides/setup-thunder.md).
 - [Build a module](guides/build-module-quickstart.md): create, install, run,
   and release a product module.
+- [Set up the example module](guides/setup-example-module.md) locally.
 - [Troubleshoot a module](guides/troubleshoot-module.md).
 
 ## Reference

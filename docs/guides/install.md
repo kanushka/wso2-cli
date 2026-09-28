@@ -6,7 +6,7 @@ administrator rights. The binaries are not code signed, so macOS Gatekeeper or
 Windows SmartScreen may warn.
 
 Releases install the command as `ws` by default. The installer prints the name
-it installed. These guides write `wso2`, so use the name the installer printed.
+it installed. These guides write `ws`, so use the name the installer printed.
 
 ## Install
 
@@ -98,18 +98,18 @@ On Unix the installer adds this block to your shell profile, here for bash:
 # >>> wso2 cli >>>
 export WSO2_HOME="/home/you/.wso2"
 export PATH="/home/you/.wso2/bin:$PATH"
-[ -x '/home/you/.wso2/bin/wso2' ] && eval "$('/home/you/.wso2/bin/wso2' completion bash)"
+[ -x '/home/you/.wso2/bin/ws' ] && eval "$('/home/you/.wso2/bin/ws' completion bash)"
 # <<< wso2 cli <<<
 ```
 
 ## Tab completion
 
-The installers finish by running `wso2 completion install`, which sets up tab
+The installers finish by running `ws completion install`, which sets up tab
 completion for your shell. Run it yourself after installing some other way, or
 for another shell:
 
 ```sh
-wso2 completion install [bash|zsh|fish|powershell]
+ws completion install [bash|zsh|fish|powershell]
 ```
 
 It detects the shell from `$SHELL` (PowerShell on Windows) and changes nothing
@@ -119,7 +119,7 @@ when completion is already set up:
   after a `compinit` that runs only when nothing else has run one.
 - bash: adds `eval "$('<path>' completion bash)"` to the block in `~/.bashrc`
   (or `~/.bash_profile`). Completion needs the `bash-completion` package.
-- fish: writes `~/.config/fish/completions/wso2.fish`, which runs
+- fish: writes `~/.config/fish/completions/ws.fish`, which runs
   `'<path>' completion fish | source`.
 - PowerShell: adds `& '<path>' completion powershell | Out-String | Invoke-Expression`
   to the block in `$PROFILE`. An execution policy of `Restricted` or `AllSigned`
@@ -130,23 +130,23 @@ for the shell. The line evaluates what that command prints, so it never runs
 the command by name, which would evaluate whatever same-named program comes
 first on `PATH`. Each line runs only while the binary is at that path, so a
 moved or removed binary leaves a line that does nothing; run
-`wso2 completion install` again to point it at the new place.
+`ws completion install` again to point it at the new place.
 
 `--profile <file>` edits another file. Every line loads the script when a
 terminal opens, so it never goes stale, and a product you install completes at
-once. `wso2 completion <shell>` prints the script itself when its output is piped;
+once. `ws completion <shell>` prints the script itself when its output is piped;
 typed at a terminal it says how to set completion up, and `--print` prints the
 script anyway.
 
 ## Install a product
 
 ```sh
-wso2 product list
-wso2 product install reference
-wso2 product remove reference --yes
+ws product list
+ws product install reference
+ws product remove reference --yes
 ```
 
-`wso2 product install <product>@<version>` pins an exact version.
+`ws product install <product>@<version>` pins an exact version.
 `--channel prerelease` installs from the prerelease channel.
 
 ## Uninstall
@@ -167,8 +167,8 @@ Log out before you remove anything, because your sessions live in the OS
 secure store and no uninstaller touches it:
 
 ```sh
-wso2 logout
-wso2 context delete <name>
+ws logout
+ws context delete <name>
 ```
 
 `--purge` then deletes `$WSO2_HOME` itself. It cannot be undone, and a session

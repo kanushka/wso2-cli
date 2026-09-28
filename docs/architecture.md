@@ -8,7 +8,7 @@ original design is not built, the section says so.
 
 ## 1. Design summary
 
-The `wso2` CLI is a Go shell with a managed module runtime. Each product
+The `ws` CLI is a Go shell with a managed module runtime. Each product
 module is an independently versioned native executable. The shell resolves
 modules from a local versioned store it manages and launches them out of
 process.
@@ -27,8 +27,8 @@ digest-checked artifacts, protocol and platform gates, and a generated
 catalog.
 
 The command name is chosen at build time (`CLI_NAME`, release default `ws`).
-The shell's own text is written with `wso2` and renamed as it is rendered, so
-this documentation uses `wso2` throughout.
+The shell's own text is written with `wso2` internally and renamed as it is
+rendered. This documentation uses the released command name, `ws`.
 
 ## 2. Principles
 
@@ -47,7 +47,7 @@ this documentation uses `wso2` throughout.
 
 ```mermaid
 flowchart LR
-    U["User, CI, or coding agent"] --> H["wso2 shell"]
+    U["User, CI, or coding agent"] --> H["ws shell"]
     H --> C["Context document"]
     H --> K["OS secure store for interactive sessions"]
     J["CI secret store"] --> H
@@ -72,7 +72,7 @@ The shell owns:
 - context selection and the context document;
 - authentication, sessions, and secure credential storage;
 - module install, update, list, and remove;
-- help, version, diagnostics (`wso2 doctor`), and completion;
+- help, version, diagnostics (`ws doctor`), and completion;
 - invocation policy such as `--no-input`.
 
 Shell commands today: `context`, `login`, `logout`, `org`, `product`,
@@ -160,12 +160,12 @@ See [ADR 0005](adr/0005-audience-side-verification.md),
 
 Authentication kinds are `oauth-browser` (Authorization Code with PKCE),
 `oauth-device` (Device Authorization Grant, chosen with
-`wso2 context create --device`), and `client-credentials`, whose secret is
+`ws context create --device`), and `client-credentials`, whose secret is
 read from a named environment variable. `pat` is legal in the document and
 refused at use with `auth.kind_not_implemented`.
 
 CI is non-interactive. Browser and device logins refuse under `--no-input` or
-`WSO2_NO_INPUT`. Client credentials need no `wso2 login`: the shell performs
+`WSO2_NO_INPUT`. Client credentials need no `ws login`: the shell performs
 the exchange inline, and the secret never leaves the shell process.
 
 ### 4.7 Contexts
@@ -174,12 +174,12 @@ A **context** owns its login block, its products, and a credential reference
 its sessions live under. No two contexts share a reference
 ([ADR 0016](adr/0016-a-context-owns-its-login-and-sessions.md)). Several
 organizations reached through one login are one context, switched with
-`wso2 org use`.
+`ws org use`.
 
 - The context document (`contexts.json`) is complete: values a product
   descriptor supplies are frozen into the record when it is created or
   applied, and nothing is derived at command time.
-- `wso2 context apply -f` turns a short shareable input file into complete
+- `ws context apply -f` turns a short shareable input file into complete
   records. An input file never names a credential reference or a selection.
 - Selection order: `--context`, then `WSO2_CONTEXT`, then the selected
   context, else a typed refusal when a command needs access. Selecting never
@@ -280,7 +280,7 @@ flowchart LR
     TAG["Module tag<br/>namespace/vX.Y.Z"] --> MR["module-release workflow<br/>gate, build, publish, generate"]
     MR --> GR["GitHub Releases<br/>archives and checksums"]
     MR --> OR["Catalog origin<br/>index.json, modules/&lt;namespace&gt;.json"]
-    CLI["wso2 shell"] -->|read catalog| OR
+    CLI["ws shell"] -->|read catalog| OR
     CLI -->|download artifact| GR
     CLI -->|check digest, activate| LS["Managed module store"]
     LS --> MP["Module process"]
@@ -296,7 +296,7 @@ unpublished module through a local development origin
 
 ### 7.1 What is built
 
-`wso2 product install <product>[@<version>]`:
+`ws product install <product>[@<version>]`:
 
 1. reads the catalog index, then the namespace file;
 2. selects the newest version the channel or pin permits whose protocol
@@ -310,9 +310,9 @@ unpublished module through a local development origin
 6. writes the receipt and atomically updates `active.json`.
 
 Any failure before the last step leaves the previous active version in
-place. `@<version>` pins the module; `wso2 product update` passes a pinned
-module over. `wso2 product list` reads the catalog index on request and
-reports installed versions, channels, and available updates. `wso2 product
+place. `@<version>` pins the module; `ws product update` passes a pinned
+module over. `ws product list` reads the catalog index on request and
+reports installed versions, channels, and available updates. `ws product
 remove` deletes a module.
 
 Every launch rechecks the executable against the digest in its receipt.
@@ -322,7 +322,7 @@ Performance work must not replace that check with file timestamps.
 
 - rollback to a retained version, and a `verify` command;
 - background catalog refresh and update notices after other commands;
-- automatic install of a missing module on first use (`wso2 context create`
+- automatic install of a missing module on first use (`ws context create`
   installs a missing login product unless `--no-install`);
 - revocation;
 - offline bundles and `.wso2module` files (deferred; their signed trust model
@@ -336,7 +336,7 @@ $WSO2_HOME (default ~/.wso2)/
   cli/
     contexts.json          context document
     contexts.json.lock
-    preferences.json       shell preferences (wso2 config)
+    preferences.json       shell preferences (ws config)
     locks/<ref>.lock       per-context session rotation locks
     modules/
       <namespace>/
@@ -418,7 +418,7 @@ sandboxing is future defense in depth.
 
 Three versions move independently:
 
-- **Shell version:** the `wso2` binary.
+- **Shell version:** the `ws` binary.
 - **Protocol version:** the shell–module contract.
 - **Module version:** each product module's release.
 
@@ -438,7 +438,7 @@ the comparison would be meaningless and would refuse modules that work.
 Reintroducing it is not defensive tightening.
 
 ```text
-$ wso2 version
+$ ws version
 WSO2 CLI   v0.1.0
 Protocol   v2, v1
 Platform   darwin/arm64
@@ -448,7 +448,7 @@ NAME        VERSION   PLATFORM
 reference   v0.1.0    darwin/arm64
 ```
 
-`wso2 version` reads receipts only: it launches no module and opens no
+`ws version` reads receipts only: it launches no module and opens no
 connection. Neither `version` nor `product list` reports a verification
 column, because there is no publisher or revocation state to report.
 
@@ -539,7 +539,7 @@ one with global initialization.
   login command for the selected context.
 - A browser or device login under `--no-input` refuses at once.
 - Incompatible modules are not launched.
-- `wso2 doctor` checks the context document, frozen defaults, secure-store
+- `ws doctor` checks the context document, frozen defaults, secure-store
   reachability, and sessions; `--online` adds the issuer and the catalog. It
   prints no secrets.
 

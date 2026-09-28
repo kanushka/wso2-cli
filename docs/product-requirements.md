@@ -5,7 +5,7 @@
 
 ## 1. Summary
 
-WSO2 provides one command, `wso2`, as the common shell for WSO2 product
+WSO2 provides one command, `ws`, as the common shell for WSO2 product
 CLIs. Product teams will continue to own their product-specific commands and
 release them independently as WSO2-published modules.
 
@@ -39,34 +39,34 @@ Users should be able to install one CLI and use a predictable command model
 across WSO2 products:
 
 ```text
-wso2 <product> <resource> <action> [flags]
+ws <product> <resource> <action> [flags]
 ```
 
 For example:
 
 ```shell
-wso2 api gateway list
-wso2 identity apps list
-wso2 integration component deploy --file integration.yaml
-wso2 agent projects list
+ws api gateway list
+ws identity apps list
+ws integration component deploy --file integration.yaml
+ws agent projects list
 ```
 
 Root commands manage capabilities shared across products:
 
 ```shell
-wso2 login
-wso2 whoami
-wso2 context list
-wso2 product list
-wso2 version
-wso2 doctor
+ws login
+ws whoami
+ws context list
+ws product list
+ws version
+ws doctor
 ```
 
 ## 4. Goals
 
 ### 4.1 Consistent user experience
 
-- Provide one discoverable `wso2` entry point.
+- Provide one discoverable `ws` entry point.
 - Use consistent command, flag, help, output, error, and exit-code conventions.
 - Support both interactive use and deterministic non-interactive automation.
 - Present product commands through stable top-level product namespaces.
@@ -150,7 +150,7 @@ Requirements are classified as:
 ### 7.1 Root command and namespaces
 
 - **P0:** One installed root command. Its name is set at build time (release
-  default `ws`); this document writes it as `wso2`.
+  default `ws`); this document writes it as `ws`.
 - **P0:** Built-in root commands always take precedence over module namespaces.
 - **P0:** Each module owns exactly one registered top-level product namespace.
 - **P0:** Namespaces are assigned in this repository and published through the
@@ -183,7 +183,7 @@ The product namespaces are `identity`, `api`, `agent`, and `integration`
   requested narrowing is unavailable, the shell refuses rather than silently
   issuing broader or incorrectly targeted access.
 - **P0:** An interactive OIDC context logs in with browser Authorization Code
-  with PKCE by default. `wso2 context create --device` makes it log in with
+  with PKCE by default. `ws context create --device` makes it log in with
   device authorization instead, available only where the backend advertises
   the grant.
 - **P0:** Device authorization remains an interactive developer login mode; it
@@ -223,7 +223,7 @@ The product namespaces are `identity`, `api`, `agent`, and `integration`
 
 ```mermaid
 flowchart TD
-    L["wso2 login"] --> S["Selected context"]
+    L["ws login"] --> S["Selected context"]
     S --> I["Its login block"]
     I --> K{"Authentication kind"}
 
@@ -268,7 +268,7 @@ separate account record.
 - **P0:** No two contexts share a credential reference, so changing, logging
   out of, or deleting one context never touches another's sessions.
 - **P0:** Several organizations reached through one login are one context,
-  switched with `wso2 org use`. Two targets that must be selectable by name are
+  switched with `ws org use`. Two targets that must be selectable by name are
   two contexts, each logging in on its own.
 - **P0:** A context lists several products only where its login can reach
   them. A product that needs separate authentication belongs to another
@@ -278,7 +278,7 @@ separate account record.
 - **P0:** The context document is complete: product-descriptor defaults are
   written into it when a context is created or applied, and nothing is derived
   at command time.
-- **P0:** A platform team can share a short input file; `wso2 context apply`
+- **P0:** A platform team can share a short input file; `ws context apply`
   turns it into complete records. An input file never names a credential
   reference or a selection.
 - **P0:** Users can select a default context or override it for one command.
@@ -353,23 +353,23 @@ separate account record.
 Command surface:
 
 ```shell
-wso2 product list
-wso2 product install identity
-wso2 product install identity@0.2.0   # installs and pins
-wso2 product update identity
-wso2 product update --all
-wso2 product remove identity
+ws product list
+ws product install identity
+ws product install identity@0.2.0   # installs and pins
+ws product update identity
+ws product update --all
+ws product remove identity
 ```
 
 ### 7.7 Versions
 
 The product must distinguish:
 
-1. the root `wso2` CLI version;
+1. the root `ws` CLI version;
 2. the module protocol version;
 3. each independently released product-module version.
 
-`wso2 version` must work without network access and report the root version,
+`ws version` must work without network access and report the root version,
 protocol version, platform, and installed-module versions. Module inventory is
 read from receipts, whose integrity the shell checks, rather than by running
 every module executable.
@@ -471,7 +471,7 @@ tracked in [GitHub issues](https://github.com/wso2/wso2-cli/issues).
 - Artifacts are integrity-checked, not signed; process separation is not
   treated as a sandbox.
 - Product namespaces are `identity`, `api`, `agent`, and `integration`; the
-  shell's module commands are `wso2 product`, and one `wso2 product list`
+  shell's module commands are `ws product`, and one `ws product list`
   reports installed versions and available updates
   ([ADR 0015](adr/0015-one-word-per-concept-in-the-command-surface.md)).
 - A context owns its login and sessions

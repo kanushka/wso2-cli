@@ -41,17 +41,17 @@ The installers set up tab completion for your shell. To set it up yourself, for
 the shell `$SHELL` names or the one you give:
 
 ```sh
-wso2 completion install [bash|zsh|fish|powershell]
+ws completion install [bash|zsh|fish|powershell]
 ```
 
 Or add the line for your shell to its profile by hand:
 
 | Shell | Line | Where |
 | --- | --- | --- |
-| zsh | `source <(wso2 completion zsh)` | `~/.zshrc`, after `autoload -Uz compinit && compinit` |
-| bash | `eval "$(wso2 completion bash)"` | `~/.bashrc` (needs the `bash-completion` package) |
-| fish | `wso2 completion fish \| source` | `~/.config/fish/completions/wso2.fish` |
-| PowerShell | `wso2 completion powershell \| Out-String \| Invoke-Expression` | `$PROFILE` |
+| zsh | `source <(ws completion zsh)` | `~/.zshrc`, after `autoload -Uz compinit && compinit` |
+| bash | `eval "$(ws completion bash)"` | `~/.bashrc` (needs the `bash-completion` package) |
+| fish | `ws completion fish \| source` | `~/.config/fish/completions/ws.fish` |
+| PowerShell | `ws completion powershell \| Out-String \| Invoke-Expression` | `$PROFILE` |
 
 ## Documentation
 
@@ -59,9 +59,11 @@ The [documentation index](docs/README.md) provides the complete reading order.
 The principal documents are:
 
 - [Architecture](docs/architecture.md)
-- [wso2 cli commands](docs/reference/commands.md)
+- [CLI commands](docs/reference/commands.md)
 - [Install](docs/guides/install.md)
-- [Build a module quickstart](docs/guides/build-module-quickstart.md)
+- [Use the CLI](docs/guides/using-the-cli.md)
+- [Build a module](docs/guides/build-module-quickstart.md)
+- [Set up the example module](docs/guides/setup-example-module.md)
 - [Context file reference](docs/reference/context-file.md)
 - Setup guides: [Asgardeo](docs/guides/setup-asgardeo.md),
   [Identity Server 7.x](docs/guides/setup-identity-server-7.x.md),
