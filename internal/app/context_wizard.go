@@ -490,8 +490,8 @@ func (s Shell) askURL(title, fallback string) (string, error) {
 // prompt, or nil. Like productURL, it never repeats the value.
 func urlRefusal(answer string) error {
 	if _, err := productURL("URL", answer); err != nil {
-		return wizard.Hint("Enter an absolute http or https URL with no user name or password, " +
-			"as in https://localhost:9443.")
+		return wizard.Hint("Enter an absolute https URL with no user name or password, as in " +
+			"https://localhost:9443. Plain http is accepted only on localhost, 127.0.0.1 or ::1.")
 	}
 	return nil
 }

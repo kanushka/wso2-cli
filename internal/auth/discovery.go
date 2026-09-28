@@ -23,6 +23,7 @@ import (
 	oidc "github.com/coreos/go-oidc/v3/oidc"
 
 	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
+	"github.com/wso2/wso2-cli/internal/auth/trustedhttp"
 )
 
 // tokenEndpoint resolves an issuer's token endpoint through OpenID discovery.
@@ -58,7 +59,7 @@ func ProbeIssuer(ctx context.Context, client *http.Client, issuer string) error 
 // error may quote the request that produced it, and the shell renders
 // problems verbatim, so it is classified and not carried through.
 func discover(ctx context.Context, client *http.Client, issuer string) (*oidc.Provider, error) {
-	provider, err := oidc.NewProvider(oidc.ClientContext(ctx, client), issuer)
+	provider, err := oidc.NewProvider(oidc.ClientContext(ctx, trustedhttp.Client(client)), issuer)
 	if err != nil {
 		return nil, issuerUnreadable(err, issuer)
 	}

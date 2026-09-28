@@ -24,6 +24,7 @@ import (
 	oidc "github.com/coreos/go-oidc/v3/oidc"
 
 	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
+	"github.com/wso2/wso2-cli/internal/auth/trustedhttp"
 )
 
 // EndSession describes the browser session wso2 logout asks a provider to
@@ -52,10 +53,7 @@ type EndSession struct {
 // The provider's own signed-out page is where the tab ends, which is enough
 // for a tab the user did not ask to keep.
 func (e EndSession) URL(ctx context.Context) (string, error) {
-	client := e.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
+	client := trustedhttp.Client(e.HTTPClient)
 	provider, err := oidc.NewProvider(oidc.ClientContext(ctx, client), e.Issuer)
 	if err != nil {
 		if issuertrust.Untrusted(err) {

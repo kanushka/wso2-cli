@@ -25,6 +25,7 @@ import (
 	oidc "github.com/coreos/go-oidc/v3/oidc"
 
 	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
+	"github.com/wso2/wso2-cli/internal/auth/trustedhttp"
 )
 
 // Revocation is what the shell established about the issuer's own copy of a
@@ -90,10 +91,7 @@ func (r Revoke) Run(ctx context.Context) Revocation {
 		// no request to make. It was not asked; it did not refuse.
 		return RevocationNotAttempted
 	}
-	client := r.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
+	client := trustedhttp.Client(r.HTTPClient)
 	provider, err := oidc.NewProvider(oidc.ClientContext(ctx, client), r.Issuer)
 	if err != nil {
 		// Discovery is how the endpoint is found, so an issuer that cannot be
