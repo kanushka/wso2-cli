@@ -10,7 +10,7 @@ entries its sessions live under (its `credentialRef`), and optionally the
 organization and project to act within. Each context owns its own sessions —
 no two contexts share a `credentialRef` — so two targets that need the same
 login are two contexts that each log in, or one context whose organization
-`wso2 org use` switches.
+`ws org use` switches.
 
 Two files hold this shape, for two different jobs:
 
@@ -22,15 +22,15 @@ Two files hold this shape, for two different jobs:
   installed products' descriptors already know.
 
 ```sh
-wso2 context apply -f team-context.json --use local
-wso2 login
+ws context apply -f team-context.json --use local
+ws login
 ```
 
 `apply` fills in the input file's gaps from each installed product's
 descriptor and writes complete records to the local document. Reading the
 descriptor at apply time rather than at login time is deliberate ("frozen
-defaults"): a later `wso2 product update` changes no login until the file is
-applied again. `wso2 doctor` and `wso2 context show` say when a record
+defaults"): a later `ws product update` changes no login until the file is
+applied again. `ws doctor` and `ws context show` say when a record
 differs from what the installed product would write now.
 
 ## Where it lives
@@ -40,7 +40,7 @@ differs from what the installed product would write now.
 ```
 
 Set `WSO2_HOME` to use a different state root; it must be an absolute path,
-and the file then lives at `$WSO2_HOME/cli/contexts.json`. `wso2 context show`
+and the file then lives at `$WSO2_HOME/cli/contexts.json`. `ws context show`
 reports the path whether or not a document has been written there yet.
 
 ## The local document
@@ -79,7 +79,7 @@ reports the path whether or not a document has been written there yet.
 }
 ```
 
-This is what `wso2 context apply` writes for the short `team-context.json`
+This is what `ws context apply` writes for the short `team-context.json`
 below it — a login product (`identity`, direct) and a second product (`api`)
 reached by exchanging the login session's token, each with its own gateway
 record. Two things this asserts, and either can be wrong at runtime: every
@@ -193,7 +193,7 @@ URL ends a session when it moves the issuer or the resource the session was
 bound to.
 
 ```sh
-wso2 context apply -f team-context.json --dry-run
+ws context apply -f team-context.json --dry-run
 ```
 
 `--dry-run` prints what would be installed, created or replaced, a
@@ -233,21 +233,21 @@ With `--no-install`, a login product that is not installed must also state
 
 ## Share one
 
-`wso2 context export [<name>]` prints your contexts in the input-file form,
+`ws context export [<name>]` prints your contexts in the input-file form,
 with the credential references and the selection removed, ready to commit:
 
 ```sh
-wso2 context export > team-context.json
+ws context export > team-context.json
 ```
 
 Export writes complete records, so the file is longer than an input file, and
-`wso2 context apply -f <file> --no-install` writes it unchanged on a machine
+`ws context apply -f <file> --no-install` writes it unchanged on a machine
 that has none of the products installed. Export does not write `version`
 pins; add those by hand if your team wants them.
 
 ## Signing in without a browser
 
-`"kind": "oauth-device"` (or `wso2 context create --device`) is for a context
+`"kind": "oauth-device"` (or `ws context create --device`) is for a context
 that can *only* be established without a browser — a deployment whose
 loopback callback URLs cannot be registered, or one whose users are never at a
 machine that can reach one. It is a property of the context, not of where you
@@ -282,7 +282,7 @@ device grant and refuse this kind outright.
 
 A CI job has no browser and no secure store, so it uses a machine-to-machine
 context that carries its own credential and exchanges it inline, on every
-command — there is **no login step**. A job that runs `wso2 login` against
+command — there is **no login step**. A job that runs `ws login` against
 such a context is refused with `auth.login_not_required`.
 
 ```json
@@ -315,15 +315,15 @@ secret store injects the value into that variable at run time:
 env:
   WSO2_CLIENT_SECRET: ${{ secrets.WSO2_CLIENT_SECRET }}
 steps:
-  - run: wso2 context apply -f ci/context.json --use ci --no-input
-  - run: wso2 identity status
+  - run: ws context apply -f ci/context.json --use ci --no-input
+  - run: ws identity status
 ```
 
 The shell reads the variable into process memory for the length of one grant,
 performs the token exchange itself, and hands the module only the resulting
 short-lived access token — the secret never reaches the module, the
 filesystem, or the OS secure store. Set `--no-input` or `WSO2_NO_INPUT=1` on
-any job where a stray `wso2 login` should fail loudly rather than wait on a
+any job where a stray `ws login` should fail loudly rather than wait on a
 browser that will never open; see [non-interactive
 use](commands.md#non-interactive-use).
 
