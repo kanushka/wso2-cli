@@ -14,8 +14,8 @@ installer finds the checksum line whose file name matches the archive exactly,
 computes SHA-256, and refuses to extract on a mismatch or a missing line, so a
 failed check installs nothing.
 
-A matching checksum proves the archive is the one published beside it. It does
-not establish:
+A matching checksum confirms that the archive matches the listed digest. It
+does not establish:
 
 - **The checksum file.** It is downloaded from the same release as the archive,
   so whoever can replace one can replace both. Authenticity rests on HTTPS and
