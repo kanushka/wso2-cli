@@ -99,7 +99,7 @@ curl -fsSL https://wso2.github.io/wso2-cli/uninstall.sh | bash
 iwr https://wso2.github.io/wso2-cli/uninstall.ps1 -useb | iex
 ```
 
-The uninstaller leaves your contexts and installed products in `~/.wso2`.
+The uninstaller leaves your contexts and installed products under `$WSO2_HOME` (default `~/.wso2`).
 
 For manual installation, pinned versions, completion, verification details,
 and removal options, see [Installer details](../reference/installer.md).

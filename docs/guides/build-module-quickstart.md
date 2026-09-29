@@ -103,7 +103,7 @@ Your handler needs an access token. It asks the shell:
 ```go
 access, err := request.Access.Acquire(ctx, module.AccessRequest{Audience: "abc-api"})
 if err != nil {
-	return result.Result{}, err   // a typed denial; return it unchanged
+	return result.Result{}, err   // typed denials pass through; other errors become abc.handler_failed
 }
 ```
 
@@ -160,9 +160,9 @@ as a pinned development version. Use that binary, not the CLI on your `PATH`.
 
 This step is not optional polish. The test kit is a conforming peer, not the
 shell: it performs no receipt resolution, no integrity check, and no
-capability intersection. A handler asking for an audience `module.json` does
-not declare passes every test you wrote and is refused on a user's machine
-with `auth.audience_not_declared`. Installing locally is how you find that
+capability intersection. If your handler asks for an audience that
+`module.json` does not declare, every test you wrote still passes, but the real
+shell refuses the request with `auth.audience_not_declared`. Installing locally is how you find that
 while you can still fix it.
 
 To exercise a real product, create a context and record yours:
