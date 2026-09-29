@@ -6,6 +6,18 @@ The `abc` namespace is used as a placeholder throughout this guide.
 You need Go and a clone of `wso2/wso2-cli`. Run every command from the
 repository root.
 
+## Build with an agent
+
+Use the [new-product-module skill](../../.agents/skills/new-product-module/SKILL.md)
+to plan and implement a product module. For example, give your agent this prompt:
+
+```text
+Use $new-product-module to implement the <namespace> product module from issue #<number>.
+Run its tests and verify the commands through ./bin/ws.
+```
+
+The steps below show how to build a module manually.
+
 ## What you're building
 
 A product module is a separate program. The shell resolves it from the local
