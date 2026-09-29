@@ -4,6 +4,9 @@ These details cover release verification, manual installation, version selection
 completion, and removal. Start with [Install and use the WSO2 CLI](../guides/install.md)
 for the short walkthrough.
 
+Supported platforms are Linux (`amd64`, `arm64`, `arm`, `386`), macOS
+(`amd64`, `arm64`), and Windows (`amd64`, `arm64`).
+
 ## What the installer verifies
 
 The archive and `checksums.txt` come from the same GitHub release. The
@@ -20,10 +23,10 @@ not establish:
 - **The install script.** `curl ... | bash` runs the response from GitHub Pages
   without checking a digest or signature first. Read `scripts/install.sh` here,
   or install by hand, if that matters for your environment.
-- **The binary.** Releases are not signed or notarized, carry no provenance
-  attestation or SBOM, and neither the installer nor the release workflow runs
-  a malware or vulnerability scan. See
-  [release artifacts](release-artifacts.md).
+- **The binary.** The release workflow attests published artifacts, but the
+  installer does not verify those attestations. Releases are not signed or
+  notarized and carry no SBOM. See [release artifacts](release-artifacts.md)
+  for manual verification.
 
 ## Install by hand
 
@@ -40,6 +43,9 @@ not establish:
    On Windows, compare `Get-FileHash -Algorithm SHA256 <archive>` with the line
    in `checksums.txt`.
 3. Extract the archive and put the binary on your `PATH`.
+
+For publisher authentication before trusting the checksum file, follow the
+[artifact attestation verification steps](release-artifacts.md#checksums).
 
 ## Pin a version
 

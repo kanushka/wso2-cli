@@ -4,6 +4,7 @@ This guide registers the CLI in an Asgardeo organization, creates a context
 for it, and logs in. The examples use the organization `acme` and the
 `example` product. For every field a
 context can hold, see the [context file reference](../reference/context-file.md).
+The commands below use `ws`, the default name of a released CLI.
 
 Install the example module from this checkout with the
 [local setup guide](setup-example-module.md). From the repository root, run

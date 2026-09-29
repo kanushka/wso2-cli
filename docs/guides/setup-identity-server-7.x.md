@@ -5,6 +5,7 @@ it, and logs in. The examples use a server at `https://localhost:9443` and the
 `example` product. Tested against 7.3.0.
 For every field a context can hold, see the
 [context file reference](../reference/context-file.md).
+The commands below use `ws`, the default name of a released CLI.
 
 Install the example module from this checkout with the
 [local setup guide](setup-example-module.md). From the repository root, run

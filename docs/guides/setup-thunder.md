@@ -4,6 +4,7 @@ This guide registers the CLI in ThunderID `1.0.0-beta`, creates a context, and
 logs in. The examples use `https://localhost:8090` and the `example` product.
 Context fields are described in the
 [context file reference](../reference/context-file.md).
+The commands below use `ws`, the default name of a released CLI.
 
 Install the example module from this checkout with the
 [local setup guide](setup-example-module.md). From the repository root, run
@@ -114,8 +115,21 @@ ws context apply -f thunder-local.json --no-install --use thunder-local
 The CLI stores it with `"credentialRef": "thunder-local"`; `ws context show`
 prints it.
 
+If the `identity` product is installed, `ws context create` can build the
+login from its descriptor instead:
+
+```sh
+ws context create thunder-local --login-product identity \
+  --url https://localhost:8090 --use
+ws context product add example --url https://localhost:8090 \
+  --audience https://localhost:8090/example-status \
+  --scopes example:status:read
+```
+
+This path records the login only, so add the product before step 7.
+
 `ws context create --issuer` and `ws login --url` can't create a ThunderID
-context. Use the context file above so the login names its product.
+context. Use the context file or `--login-product` so the login names its product.
 
 ## 7. Log in and check
 

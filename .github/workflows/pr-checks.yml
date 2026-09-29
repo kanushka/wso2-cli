@@ -11,6 +11,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check documentation and checker tests
+        run: |
+          python3 -m unittest discover -s scripts -p test_check_docs.py
+          python3 scripts/check_docs.py --changed-from "${{ github.event.pull_request.base.sha }}"
+
   changes:
     name: Changes
     runs-on: ubuntu-latest

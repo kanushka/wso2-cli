@@ -40,9 +40,8 @@ This writes `modules/abc/` with `go.mod`, `module.json`, a README, a
 `cmd/wso2-module-abc/main.go` that answers `status`, and tests that pass with
 nothing edited. It also composes the module into the Go workspace.
 
-Use the generator rather than copying another module. It reads the SDK version
-and the protocol versions from your checkout, so a generated module is never
-built against something this repository doesn't build against.
+Use the generator rather than copying another module. It reads the SDK and
+protocol versions from your checkout.
 
 The namespace is four things at once: the command users type (`ws abc`), the
 tag prefix (`abc/v1.0.0`), the program name (`wso2-module-abc`), and the
@@ -244,7 +243,7 @@ Users then install it:
 
 ```sh
 ws product install abc --channel prerelease
-ws product install abc@0.1.0-rc.1
+ws product install abc@0.1.0-rc.1   # pin an exact version
 ws product update abc
 ```
 

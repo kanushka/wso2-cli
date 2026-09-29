@@ -28,12 +28,17 @@ Neither needs administrator rights, and both are plain text at the URLs above if
 you would rather read one before running it.
 
 Released binaries are checksum-verified but not code signed or notarized.
+The release also has [artifact attestations](docs/reference/release-artifacts.md#checksums)
+that you can verify before installing by hand.
 Supported platforms are Linux on `amd64`, `arm64`, `arm`, and `386`, and macOS and
 Windows on `amd64` and `arm64`.
 
 The [install and use guide](docs/guides/install.md) walks through the first
 commands. [Installer details](docs/reference/installer.md) covers manual
 installation, pinned versions, completion, and removal options.
+
+Stock releases install the command as `ws`. The installer prints the command
+name if a release uses a different one.
 
 ### Tab completion
 

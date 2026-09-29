@@ -1,8 +1,9 @@
 # Install and use the WSO2 CLI
 
-The installer adds the `ws` command to your shell. It prints the name it
-installed; use that name if yours differs. These steps need no administrator
-rights.
+The installer adds the `ws` command to your shell without administrator
+rights. It checks the release archive against `checksums.txt` and prints the
+installed command name. Use that name if yours differs. macOS Gatekeeper or
+Windows SmartScreen may warn because the binaries are not code signed.
 
 ## Install
 

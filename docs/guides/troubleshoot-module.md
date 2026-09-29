@@ -10,6 +10,9 @@ export WSO2_HOME=$(mktemp -d)
 make install-module NAMESPACE=<namespace>
 ```
 
+This builds `./bin/ws` locally. The command tables below use `ws`, the default
+name of a released CLI; use `./bin/ws` when checking a local module.
+
 The shell prints an error code in parentheses. Find it below. For field
 details, see the [module manifest](../reference/module-manifest.md) and
 [module SDK](../reference/module-sdk.md) references.

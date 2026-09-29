@@ -12,16 +12,14 @@ supporting public-source research.
 
 The repository contains three independently buildable Go modules: the shell at
 the repository root, the public SDK in `sdk/`, and the reference module in
-`modules/reference/`. `go.work` composes the unpublished modules for local
-development. Committed `replace` directives are prohibited in every
+`modules/reference/`. `go.work` composes them from source for local development.
+The SDK version required by the reference module is published, so the workspace
+currently has no `replace` directive. During an SDK release, one temporary
+workspace replacement may be needed while the reference module requires a
+version that has not been published yet. See
+[release artifacts](docs/reference/release-artifacts.md) for that procedure.
+Committed `replace` directives are prohibited in every
 `go.mod`; a test and the previous-protocol gate below both enforce this.
-`go.work` carries one replacement for the unpublished SDK version the
-reference module requires. Replacing a module
-version with contents found elsewhere is what a `go.work` replacement is for
-([Go modules reference](https://go.dev/ref/mod#go-work-file-replace)); this
-checkout needs one because the reference module requires an SDK version that
-has never been published. It disappears once the SDK is published, and a test
-pins it to that single line.
 
 One command builds all three modules and runs every test layer, and it is the
 same command continuous integration runs:
@@ -45,10 +43,30 @@ It resolves the newest published SDK whose protocol generation is the
 predecessor of this branch's, builds the reference module against that SDK
 with the workspace dropped, and launches it under the shell built from this
 checkout. That is the dependency graph a released module has, and it is the
-one graph nothing else here reproduces. Until the first SDK is published the
-gate has no release to resolve, and it says so and checks nothing rather than
-reporting a pass. It needs a reachable module proxy; the acceptance gate does
-not.
+one graph nothing else here reproduces. It needs a reachable module proxy;
+the acceptance gate does not.
+
+CI runs `govulncheck` for the shell, SDK, and every product module on pull
+requests and weekly. To reproduce a finding locally, install
+`govulncheck` and run:
+
+```shell
+GOTOOLCHAIN=go1.26.4 go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+```
+
+Then run:
+
+```shell
+(govulncheck ./...)
+(cd sdk && GOWORK=off govulncheck ./...)
+for mod in modules/*/go.mod; do
+  (cd "$(dirname "$mod")" && govulncheck ./...)
+done
+```
+
+Fix actionable findings by updating the affected dependency or code. If a
+finding cannot be reached or addressed, record the evidence and rationale in
+the pull request.
 
 While working on one module, run that module alone:
 
