@@ -1,7 +1,7 @@
 # Build a WSO2 CLI product module
 
-Start with nothing and end with a released `ws abc` command tree. The
-namespace `abc` stands in for yours throughout.
+Start from scratch and build a complete, released `ws abc` command tree.
+The `abc` namespace is used as a placeholder throughout this guide.
 
 You need Go and a clone of `wso2/wso2-cli`. Run every command from the
 repository root.
