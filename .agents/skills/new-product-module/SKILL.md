@@ -1,6 +1,6 @@
 ---
 name: new-product-module
-description: Plan and build a new WSO2 CLI product module (a `wso2 <namespace>` command tree on the Go SDK and Cobra). Use when adding a product namespace, scaffolding under `modules/`, writing a spec or tickets for one, or adding commands to an existing product module.
+description: Plan and build a WSO2 CLI product module using the Go SDK and Cobra. Use for a new product namespace, module scaffolding, specs and tickets, or commands in an existing product module.
 ---
 
 # New product module
@@ -45,12 +45,12 @@ Done when every command in the ticket has a test that proves:
 
 ## 6. Prove it under the real shell
 
-`testkit` never checks declared audiences and scopes, so green tests do not prove the module runs. Follow the guide's steps 3–5: `make install-module`, run every new command through `./bin/ws <ns> ...`, then run `./scripts/acceptance.sh`.
+`testkit` never checks declared audiences and scopes, so green tests do not prove the module runs. Follow the guide's steps 4–5: `make install-module`, run every new command through `./bin/ws <ns> ...`, then run `./scripts/acceptance.sh`.
 
-Always `export WSO2_HOME=$(mktemp -d)` first. The guide calls this optional because a person installing their own module wants it to stick; you are not that person. Without it you install into the developer's real module store and a second agent working at the same time corrupts it.
+Always `export WSO2_HOME=$(mktemp -d)` first. This keeps the developer's real module store untouched.
 
 A command that needs a live product is proven as far as it goes without one: its help under `./bin/ws`, and the refusals it gives with no context and no argument. Say in your report which commands reached the product and which stopped at a refusal, rather than implying a full round trip.
 
-Done when every item in the guide's "Before review" list holds and each new command has run under `./bin/ws`. Then commit (one-line Conventional Commit, scope = namespace, e.g. `feat(abc): add projects list`) and reference the ticket in the PR.
+Done when every item in the guide's "Before you open the pull request" list holds and each new command has run under `./bin/ws`. Then commit (one-line Conventional Commit, scope = namespace, e.g. `feat(abc): add projects list`) and reference the ticket in the PR.
 
 Releasing (`make gate-module`, tag `<ns>/vX.Y.Z-rc.N`) is its own ticket and needs a human to push the tag.

@@ -2,10 +2,15 @@
 
 This guide registers the CLI in WSO2 Identity Server 7.x, creates a context for
 it, and logs in. The examples use a server at `https://localhost:9443` and the
-`reference` product (`ws product install reference`). Tested against 7.3.0.
+`example` product. Tested against 7.3.0.
 For every field a context can hold, see the
 [context file reference](../reference/context-file.md).
 The commands below use `ws`, the default name of a released CLI.
+
+Install the example module from this checkout with the
+[local setup guide](setup-example-module.md). From the repository root, run
+`export PATH="$PWD/bin:$PATH"` in the same terminal so the `ws` commands below
+use that build. Keep the `WSO2_HOME` value from the local setup guide.
 
 ## 1. Run a server
 
@@ -59,16 +64,16 @@ In the Console (`https://localhost:9443/console`):
 ## 4. Add the API resource
 
 1. Go to **API Resources → New API Resource**. Set the identifier to
-   `reference-status` and add the scope `reference:status:read`.
+   `example-status` and add the scope `example:status:read`.
    **Requires authorization** can't be changed later.
 2. On the application's **API Authorization** tab, authorize the resource and
    select its scopes.
-3. On the application's **Protocol** tab, add `reference-status` to the
+3. On the application's **Protocol** tab, add `example-status` to the
    **Audience** list.
 
 Step 3 matters. Identity Server puts the resource identifier in the access
 token's `aud` claim only when it is in that list, so the audience you record
-for the product is `reference-status`.
+for the product is `example-status`.
 
 ## 5. Create a user
 
@@ -83,7 +88,7 @@ assign the user to it. Console changes apply at the next login.
 
 The `ws context create` wizard lists **WSO2 Identity Server (coming soon)**
 and refuses it: no WSO2 product the CLI installs signs in at an Identity
-Server, so the wizard offers no path that ends anywhere. The `reference`
+Server, so the wizard offers no path that ends anywhere. The `example`
 product here is reached by its own grant rather than by being an Identity
 Server product, which is why the flags still work:
 
@@ -91,8 +96,8 @@ Server product, which is why the flags still work:
 ws context create is-local \
   --issuer https://localhost:9443/oauth2/token \
   --client-id <client-id> --provider identity-server --use
-ws context product add reference --url https://localhost:9443 \
-  --audience reference-status --scopes reference:status:read
+ws context product add example --url https://localhost:9443 \
+  --audience example-status --scopes example:status:read
 ```
 
 The issuer must match the `issuer` value in
@@ -111,13 +116,13 @@ this:
     "issuer": "https://localhost:9443/oauth2/token",
     "clientId": "REPLACE_WITH_YOUR_CLIENT_ID",
     "provider": "identity-server",
-    "product": "reference"
+    "product": "example"
   },
   "products": {
-    "reference": {
+    "example": {
       "url": "https://localhost:9443",
-      "audience": "reference-status",
-      "scopes": ["reference:status:read"]
+      "audience": "example-status",
+      "scopes": ["example:status:read"]
     }
   }
 }
@@ -128,7 +133,7 @@ this:
 ```sh
 ws login
 ws whoami
-ws reference status
+ws example status
 ```
 
 `ws login` opens the browser. `ws whoami` shows `Session  present` once
@@ -151,9 +156,9 @@ CI uses a client-credentials context and doesn't run `ws login`.
    ws context create is-ci \
      --issuer https://localhost:9443/oauth2/token \
      --client-id <ci-client-id> --client-secret-variable WSO2_IS_CI_SECRET
-   ws context product add reference --context is-ci \
-     --url https://localhost:9443 --audience reference-status \
-     --scopes reference:status:read
+   ws context product add example --context is-ci \
+     --url https://localhost:9443 --audience example-status \
+     --scopes example:status:read
    ```
 
 3. In the job, set `WSO2_CONTEXT=is-ci`, `WSO2_NO_INPUT=1`, `WSO2_CA_FILE` if
@@ -167,7 +172,7 @@ CI uses a client-credentials context and doesn't run `ws login`.
 | --- | --- |
 | `auth.certificate_untrusted` | Set `WSO2_CA_FILE` (step 2). |
 | `auth.discovery_failed` | The issuer doesn't match the discovery document exactly (check the port), or PKCE isn't **Mandatory**. If all four callback ports are busy, free one. |
-| `auth.narrowing_unavailable` naming the audience | Add `reference-status` to the application's **Audience** list (step 4), then log in again. |
+| `auth.narrowing_unavailable` naming the audience | Add `example-status` to the application's **Audience** list (step 4), then log in again. |
 | `auth.narrowing_unavailable` naming permissions | The user holds no role with the scopes (step 5), or access tokens aren't JWT. |
 | `auth.product_not_configured` | The context doesn't record the product or one of its scopes. Run `ws context product add`. |
 | `auth.login_required` | The session expired or was revoked. Run `ws login`. |

@@ -1,6 +1,6 @@
 # The {{.Namespace}} product module
 
-This is a WSO2 CLI product module. It is a separate program: the `wso2` shell
+This is a WSO2 CLI product module. It is a separate program: the `ws` shell
 resolves it from the managed module store and launches it, and the two speak the
 module contract over the module's standard input and output.
 
@@ -22,7 +22,7 @@ no shell that exists can launch it.
 # From the repository root.
 make build-module NAMESPACE={{.Namespace}}
 make test-module NAMESPACE={{.Namespace}}
-make install-module NAMESPACE={{.Namespace}}   # then ./bin/wso2 {{.Namespace}} status
+make install-module NAMESPACE={{.Namespace}}   # then ./bin/ws {{.Namespace}} status
 ```
 
 The workspace composes this module with the SDK from source, so a change to the
