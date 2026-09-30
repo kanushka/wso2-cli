@@ -150,12 +150,10 @@ func createResourceServer(
 	if len(granted) > 0 {
 		report = report.With("permissions", "Permissions", strings.Join(granted, " "))
 	}
-	// Which of two things the resource server stands for is the caller's to
-	// know: a product the context reaches, or an API tokens are minted for.
+	// The common case is an API behind a gateway; a product's --audience is in
+	// the context file reference.
 	return report.With(NextField, "Next",
-		"Tokens minted for it carry the audience "+created.Identifier+". For a product this "+
-			"context reaches, record that with wso2 context product add <namespace> --url <url> "+
-			"--audience "+created.Identifier+"; for an API, name it as the API's jwt-auth audience."), nil
+		"An API accepts tokens for this server when its jwt-auth audience is "+created.Identifier+"."), nil
 }
 
 // resourceServerName proves the command line names exactly one resource

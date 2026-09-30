@@ -157,11 +157,9 @@ func TestCreatingAResourceServerSendsTheOUIDFromASingleOUListing(t *testing.T) {
 }
 
 func TestCreatingAResourceServerSaysWhatTheIdentifierIsFor(t *testing.T) {
-	// A resource server stands for one of two things, and this module cannot
-	// tell which: a product the context records (then its audience is
-	// recorded with context product add), or an API the identifier is the
-	// audience of. Pointing at product add alone sends the second case to a
-	// command it has no use for.
+	// The hint names the common case, an API whose jwt-auth audience is the
+	// identifier. Pointing at context product add sends that case to a command
+	// it has no use for; a product's audience is in the context file reference.
 	var captured string
 	server := newRoutedStub(t, map[string]route{
 		"GET /organization-units": {body: `{"totalResults":1,"organizationUnits":[
@@ -186,7 +184,7 @@ func TestCreatingAResourceServerSaysWhatTheIdentifierIsFor(t *testing.T) {
 			next = field.Value
 		}
 	}
-	for _, want := range []string{"audience", "http://localhost:8801/hello", "context product add", "API"} {
+	for _, want := range []string{"jwt-auth audience", "http://localhost:8801/hello", "API"} {
 		if !strings.Contains(next, want) {
 			t.Errorf("next %q does not mention %q", next, want)
 		}
