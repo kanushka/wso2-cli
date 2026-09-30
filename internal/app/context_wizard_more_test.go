@@ -86,7 +86,7 @@ func TestContextCreateWizardLogsInAfterCreate(t *testing.T) {
 
 // TestAskThunderLoginRefusesAProductThatDoesNotLoginProvide proves the two
 // ways picking Thunder can find nothing to sign in through: the suggested
-// product (identity, installed first when nothing installed names Thunder)
+// product (iam, installed first when nothing installed names Thunder)
 // declares no descriptor at all, or declares one that is not a login
 // provider. Both are refused the way --login-product already is for the same
 // reason (shell.invalid_argument).
@@ -98,7 +98,7 @@ func TestAskThunderLoginRefusesAProductThatDoesNotLoginProvide(t *testing.T) {
 	for name, descriptor := range cases {
 		t.Run(name, func(t *testing.T) {
 			shell, _, _ := newShell(t)
-			module := fixture.Module{Namespace: "identity", Version: "0.1.0", Product: descriptor}
+			module := fixture.Module{Namespace: "iam", Version: "0.1.0", Product: descriptor}
 			installFixture(t, shell, module)
 			shell.Reader = strings.NewReader("1\n") // Sign in with: Thunder
 			code, _, errOut := run(t, shell, "context", "create", "local")
@@ -106,7 +106,7 @@ func TestAskThunderLoginRefusesAProductThatDoesNotLoginProvide(t *testing.T) {
 				t.Fatalf("exit %d, want usage: %s", code, errOut)
 			}
 			for _, want := range []string{"shell.invalid_argument",
-				"the identity product is not a login provider"} {
+				"the iam product is not a login provider"} {
 				if !strings.Contains(errOut, want) {
 					t.Errorf("stderr lacks %q:\n%s", want, errOut)
 				}
@@ -126,12 +126,12 @@ func TestAskThunderLoginRefusesAProductThatDoesNotLoginProvide(t *testing.T) {
 // unavailable for a product that does not accept one.
 func TestAskThunderLoginPromptsForAMissingClientIDAndAudience(t *testing.T) {
 	shell, _, _ := newShell(t)
-	installFixture(t, shell, fixture.Module{Namespace: "identity", Version: "0.1.0",
+	installFixture(t, shell, fixture.Module{Namespace: "iam", Version: "0.1.0",
 		Product: &modules.ProductDescriptor{
 			Provider: contexts.ProviderThunder, Audience: modules.AudienceResource, Scopes: []string{"system"},
 		}})
 	shell.Reader = strings.NewReader("" +
-		"1\n" + // Sign in with: Thunder, through identity
+		"1\n" + // Sign in with: Thunder, through iam
 		"https://thunder.example\n" + // Thunder URL
 		"cli-manual\n" + // Client ID, which the descriptor names none of
 		"https://aud.example\n" + // Audience, which the descriptor names none of
@@ -153,7 +153,7 @@ func TestAskThunderLoginPromptsForAMissingClientIDAndAudience(t *testing.T) {
 	if widget.Login.ClientID != "cli-manual" {
 		t.Errorf("client ID = %q, want %q", widget.Login.ClientID, "cli-manual")
 	}
-	if got := widget.Products["identity"].Audience; got != "https://aud.example" {
+	if got := widget.Products["iam"].Audience; got != "https://aud.example" {
 		t.Errorf("audience = %q, want %q", got, "https://aud.example")
 	}
 }

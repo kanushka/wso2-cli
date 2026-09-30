@@ -33,7 +33,7 @@ func TestHintMarksCommandsInsideSentences(t *testing.T) {
 		"Run wso2 logout [--context <name>] [--output table|json].":                                      "Run `wso2 logout [--context <name>] [--output table|json]`.",
 		"Nothing holds a session until wso2 login has established one.":                                  "Nothing holds a session until `wso2 login` has established one.",
 		"Run wso2 login --context demo":                                                                  "Run `wso2 login --context demo`",
-		"Run wso2 apim apis deploy MockAPI/1.0.0.":                                                       "Run `wso2 apim apis deploy MockAPI/1.0.0`.",
+		"Run wso2 apim api deploy MockAPI/1.0.0.":                                                        "Run `wso2 apim api deploy MockAPI/1.0.0`.",
 		"The WSO2 CLI names no command here.":                                                            "The WSO2 CLI names no command here.",
 		"Did you mean wso2 reference status?":                                                            "Did you mean `wso2 reference status`?",
 		"Valid keys: output, catalog-origin.":                                                            "Valid keys: output, catalog-origin.",

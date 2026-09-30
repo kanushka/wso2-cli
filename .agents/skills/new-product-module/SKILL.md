@@ -5,7 +5,7 @@ description: Plan and build a new WSO2 CLI product module (a `wso2 <namespace>` 
 
 # New product module
 
-A **product module** is a separately released executable that owns one **product namespace** (`CONTEXT.md`). The shell owns login, tokens, rendering and exit codes; the module owns a Cobra command tree whose handlers return results. `modules/identity` and `modules/api` are the prior art; copy their shape.
+A **product module** is a separately released executable that owns one **product namespace** (`CONTEXT.md`). The shell owns login, tokens, rendering and exit codes; the module owns a Cobra command tree whose handlers return results. `modules/iam` and `modules/apim` are the prior art; copy their shape.
 
 Before any step, read what `docs/agents/domain.md` lists, plus ADRs 0002, 0003, 0004, 0013 and 0015. Use glossary words in every issue, identifier and help line: _product module_, _product namespace_, _context_, _module contract_, never _plugin_ or _account_.
 
@@ -51,6 +51,6 @@ Always `export WSO2_HOME=$(mktemp -d)` first. The guide calls this optional beca
 
 A command that needs a live product is proven as far as it goes without one: its help under `./bin/ws`, and the refusals it gives with no context and no argument. Say in your report which commands reached the product and which stopped at a refusal, rather than implying a full round trip.
 
-Done when every item in the guide's "Before review" list holds and each new command has run under `./bin/ws`. Then commit (one-line Conventional Commit, scope = namespace, e.g. `feat(abc): add projects list`) and reference the ticket in the PR.
+Done when every item in the guide's "Before review" list holds and each new command has run under `./bin/ws`. Then commit (one-line Conventional Commit, scope = namespace, e.g. `feat(abc): add project list`) and reference the ticket in the PR.
 
 Releasing (`make gate-module`, tag `<ns>/vX.Y.Z-rc.N`) is its own ticket and needs a human to push the tag.

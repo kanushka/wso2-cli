@@ -62,7 +62,7 @@ type Command struct {
 }
 ```
 
-`Path` is the command path within the namespace, so `wso2 api status` binds as
+`Path` is the command path within the namespace, so `wso2 apim status` binds as
 `[]string{"status"}`; the namespace itself is not an element. Matching is exact
 slice equality, with no prefix matching and no aliases. An empty path is the
 namespace's own default command. A
@@ -216,7 +216,7 @@ and asks for each once.
 The token is opaque. Do not parse it, log it, persist it, or pass it in
 command-line arguments. `ExpiresAt` lets a module fail early; the audience
 enforces expiry regardless. The one command that returns a token as its result
-is one whose whole purpose is to hand it over (`wso2 api apis token`), and it
+is one whose whole purpose is to hand it over (`wso2 apim api get-token`), and it
 says on standard error that the token is stored nowhere.
 
 A denial arrives as a typed problem and should be returned unchanged.
@@ -247,7 +247,7 @@ type Row struct {
 }
 ```
 
-`Schema` identifies the semantic shape, such as `api.status/v1`, so a consumer
+`Schema` identifies the semantic shape, such as `apim.status/v1`, so a consumer
 of JSON output knows what the fields mean without interpreting them. `Fields`
 are in presentation order, and that order is part of the answer: it is what a
 table shows and the order JSON follows.
@@ -279,7 +279,7 @@ A listing declares its columns once and adds a row per item, with `WithColumn`
 and `WithRow`:
 
 ```go
-report := result.New("identity.resourceServers/v1").
+report := result.New("iam.resourceServers/v1").
 	With("count", "Resource servers", strconv.Itoa(len(found))).
 	WithColumn("name", "Name").
 	WithColumn("identifier", "Identifier")
@@ -324,7 +324,7 @@ how a module gets a stable category and code instead.
 
 `Message` and `Recovery` are rendered verbatim and must never carry credential
 material. `Code` is stable and machine-readable, conventionally prefixed with
-the namespace, such as `api.status_unavailable`.
+the namespace, such as `apim.status_unavailable`.
 
 ### The codes the SDK produces for you
 

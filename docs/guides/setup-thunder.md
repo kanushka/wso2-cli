@@ -110,11 +110,11 @@ wso2 context apply -f thunder-local.json --no-install --use thunder-local
 The CLI stores it with `"credentialRef": "thunder-local"`; `wso2 context show`
 prints it.
 
-If the `identity` product is installed, `wso2 context create` can build the
+If the `iam` product is installed, `wso2 context create` can build the
 login from its descriptor instead:
 
 ```sh
-wso2 context create thunder-local --login-product identity \
+wso2 context create thunder-local --login-product iam \
   --url https://localhost:8090 --use
 wso2 context product add reference --url https://localhost:8090 \
   --audience https://localhost:8090/reference-status \

@@ -13,7 +13,7 @@ The third column is for whoever builds the module. Keep it out of the issues: a 
 | Product | The WSO2 product and which deployments it serves (ThunderID, Identity Server, Asgardeo, APIM…) | Spec problem statement |
 | Namespace | Lowercase letters and digits, named after the **product**, not a deployment (ADR 0015). Renaming later is a migration. Not a shell command, not `reference`, not already taken. ADR 0015 and `docs/product-requirements.md` enumerate the sanctioned namespaces: a namespace absent from that list is an ADR conflict to surface as its own prerequisite, never something to assume into the spec | `Namespace`, `module.json`, program path `wso2-module-<ns>`, tag prefix |
 | Title | Human name shown in `wso2 product` listings | `module.json` `title` |
-| Command tree | Every `wso2 <ns> <group> <verb>` with args and flags. Nouns plural (`users`, `resource-servers`), verbs `list`/`create`/`delete`/…, and `status` always present | Cobra tree in `commands()` |
+| Command tree | Every `wso2 <ns> <group> <verb>` with args and flags. Nouns singular (`user`, `resource-server`), even for `list`, verbs `list`/`create`/`delete`/…, and `status` always present | Cobra tree in `commands()` |
 | Product API | Base URL source (always `request.Context.Endpoint`), paths each command calls, auth header, pagination | `internal/<product>/client.go` |
 | Audiences | Logical names such as `<ns>-management`, never a deployment URL; the user maps them in the context | `module.json` `capabilities.authAudiences` and `module.Options.AuthAudiences` |
 | Scopes | Per audience, the minimum each command needs | `authScopes` and `AuthScopes` |

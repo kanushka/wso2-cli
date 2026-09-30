@@ -91,7 +91,7 @@ func movedAccountCommand(args []string) error {
 	case "create":
 		line := []string{"wso2 context create", arg(0, "<name>")}
 		if product := flags.value("product"); product != "" {
-			line = append(line, "--login-product", product, "--url", flags.valueOr("endpoint", "<url>"))
+			line = append(line, "--login-product", currentNamespace(product), "--url", flags.valueOr("endpoint", "<url>"))
 		} else {
 			line = append(line, "--issuer", flags.valueOr("issuer", "<issuer-url>"),
 				"--client-id", flags.valueOr("client-id", "<id>"))
@@ -100,13 +100,13 @@ func movedAccountCommand(args []string) error {
 		line = append(line, flags.renamed("scope", "scopes")...)
 		replacement = strings.Join(line, " ")
 	case "add-product":
-		line := []string{"wso2 context product add", arg(1, "<product>"),
+		line := []string{"wso2 context product add", currentNamespace(arg(1, "<product>")),
 			"--url", flags.valueOr("endpoint", "<url>")}
 		line = append(line, flags.passthrough("audience", "scopes", "replace")...)
 		line = append(line, "--context", arg(0, "<context>"))
 		replacement = strings.Join(line, " ")
 	case "remove-product":
-		replacement = strings.Join([]string{"wso2 context product remove", arg(1, "<product>"),
+		replacement = strings.Join([]string{"wso2 context product remove", currentNamespace(arg(1, "<product>")),
 			"--context", arg(0, "<context>")}, " ")
 	case "rename":
 		replacement = strings.Join([]string{"wso2 context rename", arg(0, "<name>"), arg(1, "<new-name>")}, " ")
@@ -119,9 +119,27 @@ func movedAccountCommand(args []string) error {
 		WithRecovery(fmt.Sprintf("Run %s instead. See wso2 context --help.", replacement))
 }
 
+// renamedNamespaces maps a product namespace's retired word to the one its
+// module declares now, so a line typed under the old word is answered with the
+// product that exists.
+var renamedNamespaces = map[string]string{"api": "apim", "identity": "iam"}
+
+// currentNamespace is the namespace a product word names today.
+func currentNamespace(word string) string {
+	if renamed, ok := renamedNamespaces[word]; ok {
+		return renamed
+	}
+	return word
+}
+
 // movedConnect answers wso2 <namespace> connect with the context command that
 // records the same thing.
 func movedConnect(namespace string, args []string, descriptor *modules.ProductDescriptor) error {
+	product := currentNamespace(namespace)
+	// The identity namespace was always the login provider, so its connect
+	// line creates a context even when no module is installed to say so.
+	loginProvider := descriptor != nil && descriptor.LoginProvider() ||
+		descriptor == nil && namespace == "identity"
 	positional, flags := splitOldLine(args)
 	url := "<url>"
 	if len(positional) > 0 {
@@ -138,7 +156,7 @@ func movedConnect(namespace string, args []string, descriptor *modules.ProductDe
 		// replacement can only hold its place. --replace is there because the
 		// product was always recorded first, and adding the gateway replaces
 		// its record.
-		line = []string{"wso2 context product add", namespace, "--url", "<" + namespace + "-url>",
+		line = []string{"wso2 context product add", product, "--url", "<" + product + "-url>",
 			"--gateway", url}
 		line = append(line, flags.renamed("audience", "gateway-audience")...)
 		line = append(line, flags.renamed("scopes", "gateway-scopes")...)
@@ -146,16 +164,16 @@ func movedConnect(namespace string, args []string, descriptor *modules.ProductDe
 		if context != "" {
 			line = append(line, "--context", context)
 		}
-	case descriptor != nil && descriptor.LoginProvider():
+	case loginProvider:
 		name := context
 		if name == "" {
 			name = "<name>"
 		}
-		line = []string{"wso2 context create", name, "--login-product", namespace, "--url", url}
+		line = []string{"wso2 context create", name, "--login-product", product, "--url", url}
 		line = append(line, flags.passthrough("client-id", "client-secret-variable", "audience", "scopes")...)
 		line = append(line, "--use")
 	default:
-		line = []string{"wso2 context product add", namespace, "--url", url}
+		line = []string{"wso2 context product add", product, "--url", url}
 		line = append(line, flags.passthrough("audience", "scopes", "client-id", "client-id-variable",
 			"client-secret-variable", "replace")...)
 		if context != "" {

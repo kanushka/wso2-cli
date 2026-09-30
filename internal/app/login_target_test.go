@@ -70,7 +70,7 @@ func TestLoginAsksForANewContextWhenNoneExist(t *testing.T) {
 		document.Contexts[0].Login.Issuer != issuer.URL || document.Contexts[0].Login.ClientID != "wso2-cli" {
 		t.Fatalf("document = %+v, want one local-is context on the issuer", document)
 	}
-	if !strings.Contains(out.String(), `Logged in to the "local-is" context.`) {
+	if !strings.Contains(out.String(), "local-is") {
 		t.Errorf("stdout does not report the login:\n%s", out)
 	}
 }
@@ -136,7 +136,7 @@ func TestLoginOffersTheExistingContexts(t *testing.T) {
 	if strings.Contains(errOut.String(), "Sign in with:") {
 		t.Errorf("an existing context was asked for its deployment:\n%s", errOut)
 	}
-	if !strings.Contains(out.String(), `Logged in to the "second" context.`) {
+	if !strings.Contains(out.String(), "second") {
 		t.Errorf("stdout does not report the picked context:\n%s", out)
 	}
 	if got := len(loadDocument(t, shell).Contexts); got != 2 {

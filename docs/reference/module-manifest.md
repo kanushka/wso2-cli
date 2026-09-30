@@ -19,7 +19,7 @@ one means and what refuses when it is wrong.
 ```json
 {
   "schemaVersion": 1,
-  "namespace": "api",
+  "namespace": "apim",
   "title": "API Platform",
   "compatibility": {
     "shell": ">=0.1.0 <2.0.0",
@@ -79,7 +79,7 @@ release tag prefix.
 ## `title`
 
 The product's short name, printed beside the namespace on the shell's root help
-page: `API Platform` for `api`. It is optional, and `make new-module` writes the
+page: `API Platform` for `apim`. It is optional, and `make new-module` writes the
 namespace with an initial capital as a placeholder.
 
 Catalog generation copies it into `index.json`, and each shell release carries a

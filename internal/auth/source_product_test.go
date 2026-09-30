@@ -490,8 +490,8 @@ func TestAResourceBoundRefusalToNarrowNamesTheRoleAndTheReLogin(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"wso2 iam roles create <role> --resource-server <name> --permission reference:status:read --assign-user <username>",
-		"wso2 iam roles assign <role> --user <username>",
+		"wso2 iam role create <role> --resource-server <name> --permission reference:status:read --assign-user <username>",
+		"wso2 iam role assign <role> --user <username>",
 		"wso2 logout --context reference-cloud",
 		"wso2 login --context reference-cloud",
 	} {

@@ -153,7 +153,7 @@ const narrowingRecovery = "Check the deployment's API resource registration and 
 // accept.
 const indicatorRecovery = "This deployment binds access to one named resource and will not issue " +
 	"any without being told which. Name the deployment's identity provider on this context in " +
-	"the context document (the cli/contexts.json file under the WSO2 CLI state directory), or " +
+	"the context document (the cli/contexts.yaml file under the WSO2 CLI state directory), or " +
 	"set its derivation to " + contexts.DerivationTokenResource + " explicitly, then retry."
 
 // unknownResourceRecovery is the way back from a deployment that was told which
@@ -291,8 +291,8 @@ func resourceBoundRecovery(scopes []string, audience, contextName, namespace str
 	}
 	return fmt.Sprintf("On this deployment a session carries only the permissions of roles the signed-in "+
 		"user or the client holds on the %q resource server, and this one was minted without them. "+
-		"Ask an administrator to grant one: wso2 iam roles create <role> --resource-server <name> %s "+
-		"--assign-user <username>, or wso2 iam roles assign <role> --user <username> when the role "+
+		"Ask an administrator to grant one: wso2 iam role create <role> --resource-server <name> %s "+
+		"--assign-user <username>, or wso2 iam role assign <role> --user <username> when the role "+
 		"exists. A session established before the role was granted keeps what it was minted with, so "+
 		"afterwards %s.", audience, strings.Join(permissions, " "), reestablish)
 }

@@ -172,7 +172,7 @@ func TestParseModeAcceptsOnlyTheRenderingsTheShellSupports(t *testing.T) {
 func TestANextFieldRendersAsATrailingLine(t *testing.T) {
 	produced := result.New("x.y/v1").
 		With("count", "Count", "1").
-		With("next", "Next", "Run wso2 apim apis deploy MockAPI/1.0.0.")
+		With("next", "Next", "Run wso2 apim api deploy MockAPI/1.0.0.")
 	var out bytes.Buffer
 	if err := output.Result(&out, output.ModeTable, produced); err != nil {
 		t.Fatal(err)
@@ -181,14 +181,14 @@ func TestANextFieldRendersAsATrailingLine(t *testing.T) {
 	if strings.Contains(strings.SplitN(text, "\n", 2)[0], "NEXT") {
 		t.Errorf("next was rendered as a column:\n%s", text)
 	}
-	if !strings.HasSuffix(text, "\nNext  Run `wso2 apim apis deploy MockAPI/1.0.0`.\n") {
+	if !strings.HasSuffix(text, "\nNext  Run `wso2 apim api deploy MockAPI/1.0.0`.\n") {
 		t.Errorf("next line missing:\n%s", text)
 	}
 	out.Reset()
 	if err := output.Result(&out, output.ModeJSON, produced); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), `"next": "Run wso2 apim apis deploy MockAPI/1.0.0."`) {
+	if !strings.Contains(out.String(), `"next": "Run wso2 apim api deploy MockAPI/1.0.0."`) {
 		t.Errorf("json lost next:\n%s", out.String())
 	}
 
@@ -196,7 +196,7 @@ func TestANextFieldRendersAsATrailingLine(t *testing.T) {
 	if err := output.Report(&out, output.ModeTable, produced); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out.String(), "Next  Run `wso2 apim apis deploy MockAPI/1.0.0`.") &&
+	if strings.Contains(out.String(), "Next  Run `wso2 apim api deploy MockAPI/1.0.0`.") &&
 		strings.Count(out.String(), "Next") == 1 && strings.HasPrefix(out.String(), "Count") {
 		return
 	}
@@ -207,10 +207,10 @@ func TestAMultiLineFieldRendersAsABlockAfterTheTable(t *testing.T) {
 	// An API's answer, a certificate, a document: a value that spans lines
 	// cannot be a column, and a table that tried would break every column
 	// after it. It is rendered under its label after the table, before next.
-	produced := result.New("api.invocation/v1").
+	produced := result.New("apim.invocation/v1").
 		With("status", "Status", "200").
 		With("body", "Body", "{\n  \"greeting\": \"hello\"\n}").
-		With("next", "Next", "Run wso2 api apis list.")
+		With("next", "Next", "Run wso2 apim api list.")
 	var out bytes.Buffer
 	if err := output.Result(&out, output.ModeTable, produced); err != nil {
 		t.Fatal(err)
@@ -219,7 +219,7 @@ func TestAMultiLineFieldRendersAsABlockAfterTheTable(t *testing.T) {
 	if strings.Contains(strings.SplitN(text, "\n", 2)[0], "BODY") {
 		t.Errorf("the multi-line field was rendered as a column:\n%s", text)
 	}
-	want := "\nBody\n{\n  \"greeting\": \"hello\"\n}\n\nNext  Run `wso2 api apis list`.\n"
+	want := "\nBody\n{\n  \"greeting\": \"hello\"\n}\n\nNext  Run `wso2 apim api list`.\n"
 	if !strings.HasSuffix(text, want) {
 		t.Errorf("the block is not rendered after the table:\n%s", text)
 	}
@@ -235,7 +235,7 @@ func TestAMultiLineFieldRendersAsABlockAfterTheTable(t *testing.T) {
 // listingResult is a result of the shape a product listing takes: a summary
 // field, one row per item under declared columns, and a next line.
 func listingResult() result.Result {
-	return result.New("identity.resourceServers/v1").
+	return result.New("iam.resourceServers/v1").
 		With("count", "Resource servers", "2").
 		WithColumn("name", "Name").
 		WithColumn("identifier", "Identifier").

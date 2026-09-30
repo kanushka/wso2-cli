@@ -53,7 +53,9 @@ func TestLoginBindsTheSessionToTheResourceTheProductNames(t *testing.T) {
 	issuer := fakeissuer.New(t, fakeissuer.Options{RequireResource: true})
 	shell, _, errOut := newLoginShell(t)
 	installLogin(t, shell, resourceBoundDoc(issuer.URL))
+	opened := make(chan string, 1)
 	shell.OpenBrowser = func(authURL string) error {
+		opened <- authURL
 		go func() {
 			response, err := http.Get(authURL)
 			if err == nil {
@@ -74,8 +76,8 @@ func TestLoginBindsTheSessionToTheResourceTheProductNames(t *testing.T) {
 	if stored.RefreshToken == "" {
 		t.Fatal("the stored session holds no refresh token")
 	}
-	if !strings.Contains(errOut.String(), "resource="+url.QueryEscape(theResource)) {
-		t.Fatalf("the authorization URL carried no resource indicator:\n%s", errOut)
+	if authURL := <-opened; !strings.Contains(authURL, "resource="+url.QueryEscape(theResource)) {
+		t.Fatalf("the authorization URL carried no resource indicator:\n%s", authURL)
 	}
 }
 
@@ -87,7 +89,9 @@ func TestLoginSendsNoResourceIndicatorForAnOrdinaryDeployment(t *testing.T) {
 	issuer := fakeissuer.New(t, fakeissuer.Options{Audience: "reference-status"})
 	shell, _, errOut := newLoginShell(t)
 	installLogin(t, shell, browserDoc(issuer.URL))
+	opened := make(chan string, 1)
 	shell.OpenBrowser = func(authURL string) error {
+		opened <- authURL
 		go func() {
 			response, err := http.Get(authURL)
 			if err == nil {

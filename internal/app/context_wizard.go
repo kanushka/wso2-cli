@@ -44,7 +44,7 @@ import (
 
 // suggestedLoginProduct is the product a Thunder context logs in through when
 // no installed product names Thunder, installed first.
-const suggestedLoginProduct = "identity"
+const suggestedLoginProduct = "iam"
 
 // The sign-in modes the wizard offers, in the order it lists them.
 const (

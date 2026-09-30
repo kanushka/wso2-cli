@@ -42,7 +42,9 @@ func TestLoginBindsTheSessionToTheResourceItWasGiven(t *testing.T) {
 		AllowAnyLoopbackPort: true,
 	})
 	printed := &recorder{}
+	opened := make(chan string, 1)
 	login := browserLogin(issuer, printed, func(authURL string) error {
+		opened <- authURL
 		go visit(issuer, authURL)
 		return nil
 	})
@@ -56,8 +58,8 @@ func TestLoginBindsTheSessionToTheResourceItWasGiven(t *testing.T) {
 	if !slices.Contains(audience, theResource) {
 		t.Fatalf("the session was not bound to the resource it named: audience %v", audience)
 	}
-	if !strings.Contains(printed.String(), url.QueryEscape(theResource)) {
-		t.Fatalf("the authorization URL carried no resource indicator:\n%s", printed.String())
+	if authURL := <-opened; !strings.Contains(authURL, url.QueryEscape(theResource)) {
+		t.Fatalf("the authorization URL carried no resource indicator:\n%s", authURL)
 	}
 }
 

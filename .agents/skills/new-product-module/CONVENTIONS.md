@@ -1,6 +1,6 @@
 # Product module code conventions
 
-What `modules/identity` and `modules/api` do that the scaffold and the SDK reference don't spell out. Read those two modules when a case isn't covered here.
+What `modules/iam` and `modules/apim` do that the scaffold and the SDK reference don't spell out. Read those two modules when a case isn't covered here.
 
 ## Layout
 

@@ -23,7 +23,7 @@ go 1.25.8
 use (
 	.
 	./modules/reference
-	./modules/api
-	./modules/identity
+	./modules/apim
+	./modules/iam
 	./sdk
 )

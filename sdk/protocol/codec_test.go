@@ -157,7 +157,7 @@ func TestAListingSurvivesTheRoundTrip(t *testing.T) {
 	// Rows crossing the wire is the whole point: a module builds them and the
 	// shell renders them, so a codec that dropped either half would leave a
 	// listing that works in the module's own tests and is empty in the shell.
-	listing := result.New("identity.resourceServers/v1").
+	listing := result.New("iam.resourceServers/v1").
 		With("count", "Resource servers", "2").
 		WithColumn("name", "Name").
 		WithColumn("identifier", "Identifier").

@@ -45,10 +45,10 @@ wso2 <product> <resource> <action> [flags]
 For example:
 
 ```shell
-wso2 api gateway list
-wso2 identity apps list
+wso2 apim gateway list
+wso2 iam app list
 wso2 integration component deploy --file integration.yaml
-wso2 agent projects list
+wso2 agent project list
 ```
 
 Root commands manage capabilities shared across products:
@@ -160,7 +160,7 @@ Requirements are classified as:
 - **P1:** The shell can suggest installation when a known official namespace is
   not installed.
 
-The product namespaces are `identity`, `api`, `agent`, and `integration`
+The product namespaces are `iam`, `apim`, `agent`, and `integration`
 ([ADR 0015](adr/0015-one-word-per-concept-in-the-command-surface.md)).
 
 ### 7.2 Authentication and credentials
@@ -470,7 +470,7 @@ tracked in [GitHub issues](https://github.com/wso2/wso2-cli/issues).
   optional conventions.
 - Artifacts are integrity-checked, not signed; process separation is not
   treated as a sandbox.
-- Product namespaces are `identity`, `api`, `agent`, and `integration`; the
+- Product namespaces are `iam`, `apim`, `agent`, and `integration`; the
   shell's module commands are `wso2 product`, and one `wso2 product list`
   reports installed versions and available updates
   ([ADR 0015](adr/0015-one-word-per-concept-in-the-command-surface.md)).
