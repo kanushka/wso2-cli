@@ -56,7 +56,7 @@ const contextRecovery = "Run wso2 context list to see the contexts on this machi
 
 // contextCommand builds the wso2 context tree.
 //
-// Everything that shapes contexts.json is here: creating and applying
+// Everything that shapes contexts.yaml is here: creating and applying
 // contexts, adding and removing their products, selecting, renaming and
 // deleting them, and showing, editing and exporting the document itself. The
 // file is what an on-premises setup is (ADR 0016), so the commands that write

@@ -643,11 +643,13 @@ func canNameShell(root, path string, file *ast.File) bool {
 }
 
 func TestTheShellLinksTheCommandFrameworkAndNotItsDocumentationGenerator(t *testing.T) {
-	// Cobra's documentation generator pulls a Markdown renderer and a YAML
-	// parser into the module graph. Neither belongs in a binary whose premise is
-	// verified execution, and neither is needed to route commands, so the linked
-	// set is asserted rather than left to whoever adds the next import. Man page
-	// or Markdown generation belongs in a separate developer tool.
+	// Cobra's documentation generator pulls a Markdown renderer and a second
+	// YAML parser into the module graph. Neither belongs in a binary whose
+	// premise is verified execution, and neither is needed to route commands,
+	// so the linked set is asserted rather than left to whoever adds the next
+	// import. Man page or Markdown generation belongs in a separate developer
+	// tool. The shell's one YAML parser is go.yaml.in/yaml/v3, behind
+	// internal/yamldoc (ADR 0019).
 	linked := shellBinaryPackages(t)
 
 	for _, required := range []string{"github.com/spf13/cobra", "github.com/spf13/pflag"} {
@@ -658,11 +660,37 @@ func TestTheShellLinksTheCommandFrameworkAndNotItsDocumentationGenerator(t *test
 	for _, forbidden := range []string{
 		"github.com/spf13/cobra/doc",
 		"github.com/cpuguy83/go-md2man/v2/md2man",
-		"go.yaml.in/yaml/v3",
 		"gopkg.in/yaml.v3",
+		"gopkg.in/yaml.v2",
+		"go.yaml.in/yaml/v2",
+		"sigs.k8s.io/yaml",
 	} {
 		if slices.Contains(linked, forbidden) {
 			t.Errorf("the shell binary links %s; command routing does not need it", forbidden)
+		}
+	}
+}
+
+func TestOnlyYAMLDocImportsTheYAMLParser(t *testing.T) {
+	// The shell reads YAML only as a spelling of JSON, through the one package
+	// that refuses anchors, aliases, custom tags and duplicate keys (ADR 0019).
+	// A second caller of the parser would bypass those refusals.
+	root := repoRoot(t)
+	const yamlParser = "go.yaml.in/yaml/v3"
+	allowed := filepath.Join("internal", "yamldoc")
+	for _, path := range goFiles(t, root) {
+		relative, _ := filepath.Rel(root, path)
+		if filepath.Dir(relative) == allowed {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatalf("cannot parse %s: %v", path, err)
+		}
+		for _, imported := range file.Imports {
+			if importPath, err := strconv.Unquote(imported.Path.Value); err == nil && importPath == yamlParser {
+				t.Errorf("%s imports %s; read YAML through internal/yamldoc", relative, yamlParser)
+			}
 		}
 	}
 }
@@ -792,12 +820,6 @@ var protectedIdentityTerms = []string{
 	"identity provider", "Identity Provider", "identity providers", "Identity Providers",
 	"identity token", "Identity token", "identity tokens",
 	"Identity Server", "identity-server",
-	// "wso2 identity ..." is the product namespace's own command line, which
-	// ADR 0015 gave that word to. It is the one place the word is not the
-	// account concept, and a module naming its own commands has to use it.
-	"wso2 identity",
-	// The login product a context names, when it is the identity product.
-	"--login-product identity", "such as identity",
 	// The product the identity namespace reaches, named in its own prose. The
 	// rename turned it into "the account product", which names nothing.
 	"identity product",

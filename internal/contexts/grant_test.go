@@ -58,7 +58,7 @@ func TestAProductMayNameAGrantAtAnotherIssuer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	if !strings.Contains(string(encoded), `"grant"`) || !strings.Contains(string(encoded), `"jwt-bearer"`) {
+	if !strings.Contains(asJSON(t, encoded), `"grant"`) || !strings.Contains(asJSON(t, encoded), `"jwt-bearer"`) {
 		t.Fatalf("the grant did not survive encoding:\n%s", encoded)
 	}
 	if !document.Contexts[0].Products["reference"].Direct() || product.Direct() {
@@ -183,7 +183,7 @@ func TestAnExchangeGrantNamesNeitherAnIssuerNorAClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	if !strings.Contains(string(encoded), `"exchange"`) {
+	if !strings.Contains(asJSON(t, encoded), `"exchange"`) {
 		t.Fatalf("the exchange grant did not survive encoding:\n%s", encoded)
 	}
 }
@@ -236,8 +236,8 @@ func TestAnExchangeGrantWritesNoEmptyIssuerAndClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	if strings.Contains(string(encoded), `"issuer": ""`) ||
-		strings.Contains(string(encoded), `"clientId": ""`) {
+	if strings.Contains(asJSON(t, encoded), `"issuer": ""`) ||
+		strings.Contains(asJSON(t, encoded), `"clientId": ""`) {
 		t.Fatalf("the exchange grant wrote empty issuer and client members:\n%s", encoded)
 	}
 }

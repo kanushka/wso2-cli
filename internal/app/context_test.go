@@ -614,7 +614,7 @@ func TestEditWritesAValidChangeAndRefusesAnInvalidOne(t *testing.T) {
 	localSetup(t, shell)
 	shell.RunEditor = func(path string) error {
 		data, _ := os.ReadFile(path)
-		edited := strings.Replace(string(data), `"name": "local",`, `"name": "local", "project": "retail",`, 1)
+		edited := strings.Replace(string(data), "- name: local\n", "- name: local\n    project: retail\n", 1)
 		return os.WriteFile(path, []byte(edited), 0o600)
 	}
 	mustRun(t, shell, "context", "edit")
@@ -624,7 +624,7 @@ func TestEditWritesAValidChangeAndRefusesAnInvalidOne(t *testing.T) {
 	before, _ := os.ReadFile(contexts.Path(shell.StateRoot))
 	shell.RunEditor = func(path string) error {
 		data, _ := os.ReadFile(path)
-		return os.WriteFile(path, []byte(strings.Replace(string(data), `"kind": "oauth-browser"`, `"kind": "password"`, 1)), 0o600)
+		return os.WriteFile(path, []byte(strings.Replace(string(data), "kind: oauth-browser", "kind: password", 1)), 0o600)
 	}
 	code, _, errOut := run(t, shell, "context", "edit")
 	if code != exit.Usage {
@@ -820,7 +820,7 @@ func TestEveryContextSubcommandRendersJSON(t *testing.T) {
 		"delete":         {"context", "delete", "beta", "--output", "json"},
 		"product add":    {"context", "product", "add", "reference", "--url", "https://r.example", "--output", "json"},
 		"product remove": {"context", "product", "remove", "orders", "--output", "json"},
-		"export":         {"context", "export"},
+		"export":         {"context", "export", "--output", "json"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			shell, out, errOut := newContextShell(t)
@@ -1150,7 +1150,7 @@ func TestAnEarlierDocumentIsUpgradedOnceWithANoticeWhenSessionsMove(t *testing.T
 	if strings.Contains(errOut, "Upgraded") {
 		t.Errorf("the upgrade was reported twice:\n%s", errOut)
 	}
-	if !strings.Contains(string(mustReadFile(t, path)), `"schemaVersion": 4`) {
+	if !strings.Contains(string(mustReadFile(t, contexts.Path(shell.StateRoot))), "schemaVersion: 4\n") {
 		t.Error("the document was not rewritten")
 	}
 }

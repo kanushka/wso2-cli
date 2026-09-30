@@ -17,6 +17,7 @@
 package contexts_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/contexts/fixture"
+	"github.com/wso2/wso2-cli/internal/yamldoc"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -602,15 +604,30 @@ func TestAV2DocumentIsMigratedAndWrittenBackAsV4(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	if !strings.Contains(string(encoded), `"schemaVersion": 4`) {
+	if !strings.Contains(asJSON(t, encoded), `"schemaVersion": 4`) {
 		t.Fatalf("a re-encoded document is not v4:\n%s", encoded)
 	}
 	for _, gone := range []string{`"accounts"`, `"identities"`, `"account":`, `"endpoint"`} {
-		if strings.Contains(string(encoded), gone) {
+		if strings.Contains(asJSON(t, encoded), gone) {
 			t.Fatalf("the written document still carries %s:\n%s", gone, encoded)
 		}
 	}
-	if !strings.Contains(string(encoded), `"url": "https://api.example.test"`) {
+	if !strings.Contains(asJSON(t, encoded), `"url": "https://api.example.test"`) {
 		t.Fatalf("the product endpoint was not written as url:\n%s", encoded)
 	}
+}
+
+// asJSON renders an encoded document as indented JSON, so a test can assert
+// on members by their JSON spelling whatever the document is written as.
+func asJSON(t *testing.T, data []byte) string {
+	t.Helper()
+	converted, err := yamldoc.ToJSON(data)
+	if err != nil {
+		t.Fatalf("the document does not read back as JSON: %v\n%s", err, data)
+	}
+	var indented bytes.Buffer
+	if err := json.Indent(&indented, converted, "", "  "); err != nil {
+		t.Fatalf("the document is not JSON: %v\n%s", err, converted)
+	}
+	return indented.String()
 }

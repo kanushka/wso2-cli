@@ -39,14 +39,13 @@ var docCredentialRefFiles = []string{
 	"../../docs/guides/setup-thunder.md",
 }
 
-// docCredentialRefAssignment matches a credentialRef field's value as every
-// file shows it: `"credentialRef": "acme-cloud"` in a fenced JSON block.
+// docCredentialRefAssignment matches a credentialRef field's value as the
+// files show it, in a YAML block (`credentialRef: acme-cloud`) or a JSON one
+// (`"credentialRef": "acme-cloud"`).
 //
 // This extracts only the one field this task is about, rather than parsing
-// the surrounding YAML structurally: the shell reads JSON, has no YAML
-// reader, and must not gain one just to test its own documentation. A plain
-// line match ties the test to the files' literal, current content without
-// that dependency.
+// each example structurally: most examples are fragments, not documents. A
+// plain line match ties the test to the files' literal, current content.
 var docCredentialRefAssignment = regexp.MustCompile(`credentialRef['"]?\s*:\s*['"]?([A-Za-z0-9_.:/<>-]+)`)
 
 // TestDocumentedCredentialRefsDecode reads every credentialRef value shown in
@@ -127,4 +126,29 @@ func refOnlyDocument(credentialRef string) string {
     }
   ]
 }`, credentialRef)
+}
+
+// TestTheDocumentedLocalDocumentDecodes reads the local document the context
+// file reference shows and confirms the shell's own reader accepts it whole.
+func TestTheDocumentedLocalDocumentDecodes(t *testing.T) {
+	data, err := os.ReadFile("../../docs/reference/context-file.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	section := strings.SplitN(string(data), "## The local document\n", 2)
+	if len(section) != 2 {
+		t.Fatal("the reference has no local document section")
+	}
+	block := strings.SplitN(section[1], "```yaml\n", 2)
+	if len(block) != 2 {
+		t.Fatal("the local document section shows no YAML block")
+	}
+	example := strings.SplitN(block[1], "```", 2)[0]
+	document, err := contexts.Decode([]byte(example))
+	if err != nil {
+		t.Fatalf("the documented local document does not decode: %v\n%s", err, example)
+	}
+	if document.DefaultContext != "local" || len(document.Contexts) != 1 {
+		t.Fatalf("the documented local document read as %+v", document)
+	}
 }

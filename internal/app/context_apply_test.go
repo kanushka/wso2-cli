@@ -17,6 +17,7 @@
 package app_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -189,7 +190,7 @@ func TestContextExportOfAKnownNameFiltersToIt(t *testing.T) {
 	shell, _, _ := newContextShell(t)
 	installLogin(t, shell, twoContextDocument())
 	out := mustRun(t, shell, "context", "export", "beta")
-	if !strings.Contains(out, `"name": "beta"`) || strings.Contains(out, `"name": "acme"`) {
+	if !strings.Contains(out, "- name: beta\n") || strings.Contains(out, "name: acme") {
 		t.Errorf("export <name> did not filter to that context alone:\n%s", out)
 	}
 }
@@ -228,5 +229,26 @@ func TestContextShowFlagsAGrantDrift(t *testing.T) {
 	out := mustRun(t, shell, "context", "show")
 	if !strings.Contains(out, `records the grant "jwt-bearer"`) {
 		t.Errorf("wso2 context show does not flag the grant drift:\n%s", out)
+	}
+}
+
+func TestAnExportedYAMLFileAppliesAsItsJSONFormDoes(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	installLogin(t, shell, twoContextDocument())
+	exported := mustRun(t, shell, "context", "export")
+	if strings.HasPrefix(strings.TrimSpace(exported), "{") {
+		t.Fatalf("export did not print YAML:\n%s", exported)
+	}
+	asJSON := mustRun(t, shell, "context", "export", "--output", "json")
+	fromYAML, _, _ := newContextShell(t)
+	mustRun(t, fromYAML, "context", "apply", "-f", writeFile(t, exported))
+	fromJSON, _, _ := newContextShell(t)
+	mustRun(t, fromJSON, "context", "apply", "-f", writeFile(t, asJSON))
+	for _, name := range []string{"acme", "beta"} {
+		yamlContext, _ := json.Marshal(contextNamed(t, loadDocument(t, fromYAML), name))
+		jsonContext, _ := json.Marshal(contextNamed(t, loadDocument(t, fromJSON), name))
+		if string(yamlContext) != string(jsonContext) {
+			t.Errorf("%s differs:\nfrom YAML %s\nfrom JSON %s", name, yamlContext, jsonContext)
+		}
 	}
 }

@@ -17,8 +17,6 @@
 package contexts
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -218,13 +216,8 @@ func refuseFrozenDocument(stateRoot string) error {
 			fmt.Sprintf("the WSO2 CLI context document at %s cannot be read", path),
 			"Check that the file is readable, or remove it to run without a context.")
 	}
-	var probe struct {
-		SchemaVersion int `json:"schemaVersion"`
-	}
-	if err := json.NewDecoder(bytes.NewReader(data)).Decode(&probe); err != nil {
-		return nil
-	}
-	if probe.SchemaVersion == SchemaVersion {
+	_, version, err := versionedJSON(data)
+	if err != nil || version == SchemaVersion {
 		return nil
 	}
 	// The two schemas before this one are understood completely, and Decode
@@ -232,10 +225,10 @@ func refuseFrozenDocument(stateRoot string) error {
 	// in place rather than frozen. Freezing them would make every document an
 	// earlier shell wrote read-only, and the first command after an upgrade
 	// would refuse instead of working.
-	if probe.SchemaVersion == SchemaVersionAccounts || probe.SchemaVersion == SchemaVersionIdentities {
+	if version == SchemaVersionAccounts || version == SchemaVersionIdentities {
 		return nil
 	}
-	return documentFrozen(path, probe.SchemaVersion)
+	return documentFrozen(path, version)
 }
 
 // documentFrozen reports that the document on disk is in a format this shell
@@ -310,11 +303,8 @@ func Upgrade(stateRoot string) (Migration, bool, error) {
 	if err != nil {
 		return Migration{}, false, nil
 	}
-	var probe struct {
-		SchemaVersion int `json:"schemaVersion"`
-	}
-	if err := json.NewDecoder(bytes.NewReader(data)).Decode(&probe); err != nil ||
-		(probe.SchemaVersion != SchemaVersionAccounts && probe.SchemaVersion != SchemaVersionIdentities) {
+	if _, version, err := versionedJSON(data); err != nil ||
+		(version != SchemaVersionAccounts && version != SchemaVersionIdentities) {
 		return Migration{}, false, nil
 	}
 	var migration Migration

@@ -103,13 +103,14 @@ credential reference. It replaces the account of earlier schemas (ADR 0016).
 _Avoid_: Account, identity, profile, environment
 
 **Context document**:
-The complete local record of every context on this machine, `contexts.json`.
+The complete local record of every context on this machine, `contexts.yaml`.
 It is the only thing the shell reads at command time; nothing in it is derived
 when a command runs.
 _Avoid_: Config file, contexts config
 
 **Input file**:
-A short, shareable description of contexts that `wso2 context apply` reads.
+A short, shareable description of contexts, in YAML or JSON, that
+`wso2 context apply` reads.
 It leaves out whatever installed product descriptors know and never names a
 credential reference or a selection; applying it writes complete records into
 the context document.

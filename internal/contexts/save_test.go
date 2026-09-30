@@ -469,13 +469,7 @@ func TestADocumentWrittenBeforeTheRenameIsUpgradedRatherThanFrozen(t *testing.T)
 	// shell read-only, and the first command after an upgrade would refuse
 	// rather than work.
 	root := t.TempDir()
-	path := filepath.Join(root, "cli", "contexts.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(validV2()), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	seed(t, root, validV2())
 	err := contexts.Update(root, func(d contexts.Document) (contexts.Document, error) {
 		d.DefaultContext = "acme-dev"
 		return d, nil
@@ -483,12 +477,12 @@ func TestADocumentWrittenBeforeTheRenameIsUpgradedRatherThanFrozen(t *testing.T)
 	if err != nil {
 		t.Fatalf("a pre-rename document was refused rather than upgraded: %v", err)
 	}
-	written, err := os.ReadFile(path)
+	written, err := os.ReadFile(contexts.Path(root))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(written), `"schemaVersion": 4`) ||
-		strings.Contains(string(written), `"identities"`) || strings.Contains(string(written), `"accounts"`) {
+	if !strings.Contains(asJSON(t, written), `"schemaVersion": 4`) ||
+		strings.Contains(asJSON(t, written), `"identities"`) || strings.Contains(asJSON(t, written), `"accounts"`) {
 		t.Fatalf("the upgraded document was not written as schema version 4:\n%s", written)
 	}
 }

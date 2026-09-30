@@ -79,7 +79,7 @@ func TestMigratingOneAccountWithOneContextKeepsItsSessions(t *testing.T) {
 		t.Fatalf("api = %+v", api)
 	}
 	encoded, _ := document.Encode()
-	if strings.Contains(string(encoded), `"endpoint"`) || !strings.Contains(string(encoded), `"url": "http://localhost:9091"`) {
+	if strings.Contains(asJSON(t, encoded), `"endpoint"`) || !strings.Contains(asJSON(t, encoded), `"url": "http://localhost:9091"`) {
 		t.Fatalf("endpoint was not renamed url on every product and gateway:\n%s", encoded)
 	}
 }
@@ -236,7 +236,7 @@ func TestTwoContextsDeclaringOneCredentialReferenceAreRefused(t *testing.T) {
 func TestAnInteractiveContextWithoutItsLoginProductIsRefusedOnRead(t *testing.T) {
 	document, _ := decodeMigrated(t, v3("demo", browserAccount, `{"name": "demo", "account": "demo"}`))
 	encoded, _ := document.Encode()
-	stripped := strings.Replace(string(encoded), `"product": "identity"`, `"product": ""`, 1)
+	stripped := strings.Replace(string(encoded), "product: identity", `product: ""`, 1)
 	_, err := contexts.Decode([]byte(stripped))
 	assertProblemCode(t, err, "contexts.document_malformed")
 }
@@ -256,7 +256,7 @@ func TestUpgradeRewritesAnEarlierDocumentOnceAndReportsIt(t *testing.T) {
 		t.Fatalf("Upgrade = %+v, %v, %v", migration, migrated, err)
 	}
 	written, _ := os.ReadFile(path)
-	if !strings.Contains(string(written), `"schemaVersion": 4`) {
+	if !strings.Contains(asJSON(t, written), `"schemaVersion": 4`) {
 		t.Fatalf("the document was not rewritten:\n%s", written)
 	}
 	if _, migrated, _ := contexts.Upgrade(root); migrated {

@@ -41,6 +41,7 @@ import (
 	"regexp"
 	"slices"
 
+	"github.com/wso2/wso2-cli/internal/yamldoc"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -62,7 +63,8 @@ const SchemaVersionAccounts = 3
 const SchemaVersionIdentities = 2
 
 // FileName is the context document's fixed name inside the shell state tree.
-const FileName = "contexts.json"
+// The document is YAML; see docs/adr/0019-yaml-context-documents.md.
+const FileName = "contexts.yaml"
 
 // MethodDevelopmentCredential is the architecture proof's only authentication
 // method: the shell reads a development credential from a named environment
@@ -289,31 +291,50 @@ func Load(stateRoot string) (Document, error) {
 	return Decode(data)
 }
 
-// Decode parses and validates a context document.
+// Decode parses and validates a context document, written as YAML or JSON.
 //
-// The schema version is probed first: the current version decodes directly,
+// A YAML document is converted to JSON first (yamldoc), and everything after
+// that is the JSON decode. The schema version is probed first: the current version decodes directly,
 // versions 2 and 3 decode through the migration, version 1 through the
 // read-only compatibility mapping, and any other version fails closed.
 func Decode(data []byte) (Document, error) {
-	var probe struct {
-		SchemaVersion int `json:"schemaVersion"`
+	data, version, err := versionedJSON(data)
+	if err != nil {
+		return Document{}, err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	if err := decoder.Decode(&probe); err != nil {
-		return Document{}, malformed("is not valid JSON")
-	}
-	switch probe.SchemaVersion {
+	switch version {
 	case SchemaVersionLegacy:
 		return decodeLegacy(data)
 	case SchemaVersionIdentities, SchemaVersionAccounts:
-		return decodeAccounts(data, probe.SchemaVersion)
+		return decodeAccounts(data, version)
 	case SchemaVersion:
 		return decodeCurrent(data)
 	default:
 		return Document{}, contextProblem("contexts.schema_unsupported",
-			fmt.Sprintf("context document schema version %d is not supported by this shell", probe.SchemaVersion),
+			fmt.Sprintf("context document schema version %d is not supported by this shell", version),
 			"Update the WSO2 CLI, or run the WSO2 CLI version that manages this document.")
 	}
+}
+
+// notReadable is the refusal for a document that parses but does not have the
+// shape its schema gives it, such as a string where a number belongs.
+const notReadable = "cannot be read as a context document"
+
+// versionedJSON converts a document, written as YAML or JSON, to JSON and
+// decodes only its schema version. A document that cannot be converted or has
+// no readable version is reported as malformed.
+func versionedJSON(data []byte) ([]byte, int, error) {
+	data, err := yamldoc.ToJSON(data)
+	if err != nil {
+		return nil, 0, malformed(err.Error())
+	}
+	var probe struct {
+		SchemaVersion int `json:"schemaVersion"`
+	}
+	if err := json.NewDecoder(bytes.NewReader(data)).Decode(&probe); err != nil {
+		return nil, 0, malformed(notReadable)
+	}
+	return data, probe.SchemaVersion, nil
 }
 
 // decodeCurrent is the strict single-document decode of the current schema.
@@ -326,7 +347,7 @@ func decodeCurrent(data []byte) (Document, error) {
 	var document Document
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	if err := decoder.Decode(&document); err != nil {
-		return Document{}, malformed("is not valid JSON")
+		return Document{}, malformed(notReadable)
 	}
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
 		return Document{}, malformed("contains more than one JSON document")
@@ -337,7 +358,7 @@ func decodeCurrent(data []byte) (Document, error) {
 	return document, nil
 }
 
-// Encode renders the document as the canonical on-disk form, refusing a
+// Encode renders the document as the canonical on-disk form, YAML, refusing a
 // document this shell would not read back.
 //
 // The login product of every context is frozen first (Freeze), so a document
@@ -356,11 +377,11 @@ func (d Document) Encode() ([]byte, error) {
 	if err := d.validate(); err != nil {
 		return nil, err
 	}
-	data, err := json.MarshalIndent(d, "", "  ")
+	data, err := json.Marshal(d)
 	if err != nil {
 		return nil, fmt.Errorf("contexts: cannot encode the context document: %w", err)
 	}
-	return append(data, '\n'), nil
+	return yamldoc.FromJSON(data)
 }
 
 // Freeze returns the document with every context's login product written out:
@@ -606,7 +627,7 @@ func (c Context) validate() error {
 // It is exported so a writer can tell this generic advice from a refusal that
 // carries specific advice of its own, which several do. See
 // CarriesDefaultDocumentRecovery.
-const DefaultDocumentRecovery = "Correct the context document (the cli/contexts.json file under " +
+const DefaultDocumentRecovery = "Correct the context document (the cli/contexts.yaml file under " +
 	"the WSO2 CLI state directory; wso2 context edit opens it), or remove it to run without a context."
 
 // CarriesDefaultDocumentRecovery reports whether err offers only the generic

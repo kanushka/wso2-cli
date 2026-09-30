@@ -160,8 +160,8 @@ func TestContextEditEndsSessionsAndReportsThem(t *testing.T) {
 	}
 	shell.RunEditor = func(path string) error {
 		data, _ := os.ReadFile(path)
-		edited := strings.Replace(string(data), `"issuer": "`+thunderURL+`"`,
-			`"issuer": "`+thunderURL+`/v2"`, 1)
+		edited := strings.Replace(string(data), "issuer: "+thunderURL+"\n",
+			"issuer: "+thunderURL+"/v2\n", 1)
 		if edited == string(data) {
 			t.Fatal("the string replace did not match the scratch document")
 		}

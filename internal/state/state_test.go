@@ -79,7 +79,7 @@ func TestGuardIsolatedProtectsTheStateRootSelectedByTheEnvironment(t *testing.T)
 	configured := t.TempDir()
 	t.Setenv(RootEnvVar, configured)
 
-	for _, path := range []string{configured, filepath.Join(configured, "cli", "contexts.json")} {
+	for _, path := range []string{configured, filepath.Join(configured, "cli", "contexts.yaml")} {
 		if err := GuardIsolated("write", path); err == nil {
 			t.Errorf("GuardIsolated accepted %q, which is inside the selected state root", path)
 		}

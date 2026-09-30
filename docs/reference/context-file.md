@@ -2,7 +2,7 @@
 
 **Status:** Reference
 **Related:** [shell commands](commands.md), [module catalog](module-catalog.md)
-**Last reviewed:** 2026-09-17
+**Last reviewed:** 2026-09-30
 
 A **context** is one named target: how the shell logs in (its `login`), every
 product it can reach from that login (its `products`), the secure-store
@@ -14,7 +14,7 @@ login are two contexts that each log in, or one context whose organization
 
 Two files hold this shape, for two different jobs:
 
-- The **local document** (`contexts.json`) is complete: every value a login
+- The **local document** (`contexts.yaml`) is complete: every value a login
   and a command need is written out, and the shell reads nothing else at
   command time.
 - The **input file** is short and shareable: a platform team writes it once,
@@ -22,7 +22,7 @@ Two files hold this shape, for two different jobs:
   installed products' descriptors already know.
 
 ```sh
-wso2 context apply -f team-context.json --use local
+wso2 context apply -f team-context.yaml --use local
 wso2 login
 ```
 
@@ -36,51 +36,54 @@ differs from what the installed product would write now.
 ## Where it lives
 
 ```
-~/.wso2/cli/contexts.json
+~/.wso2/cli/contexts.yaml
 ```
 
 Set `WSO2_HOME` to use a different state root; it must be an absolute path,
-and the file then lives at `$WSO2_HOME/cli/contexts.json`. `wso2 context show`
+and the file then lives at `$WSO2_HOME/cli/contexts.yaml`. `wso2 context show`
 reports the path whether or not a document has been written there yet.
+
+The document is YAML. The shell reads only the subset of YAML that has a JSON
+meaning, and refuses anchors, aliases, merge keys, custom tags and repeated
+keys ([ADR 0019](../adr/0019-yaml-context-documents.md)).
+
+A `contexts.json` that an earlier shell wrote is not read. Recreate its
+contexts with `wso2 context create`, or apply your team's context file again
+with `wso2 context apply -f <file>`, then sign in to each one.
 
 ## The local document
 
-```json
-{
-  "schemaVersion": 4,
-  "defaultContext": "local",
-  "contexts": [
-    {
-      "name": "local",
-      "type": "onprem",
-      "credentialRef": "local",
-      "login": {
-        "kind": "oauth-browser",
-        "issuer": "http://localhost:8501",
-        "clientId": "wso2-cli",
-        "provider": "thunder",
-        "product": "identity"
-      },
-      "products": {
-        "identity": {
-          "url": "http://localhost:8501",
-          "audience": "https://localhost:8090/mcp",
-          "scopes": ["system"]
-        },
-        "api": {
-          "url": "http://localhost:9251",
-          "audience": "http://localhost:9251",
-          "grant": { "kind": "exchange" },
-          "gateway": { "url": "http://localhost:9091", "audience": "http://localhost:9091" }
-        }
-      }
-    }
-  ]
-}
+```yaml
+schemaVersion: 4
+defaultContext: local
+contexts:
+  - name: local
+    type: onprem
+    credentialRef: local
+    login:
+      kind: oauth-browser
+      issuer: http://localhost:8501
+      clientId: wso2-cli
+      provider: thunder
+      product: iam
+    products:
+      iam:
+        url: http://localhost:8501
+        audience: https://localhost:8090/mcp
+        scopes:
+          - system
+      apim:
+        url: http://localhost:9251
+        audience: http://localhost:9251
+        grant:
+          kind: exchange
+        gateway:
+          url: http://localhost:9091
+          audience: http://localhost:9091
 ```
 
-This is what `wso2 context apply` writes for the short `team-context.json`
-below it — a login product (`identity`, direct) and a second product (`api`)
+This is what `wso2 context apply` writes for the short `team-context.yaml`
+below it — a login product (`iam`, direct) and a second product (`apim`)
 reached by exchanging the login session's token, each with its own gateway
 record. Two things this asserts, and either can be wrong at runtime: every
 listed product accepts access derived from that session (a product that
@@ -117,23 +120,21 @@ authorize.
 
 ## The input file
 
-```json
-{
-  "contexts": [
-    {
-      "name": "local",
-      "login": { "product": "identity" },
-      "products": {
-        "identity": { "url": "http://localhost:8501" },
-        "api": {
-          "url": "http://localhost:9251",
-          "gateway": { "url": "http://localhost:9091" }
-        }
-      }
-    }
-  ]
-}
+```yaml
+contexts:
+  - name: local
+    login:
+      product: iam
+    products:
+      iam:
+        url: http://localhost:8501
+      apim:
+        url: http://localhost:9251
+        gateway:
+          url: http://localhost:9091
 ```
+
+The input file may also be written as JSON; the shell reads either.
 
 `name`, one way to log in, and a `url` per product are all that is required.
 Every member of the local document may also appear here except
@@ -150,8 +151,9 @@ Every context has to say how it logs in. Pick one:
 
 **Through a product** — the usual way, and what the file above does:
 
-```json
-"login": { "product": "identity" }
+```yaml
+login:
+  product: iam
 ```
 
 The shell takes the issuer and the client id from that product's descriptor,
@@ -160,8 +162,10 @@ whose `url` the issuer is derived from.
 
 **Against a bare issuer** — for a context with no login product:
 
-```json
-"login": { "issuer": "https://id.example.com", "clientId": "wso2-cli" }
+```yaml
+login:
+  issuer: https://id.example.com
+  clientId: wso2-cli
 ```
 
 Nothing is derived here, so both members are stated directly. You may also
@@ -182,7 +186,7 @@ what the descriptor would fill in.
    no way for a machine context to reach it — is raised here, still before
    anything is written.
 4. Ends the sessions that no longer match.
-5. Writes **complete** context records to `contexts.json`, selecting the one
+5. Writes **complete** context records to `contexts.yaml`, selecting the one
    named by `--use`. Nothing else changes the selection.
 
 A context in the file replaces the context of the same name **whole**,
@@ -193,7 +197,7 @@ URL ends a session when it moves the issuer or the resource the session was
 bound to.
 
 ```sh
-wso2 context apply -f team-context.json --dry-run
+wso2 context apply -f team-context.yaml --dry-run
 ```
 
 `--dry-run` prints what would be installed, created or replaced, a
@@ -219,7 +223,9 @@ Apply refuses the whole file and writes nothing. The message names the cause:
 |---|---|
 | `declares no contexts` | `contexts` is empty or absent |
 | `declares the context "x" more than once` | two contexts share a name |
-| `contains more than one JSON document` | two objects in one file |
+| `contains more than one YAML document` | a `---` separating two documents in one file |
+| `uses an anchor or alias at line N` | a YAML anchor (`&x`), alias (`*x`) or merge key (`<<`); state each value in full |
+| `repeats the key "x" at line N` | one key twice in the same mapping |
 | `declares schema version 3, and this shell reads 4` | wrong `schemaVersion` |
 | `names a credentialRef, which belongs to one machine's secure store` | a credential reference in the file |
 | `selects a context (defaultContext), and a shared file never does` | a selection in the file |
@@ -232,11 +238,12 @@ With `--no-install`, a login product that is not installed must also state
 
 ## Share one
 
-`wso2 context export [<name>]` prints your contexts in the input-file form,
-with the credential references and the selection removed, ready to commit:
+`wso2 context export [<name>]` prints your contexts in the input-file form, as
+YAML (`--output json` for JSON), with the credential references and the
+selection removed, ready to commit:
 
 ```sh
-wso2 context export > team-context.json
+wso2 context export > team-context.yaml
 ```
 
 Export writes complete records, so the file is longer than an input file, and
@@ -246,30 +253,24 @@ pins; add those by hand if your team wants them.
 
 ## Signing in without a browser
 
-`"kind": "oauth-device"` (or `wso2 context create --device`) is for a context
+`kind: oauth-device` (or `wso2 context create --device`) is for a context
 that can *only* be established without a browser — a deployment whose
 loopback callback URLs cannot be registered, or one whose users are never at a
 machine that can reach one. It is a property of the context, not of where you
 happen to be sitting today:
 
-```json
-{
-  "contexts": [
-    {
-      "name": "remote",
-      "login": {
-        "kind": "oauth-device",
-        "issuer": "https://api.asgardeo.io/t/acme/oauth2/token",
-        "clientId": "wso2-cli",
-        "tenant": "acme",
-        "product": "reference"
-      },
-      "products": {
-        "reference": { "url": "https://reference.example.test" }
-      }
-    }
-  ]
-}
+```yaml
+contexts:
+  - name: remote
+    login:
+      kind: oauth-device
+      issuer: https://api.asgardeo.io/t/acme/oauth2/token
+      clientId: wso2-cli
+      tenant: acme
+      product: reference
+    products:
+      reference:
+        url: https://reference.example.test
 ```
 
 Every other field means exactly what it means for `oauth-browser`. Apply
@@ -284,24 +285,18 @@ context that carries its own credential and exchanges it inline, on every
 command — there is **no login step**. A job that runs `wso2 login` against
 such a context is refused with `auth.login_not_required`.
 
-```json
-{
-  "contexts": [
-    {
-      "name": "ci",
-      "type": "onprem",
-      "login": {
-        "kind": "client-credentials",
-        "issuer": "https://id.example.com",
-        "clientId": "ci-runner",
-        "clientSecretVariable": "WSO2_CLIENT_SECRET"
-      },
-      "products": {
-        "identity": { "url": "https://id.example.com" }
-      }
-    }
-  ]
-}
+```yaml
+contexts:
+  - name: ci
+    type: onprem
+    login:
+      kind: client-credentials
+      issuer: https://id.example.com
+      clientId: ci-runner
+      clientSecretVariable: WSO2_CLIENT_SECRET
+    products:
+      iam:
+        url: https://id.example.com
 ```
 
 `clientSecretVariable` **replaces** `credentialRef` on a `client-credentials`
@@ -314,8 +309,8 @@ secret store injects the value into that variable at run time:
 env:
   WSO2_CLIENT_SECRET: ${{ secrets.WSO2_CLIENT_SECRET }}
 steps:
-  - run: wso2 context apply -f ci/context.json --use ci --no-input
-  - run: wso2 identity status
+  - run: wso2 context apply -f ci/context.yaml --use ci --no-input
+  - run: wso2 iam status
 ```
 
 The shell reads the variable into process memory for the length of one grant,
@@ -336,9 +331,9 @@ product's own when it does not.
 A product reached by `jwt-bearer` instead of directly presents an identity
 token from the CI session at its own issuer:
 
-```json
-"integration": {
-  "url": "https://integration.acme.example",
-  "grant": { "kind": "jwt-bearer" }
-}
+```yaml
+integration:
+  url: https://integration.acme.example
+  grant:
+    kind: jwt-bearer
 ```

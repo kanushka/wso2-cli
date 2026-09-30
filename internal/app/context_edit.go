@@ -84,7 +84,7 @@ func (s Shell) contextEdit(command *cobra.Command, noInput bool) error {
 	if err != nil {
 		return err
 	}
-	scratch, err := os.CreateTemp("", "wso2-contexts-*.json")
+	scratch, err := os.CreateTemp("", "wso2-contexts-*.yaml")
 	if err != nil {
 		return err
 	}

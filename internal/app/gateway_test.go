@@ -68,7 +68,7 @@ func TestADocumentCarryingAGatewayRecordDecodesAndOneWithoutAnAudienceIsRefused(
 	if err != nil {
 		t.Fatal(err)
 	}
-	edited := strings.Replace(string(data), `"audience": "`+gatewayAudience+`"`, `"audience": ""`, 1)
+	edited := strings.Replace(string(data), "audience: "+gatewayAudience+"\n", "audience: \"\"\n", 1)
 	if edited == string(data) {
 		t.Fatalf("the audience was not found in:\n%s", data)
 	}

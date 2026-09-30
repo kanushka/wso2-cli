@@ -31,7 +31,7 @@ import (
 )
 
 // This file turns what a user states about a product — on a command line or
-// in an input file — into the complete record contexts.json holds.
+// in an input file — into the complete record contexts.yaml holds.
 //
 // Defaults come from the installed product's descriptor and are frozen into
 // the record when it is written (ADR 0016). Nothing at command time consults a
@@ -217,7 +217,7 @@ func resolveLoginProduct(namespace string, descriptor *modules.ProductDescriptor
 		return contexts.Login{}, contexts.Product{}, problem.New(problem.CategoryUsage,
 			"shell.invalid_argument",
 			fmt.Sprintf("the %s product is not a login provider, so a context cannot log in through it", namespace)).
-			WithRecovery("Name the product the deployment signs in with, as in --login-product identity, " +
+			WithRecovery("Name the product the deployment signs in with, as in --login-product iam, " +
 				"or log in through an issuer with --issuer <url> --client-id <id>.")
 	}
 	login.Product = namespace

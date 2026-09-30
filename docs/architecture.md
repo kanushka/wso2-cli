@@ -118,7 +118,7 @@ Authors do not see the wire protocol.
 ```go
 func main() {
     module.Serve(ctx, module.Options{
-        Namespace:     "api",
+        Namespace:     "apim",
         Version:       version,
         AuthAudiences: []string{"api-platform"},
     }, commands...)
@@ -176,7 +176,7 @@ its sessions live under. No two contexts share a reference
 organizations reached through one login are one context, switched with
 `wso2 org use`.
 
-- The context document (`contexts.json`) is complete: values a product
+- The context document (`contexts.yaml`) is complete: values a product
   descriptor supplies are frozen into the record when it is created or
   applied, and nothing is derived at command time.
 - `wso2 context apply -f` turns a short shareable input file into complete
@@ -334,8 +334,8 @@ Performance work must not replace that check with file timestamps.
 ```text
 $WSO2_HOME (default ~/.wso2)/
   cli/
-    contexts.json          context document
-    contexts.json.lock
+    contexts.yaml          context document (ADR 0019)
+    contexts.yaml.lock
     preferences.json       shell preferences (wso2 config)
     locks/<ref>.lock       per-context session rotation locks
     modules/

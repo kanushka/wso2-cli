@@ -6,8 +6,8 @@
 
 This reference describes the shared `wso2` shell commands: `context`, `login`,
 `logout`, `whoami`, `org`, `doctor`, `config`, `product`, `version` and
-`help`. Product operations belong to product modules, such as `wso2 api`,
-`wso2 identity`, `wso2 integration`, and `wso2 agent`; the
+`help`. Product operations belong to product modules, such as `wso2 apim`,
+`wso2 iam`, `wso2 integration`, and `wso2 agent`; the
 [module catalog](module-catalog.md) reference describes what a product install
 selects, what it verifies, how a channel and a pin are recorded per module,
 and how each refusal is reported.
@@ -19,22 +19,22 @@ and how each refusal is reported.
 | `wso2 help` | Shows the root command tree and help for a command. |
 | `wso2 version` | Shows the shell, protocol, and installed module versions. |
 | `wso2 completion <shell>` | Writes the tab-completion script for `bash`, `zsh`, `fish` or `powershell` to standard output. |
-| `wso2 login` | Establishes the login session, then one session per further product the context records, each through the same browser sign-on. `--only <namespace>` authorizes just that product — both of its records when it holds a gateway record, or one record alone as `--only <namespace>/gateway` — refused with `shell.invalid_argument` when the context records no such namespace; `--no-products` authorizes the login session alone, leaving product and gateway sessions unestablished; the two together are refused with `shell.conflicting_arguments`. The report lists every session this run established, naming the strategy that reached it (`direct`, `sibling`, `derived`, or `federated`) as `<strategy>, established`; a gateway record is its own line under its key, as `apim/gateway  sibling, established`. When a later product fails after earlier ones already succeeded, the failure names what was established and points at `wso2 login --only <namespace>` (or `--only <namespace>/gateway`) to retry only the one that was not, keeping the sessions already stored. Without `--context` and `--url`, in a terminal, login asks `Log in to:` an existing context (listed, the selected one as the default) or a new one; a new one runs the `wso2 context create` wizard (below), without its closing offer to log in, and then logs in to the context it wrote; a client-credentials context ends there, reporting that it needs no login. With no contexts it goes straight to a new one. A `--context` naming no context runs the same wizard, taking that name, in a terminal and is refused with `shell.missing_required_flag` otherwise, naming `--url` and `--client-id`. Under `--no-input`, `WSO2_NO_INPUT`, `WSO2_CONTEXT`, or a standard input that is not a terminal, nothing is asked and the selected context is used. |
-| `wso2 login --url <issuer> --client-id <id>` | Logs in against a named issuer and creates the context it authenticated, reporting its name. `--context <name>` names it. Without it, a context that already logs in against that issuer with that client ID is reused; otherwise login asks `Context name [context-1]:`, offering the next free `context-N`, where Enter accepts the default and a name that is not legal or is already taken is asked again. When standard input is not a terminal the default is taken without asking, and the report says the name was assigned, naming `--context <name>` and `wso2 context rename`. A context named by `--context` whose issuer and client ID both match is reused; one that differs in either is refused with `contexts.context_exists` and never replaced. The first context created becomes the selected one. Nothing is written unless the login succeeded. Omitting `--client-id` prompts in an interactive terminal and is refused with `shell.missing_required_flag` under `--no-input`. A ThunderID issuer binds every login to a product, so there a login that creates its context is refused with `auth.product_not_configured`, naming `wso2 context create <name> --login-product identity --url <url>`. |
+| `wso2 login` | Establishes the login session, then one session per further product the context records, each through the same browser sign-on. `--only <namespace>` authorizes just that product — both of its records when it holds a gateway record, or one record alone as `--only <namespace>/gateway` — refused with `shell.invalid_argument` when the context records no such namespace; `--no-products` authorizes the login session alone, leaving product and gateway sessions unestablished; the two together are refused with `shell.conflicting_arguments`. The report is three rows: `Context`, the context logged in to; `Email`, the signed-in person as the identity token named them (the email, else the display name, else the subject, else `-` when a device login verified none); and `Status`, `logged in`. What reached each product is `wso2 whoami -o json`'s to say. When a later product fails after earlier ones already succeeded, the failure names what was established and points at `wso2 login --only <namespace>` (or `--only <namespace>/gateway`) to retry only the one that was not, keeping the sessions already stored. Without `--context` and `--url`, in a terminal, login asks `Log in to:` an existing context (listed, the selected one as the default) or a new one; a new one runs the `wso2 context create` wizard (below), without its closing offer to log in, and then logs in to the context it wrote; a client-credentials context ends there, reporting that it needs no login. With no contexts it goes straight to a new one. A `--context` naming no context runs the same wizard, taking that name, in a terminal and is refused with `shell.missing_required_flag` otherwise, naming `--url` and `--client-id`. Under `--no-input`, `WSO2_NO_INPUT`, `WSO2_CONTEXT`, or a standard input that is not a terminal, nothing is asked and the selected context is used. |
+| `wso2 login --url <issuer> --client-id <id>` | Logs in against a named issuer and creates the context it authenticated, reporting its name. `--context <name>` names it. Without it, a context that already logs in against that issuer with that client ID is reused; otherwise login asks `Context name [context-1]:`, offering the next free `context-N`, where Enter accepts the default and a name that is not legal or is already taken is asked again. When standard input is not a terminal the default is taken without asking, and the report says the name was assigned, naming `--context <name>` and `wso2 context rename`. A context named by `--context` whose issuer and client ID both match is reused; one that differs in either is refused with `contexts.context_exists` and never replaced. The first context created becomes the selected one. Nothing is written unless the login succeeded. Omitting `--client-id` prompts in an interactive terminal and is refused with `shell.missing_required_flag` under `--no-input`. A ThunderID issuer binds every login to a product, so there a login that creates its context is refused with `auth.product_not_configured`, naming `wso2 context create <name> --login-product iam --url <url>`. |
 | `wso2 logout` | Ends every session the selected context holds — the login session and each product's own — asking the identity provider to revoke each refresh token and removing each shell-owned entry. A context's sessions are its own (ADR 0016), so no other context is affected. `Product sessions` in the report names what happened to each session beyond the login one, `<namespace> ended` or `<namespace> none`. A client-credentials context holds no session to end and reports that plainly, exiting 0. Ending the shell's sessions leaves each identity provider's own browser session in place, and a later login would then be silent; so logout also opens each provider's end-session page, once per provider and client, naming the client and the identity token the session recorded, and reports `Browser session` as `sign-out opened`, `sign-out printed` (no browser could be opened; the URLs are on standard error), `kept` (`--keep-browser-session`, `--no-input` or `WSO2_NO_INPUT`), or `unaffected` (nothing was stored). Ending the browser session is best effort like revocation, and some providers end the user's other refresh tokens with it; the report says so rather than claiming either way. |
-| `wso2 whoami` | Built today: shows the selected context, the issuer it logs in through, the organization when the context names one, the session's subject, and the session's own state, all read from local state with no network call. With no context configured or selected it says so and exits 0. With a context selected but no stored session it says so and names `wso2 login`. A stored session is reported present with its expiry either as the issuer's disclosed refresh-token lifetime or, when the issuer disclosed none, as not stated — never as the shorter-lived access token's own expiry. A disclosed lifetime that has passed is reported expired. A session stored before this field existed reports its subject as unknown rather than blank. It also lists every record the context holds, each with the strategy that reaches it (`direct`, `sibling`, `derived`, `federated`, `exchanged`, or `inline` for a client-credentials context) and whether that record's own session is stored: every product under its namespace, and a product's gateway record under its key, as `apim/gateway: sibling, present` beside `apim: federated, present`. An exchanged or inline record holds no session of its own, so it is written once: an inline one as its strategy, and an exchanged one as `api: by exchange (not checked)`, since whoami makes no call and cannot tell whether the issuer will grant the exchange. JSON keeps `exchanged` in both `strategy` and `session`. A client-credentials context reports its own state as `inline` too, with no recovery text, since it holds nothing to recover. |
+| `wso2 whoami` | Shows the selected context, who is signed in to it, and whether they are logged in, all read from local state with no network call. The table is three rows: `Context`; `Email`, named as `wso2 login` names it; and `Status`, which is `logged in`, `session expired`, `machine credentials, no login needed` for a client-credentials context, or `not logged in`. When there is a way back it follows as the next step: `wso2 login` for a context with no stored session, a session whose disclosed lifetime has passed, or one established against another issuer; `wso2 context use <name>` when contexts exist but none is selected. With no context configured it says so and exits 0. `-o json` carries the rest: `issuer`, `organization`, `subject` (`unknown` for a session stored before the field existed), `session` (`none`, `present`, `expired`, or `inline`), and `sessionExpiry`, the issuer's disclosed refresh-token lifetime or `not stated by the issuer`, never the shorter-lived access token's own expiry. Its `products` lists every record the context holds, each with the `strategy` that reaches it (`direct`, `sibling`, `derived`, `federated`, `exchanged`, or `inline`) and its own `session`, a product's gateway record under its key, such as `apim/gateway`. An exchanged record holds no session of its own and reports `exchanged` as its session, since whoami makes no call and cannot tell whether the issuer will grant the exchange; an inline one reports `inline`. |
 | `wso2 org` | With no subcommand, prints this family's help on standard output and exits 0: naming a family without a subcommand is an incomplete command, not a failed one, and every subcommand it names works. The help names `current` and `use`. A subcommand the family does not have is a different case and is still refused with `shell.unknown_command` and the usage exit class (#133), so a typo is never reported to a script as success. |
 | `wso2 org list` | Deferred (#112): no control-plane endpoint for enumerating organizations exists yet, and listing would need an access token before an organization is chosen, which the auth broker refuses. Typing it is refused as an unknown `wso2 org` subcommand, naming `current` and `use` as what the family supports. |
 | `wso2 org use <organization>` | Built today: sets the `Organization` field on the selected context through `contexts.Update`, and names which context it edited. The auth broker binds a minted token to a context's `Organization` and refuses when it is empty, so a session already signed in under the previous organization no longer matches — the command warns about that on standard error, in both renderings. It writes nothing, and does not migrate, invalidate, or re-mint a session. Refused with `shell.no_context_configured` when no context exists to edit, and with `auth.organization_switch_unsupported`, naming the provider, when the selected context logs in against ThunderID or Identity Server, which have no organization to switch to: the auth broker would refuse every later command with the same code, so the value is refused at the flag instead. An empty value is allowed on those providers, because it clears the field rather than switching to an organization, and this command is the only writer of it: refusing that too would leave a context that already carries an organization unrepairable. |
 | `wso2 org current` | Built today: shows the organization the selected context runs within, read from `contexts.Context.Organization`. With no context configured it reports that state and exits 0, worded exactly as `wso2 context current`. A configured context with no organization set says so distinctly, rather than reporting the same blank field either state would otherwise share. |
 | `wso2 context` | With no subcommand, prints this family's help on standard output and exits 0: naming a family without a subcommand is an incomplete command, not a failed one, and every subcommand it names works. The help names `create`, `product`, `apply`, `use`, `list`, `current`, `show`, `rename`, `delete`, `edit` and `export`. A subcommand the family does not have is a different case and is still refused with `shell.unknown_command` and the usage exit class (#133), so a typo is never reported to a script as success. |
-| `wso2 context create [<name>]` | With neither `--login-product` nor `--issuer`, in a terminal, asks for the setup instead (#189): `Sign in with:` the WSO2 identity product, one of `Thunder`, `Asgardeo`, `WSO2 Identity Server (coming soon)`, or `WSO2 Cloud (coming soon)`, the two marked coming soon of which are refused where they are picked, each saying so. Thunder logs in through the installed product whose descriptor names Thunder, or `identity`, installed first, and asks its URL, plus a client ID or audience only when the descriptor names none. Asgardeo asks the organization URL (`https://api.asgardeo.io/t/<organization>`) and writes it with `/oauth2/token` added as the issuer, with the matching `provider`, and asks the client ID. Then `Sign in using:` a browser, a device code, or client credentials, whose secret variable is asked by name; `Add a product this context reaches:` each installed product that is not a login provider, with its URL, its gateway URL when it has one, and its client ID when its grant needs one the descriptor does not name; the name, unless given; then a summary, `Create the "<name>" context?`, `Select "<name>" as the current context?` unless `--use`, and `Log in now?`. Flags given are not asked. Every answer goes through the same checks and descriptor resolution as the flags, and nothing is written before the last question, so the result is what the equivalent command lines write. A name that is taken or illegal is refused before any question. Answering no at the summary, or cancelling with Ctrl+C, is `shell.cancelled` and writes nothing; input that ends before a required answer is `shell.missing_required_flag`. With `--output json` it asks only for the context and writes one result. Under `--no-input`, `WSO2_NO_INPUT`, or a standard input that is not a terminal, nothing is asked: a missing name is `shell.missing_argument`, and the flag rules below apply. |
-| `wso2 context create <name> --login-product <product> --url <url>` | Creates a context that logs in through an installed product that is a login provider (a descriptor naming a `provider`, such as `identity`). The descriptor fills in the issuer (the URL plus its `issuerPath`), the client (`--client-id` overrides), the provider (`--provider` overrides), and the login product's audience and scopes (`--audience`, `--scopes` override), and the complete record is written (frozen defaults, ADR 0016). A product that is not installed is installed first, reported on standard error; `--no-install` refuses instead with `shell.product_not_installed`. A product that is not a login provider is refused with `shell.invalid_argument`. `--device` makes it an `oauth-device` context and `--client-id <id> --client-secret-variable <VAR>` a `client-credentials` one, refused when the descriptor's `machine` list does not allow `inline`. `--organization` and `--project` set those members. The context's `credentialRef` is its name, or the name with a numeric suffix when another context already holds that reference. Nothing is selected unless `--use` is given. A name already declared is refused with `contexts.context_exists`, and an illegal one with `shell.invalid_argument` before anything is read. |
-| `wso2 context create <name> --issuer <url> --client-id <id>` | Creates a context that logs in through any OpenID provider directly, with no product installed and no product recorded yet: add them with `wso2 context product add`. `--provider asgardeo|identity-server` names the provider; `--provider thunder` is refused with `shell.conflicting_arguments`, because a ThunderID login is bound to a product and this form records none. `--url` without `--login-product` is refused with `shell.missing_required_flag`: a URL alone does not say which product's defaults apply, and the shell does not guess. Neither form, or both, is refused the same way. No network call is made besides an install. |
+| `wso2 context create [<name>]` | With neither `--login-product` nor `--issuer`, in a terminal, asks for the setup instead (#189): `Sign in with:` the WSO2 identity product, one of `Thunder`, `Asgardeo`, `WSO2 Identity Server (coming soon)`, or `WSO2 Cloud (coming soon)`, the two marked coming soon of which are refused where they are picked, each saying so. Thunder logs in through the installed product whose descriptor names Thunder, or `iam`, installed first, and asks its URL, plus a client ID or audience only when the descriptor names none. Asgardeo asks the organization URL (`https://api.asgardeo.io/t/<organization>`) and writes it with `/oauth2/token` added as the issuer, with the matching `provider`, and asks the client ID. Then `Sign in using:` a browser, a device code, or client credentials, whose secret variable is asked by name; `Add a product this context reaches:` each installed product that is not a login provider, with its URL, its gateway URL when it has one, and its client ID when its grant needs one the descriptor does not name; the name, unless given; then a summary, `Create the "<name>" context?`, `Select "<name>" as the current context?` unless `--use`, and `Log in now?`. Flags given are not asked. Every answer goes through the same checks and descriptor resolution as the flags, and nothing is written before the last question, so the result is what the equivalent command lines write. A name that is taken or illegal is refused before any question. Answering no at the summary, or cancelling with Ctrl+C, is `shell.cancelled` and writes nothing; input that ends before a required answer is `shell.missing_required_flag`. With `--output json` it asks only for the context and writes one result. Under `--no-input`, `WSO2_NO_INPUT`, or a standard input that is not a terminal, nothing is asked: a missing name is `shell.missing_argument`, and the flag rules below apply. |
+| `wso2 context create <name> [--login-product <product>] --url <url>` | Creates a context that logs in through an installed product that is a login provider (a descriptor naming a `provider`, such as `iam`). Without `--login-product` it is the one installed login provider, or `iam` when none is installed; with more than one installed, `--url` alone is refused with `shell.missing_required_flag`, since the URL could be either's. The descriptor fills in the issuer (the URL plus its `issuerPath`), the client (`--client-id` overrides), the provider (`--provider` overrides), and the login product's audience and scopes (`--audience`, `--scopes` override), and the complete record is written (frozen defaults, ADR 0016). A product that is not installed is installed first, reported on standard error; `--no-install` refuses instead with `shell.product_not_installed`. A product that is not a login provider is refused with `shell.invalid_argument`. `--device` makes it an `oauth-device` context and `--client-id <id> --client-secret-variable <VAR>` a `client-credentials` one, refused when the descriptor's `machine` list does not allow `inline`. `--organization` and `--project` set those members. The context's `credentialRef` is its name, or the name with a numeric suffix when another context already holds that reference. Nothing is selected unless `--use` is given. A name already declared is refused with `contexts.context_exists`, and an illegal one with `shell.invalid_argument` before anything is read. |
+| `wso2 context create <name> --issuer <url> --client-id <id>` | Creates a context that logs in through any OpenID provider directly, with no product installed and no product recorded yet: add them with `wso2 context product add`. `--provider asgardeo|identity-server` names the provider; `--provider thunder` is refused with `shell.conflicting_arguments`, because a ThunderID login is bound to a product and this form records none. Neither form, or both, is refused the same way. No network call is made besides an install. |
 | `wso2 context product add [<product>]` | Without `--url`, in a terminal, asks `Product:` (installed products the context does not record and that are not login providers, when no product is named), its URL, its gateway URL when it has one, and its client ID when its grant needs one; then shows the `--dry-run` report and asks `Add the <product> product?` before writing. With `--dry-run` or `--output json` the report is the only result and nothing more is asked. Declining is `shell.cancelled`. Under `--no-input`, `WSO2_NO_INPUT`, or a standard input that is not a terminal, nothing is asked: a missing product is `shell.missing_argument` and a missing `--url` `shell.missing_required_flag`. |
 | `wso2 context product add <product> --url <url>` | Records a product on the selected context, or the one `--context` names (the one `context` subcommand that takes the flag). The installed product's descriptor fills in the audience, scopes and grant; `--audience`, `--scopes` and `--client-id` override them, and a product whose module declares no descriptor is recorded exactly as given. `--gateway <url>` records the product's gateway beside it, its audience defaulting to the gateway URL for a product reached by exchange (`--gateway-audience` and `--gateway-scopes` override). A login provider whose issuer is not the context's is refused, naming `wso2 context create`. On a client-credentials context the descriptor's `machine` list decides whether the product is reached from the context's own client or needs `--client-id-variable`/`--client-secret-variable`. The login product is frozen before the product goes in, so a product that sorts earlier never moves the login. A product already recorded is refused with `contexts.product_exists` unless `--replace`, which replaces the whole record and first ends every session the new record no longer matches (its URL, audience or grant changed), with revocation best effort as ADR 0010 decides. `--dry-run` shows the record and the sessions that would end and writes nothing; for a product not installed yet it says what would be installed. A missing product is installed first unless `--no-install`. |
 | `wso2 context product remove <product>` | Stops the selected context (or `--context`) reaching a product. It drops the product's record, and the product's gateway record with it; `<product>/gateway` drops the gateway record alone. Every session the removal leaves nothing to reach is ended first, the way `wso2 logout` ends one, because the secure store cannot be listed and a session whose record is gone could never be ended again. Removing the login product is refused with `contexts.login_product`; a record the context does not hold with `contexts.unknown_product`, naming every record it does. `--dry-run` names what would be removed and ended. |
-| `wso2 context apply -f <file>` | Writes each context in a shared **input file** (`-f -` reads standard input). The file lists contexts only, each as short as the installed descriptors allow; it never names a `credentialRef` or a `defaultContext`, and unknown members are refused, all with `shell.input_malformed`. In order: the whole file is validated; the plan is made (products to install, products installed at a version other than a pinned `"version"`, and for each context create, replace with a field-by-field diff, or unchanged, plus the sessions that would end); `--dry-run` stops there; missing products are installed; defaults are resolved from the installed descriptors; the sessions whose bindings change are ended; and the document is written under its lock. A context in the file replaces the one of the same name whole, keeping its `credentialRef`; contexts the file does not name are kept. The selection changes only with `--use <name>`, which must name a context in the file. A product installed at another version than its pin is left as it is and reported, unless `--update-products`. `--no-install` installs nothing, and needs each product installed or stated in full. When an install fails after another succeeded, the successful ones stay installed and `contexts.json` is untouched; running the command again continues. |
+| `wso2 context apply -f <file>` | Writes each context in a shared **input file**, YAML or JSON (`-f -` reads standard input). The file lists contexts only, each as short as the installed descriptors allow; it never names a `credentialRef` or a `defaultContext`, and unknown members are refused, all with `shell.input_malformed`. In order: the whole file is validated; the plan is made (products to install, products installed at a version other than a pinned `"version"`, and for each context create, replace with a field-by-field diff, or unchanged, plus the sessions that would end); `--dry-run` stops there; missing products are installed; defaults are resolved from the installed descriptors; the sessions whose bindings change are ended; and the document is written under its lock. A context in the file replaces the one of the same name whole, keeping its `credentialRef`; contexts the file does not name are kept. The selection changes only with `--use <name>`, which must name a context in the file. A product installed at another version than its pin is left as it is and reported, unless `--update-products`. `--no-install` installs nothing, and needs each product installed or stated in full. When an install fails after another succeeded, the successful ones stay installed and `contexts.yaml` is untouched; running the command again continues. |
 | `wso2 context use <context>` | Selects the context used by default for later commands. |
 | `wso2 context list` | Lists the configured contexts with their type, issuer and products, marking the selected one, and says so when none is selected. |
 | `wso2 context current` | Shows the selected context. |
@@ -42,8 +42,8 @@ and how each refusal is reported.
 | `wso2 context rename <name> <new-name>` | Renames a context and keeps it selected if it was. Its `credentialRef` is a stable identifier that does not follow the name, so no session moves and no login is needed. |
 | `wso2 context delete <name>` | Deletes a context after ending every session under its `credentialRef` — the login session, each product's and each gateway's — so no secret is left in the secure store that no document names. Deleting the selected context leaves nothing selected. `--dry-run` names what would be ended. |
 | `wso2 context edit` | Opens the complete document in `$VISUAL` or `$EDITOR`, validates the result as a whole, refuses an invalid one (asking whether to edit again at a terminal) and leaves the file as it was, and ends the sessions a changed record no longer matches before writing. It takes complete records only; `wso2 context apply` is the way to write short ones. Refused with `shell.not_interactive` under `--no-input` or without a terminal, naming the file to edit directly. |
-| `wso2 context export [<name>]` | Prints contexts in the input-file form: complete records, so the file applies the same whatever product versions another machine has installed, with every `credentialRef` and the selection removed. |
-| Removed commands | `wso2 <product> connect …` and the `wso2 account` family were removed (ADR 0016). Typing one prints the exact replacement, built from the line typed, and exits in the usage class with `shell.command_moved`: `wso2 identity connect <url> --account demo` names `wso2 context create demo --login-product identity --url <url> --use`; `wso2 api connect <url> --gateway --account demo` names `wso2 context product add api --url <api-url> --gateway <url> --replace --context demo`, with the product's own URL left as a placeholder because the old line never named it; `wso2 account add-product <a> <p> --endpoint <u>` names `wso2 context product add <p> --url <u> --context <a>`; `wso2 account list` names `wso2 context show`. A redirect fires only after normal dispatch has declined the words, so a module that declares a `connect` command of its own is reached as usual. |
+| `wso2 context export [<name>]` | Prints contexts in the input-file form, as YAML (`--output json` for JSON): complete records, so the file applies the same whatever product versions another machine has installed, with every `credentialRef` and the selection removed. |
+| Removed commands | `wso2 <product> connect …` and the `wso2 account` family were removed (ADR 0016). Typing one prints the exact replacement, built from the line typed, and exits in the usage class with `shell.command_moved`: `wso2 identity connect <url> --account demo` names `wso2 context create demo --login-product iam --url <url> --use`; `wso2 api connect <url> --gateway --account demo` names `wso2 context product add apim --url <apim-url> --gateway <url> --replace --context demo`, with the product's own URL left as a placeholder because the old line never named it, and each retired product word (`api`, `identity`) answered with the namespace that replaced it (`apim`, `iam`); `wso2 account add-product <a> <p> --endpoint <u>` names `wso2 context product add <p> --url <u> --context <a>`; `wso2 account list` names `wso2 context show`. A redirect fires only after normal dispatch has declined the words, so a module that declares a `connect` command of its own is reached as usual. |
 | `wso2 config` | With no subcommand, prints this family's help on standard output and exits 0: naming a family without a subcommand is an incomplete command, not a failed one, and every subcommand it names works. The help names `list`, `get`, `set` and `unset`. A subcommand the family does not have is a different case and is still refused with `shell.unknown_command` and the usage exit class (#133), so a typo is never reported to a script as success. |
 | `wso2 config list` | Built today: shows every key in the closed set of shell preferences — the default output mode and the catalog origin override — and whether each is currently configured. |
 | `wso2 config get <key>` | Built today: shows one shell preference. `key` must be one of `output`, `catalog-origin`; any other value is refused with `config.unknown_key`, naming the valid keys. |
@@ -216,7 +216,7 @@ Platform          darwin/arm64
 
 Installed modules
 NAME          VERSION
-api           v0.9.0
+apim          v0.9.0
 agent         v1.2.0
 integration   v0.4.0
 ```
@@ -225,20 +225,20 @@ integration   v0.4.0
 
 ```text
 $ wso2 whoami
-Context          cloud-us
-Issuer           https://api.asgardeo.io/t/acme/oauth2/token
-Organization     acme
-User ID          jane@example.com
-Session          present
-Session expiry   2026-11-15T09:00:00Z
+Context   cloud-us
+Email     jane@example.com
+Status    logged in
 ```
 
-`Session expiry` reads `not stated by the issuer` when the identity provider
-discloses no refresh-token lifetime, which is the common case and not an
-error; it is never the access token's own, much shorter, expiry. With no
-context selected, `wso2 whoami` says so and exits 0. With a context selected
-but no stored session, it names `wso2 login` instead of a `Session expiry`
-row. `--output json` renders the same facts as a JSON object.
+`Status` is `logged in`, `not logged in`, `session expired`, or `machine
+credentials, no login needed` for a client-credentials context. With no context
+selected, `wso2 whoami` says so and exits 0; with no stored session, it names
+`wso2 login` as the next step. `--output json` carries the detail the table
+leaves out: the issuer, organization, subject, session expiry, and each
+product's access and session. `sessionExpiry` reads `not stated by the issuer`
+when the identity provider discloses no refresh-token lifetime, which is the
+common case and not an error; it is never the access token's own, much shorter,
+expiry.
 
 ### First login against a self-hosted issuer
 
@@ -246,10 +246,9 @@ row. `--output json` renders the same facts as a JSON object.
 $ wso2 login --url https://idp.customer.example --client-id wso2-cli \
     --context customer
 
-Logged in to the "customer" context.
-User ID    ops
-Email      ops@customer.example
-Products   none configured
+Context   customer
+Email     ops@customer.example
+Status    logged in
 
 Created context "customer".
 It is the first context, so it is now the selected one.
@@ -259,9 +258,11 @@ No products are configured for this context. A self-hosted deployment is not dis
   wso2 context product add <product> --url <url> --context customer
 ```
 
-The authorization URL is written to the diagnostic stream, not to this one: it
-is an instruction to act on rather than the command's result, so a caller
-redirecting standard output still sees it.
+The login opens the browser and says so in one line on the diagnostic stream.
+The authorization URL is printed there only when no browser could be opened, so
+the login can still be finished from another machine. It is an instruction to
+act on rather than the command's result, so a caller redirecting standard output
+still sees it.
 
 ### Ending a session
 
@@ -292,7 +293,7 @@ three happened. See
 ### Context
 
 ```text
-$ wso2 context apply -f team-context.json --use local
+$ wso2 context apply -f team-context.yaml --use local
 
 Applied the context file.
 
@@ -305,9 +306,9 @@ Next  Run `wso2 login`.
 
 $ wso2 context list
 CURRENT   CONTEXT   TYPE     ISSUER                  PRODUCTS       ORGANIZATION   PROJECT
-*         local     onprem   http://localhost:8501   api,identity
+*         local     onprem   http://localhost:8501   apim,iam
 
-$ wso2 context create staging --login-product identity --url https://idp.staging.example
+$ wso2 context create staging --login-product iam --url https://idp.staging.example
 
 Created the "staging" context.
 
@@ -316,8 +317,8 @@ Type            onprem
 Login           oauth-browser
 Issuer          https://idp.staging.example
 Client ID       wso2-cli
-Login product   identity
-Products        identity
+Login product   iam
+Products        iam
 Organization
 Project
 Selected        no
@@ -329,7 +330,7 @@ Next  Run `wso2 context use staging`, then `wso2 login`. Add more products with 
 
 ```text
 $ wso2 context show
-Path      /home/alex/.wso2/cli/contexts.json
+Path      /home/alex/.wso2/cli/contexts.yaml
 Written   yes
 
 Schema version: 4
@@ -337,13 +338,13 @@ Selected context: local
 
 Contexts
 CURRENT   NAME    TYPE     KIND            ISSUER                  LOGIN PRODUCT   CREDENTIAL SOURCE     ORGANIZATION   PROJECT
-*         local   onprem   oauth-browser   http://localhost:8501   identity        secure store: local
+*         local   onprem   oauth-browser   http://localhost:8501   iam             secure store: local
 
 Products
-LOGIN   CONTEXT   RECORD        URL                     AUDIENCE                     SCOPES   GRANT
-        local     api           http://localhost:9251   http://localhost:9251                 exchange
-        local     api/gateway   http://localhost:9091   http://localhost:9091
-*       local     identity      http://localhost:8501   https://localhost:8090/mcp   system
+LOGIN   CONTEXT   RECORD         URL                     AUDIENCE                     SCOPES   GRANT
+        local     apim           http://localhost:9251   http://localhost:9251                 exchange
+        local     apim/gateway   http://localhost:9091   http://localhost:9091
+*       local     iam            http://localhost:8501   https://localhost:8090/mcp   system
 ```
 
 On a machine nothing is set up on yet, the path is still reported, naming
@@ -351,7 +352,7 @@ what would need to change (`WSO2_HOME`) to point somewhere else:
 
 ```text
 $ wso2 context show
-Path      /home/alex/.wso2/cli/contexts.json
+Path      /home/alex/.wso2/cli/contexts.yaml
 Written   no
 
 No context document has been written yet.
@@ -365,7 +366,7 @@ Run wso2 context apply -f <file> --use <name> with the file your platform team s
 $ wso2 product list
 PRODUCT       INSTALLED   CHANNEL   UPDATE
 agent         v1.2.0      stable    v1.3.0 available
-api           v0.9.0      stable    current
+apim          v0.9.0      stable    current
 integration   v0.4.0      —         pinned to v0.4.0
 reference     —           stable    v0.1.0 to install
 

@@ -141,8 +141,8 @@ CI uses a client-credentials context and doesn't run `wso2 login`.
    `WSO2_ACME_CI_SECRET` from your CI secret store, then run product commands
    directly.
 
-To share the context, `wso2 context export acme-ci > context.json` writes a
-file the job applies with `wso2 context apply -f context.json --use acme-ci`.
+To share the context, `wso2 context export acme-ci > context.yaml` writes a
+file the job applies with `wso2 context apply -f context.yaml --use acme-ci`.
 
 ## If login fails
 

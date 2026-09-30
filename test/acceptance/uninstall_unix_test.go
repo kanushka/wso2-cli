@@ -77,11 +77,11 @@ func TestUninstallLeavesConfigurationAndCredentialsAlone(t *testing.T) {
 
 	// State a user would have created by using the CLI. Removing a binary is not a
 	// request to destroy this, and doing so silently would be the worse default.
-	contexts := filepath.Join(install.stateRoot, "cli", "contexts.json")
+	contexts := filepath.Join(install.stateRoot, "cli", "contexts.yaml")
 	if err := os.MkdirAll(filepath.Dir(contexts), 0o755); err != nil {
 		t.Fatalf("preparing the state root returned %v", err)
 	}
-	if err := os.WriteFile(contexts, []byte(`{"version":2}`), 0o600); err != nil {
+	if err := os.WriteFile(contexts, []byte("schemaVersion: 4\n"), 0o600); err != nil {
 		t.Fatalf("writing the fixture contexts returned %v", err)
 	}
 

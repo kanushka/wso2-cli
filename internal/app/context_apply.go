@@ -33,6 +33,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/internal/yamldoc"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -112,14 +113,19 @@ func (s Shell) contextExportCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:               "export [<name>]",
 		ValidArgsFunction: s.completeFirstContextName,
-		Short:             "Print contexts as a shareable file: complete records, with nothing machine-specific.",
-		Args:              atMostOneArgument(contextExportUsage),
+		Short: "Print contexts as a shareable YAML file: complete records, with nothing " +
+			"machine-specific. --output json prints it as JSON.",
+		Args: atMostOneArgument(contextExportUsage),
 		RunE: func(command *cobra.Command, args []string) error {
+			mode, err := s.shellOutputMode(command)
+			if err != nil {
+				return err
+			}
 			name := ""
 			if len(args) == 1 {
 				name = args[0]
 			}
-			return s.contextExport(name)
+			return s.contextExport(name, mode)
 		},
 	}
 }
@@ -146,10 +152,14 @@ func (s Shell) readInputFile(path string) (inputFile, error) {
 	return decodeInputFile(data)
 }
 
-// decodeInputFile is the strict decode of an input file. Unknown members are
-// refused: the file is written by hand, and a misspelled member silently
-// ignored would be a default nobody asked for.
+// decodeInputFile is the strict decode of an input file, written as YAML or
+// JSON. Unknown members are refused: the file is written by hand, and a
+// misspelled member silently ignored would be a default nobody asked for.
 func decodeInputFile(data []byte) (inputFile, error) {
+	data, err := yamldoc.ToJSON(data)
+	if err != nil {
+		return inputFile{}, inputProblem(err.Error())
+	}
 	var probe struct {
 		DefaultContext *string `json:"defaultContext"`
 		Contexts       []struct {
@@ -157,7 +167,7 @@ func decodeInputFile(data []byte) (inputFile, error) {
 		} `json:"contexts"`
 	}
 	if err := json.Unmarshal(data, &probe); err != nil {
-		return inputFile{}, inputProblem("is not valid JSON: " + err.Error())
+		return inputFile{}, inputProblem("does not have the shape of a context file: " + err.Error())
 	}
 	if probe.DefaultContext != nil {
 		return inputFile{}, problem.New(problem.CategoryUsage, "shell.input_malformed",
@@ -626,7 +636,7 @@ func (s Shell) reportApply(mode output.Mode, report applyReport, flags applyFlag
 // contextExport prints contexts in the input-file form: complete records, so
 // the file applies the same on any machine whatever its installed versions,
 // with the credential references and the selection removed.
-func (s Shell) contextExport(name string) error {
+func (s Shell) contextExport(name string, mode output.Mode) error {
 	root, err := s.stateRoot()
 	if err != nil {
 		return err
@@ -658,7 +668,19 @@ func (s Shell) contextExport(name string) error {
 	if name != "" && len(file.Contexts) == 0 {
 		return contextNotFound(name)
 	}
-	return encodeContextJSON(s.Streams.Out, file)
+	if mode == output.ModeJSON {
+		return encodeContextJSON(s.Streams.Out, file)
+	}
+	data, err := json.Marshal(file)
+	if err != nil {
+		return fmt.Errorf("app: cannot encode the context file: %w", err)
+	}
+	encoded, err := yamldoc.FromJSON(data)
+	if err != nil {
+		return err
+	}
+	_, err = s.Streams.Out.Write(encoded)
+	return err
 }
 
 // driftNotes names every record whose frozen values differ from what its

@@ -1,6 +1,7 @@
 # ADR 0008: Cobra for the Shell Command UI
 
-**Status:** Accepted
+**Status:** Accepted; amended by
+[ADR 0019](0019-yaml-context-documents.md), which links one YAML parser
 
 The shell routes its own commands with Cobra, and declares the flags common to
 all of them once on the root command. Every shell-owned command is a
