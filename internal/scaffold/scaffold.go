@@ -17,7 +17,7 @@
 // Package scaffold creates a new product module in this repository.
 //
 // A developer's first hour should be spent on their product, not on
-// reconstructing the shape of a module from the reference module's source. What
+// reconstructing the shape of a module from the example module's source. What
 // this package writes builds and passes its own test with no editing, so there
 // is a known-good baseline before anything is changed.
 //
@@ -44,10 +44,10 @@ import (
 	"github.com/wso2/wso2-cli/sdk/protocol"
 )
 
-// ReservedNamespace is the namespace the reference module owns. It proves the
+// ReservedNamespace is the namespace the example module owns. It proves the
 // shell, the SDK, and the module contract, and a product module claiming it
 // would displace the thing every other module is checked against.
-const ReservedNamespace = "reference"
+const ReservedNamespace = "example"
 
 // ModulesDirectory is where a product module lives, one directory per
 // namespace. Catalog discovery already scans it, so a module generated here is
@@ -145,8 +145,11 @@ func checkNamespace(request Request) error {
 			"%q cannot be a product namespace: a namespace is up to 32 lowercase letters and digits, starting with a letter",
 			request.Namespace)
 	}
+	if request.Namespace == "reference" {
+		return fmt.Errorf("%q is retired; the example module now uses %q", request.Namespace, ReservedNamespace)
+	}
 	if request.Namespace == ReservedNamespace {
-		return fmt.Errorf("%q is the reserved namespace of the reference module", request.Namespace)
+		return fmt.Errorf("%q is the reserved namespace of the example module", request.Namespace)
 	}
 	// The load-bearing refusal. The shell resolves its own commands before it
 	// consults an installed module, so a module here would build, release,
@@ -210,9 +213,9 @@ func readWorkspace(repositoryRoot string) (lines []string, anchor int, err error
 		path, workspaceAnchor)
 }
 
-// reference describes what the reference module declares: the language version,
+// example describes what the example module declares: the language version,
 // and the version of each dependency a generated module shares with it.
-type reference struct {
+type example struct {
 	GoVersion string
 	Requires  map[string]string
 }
@@ -225,7 +228,7 @@ type reference struct {
 // asked for them rather than the file scanned as text: a commented-out line, an
 // exclude, or a versionless replace all mention a module path, and only the
 // graph knows which one is the requirement.
-func readReference(repositoryRoot string) (reference, error) {
+func readReference(repositoryRoot string) (example, error) {
 	directory := filepath.Join(repositoryRoot, ModulesDirectory, ReservedNamespace)
 
 	command := exec.Command("go", "mod", "edit", "-json")
@@ -235,7 +238,7 @@ func readReference(repositoryRoot string) (reference, error) {
 	command.Stderr = &problems
 	output, err := command.Output()
 	if err != nil {
-		return reference{}, fmt.Errorf(
+		return example{}, fmt.Errorf(
 			"scaffold: cannot read what %s is built against: %w: %s",
 			directory, err, strings.TrimSpace(problems.String()))
 	}
@@ -248,19 +251,19 @@ func readReference(repositoryRoot string) (reference, error) {
 		} `json:"Require"`
 	}
 	if err := json.Unmarshal(output, &parsed); err != nil {
-		return reference{}, fmt.Errorf("scaffold: cannot read the module graph of %s: %w", directory, err)
+		return example{}, fmt.Errorf("scaffold: cannot read the module graph of %s: %w", directory, err)
 	}
 
-	declared := reference{GoVersion: parsed.Go, Requires: map[string]string{}}
+	declared := example{GoVersion: parsed.Go, Requires: map[string]string{}}
 	for _, requirement := range parsed.Require {
 		declared.Requires[requirement.Path] = requirement.Version
 	}
 	if declared.GoVersion == "" {
-		return reference{}, fmt.Errorf("scaffold: %s declares no language version", directory)
+		return example{}, fmt.Errorf("scaffold: %s declares no language version", directory)
 	}
 	for _, path := range sharedRequirements {
 		if declared.Requires[path] == "" {
-			return reference{}, fmt.Errorf("scaffold: %s does not require %s, so there is no version to generate against",
+			return example{}, fmt.Errorf("scaffold: %s does not require %s, so there is no version to generate against",
 				directory, path)
 		}
 	}
@@ -268,7 +271,7 @@ func readReference(repositoryRoot string) (reference, error) {
 }
 
 // sharedRequirements are the dependencies a generated module takes at the same
-// version the reference module takes them at.
+// version the example module takes them at.
 //
 // The SDK is here for the obvious reason. Cobra is here because a generated
 // module declares its commands with it, and two modules in one workspace
@@ -298,7 +301,7 @@ func addToWorkspace(repositoryRoot, namespace string) error {
 			return nil
 		}
 	}
-	// Placed beside the reference module, so the entry lands inside the use
+	// Placed beside the example module, so the entry lands inside the use
 	// block in the order a reader expects rather than after the end of the file
 	// where it would not be part of the block at all. The anchor's own
 	// indentation is reused, so nothing here assumes how the file is formatted.
@@ -309,7 +312,7 @@ func addToWorkspace(repositoryRoot, namespace string) error {
 }
 
 // workspaceAnchor is the workspace entry a new module's entry is placed after.
-// It is the reference module because that is the one product module every
+// It is the example module because that is the one product module every
 // checkout has.
 var workspaceAnchor = "./" + ModulesDirectory + "/" + ReservedNamespace
 

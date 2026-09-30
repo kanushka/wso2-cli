@@ -74,7 +74,7 @@ type Grant struct {
 // architecture proof and nothing else. A product namespace reaching this
 // broker is refused rather than quietly handed fixture access: whatever
 // installed it, it is not what this release can authenticate.
-const ProofNamespace = "reference"
+const ProofNamespace = "example"
 
 // Denial is a refused access request.
 //

@@ -26,8 +26,8 @@ import (
 	"github.com/wso2/wso2-cli/sdk/testkit"
 )
 
-const whoamiAnswer = `{"organization":"reference-org","audiences":"reference-status",` +
-	`"scopes":"reference:status:read","invocation":"invocation-7f2a","boundTo":"reference-local"}`
+const whoamiAnswer = `{"organization":"example-org","audiences":"example-status",` +
+	`"scopes":"example:status:read","invocation":"invocation-7f2a","boundTo":"example-local"}`
 
 // runWhoami invokes the module's whoami command against an endpoint, the way
 // runCall invokes call: the whole tree is served so routing is exercised too.
@@ -38,8 +38,8 @@ func runWhoami(t *testing.T, endpoint string, access *testkit.Access) testkit.Ou
 			Command:      []string{"whoami"},
 			InvocationID: invocationID,
 			Context: module.Context{
-				Name:           "reference-local",
-				OrganizationID: "reference-org",
+				Name:           "example-local",
+				OrganizationID: "example-org",
 				Endpoint:       endpoint,
 			},
 			Access: access,
@@ -93,11 +93,11 @@ func TestWhoamiReturnsTheServicesAnswerAsSemanticFields(t *testing.T) {
 		t.Errorf("result schema is %q, want %q", outcome.Result.Schema, WhoamiSchema)
 	}
 	want := []struct{ name, value string }{
-		{"organization", "reference-org"},
-		{"audiences", "reference-status"},
-		{"scopes", "reference:status:read"},
+		{"organization", "example-org"},
+		{"audiences", "example-status"},
+		{"scopes", "example:status:read"},
 		{"invocation", "invocation-7f2a"},
-		{"boundTo", "reference-local"},
+		{"boundTo", "example-local"},
 	}
 	if len(outcome.Result.Fields) != len(want)+1 {
 		t.Fatalf("the result carries %d fields, want %d", len(outcome.Result.Fields), len(want)+1)
@@ -116,7 +116,7 @@ func TestWhoamiReturnsTheServicesAnswerAsSemanticFields(t *testing.T) {
 func TestWhoamiADeniedRequestEndsTheCommandWithTheShellsDenial(t *testing.T) {
 	service, seen := statusService(t, http.StatusOK, whoamiAnswer)
 	denial := problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable",
-		"the credential source the \"reference-local\" context names is not set").
+		"the credential source the \"example-local\" context names is not set").
 		WithRecovery("Set WSO2_REFERENCE_DEV_CREDENTIAL to the credential for this context.")
 
 	outcome := runWhoami(t, service.URL, &testkit.Access{Deny: &denial})
@@ -157,8 +157,8 @@ func TestWhoamiAFailingServiceBecomesAProductServiceProblem(t *testing.T) {
 	if failure.Category != problem.CategoryProductService {
 		t.Errorf("category is %q, want %q", failure.Category, problem.CategoryProductService)
 	}
-	if failure.Code != "reference.status_unavailable" {
-		t.Errorf("code is %q, want reference.status_unavailable", failure.Code)
+	if failure.Code != "example.status_unavailable" {
+		t.Errorf("code is %q, want example.status_unavailable", failure.Code)
 	}
 }
 
@@ -167,7 +167,7 @@ func TestWhoamiAServiceThatAnswersWithoutAVerifiedAudienceIsUnreadable(t *testin
 	// service answered, and answered without the claim the command exists to
 	// report.
 	service, _ := statusService(t, http.StatusOK,
-		`{"organization":"reference-org","scopes":"reference:status:read"}`)
+		`{"organization":"example-org","scopes":"example:status:read"}`)
 
 	outcome := runWhoami(t, service.URL, granted())
 
@@ -175,8 +175,8 @@ func TestWhoamiAServiceThatAnswersWithoutAVerifiedAudienceIsUnreadable(t *testin
 	if failure.Category != problem.CategoryProductService {
 		t.Errorf("category is %q, want %q", failure.Category, problem.CategoryProductService)
 	}
-	if failure.Code != "reference.status_unavailable" {
-		t.Errorf("code is %q, want reference.status_unavailable", failure.Code)
+	if failure.Code != "example.status_unavailable" {
+		t.Errorf("code is %q, want example.status_unavailable", failure.Code)
 	}
 	// unreadable's recovery differs from unavailable's: retrying an endpoint
 	// that is not a status service cannot change the answer.

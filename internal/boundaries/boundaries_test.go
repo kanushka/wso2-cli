@@ -307,7 +307,7 @@ func TestEveryProductModuleRequiresAResolvableSDKVersion(t *testing.T) {
 	// requirement on an unpublished version with no replacement behind it still
 	// fails, and so does a replacement left behind after the tag.
 	//
-	// Every product module is checked rather than the reference module alone, so
+	// Every product module is checked rather than the example module alone, so
 	// a scaffolded module that drifted to some other version would be caught.
 	required := requiredSDKVersion(t)
 	if required == sdkPublishedVersion {
@@ -402,13 +402,13 @@ func TestTheReferenceModuleDependsOnThePublicSDKOnly(t *testing.T) {
 	// without changing its imports. The requirements are read from the module
 	// graph rather than matched as text, so block syntax and comments cannot
 	// change the outcome.
-	required := requiredModules(t, filepath.Join(repoRoot(t), "modules", "reference"))
+	required := requiredModules(t, filepath.Join(repoRoot(t), "modules", "example"))
 
 	if !slices.Contains(required, "github.com/wso2/wso2-cli/sdk") {
-		t.Errorf("the reference module does not require the public SDK; it requires %v", required)
+		t.Errorf("the example module does not require the public SDK; it requires %v", required)
 	}
 	if slices.Contains(required, "github.com/wso2/wso2-cli") {
-		t.Errorf("the reference module requires the shell module; it must depend on the public SDK only")
+		t.Errorf("the example module requires the shell module; it must depend on the public SDK only")
 	}
 }
 

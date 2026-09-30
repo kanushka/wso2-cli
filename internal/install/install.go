@@ -123,7 +123,7 @@ func (i Installer) Run(ctx context.Context, request Request) (Installed, error) 
 	if !modules.ValidNamespace(request.Namespace) {
 		return Installed{}, problem.New(problem.CategoryUsage, "modules.invalid_namespace",
 			fmt.Sprintf("%q is not a valid product namespace", request.Namespace)).
-			WithRecovery("Give a module name such as reference.")
+			WithRecovery("Give a module name such as example.")
 	}
 
 	index, err := i.Client.Index(ctx)

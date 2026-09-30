@@ -39,21 +39,27 @@ A tag naming a namespace no module in this repository declares fails
 generation. Publishing an entry for it would advertise an artifact that was
 never built.
 
+The `example` module is a local demonstration module. Public catalog input
+excludes its declaration and tags, along with historical demonstration-module
+tags. Install it from the checkout using the
+[local setup guide](../guides/setup-example-module.md), rather than
+`ws product install`. The catalog examples below use the `apim` product.
+
 A module declares the namespace it owns in a `module.json` beside its
 `go.mod`:
 
 ```json
 {
   "schemaVersion": 1,
-  "namespace": "reference",
-  "title": "Reference Product",
+  "namespace": "apim",
+  "title": "API Platform",
   "compatibility": {
     "shell": ">=0.1.0 <2.0.0",
     "protocolVersions": [2]
   },
   "capabilities": {
-    "authAudiences": ["reference-status"],
-    "authScopes": ["reference:status:read"]
+    "authAudiences": ["api-management"],
+    "authScopes": ["apim:api_view"]
   }
 }
 ```
@@ -103,9 +109,9 @@ cost of an update check does not grow as products accumulate releases.
   "schemaVersion": 1,
   "modules": [
     {
-      "namespace": "reference",
-      "title": "Reference Product",
-      "path": "modules/reference.json",
+      "namespace": "apim",
+      "title": "API Platform",
+      "path": "modules/apim.json",
       "channels": [
         { "channel": "prerelease", "version": "4.6.0-rc.1" },
         { "channel": "stable", "version": "4.5.0" }
@@ -138,7 +144,7 @@ The full history for one namespace, newest version first.
 ```json
 {
   "schemaVersion": 1,
-  "namespace": "reference",
+  "namespace": "apim",
   "versions": [
     {
       "version": "4.5.0",
@@ -148,14 +154,14 @@ The full history for one namespace, newest version first.
         "protocolVersions": [1]
       },
       "capabilities": {
-        "authAudiences": ["reference-status"],
-        "authScopes": ["reference:status:read"]
+        "authAudiences": ["api-management"],
+        "authScopes": ["apim:api_view"]
       },
       "artifacts": [
         {
           "os": "linux",
           "arch": "amd64",
-          "url": "https://downloads.example.invalid/reference-4.5.0-linux-amd64.tar.gz",
+          "url": "https://downloads.example.invalid/apim-4.5.0-linux-amd64.tar.gz",
           "size": 5242880,
           "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         }
@@ -174,9 +180,9 @@ usable.
 ## Installing from the catalog
 
 ```sh
-ws product install reference
-ws product install reference@4.5.0
-ws product install reference --channel prerelease
+ws product install apim
+ws product install apim@4.5.0
+ws product install apim --channel prerelease
 ```
 
 The shell reads `index.json` to find the namespace and where its history is
@@ -264,7 +270,7 @@ development build carries no copy and lists only what is installed.
 
 ```sh
 ws product list
-ws product update reference
+ws product update apim
 ws product update --all
 ```
 
@@ -284,7 +290,7 @@ module's installations:
 ```json
 {
   "schemaVersion": 1,
-  "namespace": "reference",
+  "namespace": "apim",
   "channel": "prerelease",
   "pinnedVersion": ""
 }
@@ -346,9 +352,9 @@ archives uploaded for it.
 
 ```json
 {
-  "tags": ["reference/v4.5.0"],
+  "tags": ["apim/v4.5.0"],
   "published": {
-    "reference/v4.5.0": {
+    "apim/v4.5.0": {
       "compatibility": {
         "shell": ">=0.1.0 <2.0.0",
         "protocolVersions": [1]
@@ -356,7 +362,7 @@ archives uploaded for it.
       "artifacts": [
         {
           "platform": { "os": "linux", "arch": "amd64" },
-          "url": "https://downloads.example.invalid/reference-4.5.0-linux-amd64.tar.gz",
+          "url": "https://downloads.example.invalid/apim-4.5.0-linux-amd64.tar.gz",
           "size": 5242880,
           "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         }
@@ -388,7 +394,7 @@ workflows that deploy there run it. A deployment replaces the whole
 site, so a deployment that assembled only half of it would take the other half
 down.
 
-`.github/workflows/module-release.yml` runs on a module tag: it gates, builds
+`.github/workflows/module-release.yml` runs on a product module tag: it gates, builds
 and publishes the module's artifacts, then regenerates and deploys the
 catalog. `.github/workflows/pages.yml` runs on a change to the scripts or the
 generator on `main` and deploys the same assembled site. Each job holds only
@@ -407,7 +413,8 @@ is emitted in a fixed order and the documents are rendered with fixed
 formatting, so regenerating over an unchanged tag set produces byte-identical
 files and a release with no new tags changes nothing.
 
-Generation fails, rather than publishing an entry, when a tag names no
+After excluding local demonstration modules, generation fails, rather than
+publishing an entry, when a tag names no
 buildable module, when a tag published no release or no artifact, when a tag
 is listed twice, when two modules claim one namespace, or when an artifact
 carries no URL, no size, or an unreadable digest.

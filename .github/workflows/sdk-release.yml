@@ -66,7 +66,7 @@ jobs:
         id: version
 
       # A tag is a claim about this commit, and the commit says which SDK
-      # version it is built around: the reference module requires one, and it is
+      # version it is built around: the example module requires one, and it is
       # the version every scaffolded module is generated against. A tag that
       # disagrees with it would publish an SDK that nothing in this repository
       # is built against, so the two have to be the same.
@@ -78,10 +78,10 @@ jobs:
           # go.mod spells a single requirement on one line and a grouped one
           # over several, and only go itself is guaranteed to read both the
           # way the toolchain does.
-          declared="$(go mod edit -json modules/reference/go.mod |
+          declared="$(go mod edit -json modules/example/go.mod |
             jq -r '.Require[]? | select(.Path == "github.com/wso2/wso2-cli/sdk") | .Version')"
           if [ -z "${declared}" ]; then
-            echo "::error::modules/reference/go.mod requires no SDK version to compare the tag against"
+            echo "::error::modules/example/go.mod requires no SDK version to compare the tag against"
             exit 1
           fi
           if [ "${declared}" != "${VERSION}" ]; then

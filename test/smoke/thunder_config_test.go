@@ -30,7 +30,7 @@ func thunderEnvironment() map[string]string {
 	return map[string]string{
 		smoke.IssuerVar:       "https://localhost:8490",
 		smoke.ClientIDVar:     "wso2-cli",
-		smoke.AudienceVar:     "https://localhost:8490/reference-status",
+		smoke.AudienceVar:     "https://localhost:8490/example-status",
 		smoke.ScopeVar:        "read write",
 		smoke.ProviderVar:     contexts.ProviderThunder,
 		smoke.IdentityTypeVar: "onprem",

@@ -290,8 +290,8 @@ func TestLogoutOutputFlagAcceptsEverySpelling(t *testing.T) {
 // Each context owns its own sessions (ADR 0016), so logging out of one ends
 // nothing another context holds, and the report names no other context.
 func TestLogoutEndsOnlyTheSelectedContextsSessions(t *testing.T) {
-	const secondContext = "reference-staging"
-	const secondRef = "reference-staging"
+	const secondContext = "example-staging"
+	const secondRef = "example-staging"
 	deployment := deployLoginWithoutModule(t, fakeissuer.Options{AllowAnyLoopbackPort: true},
 		func(document *contexts.Document) {
 			second := document.Contexts[0]

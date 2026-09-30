@@ -34,7 +34,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/statusservice"
 )
 
-// statusFields are the semantic fields the reference status result carries, in
+// statusFields are the semantic fields the example status result carries, in
 // the order both renderings must follow.
 var statusFields = []string{"organization", "service", "status", "checkedAt"}
 
@@ -42,7 +42,7 @@ func TestReferenceStatusRendersAReadableTable(t *testing.T) {
 	shell := buildShell(t)
 	stateRoot := deploy(t, statusservice.Options{}).stateRoot
 
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "call")
+	stdout, stderr := runShell(t, shell, stateRoot, "example", "call")
 
 	for _, want := range []string{"ORGANIZATION", "SERVICE", "STATUS", "CHECKED AT", "operational"} {
 		if !strings.Contains(stdout, want) {
@@ -58,7 +58,7 @@ func TestReferenceStatusRendersDeterministicJSON(t *testing.T) {
 	shell := buildShell(t)
 	stateRoot := deploy(t, statusservice.Options{}).stateRoot
 
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "call", "--output", "json")
+	stdout, stderr := runShell(t, shell, stateRoot, "example", "call", "--output", "json")
 
 	decoded := decodeStatusJSON(t, stdout)
 	for _, field := range statusFields {
@@ -83,8 +83,8 @@ func TestTableAndJSONReportTheSameFields(t *testing.T) {
 	shell := buildShell(t)
 	stateRoot := deploy(t, statusservice.Options{}).stateRoot
 
-	table, _ := runShell(t, shell, stateRoot, "reference", "call")
-	asJSON, _ := runShell(t, shell, stateRoot, "reference", "call", "--output", "json")
+	table, _ := runShell(t, shell, stateRoot, "example", "call")
+	asJSON, _ := runShell(t, shell, stateRoot, "example", "call", "--output", "json")
 
 	decoded := decodeStatusJSON(t, asJSON)
 	for _, field := range statusFields {
@@ -110,7 +110,7 @@ func TestStatusWithNoContextConfiguredNamesNoContext(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 	installReferenceModule(t, stateRoot, buildReferenceModule(t))
 
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "status")
+	stdout, stderr := runShell(t, shell, stateRoot, "example", "status")
 
 	if !strings.Contains(stdout, "(none)") {
 		t.Errorf("the report does not render the unselected context as (none):\n%s", stdout)
@@ -133,7 +133,7 @@ func TestJSONOutputStaysValidWhileTheModuleWritesDiagnostics(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 	installNoisyModule(t, stateRoot)
 
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "status", "--output", "json")
+	stdout, stderr := runShell(t, shell, stateRoot, "example", "status", "--output", "json")
 
 	decoded := decodeStatusJSON(t, stdout)
 	if decoded["status"] != "operational" {
@@ -151,7 +151,7 @@ func TestAnUnknownOutputModeFailsWithTheUsageExitClass(t *testing.T) {
 	shell := buildShell(t)
 	stateRoot := deploy(t, statusservice.Options{}).stateRoot
 
-	stdout, stderr, err := tryShell(shell, stateRoot, "reference", "call", "--output", "yaml")
+	stdout, stderr, err := tryShell(shell, stateRoot, "example", "call", "--output", "yaml")
 
 	if exitCode(t, err) != 64 {
 		t.Fatalf("exit status = %v, want the usage class 64\nstderr:\n%s", err, stderr)
@@ -184,7 +184,7 @@ func TestAModuleThatNeverAnswersFailsWithAStableProblem(t *testing.T) {
 	installScriptedModule(t, stateRoot,
 		"#!/bin/sh\necho $$ > '"+pidFile+"'\nwhile true; do sleep 1; done\n")
 
-	stdout, stderr, err := runShellWithCeiling(t, shell, stateRoot, "reference", "call")
+	stdout, stderr, err := runShellWithCeiling(t, shell, stateRoot, "example", "call")
 
 	if exitCode(t, err) != 70 {
 		t.Fatalf("exit status = %v, want the module process class 70\nstderr:\n%s", err, stderr)
@@ -250,7 +250,7 @@ func TestAModuleThatCrashesBeforeAnsweringFailsWithAStableProblem(t *testing.T) 
 	installScriptedModule(t, stateRoot,
 		"#!/bin/sh\necho 'the module could not reach its local socket' >&2\nexit 3\n")
 
-	stdout, stderr, err := tryShell(shell, stateRoot, "reference", "call")
+	stdout, stderr, err := tryShell(shell, stateRoot, "example", "call")
 
 	if exitCode(t, err) != 70 {
 		t.Fatalf("exit status = %v, want the module process class 70\nstderr:\n%s", err, stderr)
@@ -278,7 +278,7 @@ func TestAModuleThatAnswersThenExitsUncleanlyFailsWithAStableProblem(t *testing.
 	installNoisyModule(t, stateRoot)
 	writeControlFile(t, stateRoot, "exit-uncleanly", "")
 
-	stdout, stderr, err := tryShell(shell, stateRoot, "reference", "status")
+	stdout, stderr, err := tryShell(shell, stateRoot, "example", "status")
 
 	if exitCode(t, err) != 70 {
 		t.Fatalf("exit status = %v, want the module process class 70\nstderr:\n%s", err, stderr)
@@ -336,7 +336,7 @@ func equalStrings(got, want []string) bool {
 }
 
 // installNoisyModule installs a conforming module that writes diagnostics while
-// it answers, under the reference module's namespace and version.
+// it answers, under the example module's namespace and version.
 func installNoisyModule(t *testing.T, stateRoot string) {
 	t.Helper()
 	binary := filepath.Join(t.TempDir(), "noisymodule"+executableSuffix())
@@ -392,11 +392,11 @@ func runShellWithCeiling(t *testing.T, shell, stateRoot string, args ...string) 
 	}
 }
 
-// installScriptedModule installs a POSIX shell script as the reference module.
+// installScriptedModule installs a POSIX shell script as the example module.
 func installScriptedModule(t *testing.T, stateRoot, script string) {
 	t.Helper()
 	if _, err := fixture.Install(state.ModuleStore(stateRoot), fixture.Module{
-		Namespace:        "reference",
+		Namespace:        "example",
 		Version:          testModuleVersion,
 		ShellRange:       ">=0.1.0 <1.0.0",
 		ProtocolVersions: []int{testProtocolVersionNumber},

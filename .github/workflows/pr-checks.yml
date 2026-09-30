@@ -68,7 +68,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          mapfile -t files < <(git ls-files '*.go' ':!sdk/**' ':!modules/reference/**')
+          mapfile -t files < <(git ls-files '*.go' ':!sdk/**' ':!modules/example/**')
           unformatted="$(gofmt -l "${files[@]}")"
           if [[ -n "$unformatted" ]]; then
             echo "The following shell files require gofmt:"
@@ -98,12 +98,12 @@ jobs:
           go mod tidy -diff
           go vet ./...
 
-      - name: Check reference-module formatting and vet
-        # The reference module proves the public SDK from a module author's
+      - name: Check example-module formatting and vet
+        # The example module proves the public SDK from a module author's
         # side, so it is held to the same standard whenever the shell or the
         # module changes. Its tests run in the acceptance gate below.
         if: needs.changes.outputs.shell == 'true'
-        working-directory: modules/reference
+        working-directory: modules/example
         shell: bash
         run: |
           set -euo pipefail
@@ -111,7 +111,7 @@ jobs:
           mapfile -t files < <(git ls-files '*.go')
           unformatted="$(gofmt -l "${files[@]}")"
           if [[ -n "$unformatted" ]]; then
-            echo "The following reference-module files require gofmt:"
+            echo "The following example-module files require gofmt:"
             echo "$unformatted"
             exit 1
           fi

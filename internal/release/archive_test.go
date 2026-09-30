@@ -38,13 +38,13 @@ import (
 // is what keeps the two halves from drifting.
 func TestArchiveCarriesTheExecutableTheShellLooksFor(t *testing.T) {
 	for _, platform := range release.Platforms {
-		packed, err := release.Archive("reference", platform, []byte("module bytes"),
+		packed, err := release.Archive("example", platform, []byte("module bytes"),
 			[]release.ArchiveFile{{Name: "LICENSE", Body: []byte("licence")}})
 		if err != nil {
 			t.Fatalf("packing the %s archive returned %v", platform, err)
 		}
 		names := archiveNames(t, platform, packed)
-		wanted := install.ExecutableName("reference", platform)
+		wanted := install.ExecutableName("example", platform)
 		if _, found := names[wanted]; !found {
 			t.Errorf("the %s archive carries %v, and the shell looks for %s", platform, names, wanted)
 		}
@@ -55,15 +55,15 @@ func TestArchiveCarriesTheExecutableTheShellLooksFor(t *testing.T) {
 }
 
 func TestArchiveNameCarriesTheTagVerbatim(t *testing.T) {
-	name := release.ArchiveName("reference", "4.5.0", modules.Platform{OS: "linux", Arch: "amd64"})
-	if name != "wso2-module-reference-v4.5.0-linux-amd64.tar.gz" {
+	name := release.ArchiveName("example", "4.5.0", modules.Platform{OS: "linux", Arch: "amd64"})
+	if name != "wso2-module-example-v4.5.0-linux-amd64.tar.gz" {
 		t.Errorf("the archive name is %q", name)
 	}
 	// Gzipped tar on Windows too: the shell extracts a module archive as a
 	// gzipped tarball and refuses anything else, whatever the shell's own
 	// release publishes for the same platform.
-	windows := release.ArchiveName("reference", "4.5.0", modules.Platform{OS: "windows", Arch: "amd64"})
-	if windows != "wso2-module-reference-v4.5.0-windows-amd64.tar.gz" {
+	windows := release.ArchiveName("example", "4.5.0", modules.Platform{OS: "windows", Arch: "amd64"})
+	if windows != "wso2-module-example-v4.5.0-windows-amd64.tar.gz" {
 		t.Errorf("the Windows archive name is %q", windows)
 	}
 }

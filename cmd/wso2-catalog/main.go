@@ -65,7 +65,7 @@ func run() error {
 		return fmt.Errorf("%s is not a readable release input: %w", *inputPath, err)
 	}
 
-	input.Modules, err = catalog.Discover(*repositoryRoot)
+	input.Modules, err = catalog.DiscoverProducts(*repositoryRoot)
 	if err != nil {
 		return err
 	}

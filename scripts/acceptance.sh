@@ -72,7 +72,7 @@ stage() {
 
 # 1. A clean checkout builds the three independently versioned modules.
 #
-# Each is built the way it is released: the shell and the reference module in
+# Each is built the way it is released: the shell and the example module in
 # this workspace, and the SDK with workspace composition disabled, because a
 # published SDK is consumed by modules that have no workspace at all.
 stage 'Build the shell'
@@ -81,17 +81,17 @@ go build ./...
 stage 'Build the public SDK without workspace composition'
 (cd sdk && GOWORK=off go build ./...)
 
-stage 'Build the reference module'
-(cd modules/reference && go build -o "$build_output/" ./...)
+stage 'Build the example module'
+(cd modules/example && go build -o "$build_output/" ./...)
 
 # 2. The SDK's own boundary and contract tests, again without the workspace.
 stage 'Test the public SDK'
 (cd sdk && GOWORK=off go test -timeout "$test_timeout" ./...)
 
-# 3. The reference module's tests, which exercise the SDK as a module author
+# 3. The example module's tests, which exercise the SDK as a module author
 #    meets it rather than as this repository composes it.
-stage 'Test the reference module'
-(cd modules/reference && go test -timeout "$test_timeout" ./...)
+stage 'Test the example module'
+(cd modules/example && go test -timeout "$test_timeout" ./...)
 
 # 4. The shell's build boundaries, unit tests, and integration tests.
 #

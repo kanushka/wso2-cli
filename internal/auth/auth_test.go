@@ -47,7 +47,7 @@ var acquiredAt = time.Date(2026, time.July, 27, 10, 0, 0, 0, time.UTC)
 func broker(t *testing.T) *auth.Broker {
 	t.Helper()
 	return &auth.Broker{
-		Namespace:    "reference",
+		Namespace:    "example",
 		Capabilities: modules.Capabilities{AuthAudiences: []string{audience}, AuthScopes: []string{readScope}},
 		Selection: contexts.Selection{
 			Context: contexts.Context{
@@ -146,7 +146,7 @@ func TestAScopeTheIdentityRecordsForTheProductCountsAsDeclared(t *testing.T) {
 	// API's permissions in advance, and the user recorded them here for it.
 	consenting := broker(t)
 	consenting.Selection.Identity.Products = map[string]contexts.Product{
-		"reference": {Endpoint: "https://gateway.example", Scopes: []string{"orders:read"}},
+		"example": {Endpoint: "https://gateway.example", Scopes: []string{"orders:read"}},
 	}
 	if _, err := consenting.Acquire(auth.Request{Audience: audience, Scopes: []string{readScope, "orders:read"}}); err != nil {
 		t.Fatalf("a scope the product entry records was refused: %v", err)
@@ -286,7 +286,7 @@ func TestNoDenialRevealsTheSourceCredential(t *testing.T) {
 func productionBroker(t *testing.T, kind string) *auth.Broker {
 	t.Helper()
 	return &auth.Broker{
-		Namespace:    "reference",
+		Namespace:    "example",
 		Capabilities: modules.Capabilities{AuthAudiences: []string{audience}, AuthScopes: []string{readScope}},
 		Selection: contexts.Selection{
 			Context: contexts.Context{
@@ -304,7 +304,7 @@ func productionBroker(t *testing.T, kind string) *auth.Broker {
 					CredentialRef: "reference-cloud",
 				},
 				Products: map[string]contexts.Product{
-					"reference": {
+					"example": {
 						Endpoint: "https://reference.example.test",
 						Audience: audience,
 						Scopes:   []string{readScope},
@@ -324,7 +324,7 @@ func productionBroker(t *testing.T, kind string) *auth.Broker {
 // withProduct replaces the reference product registration, which a table
 // literal cannot assign through a map member.
 func withProduct(broker *auth.Broker, product contexts.Product) {
-	broker.Selection.Identity.Products["reference"] = product
+	broker.Selection.Identity.Products["example"] = product
 }
 
 func TestTheIdentityKindDecidesWhichPolicyTheBrokerApplies(t *testing.T) {

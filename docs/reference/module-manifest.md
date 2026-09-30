@@ -68,9 +68,9 @@ letters, digits, or hyphens.
 The same rule is applied by the shell and by catalog generation, so a namespace
 the shell would refuse cannot be published. `make new-module` applies a
 deliberately tighter one, refusing hyphens, and also refuses a namespace another
-module declares, a namespace a shell command owns, and the reserved `reference`
-namespace. Those extra refusals belong to the generator rather than to the
-format: a hyphenated namespace in a hand-written manifest is valid here.
+module declares, a namespace a shell command owns, and reserved or retired
+demonstration namespaces, including `example`. Those extra refusals belong
+to the generator rather than to the format: a hyphenated namespace in a hand-written manifest is valid here.
 
 The namespace appears in five places and must agree in all of them: this field,
 `module.Options`, the executable name, the directory under `modules/`, and the

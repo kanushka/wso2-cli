@@ -18,7 +18,7 @@
 // release, builds the module for every supported platform, and packs the
 // archives and the checksum file the catalog will point at.
 //
-//	go run ./cmd/wso2-module-release -tag reference/v4.5.0 -out dist
+//	go run ./cmd/wso2-module-release -tag apim/v4.5.0 -out dist
 //
 // The gate runs first and on its own, so a module no released shell can launch
 // is refused before anything is built or uploaded. Run it alone with
@@ -51,7 +51,7 @@ func main() {
 }
 
 func run() error {
-	tag := flag.String("tag", "", "The module tag being released, such as reference/v4.5.0.")
+	tag := flag.String("tag", "", "The module tag being released, such as apim/v4.5.0.")
 	repositoryRoot := flag.String("repo", ".", "Repository checkout to build the module from.")
 	outputDir := flag.String("out", "dist", "Directory to write the archives and the checksum file into.")
 	gateOnly := flag.Bool("gate-only", false, "Decide whether the release may publish, and build nothing.")

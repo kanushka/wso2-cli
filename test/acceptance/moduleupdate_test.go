@@ -46,7 +46,7 @@ func moduleCommandFrom(shell, stateRoot, origin string, args ...string) (string,
 // the shell resolves it, launches it, and the module itself answers.
 //
 // It probes with a real command, because an unknown one no longer reaches the
-// module. Since the reference module declares its command tree (#153), the
+// module. Since the example module declares its command tree (#153), the
 // shell answers "namespace nosuchcommand" itself from the receipt, with
 // shell.unknown_product_command and without launching anything — which is the
 // point of declaring a tree, and which made the old probe prove only that the
@@ -134,7 +134,7 @@ func TestTheShellListsWhichInstalledModulesHaveUpdates(t *testing.T) {
 		}
 	}
 
-	// Only the reference module has released since. The other is current, and
+	// Only the example module has released since. The other is current, and
 	// saying so is as much a part of the report as naming the one that is not.
 	origin.generate(catalogOlderStable, catalogStable, catalogOtherStable)
 	stdout, stderr, err := moduleCommandFrom(shell, stateRoot, origin.server.URL, "list")
@@ -485,7 +485,7 @@ func TestAPartlyFailedUpdateRunMovesTheModulesThatDidNotFail(t *testing.T) {
 	}
 	requireLaunchable(t, shell, stateRoot, catalogNamespace)
 
-	// The reference module's newer release publishes an archive that is not a
+	// The example module's newer release publishes an archive that is not a
 	// module archive, so its update fails after being downloaded and staged.
 	origin.options.carriesNoModule = map[string]bool{catalogStable: true}
 	origin.generate(catalogOlderStable, catalogStable, catalogOtherStable, catalogOtherNewer)

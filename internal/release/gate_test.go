@@ -36,7 +36,7 @@ import (
 )
 
 func TestGateAdmitsAModuleWithinTheWindow(t *testing.T) {
-	if err := release.Gate("reference", "4.5.0",
+	if err := release.Gate("example", "4.5.0",
 		modules.Compatibility{Shell: ">=0.1.0 <2.0.0", ProtocolVersions: []int{2, 1}},
 		[]int{2, 1}); err != nil {
 		t.Fatalf("a module speaking the whole window was refused: %v", err)
@@ -47,7 +47,7 @@ func TestGateAdmitsAModuleAtTheOlderEndOfTheWindow(t *testing.T) {
 	// The older end is the case the window exists for: a user a generation
 	// behind can still be served, so a module built against the predecessor
 	// SDK has to publish.
-	if err := release.Gate("reference", "4.5.0",
+	if err := release.Gate("example", "4.5.0",
 		modules.Compatibility{Shell: ">=0.1.0 <2.0.0", ProtocolVersions: []int{1}},
 		[]int{2, 1}); err != nil {
 		t.Fatalf("a module at the older end of the window was refused: %v", err)
@@ -55,7 +55,7 @@ func TestGateAdmitsAModuleAtTheOlderEndOfTheWindow(t *testing.T) {
 }
 
 func TestGateRefusesAModuleNewerThanTheReleasedShell(t *testing.T) {
-	err := release.Gate("reference", "4.5.0",
+	err := release.Gate("example", "4.5.0",
 		modules.Compatibility{Shell: ">=0.1.0 <2.0.0", ProtocolVersions: []int{3}},
 		[]int{2, 1})
 	if err == nil {
@@ -65,7 +65,7 @@ func TestGateRefusesAModuleNewerThanTheReleasedShell(t *testing.T) {
 	// Both sides, because a product team reading this has to decide between
 	// waiting for a shell release and changing the module, and neither half
 	// alone tells them which.
-	for _, expected := range []string{"reference", "4.5.0", "v3", "v2, v1"} {
+	for _, expected := range []string{"example", "4.5.0", "v3", "v2, v1"} {
 		if !strings.Contains(refusal, expected) {
 			t.Errorf("the refusal does not name %q: %s", expected, refusal)
 		}
@@ -79,7 +79,7 @@ func TestGateRefusesAModuleOlderThanEveryReleasedShell(t *testing.T) {
 	// The window moves on. A module still speaking only a retired protocol is
 	// unlaunchable by every shell that exists, which is the same user-visible
 	// failure and so is refused for the same reason.
-	err := release.Gate("reference", "4.5.0",
+	err := release.Gate("example", "4.5.0",
 		modules.Compatibility{Shell: ">=0.1.0 <2.0.0", ProtocolVersions: []int{1}},
 		[]int{3, 2})
 	if err == nil {
@@ -91,7 +91,7 @@ func TestGateRefusesAModuleOlderThanEveryReleasedShell(t *testing.T) {
 }
 
 func TestGateRefusesAModuleDeclaringNoProtocol(t *testing.T) {
-	if err := release.Gate("reference", "4.5.0",
+	if err := release.Gate("example", "4.5.0",
 		modules.Compatibility{Shell: ">=0.1.0 <2.0.0"}, []int{2, 1}); err == nil {
 		t.Fatal("a module declaring no protocol version was admitted")
 	}
@@ -100,14 +100,14 @@ func TestGateRefusesAModuleDeclaringNoProtocol(t *testing.T) {
 func TestGateRefusesWhenTheShellSupportsNothing(t *testing.T) {
 	// Reading an empty window as "everything is allowed" would turn a broken
 	// declaration into an open gate, so it fails closed instead.
-	if err := release.Gate("reference", "4.5.0",
+	if err := release.Gate("example", "4.5.0",
 		modules.Compatibility{ProtocolVersions: []int{1}}, nil); err == nil {
 		t.Fatal("an empty shell window admitted a release")
 	}
 }
 
 func TestGateRefusesAnUnreadableShellRange(t *testing.T) {
-	if err := release.Gate("reference", "4.5.0",
+	if err := release.Gate("example", "4.5.0",
 		modules.Compatibility{Shell: "not a range", ProtocolVersions: []int{2}},
 		[]int{2, 1}); err == nil {
 		t.Fatal("a module declaring an unreadable shell range was admitted")

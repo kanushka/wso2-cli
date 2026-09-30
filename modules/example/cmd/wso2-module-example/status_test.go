@@ -59,7 +59,7 @@ func statusService(t *testing.T, status int, body string) (*httptest.Server, *se
 	return server, seen
 }
 
-const operational = `{"organization":"reference-org","service":"reference",` +
+const operational = `{"organization":"example-org","service":"example",` +
 	`"status":"operational","checkedAt":"2026-07-27T10:00:00Z"}`
 
 // runStatus invokes the module's status command against an endpoint.
@@ -73,8 +73,8 @@ func runCall(t *testing.T, endpoint string, access *testkit.Access) testkit.Outc
 			Command:      []string{"call"},
 			InvocationID: invocationID,
 			Context: module.Context{
-				Name:           "reference-local",
-				OrganizationID: "reference-org",
+				Name:           "example-local",
+				OrganizationID: "example-org",
 				Endpoint:       endpoint,
 			},
 			Access: access,
@@ -132,8 +132,8 @@ func TestCallReturnsTheServicesAnswerAsSemanticFields(t *testing.T) {
 		t.Errorf("result schema is %q, want %q", outcome.Result.Schema, StatusSchema)
 	}
 	want := []struct{ name, value string }{
-		{"organization", "reference-org"},
-		{"service", "reference"},
+		{"organization", "example-org"},
+		{"service", "example"},
 		{"status", "operational"},
 		{"checkedAt", "2026-07-27T10:00:00Z"},
 	}
@@ -152,7 +152,7 @@ func TestADeniedRequestEndsTheCommandWithTheShellsDenial(t *testing.T) {
 	// The module adds nothing to a refusal that is the shell's to make.
 	service, seen := statusService(t, http.StatusOK, operational)
 	denial := problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable",
-		"the credential source the \"reference-local\" context names is not set").
+		"the credential source the \"example-local\" context names is not set").
 		WithRecovery("Set WSO2_REFERENCE_DEV_CREDENTIAL to the credential for this context.")
 
 	outcome := runCall(t, service.URL, &testkit.Access{Deny: &denial})
@@ -181,8 +181,8 @@ func TestAFailingServiceBecomesAProductServiceProblem(t *testing.T) {
 	if failure.Category != problem.CategoryProductService {
 		t.Errorf("category is %q, want %q", failure.Category, problem.CategoryProductService)
 	}
-	if failure.Code != "reference.status_unavailable" {
-		t.Errorf("code is %q, want reference.status_unavailable", failure.Code)
+	if failure.Code != "example.status_unavailable" {
+		t.Errorf("code is %q, want example.status_unavailable", failure.Code)
 	}
 }
 
@@ -199,8 +199,8 @@ func TestAServiceThatRefusesTheAccessBecomesADistinctProblem(t *testing.T) {
 	if failure.Category != problem.CategoryProductService {
 		t.Errorf("category is %q, want %q", failure.Category, problem.CategoryProductService)
 	}
-	if failure.Code != "reference.status_access_rejected" {
-		t.Errorf("code is %q, want reference.status_access_rejected", failure.Code)
+	if failure.Code != "example.status_access_rejected" {
+		t.Errorf("code is %q, want example.status_access_rejected", failure.Code)
 	}
 }
 
@@ -233,8 +233,8 @@ func TestANotServedEndpointBecomesADistinctProblem(t *testing.T) {
 	if failure.Category != problem.CategoryProductService {
 		t.Errorf("category is %q, want %q", failure.Category, problem.CategoryProductService)
 	}
-	if failure.Code != "reference.status_not_served" {
-		t.Errorf("code is %q, want reference.status_not_served", failure.Code)
+	if failure.Code != "example.status_not_served" {
+		t.Errorf("code is %q, want example.status_not_served", failure.Code)
 	}
 	if !strings.Contains(failure.Recovery, "Retrying will not change this answer.") {
 		t.Errorf("recovery %q does not say retrying is futile", failure.Recovery)
@@ -250,8 +250,8 @@ func TestAServiceThatAnswersWithSomethingUnreadableBecomesAProductServiceProblem
 	if failure.Category != problem.CategoryProductService {
 		t.Errorf("category is %q, want %q", failure.Category, problem.CategoryProductService)
 	}
-	if failure.Code != "reference.status_unavailable" {
-		t.Errorf("code is %q, want reference.status_unavailable", failure.Code)
+	if failure.Code != "example.status_unavailable" {
+		t.Errorf("code is %q, want example.status_unavailable", failure.Code)
 	}
 	if strings.Contains(failure.Recovery, "Retry the command.") {
 		t.Errorf("an unreadable answer offers retry as recovery: %q", failure.Recovery)
@@ -259,13 +259,13 @@ func TestAServiceThatAnswersWithSomethingUnreadableBecomesAProductServiceProblem
 }
 
 func TestAServiceThatAnswersWithoutAStatusBecomesAProductServiceProblem(t *testing.T) {
-	service, _ := statusService(t, http.StatusOK, `{"organization":"reference-org","service":"reference"}`)
+	service, _ := statusService(t, http.StatusOK, `{"organization":"example-org","service":"example"}`)
 
 	outcome := runCall(t, service.URL, granted())
 
 	failure := terminalProblem(t, outcome)
-	if failure.Code != "reference.status_unavailable" {
-		t.Errorf("code is %q, want reference.status_unavailable", failure.Code)
+	if failure.Code != "example.status_unavailable" {
+		t.Errorf("code is %q, want example.status_unavailable", failure.Code)
 	}
 }
 
@@ -308,7 +308,7 @@ func terminalProblem(t *testing.T, outcome testkit.Outcome) problem.Problem {
 	return *outcome.Problem
 }
 
-// runReport invokes "wso2 reference status", the self-contained command.
+// runReport invokes "wso2 example status", the self-contained command.
 //
 // No endpoint is configured, because the command must not need one: proving it
 // answers with the context deliberately naming no service is the point (#147).
@@ -319,8 +319,8 @@ func runReport(t *testing.T, access *testkit.Access) testkit.Outcome {
 			Command:      []string{"status"},
 			InvocationID: invocationID,
 			Context: module.Context{
-				Name:           "reference-local",
-				OrganizationID: "reference-org",
+				Name:           "example-local",
+				OrganizationID: "example-org",
 			},
 			Access: access,
 		})
@@ -357,7 +357,7 @@ func TestStatusReportsGrantedAccessWithoutCallingAnything(t *testing.T) {
 	if fields["scopes"] != StatusScope {
 		t.Errorf("scopes = %q, want %q", fields["scopes"], StatusScope)
 	}
-	if fields["context"] != "reference-local" {
+	if fields["context"] != "example-local" {
 		t.Errorf("the report does not carry the invocation's context: %+v", fields)
 	}
 }
@@ -365,7 +365,7 @@ func TestStatusReportsGrantedAccessWithoutCallingAnything(t *testing.T) {
 func TestStatusReportsARefusalAsAResultRatherThanAFailure(t *testing.T) {
 	// The one command in the shell that answers "no" with exit 0, because
 	// whether the broker granted anything is the question it exists to answer.
-	// wso2 reference call keeps the ordinary auth exit class.
+	// wso2 example call keeps the ordinary auth exit class.
 	fields := fieldsOf(t, runReport(t, nil))
 
 	if fields["access"] != "refused" {
@@ -392,8 +392,8 @@ func TestStatusReportsARefusalWhoseErrorIsNotTheShellsTypedProblem(t *testing.T)
 			Command:      []string{"status"},
 			InvocationID: invocationID,
 			Context: module.Context{
-				Name:           "reference-local",
-				OrganizationID: "reference-org",
+				Name:           "example-local",
+				OrganizationID: "example-org",
 			},
 			Access: granted(),
 		})

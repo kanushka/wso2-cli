@@ -16,7 +16,7 @@
 
 // What a local install has to be is not "some files in the store": it is an
 // installation a later shell run cannot tell apart from a published one. So the
-// central test here installs the reference module and then asks the store the
+// central test here installs the example module and then asks the store the
 // same questions the shell asks it, from outside this package, rather than
 // asserting on what Install returned about itself.
 //
@@ -51,7 +51,7 @@ import (
 
 // referenceNamespace is the module every test here installs. It is the one
 // module this repository is guaranteed to carry.
-const referenceNamespace = "reference"
+const referenceNamespace = "example"
 
 func TestAnInstalledModuleIsIndistinguishableFromAPublishedOne(t *testing.T) {
 	stateRoot := t.TempDir()
@@ -64,7 +64,7 @@ func TestAnInstalledModuleIsIndistinguishableFromAPublishedOne(t *testing.T) {
 		Shell:          shell,
 	})
 	if err != nil {
-		t.Fatalf("installing the reference module failed: %v", err)
+		t.Fatalf("installing the example module failed: %v", err)
 	}
 	if result.Version != devorigin.DefaultVersion {
 		t.Errorf("installed version is %q, want the default %q", result.Version, devorigin.DefaultVersion)
@@ -186,7 +186,7 @@ func TestAnUnknownNamespaceIsRefused(t *testing.T) {
 	}
 }
 
-// compatibleShell is a shell identity the reference module can be launched by:
+// compatibleShell is a shell identity the example module can be launched by:
 // its protocol versions and its shell version are taken from what the module
 // itself declares, so the test states one thing about compatibility rather than
 // restating the module's declaration and drifting from it.
@@ -195,11 +195,11 @@ func compatibleShell(t *testing.T) modules.ShellIdentity {
 	declaration := referenceDeclaration(t)
 	supported, err := semver.ParseRange(declaration.Compatibility.Shell)
 	if err != nil {
-		t.Fatalf("the reference module declares an unreadable shell range: %v", err)
+		t.Fatalf("the example module declares an unreadable shell range: %v", err)
 	}
 	shellVersion := parseVersion(t, "1.0.0")
 	if !supported.Contains(shellVersion) {
-		t.Fatalf("the reference module declares %q, which does not contain the version this test uses",
+		t.Fatalf("the example module declares %q, which does not contain the version this test uses",
 			supported.String())
 	}
 	return modules.ShellIdentity{

@@ -26,7 +26,7 @@ Short task documents.
   and release a product module.
 - [Design a CLI command](guides/command-design.md): command paths, naming,
   help, and review checks for contributors.
-- [Set up the reference module](guides/setup-example-module.md) locally.
+- [Set up the example module](guides/setup-example-module.md) locally.
 - [Troubleshoot a module](guides/troubleshoot-module.md).
 
 ## Reference

@@ -268,10 +268,10 @@ contexts:
       issuer: https://api.asgardeo.io/t/acme/oauth2/token
       clientId: wso2-cli
       tenant: acme
-      product: reference
+      product: example
     products:
-      reference:
-        url: https://reference.example.test
+      example:
+        url: https://demo.example.test
 ```
 
 Every other field means exactly what it means for `oauth-browser`. Apply

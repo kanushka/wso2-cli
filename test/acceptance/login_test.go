@@ -52,19 +52,19 @@ import (
 // a test must not write to a developer's own; go-keyring's mock replaces the
 // backend inside the process that calls it, and a subprocess would not inherit
 // it. Everything else about the chain stays external: the shell resolves and
-// launches the reference module as a real subprocess, the module speaks the
+// launches the example module as a real subprocess, the module speaks the
 // real protocol over its pipes, and it presents the token it was granted to a
 // real HTTP service. What is proved here is what a user gets, not what the
 // shell believes.
 const (
 	// loginIdentityName is the browser identity these tests log in as.
-	loginIdentityName = "reference-cloud"
+	loginIdentityName = "example-cloud"
 	// loginCredentialRef is the secure-store entry its session lives under.
-	loginCredentialRef = "reference-login"
+	loginCredentialRef = "example-login"
 	// referenceWriteScope is the second permission the identity's product
 	// declares. The login session holds it and no module command asks for it,
 	// which is what makes narrowing observable rather than incidental.
-	referenceWriteScope = "reference:status:write"
+	referenceWriteScope = "example:status:write"
 	// loginClientID is the public OAuth client the shell presents itself as.
 	loginClientID = "wso2cli"
 	// inlineSecretVariable is the environment variable a client-credentials
@@ -90,7 +90,7 @@ type recordingService struct {
 	bearers []string
 }
 
-// startRecordingService serves the reference status shape and records every
+// startRecordingService serves the example status shape and records every
 // presented bearer token. It deliberately verifies nothing: the point of these
 // tests is what the shell issued, and a service that refused would hide it
 // behind a product failure.
@@ -106,7 +106,7 @@ func startRecordingService(t *testing.T) *recordingService {
 			writer.Header().Set("Content-Type", "application/json")
 			if err := json.NewEncoder(writer).Encode(map[string]string{
 				"organization": referenceOrganization,
-				"service":      "reference",
+				"service":      "example",
 				"status":       "operational",
 				"checkedAt":    time.Now().UTC().Format(time.RFC3339),
 			}); err != nil {
@@ -125,7 +125,7 @@ func (s *recordingService) presented() []string {
 }
 
 // loginDeployment is one isolated browser-identity installation: an issuer, the
-// product service, the installed reference module, and the shell that runs
+// product service, the installed example module, and the shell that runs
 // against them.
 type loginDeployment struct {
 	shell     app.Shell
@@ -149,7 +149,7 @@ func deployLogin(
 // deployLoginWithoutModule is the same installation with no product module in
 // the store.
 //
-// Installing one builds the reference module, which costs more than everything
+// Installing one builds the example module, which costs more than everything
 // else these tests do put together. A test whose subject is the session itself —
 // establishing one, ending one — never dispatches a namespace, so it never
 // resolves a module, and paying for one would buy nothing. A test that does
@@ -198,7 +198,7 @@ func deployLoginInstallation(
 	}
 }
 
-// installInProcessReferenceModule installs the reference module for a shell
+// installInProcessReferenceModule installs the example module for a shell
 // running in this process rather than as a built binary.
 //
 // The rest of this package builds both sides with matching version ldflags. An
@@ -207,11 +207,11 @@ func deployLoginInstallation(
 // pinning it to what the shell under test actually is keeps it that way.
 func installInProcessReferenceModule(t *testing.T, stateRoot string) {
 	t.Helper()
-	binary := filepath.Join(t.TempDir(), "wso2-module-reference"+executableSuffix())
-	build(t, filepath.Join(repoRoot(t), "modules", "reference"), binary, "",
-		"./cmd/wso2-module-reference")
+	binary := filepath.Join(t.TempDir(), "wso2-module-example"+executableSuffix())
+	build(t, filepath.Join(repoRoot(t), "modules", "example"), binary, "",
+		"./cmd/wso2-module-example")
 	if _, err := modulefixture.Install(state.ModuleStore(stateRoot), modulefixture.Module{
-		Namespace:  "reference",
+		Namespace:  "example",
 		Version:    version.Shell(),
 		SourcePath: binary,
 		// The module was built with no protocol ldflag, so its receipt records
@@ -220,7 +220,7 @@ func installInProcessReferenceModule(t *testing.T, stateRoot string) {
 		AuthAudiences:    []string{referenceAudience},
 		AuthScopes:       []string{referenceReadScope},
 	}); err != nil {
-		t.Fatalf("installing the reference module: %v", err)
+		t.Fatalf("installing the example module: %v", err)
 	}
 }
 
@@ -233,7 +233,7 @@ func browserDocument(issuerURL, endpoint string) contexts.Document {
 		DefaultContext: referenceContextName,
 
 		Contexts: []contexts.Context{{Name: referenceContextName, Type: "cloud", CredentialRef: loginCredentialRef, Login: contexts.Login{Kind: contexts.KindOAuthBrowser, Issuer: issuerURL, ClientID: loginClientID, Tenant: referenceOrganization}, Organization: referenceOrganization, Products: map[string]contexts.Product{
-			"reference": {
+			"example": {
 				Endpoint: endpoint,
 				Audience: referenceAudience,
 				Scopes:   []string{referenceReadScope, referenceWriteScope},
@@ -287,10 +287,10 @@ func (d *loginDeployment) storedSession(t *testing.T) session.Session {
 	return stored
 }
 
-// status runs one reference status command and returns its exit code.
+// status runs one example status command and returns its exit code.
 func (d *loginDeployment) status(t *testing.T) exit.Code {
 	t.Helper()
-	return d.shell.Run([]string{"reference", "call", "--output", "json"})
+	return d.shell.Run([]string{"example", "call", "--output", "json"})
 }
 
 func TestLoginThenTheModuleReceivesIssuerMintedNarrowedAccess(t *testing.T) {
@@ -312,11 +312,11 @@ func TestLoginThenTheModuleReceivesIssuerMintedNarrowedAccess(t *testing.T) {
 	afterLogin := deployment.storedSession(t)
 
 	if code := deployment.status(t); code != exit.OK {
-		t.Fatalf("the first reference status exited %d\nstderr:\n%s", code, deployment.errOut)
+		t.Fatalf("the first example status exited %d\nstderr:\n%s", code, deployment.errOut)
 	}
 	afterFirst := deployment.storedSession(t)
 	if code := deployment.status(t); code != exit.OK {
-		t.Fatalf("the second reference status exited %d\nstderr:\n%s", code, deployment.errOut)
+		t.Fatalf("the second example status exited %d\nstderr:\n%s", code, deployment.errOut)
 	}
 	afterSecond := deployment.storedSession(t)
 
@@ -457,7 +457,7 @@ func TestNonInteractiveRunsRefuseInsteadOfWaitingForABrowser(t *testing.T) {
 			t.Errorf("wso2 login exited %d, want the authentication class %d", code, exitAuthPolicy)
 		}
 		if code := deployment.status(t); code != exitAuthPolicy {
-			t.Errorf("reference status exited %d, want the authentication class %d",
+			t.Errorf("example status exited %d, want the authentication class %d",
 				code, exitAuthPolicy)
 		}
 	}()
@@ -489,7 +489,7 @@ func TestNoTokenMaterialReachesAnyOutputSurface(t *testing.T) {
 	afterLogin := deployment.storedSession(t)
 
 	if code := deployment.status(t); code != exit.OK {
-		t.Fatalf("reference status exited %d\nstderr:\n%s", code, deployment.errOut)
+		t.Fatalf("example status exited %d\nstderr:\n%s", code, deployment.errOut)
 	}
 	presented := deployment.service.presented()
 	if len(presented) != 1 {
@@ -522,7 +522,7 @@ func TestNoTokenMaterialReachesAnyOutputSurface(t *testing.T) {
 
 // deployInline installs the same deployment as a non-interactive identity: the
 // credential is an environment variable a CI job exported, there is no secure
-// store reference, and no login ever happens.
+// store example, and no login ever happens.
 //
 // secret is what the job exported. The empty string models the variable being
 // absent, which is what an unset one and a blank one both amount to.
@@ -550,7 +550,7 @@ func TestAnInlineIdentityAuthenticatesACommandWithNoLoginStep(t *testing.T) {
 	deployment := deployInline(t, fakeissuer.Options{}, inlineClientSecret)
 
 	if code := deployment.status(t); code != exit.OK {
-		t.Fatalf("reference status exited %d\nstderr:\n%s", code, deployment.errOut)
+		t.Fatalf("example status exited %d\nstderr:\n%s", code, deployment.errOut)
 	}
 
 	presented := deployment.service.presented()
@@ -673,7 +673,7 @@ func TestNonInteractiveCIRefusesLoginWhileTheInlinePathStillWorks(t *testing.T) 
 				code, exitAuthPolicy)
 		}
 		if code := inline.status(t); code != exit.OK {
-			t.Errorf("reference status exited %d, want %d", code, exit.OK)
+			t.Errorf("example status exited %d, want %d", code, exit.OK)
 		}
 	}()
 	select {
@@ -708,7 +708,7 @@ func TestNoClientSecretReachesAnyOutputSurface(t *testing.T) {
 	// internal/rpc's TestAModuleInheritsNoneOfTheShellsEnvironment pins.
 	deployment := deployInline(t, fakeissuer.Options{}, inlineClientSecret)
 	if code := deployment.status(t); code != exit.OK {
-		t.Fatalf("reference status exited %d\nstderr:\n%s", code, deployment.errOut)
+		t.Fatalf("example status exited %d\nstderr:\n%s", code, deployment.errOut)
 	}
 	presented := deployment.service.presented()
 	if len(presented) != 1 {

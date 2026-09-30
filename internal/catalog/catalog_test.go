@@ -235,10 +235,10 @@ func TestGenerateCarriesTheDeclaredTitleIntoTheIndex(t *testing.T) {
 	}
 }
 
-// The reference module is the catalog's first inhabitant, and discovery has to
+// The example module is the catalog's first inhabitant, and discovery has to
 // find it by what it declares rather than by the directory it sits in: its
 // directory is named for the module and its namespace is not.
-func TestDiscoverFindsTheReferenceModuleByItsDeclaredNamespace(t *testing.T) {
+func TestDiscoverFindsTheExampleModuleByItsDeclaredNamespace(t *testing.T) {
 	root := filepath.Join("..", "..")
 
 	declarations, err := catalog.Discover(root)
@@ -248,16 +248,16 @@ func TestDiscoverFindsTheReferenceModuleByItsDeclaredNamespace(t *testing.T) {
 
 	found := false
 	for _, declaration := range declarations {
-		if declaration.Namespace == "reference" {
+		if declaration.Namespace == "example" {
 			found = true
 			if declaration.SchemaVersion != catalog.SchemaVersion {
-				t.Errorf("the reference declaration uses schema version %d, want %d",
+				t.Errorf("the example declaration uses schema version %d, want %d",
 					declaration.SchemaVersion, catalog.SchemaVersion)
 			}
 		}
 	}
 	if !found {
-		t.Errorf("discovery found %v, none of which declares the reference namespace", declarations)
+		t.Errorf("discovery found %v, none of which declares the example namespace", declarations)
 	}
 }
 

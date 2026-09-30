@@ -103,7 +103,7 @@ func TestTheFaultFixtureAnswersLikeTheReferenceModuleWhenNoFaultIsSelected(t *te
 	stateRoot := isolatedStateRoot(t)
 	installFaultyModule(t, stateRoot, faultNone)
 
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "call")
+	stdout, stderr := runShell(t, shell, stateRoot, "example", "call")
 
 	if !strings.Contains(stdout, "operational") {
 		t.Errorf("the fault fixture did not report a status:\n%s", stdout)
@@ -122,7 +122,7 @@ func TestTheLaunchCanaryRecordsAModuleTheShellDoesLaunch(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 	installLaunchCanary(t, stateRoot, fixture.Module{})
 
-	run := tryFailingShell(t, shell, stateRoot, "reference", "call")
+	run := tryFailingShell(t, shell, stateRoot, "example", "call")
 
 	// The canary says nothing on the wire, so a shell that launched it ends
 	// without a result.
@@ -137,10 +137,10 @@ func TestAReceiptPathThatEscapesItsVersionDirectoryIsRejectedBeforeLaunch(t *tes
 	// The executable is installed where it belongs; only the receipt points
 	// elsewhere, which is the redirection the shell must refuse.
 	installLaunchCanary(t, stateRoot, fixture.Module{
-		ExecutablePathOverride: "../../../escape/wso2-module-reference",
+		ExecutablePathOverride: "../../../escape/wso2-module-example",
 	})
 
-	run := tryFailingShell(t, shell, stateRoot, "reference", "call")
+	run := tryFailingShell(t, shell, stateRoot, "example", "call")
 
 	run.expect(t, exitModuleTrust, "modules.receipt_path_escape")
 	run.expectNoLaunch(t, stateRoot)
@@ -170,11 +170,11 @@ func TestASymbolicLinkThatLeavesTheVersionDirectoryIsRejectedBeforeLaunch(t *tes
 	if err := fixture.WriteReceipt(storeRoot, receipt); err != nil {
 		t.Fatalf("fixture.WriteReceipt returned %v", err)
 	}
-	if err := fixture.Activate(storeRoot, "reference", testModuleVersion); err != nil {
+	if err := fixture.Activate(storeRoot, "example", testModuleVersion); err != nil {
 		t.Fatalf("fixture.Activate returned %v", err)
 	}
 
-	run := tryFailingShell(t, shell, stateRoot, "reference", "call")
+	run := tryFailingShell(t, shell, stateRoot, "example", "call")
 
 	run.expect(t, exitModuleTrust, "modules.receipt_path_escape")
 	run.expectNoLaunch(t, stateRoot)
@@ -214,7 +214,7 @@ func TestIncompatibleReceiptMetadataIsRejectedBeforeLaunch(t *testing.T) {
 			stateRoot := isolatedStateRoot(t)
 			installLaunchCanary(t, stateRoot, testCase.module)
 
-			run := tryFailingShell(t, shell, stateRoot, "reference", "call")
+			run := tryFailingShell(t, shell, stateRoot, "example", "call")
 
 			run.expect(t, exitModuleTrust, testCase.problem)
 			run.expectNoLaunch(t, stateRoot)
@@ -239,14 +239,14 @@ func TestASameNamedExecutableOnPathOrInTheWorkingDirectoryIsIgnored(t *testing.T
 	workingDir := t.TempDir()
 	impostor := []byte("#!/bin/sh\ntouch '" + marker + "'\nexit 0\n")
 	for _, directory := range []string{pathDir, workingDir} {
-		if err := os.WriteFile(filepath.Join(directory, "wso2-module-reference"), impostor, 0o755); err != nil {
+		if err := os.WriteFile(filepath.Join(directory, "wso2-module-example"), impostor, 0o755); err != nil {
 			t.Fatalf("writing the shadowing executable: %v", err)
 		}
 	}
 
 	stdout, stderr, err := runShadowed(shell, stateRoot, pathDir, workingDir)
 	if err != nil {
-		t.Fatalf("wso2 reference status failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+		t.Fatalf("wso2 example status failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
 	if !strings.Contains(stdout, "operational") {
 		t.Errorf("the installed module did not answer:\n%s", stdout)
@@ -256,7 +256,7 @@ func TestASameNamedExecutableOnPathOrInTheWorkingDirectoryIsIgnored(t *testing.T
 	// With the installed executable gone the shell has nothing to launch. An
 	// implementation that fell back to PATH or the working directory would
 	// succeed here, which is why the missing installation is the sharper proof.
-	if err := os.Remove(markerPath(stateRoot, "wso2-module-reference")); err != nil {
+	if err := os.Remove(markerPath(stateRoot, "wso2-module-example")); err != nil {
 		t.Fatalf("removing the installed executable: %v", err)
 	}
 
@@ -287,7 +287,7 @@ func TestARuntimeIdentityThatContradictsTheReceiptIsRejectedBeforeInvocation(t *
 			stateRoot := isolatedStateRoot(t)
 			installFaultyModule(t, stateRoot, testCase.fault)
 
-			run := tryFailingShell(t, shell, stateRoot, "reference", "call")
+			run := tryFailingShell(t, shell, stateRoot, "example", "call")
 
 			run.expect(t, exitModuleTrust, testCase.problem)
 			assertMarkerAbsent(t, markerPath(stateRoot, invokedMarker),
@@ -304,7 +304,7 @@ func TestAnUnknownEnvelopeMessageKindFailsClosed(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 	installFaultyModule(t, stateRoot, faultUnknownMessageKind)
 
-	run := tryFailingShell(t, shell, stateRoot, "reference", "call")
+	run := tryFailingShell(t, shell, stateRoot, "example", "call")
 
 	run.expect(t, exitModuleProcess, "rpc.unexpected_message")
 }
@@ -317,7 +317,7 @@ func TestAnUnknownFieldOnAKnownMessageIsStillAccepted(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 	installFaultyModule(t, stateRoot, faultUnknownField)
 
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "call")
+	stdout, stderr := runShell(t, shell, stateRoot, "example", "call")
 
 	if !strings.Contains(stdout, "operational") {
 		t.Errorf("an additive unknown field cost the module its result:\n%s", stdout)
@@ -345,7 +345,7 @@ func TestDamagedFramesBecomeStableProtocolProblems(t *testing.T) {
 			stateRoot := isolatedStateRoot(t)
 			installFaultyModule(t, stateRoot, testCase.fault)
 
-			run := tryFailingShell(t, shell, stateRoot, "reference", "call")
+			run := tryFailingShell(t, shell, stateRoot, "example", "call")
 
 			run.expect(t, exitModuleProcess, testCase.problem)
 		})
@@ -357,7 +357,7 @@ func TestAModuleThatPanicsFailsWithAStableProblemWithoutCrashingTheShell(t *test
 	stateRoot := isolatedStateRoot(t)
 	installFaultyModule(t, stateRoot, faultPanic)
 
-	run := tryFailingShell(t, shell, stateRoot, "reference", "call")
+	run := tryFailingShell(t, shell, stateRoot, "example", "call")
 
 	run.expect(t, exitModuleProcess, "rpc.no_terminal_message")
 	// The shell reports the module's own crash text rather than crashing with
@@ -374,7 +374,7 @@ func TestAModuleThatKeepsWritingAfterItsResultProducesNoOutput(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 	installFaultyModule(t, stateRoot, faultExtraFrame)
 
-	run := tryFailingShell(t, shell, stateRoot, "reference", "call")
+	run := tryFailingShell(t, shell, stateRoot, "example", "call")
 
 	run.expect(t, exitModuleProcess, "rpc.extra_message")
 	if strings.Contains(run.stdout, "operational") {
@@ -390,7 +390,7 @@ func TestAHangingModuleIsGivenAGracePeriodToExitBeforeItIsKilled(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 	installFaultyModule(t, stateRoot, faultWaitForInputClose)
 
-	stdout, stderr, err := runShellWithCeiling(t, shell, stateRoot, "reference", "call")
+	stdout, stderr, err := runShellWithCeiling(t, shell, stateRoot, "example", "call")
 
 	run := failedRun{stdout: stdout, stderr: stderr, err: err}
 	run.expect(t, exitModuleProcess, "rpc.timed_out")
@@ -403,7 +403,7 @@ func TestModuleDiagnosticsAreBoundedAndCannotContaminateJSONOutput(t *testing.T)
 	stateRoot := isolatedStateRoot(t)
 	installFaultyModule(t, stateRoot, faultFloodDiagnostics)
 
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "call", "--output", "json")
+	stdout, stderr := runShell(t, shell, stateRoot, "example", "call", "--output", "json")
 
 	decoded := decodeStatusJSON(t, stdout)
 	if decoded["status"] != "operational" {
@@ -463,7 +463,7 @@ func (r failedRun) expectNoLaunch(t *testing.T, stateRoot string) {
 	}
 }
 
-// installFaultyModule installs the fault-injecting fixture under the reference
+// installFaultyModule installs the fault-injecting fixture under the example
 // module's namespace and version, and selects one fault.
 func installFaultyModule(t *testing.T, stateRoot, fault string) {
 	t.Helper()
@@ -477,7 +477,7 @@ func installFaultyModule(t *testing.T, stateRoot, fault string) {
 }
 
 // installLaunchCanary installs an executable that records being run, under the
-// reference module's namespace and version, so a rejection can be proved to
+// example module's namespace and version, so a rejection can be proved to
 // have happened before launch. The caller supplies whatever receipt facts its
 // case is about; the rest default to a compatible installation.
 func installLaunchCanary(t *testing.T, stateRoot string, install fixture.Module) modules.Receipt {
@@ -485,7 +485,7 @@ func installLaunchCanary(t *testing.T, stateRoot string, install fixture.Module)
 	binary := filepath.Join(t.TempDir(), "launchcanary"+executableSuffix())
 	build(t, repoRoot(t), binary, "", "./test/acceptance/testdata/launchcanary")
 
-	install.Namespace = "reference"
+	install.Namespace = "example"
 	install.Version = testModuleVersion
 	install.SourcePath = binary
 	if install.ShellRange == "" {
@@ -501,10 +501,10 @@ func installLaunchCanary(t *testing.T, stateRoot string, install fixture.Module)
 	return receipt
 }
 
-// markerPath is the path of a file beside the installed reference executable.
+// markerPath is the path of a file beside the installed example executable.
 func markerPath(stateRoot, name string) string {
 	store := modules.NewStore(state.ModuleStore(stateRoot))
-	return filepath.Join(store.VersionDir("reference", testModuleVersion), name)
+	return filepath.Join(store.VersionDir("example", testModuleVersion), name)
 }
 
 func assertMarkerPresent(t *testing.T, marker, message string) {
@@ -524,7 +524,7 @@ func assertMarkerAbsent(t *testing.T, marker, message string) {
 // runShadowed runs a status command with an impostor first on PATH and another
 // in the working directory.
 func runShadowed(shell, stateRoot, pathDir, workingDir string) (string, string, error) {
-	command := exec.Command(shell, "reference", "call")
+	command := exec.Command(shell, "example", "call")
 	command.Dir = workingDir
 	command.Env = withPathPrefix(shellEnvironment(stateRoot), pathDir)
 	var stdout, stderr strings.Builder

@@ -49,7 +49,7 @@ func installDeclaringModule(t *testing.T, stateRoot string) {
 		"./test/acceptance/testdata/declaringmodule")
 
 	if _, err := fixture.Install(state.ModuleStore(stateRoot), fixture.Module{
-		Namespace:        "reference",
+		Namespace:        "example",
 		Version:          testModuleVersion,
 		ShellRange:       ">=0.1.0 <1.0.0",
 		ProtocolVersions: []int{testProtocolVersionNumber},
@@ -101,9 +101,9 @@ func TestTheOutputFlagIsReadWhereverItIsWrittenOnAProductLine(t *testing.T) {
 	installReferenceContext(t, stateRoot, service.server.URL, credentialVariable)
 
 	lines := map[string][]string{
-		"before the product flag": {"reference", "status", "--output", "json", "--since", "1h"},
-		"after the product flag":  {"reference", "status", "--since", "1h", "--output", "json"},
-		"after a boolean flag":    {"reference", "status", "--all", "--output", "json"},
+		"before the product flag": {"example", "status", "--output", "json", "--since", "1h"},
+		"after the product flag":  {"example", "status", "--since", "1h", "--output", "json"},
+		"after a boolean flag":    {"example", "status", "--all", "--output", "json"},
 	}
 	for name, args := range lines {
 		t.Run(name, func(t *testing.T) {
@@ -135,7 +135,7 @@ func TestAProductFlagTheCommandDoesNotDeclareIsRefused(t *testing.T) {
 	installReferenceContext(t, stateRoot, service.server.URL, credentialVariable)
 
 	stdout, stderr, err := runShellWith(shell, shellEnvironment(stateRoot),
-		"reference", "status", "--sinces", "1h")
+		"example", "status", "--sinces", "1h")
 
 	var exitError *exec.ExitError
 	if !errors.As(err, &exitError) || exitError.ExitCode() != 64 {
@@ -144,7 +144,7 @@ func TestAProductFlagTheCommandDoesNotDeclareIsRefused(t *testing.T) {
 	if !strings.Contains(stderr, "--sinces") {
 		t.Errorf("the refusal does not name the flag:\n%s", stderr)
 	}
-	if !strings.Contains(stderr, "wso2 reference status --help") {
+	if !strings.Contains(stderr, "wso2 example status --help") {
 		t.Errorf("the refusal does not say how to see what the command takes:\n%s", stderr)
 	}
 }
@@ -159,13 +159,13 @@ func TestAMistypedProductCommandIsSuggested(t *testing.T) {
 	service := startStatusService(t, statusservice.Options{})
 	installReferenceContext(t, stateRoot, service.server.URL, credentialVariable)
 
-	stdout, stderr, err := runShellWith(shell, shellEnvironment(stateRoot), "reference", "stats")
+	stdout, stderr, err := runShellWith(shell, shellEnvironment(stateRoot), "example", "stats")
 
 	var exitError *exec.ExitError
 	if !errors.As(err, &exitError) || exitError.ExitCode() != 64 {
 		t.Fatalf("exit status = %v, want 64\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
-	if !strings.Contains(stderr, "Did you mean `wso2 reference status`?") {
+	if !strings.Contains(stderr, "Did you mean `wso2 example status`?") {
 		t.Errorf("no suggestion was offered:\n%s", stderr)
 	}
 }
@@ -179,11 +179,11 @@ func TestANestedProductCommandRoutesToTheModule(t *testing.T) {
 	service := startStatusService(t, statusservice.Options{})
 	installReferenceContext(t, stateRoot, service.server.URL, credentialVariable)
 
-	stdout, _ := runShell(t, shell, stateRoot, "reference", "apps", "list", "--output", "json")
+	stdout, _ := runShell(t, shell, stateRoot, "example", "apps", "list", "--output", "json")
 
 	var reported map[string]any
 	if err := json.Unmarshal([]byte(stdout), &reported); err != nil {
-		t.Fatalf("wso2 reference apps list did not render json: %v\n%s", err, stdout)
+		t.Fatalf("wso2 example apps list did not render json: %v\n%s", err, stdout)
 	}
 	if reported["command"] != "apps list" {
 		t.Errorf("the module answered for %q", reported["command"])
@@ -204,14 +204,14 @@ func TestHelpForAProductCommandIsAnsweredFromTheDeclaration(t *testing.T) {
 	installDeclaringModule(t, stateRoot)
 
 	stdout, stderr, err := runShellWith(shell, shellEnvironment(stateRoot),
-		"reference", "status", "--help")
+		"example", "status", "--help")
 
 	if err != nil {
 		t.Fatalf("asking for help failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
 	for _, wanted := range []string{
 		"Report what the shell forwarded.",
-		"wso2 reference status",
+		"wso2 example status",
 		"--since",
 		"How far back to look.",
 		"-a, --all",
@@ -230,7 +230,7 @@ func TestHelpForAProductNamespaceListsItsCommands(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 	installDeclaringModule(t, stateRoot)
 
-	stdout, stderr, err := runShellWith(shell, shellEnvironment(stateRoot), "reference", "--help")
+	stdout, stderr, err := runShellWith(shell, shellEnvironment(stateRoot), "example", "--help")
 
 	if err != nil {
 		t.Fatalf("asking for help failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
@@ -250,7 +250,7 @@ func TestACommandThatGroupsOthersShowsItsHelp(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 	installGroupingModule(t, stateRoot)
 
-	stdout, stderr, err := runShellWith(shell, shellEnvironment(stateRoot), "reference", "apps")
+	stdout, stderr, err := runShellWith(shell, shellEnvironment(stateRoot), "example", "apps")
 
 	if err != nil {
 		t.Fatalf("running a group failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
@@ -275,7 +275,7 @@ func installGroupingModule(t *testing.T, stateRoot string) {
 
 	tree := extractCommandTree(t, binary)
 	if _, err := fixture.Install(state.ModuleStore(stateRoot), fixture.Module{
-		Namespace:        "reference",
+		Namespace:        "example",
 		Version:          testModuleVersion,
 		ShellRange:       ">=0.1.0 <1.0.0",
 		ProtocolVersions: []int{testProtocolVersionNumber},

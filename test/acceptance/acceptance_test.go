@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Package acceptance_test runs the built shell and the built reference module
+// Package acceptance_test runs the built shell and the built example module
 // from an isolated state directory, through the same external seam a user does.
 //
 // One group of tests departs from that: the login chain in login_test.go runs
@@ -73,7 +73,7 @@ func TestVersionReportsIndependentlyInjectedShellAndModuleVersions(t *testing.T)
 		"v" + testShellVersion,
 		"v" + testProtocolVersion,
 		runtime.GOOS + "/" + runtime.GOARCH,
-		"reference",
+		"example",
 		"v" + testModuleVersion,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -116,7 +116,7 @@ func TestVersionDoesNotLaunchTheInstalledModule(t *testing.T) {
 	// cannot make this test fail for an unrelated reason.
 	canary := "#!/bin/sh\ntouch '" + marker + "'\n"
 	if _, err := fixture.Install(state.ModuleStore(stateRoot), fixture.Module{
-		Namespace:        "reference",
+		Namespace:        "example",
 		Version:          testModuleVersion,
 		ShellRange:       ">=0.1.0 <1.0.0",
 		ProtocolVersions: []int{testProtocolVersionNumber},
@@ -148,12 +148,12 @@ func TestACopiedAndModifiedExecutableIsRejectedBeforeLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot read the built module: %v", err)
 	}
-	if err := fixture.TamperExecutable(state.ModuleStore(stateRoot), "reference", testModuleVersion,
-		"wso2-module-reference", append(modified, 0x00)); err != nil {
+	if err := fixture.TamperExecutable(state.ModuleStore(stateRoot), "example", testModuleVersion,
+		"wso2-module-example", append(modified, 0x00)); err != nil {
 		t.Fatalf("TamperExecutable returned %v", err)
 	}
 
-	command := exec.Command(shell, "reference", "call")
+	command := exec.Command(shell, "example", "call")
 	command.Env = shellEnvironment(stateRoot)
 	output, err := command.CombinedOutput()
 
@@ -252,21 +252,21 @@ func buildReferenceModule(t *testing.T) string {
 	return buildReferenceModuleSpeaking(t, testProtocolVersion, testModuleVersion)
 }
 
-// buildReferenceModuleSpeaking builds the reference module against one protocol
+// buildReferenceModuleSpeaking builds the example module against one protocol
 // version and at one module version. Varying the protocol is how a module built
 // against an older SDK release is reproduced without checking one out; varying
 // the module version is how a product version that does not track the shell's
 // is reproduced.
 func buildReferenceModuleSpeaking(t *testing.T, protocolVersion, moduleVersion string) string {
 	t.Helper()
-	binary := filepath.Join(t.TempDir(), "wso2-module-reference"+executableSuffix())
+	binary := filepath.Join(t.TempDir(), "wso2-module-example"+executableSuffix())
 	ldflags := strings.Join([]string{
 		"-X main.moduleVersion=" + moduleVersion,
 		"-X github.com/wso2/wso2-cli/sdk/module.SDKVersion=" + testSDKVersion,
 		"-X github.com/wso2/wso2-cli/sdk/protocol.Version=" + protocolVersion,
 	}, " ")
-	build(t, filepath.Join(repoRoot(t), "modules", "reference"), binary, ldflags,
-		"./cmd/wso2-module-reference")
+	build(t, filepath.Join(repoRoot(t), "modules", "example"), binary, ldflags,
+		"./cmd/wso2-module-example")
 	return binary
 }
 
@@ -375,13 +375,13 @@ func installReferenceModule(t *testing.T, stateRoot, modulePath string) {
 	installModule(t, stateRoot, modulePath, []string{referenceAudience}, []string{referenceReadScope})
 }
 
-// installModule installs an executable under the reference namespace and
+// installModule installs an executable under the example namespace and
 // version with the declared access given, so a test can vary what a receipt
 // permits without varying anything else about the installation.
 func installModule(t *testing.T, stateRoot, modulePath string, audiences, scopes []string) {
 	t.Helper()
 	if _, err := fixture.Install(state.ModuleStore(stateRoot), fixture.Module{
-		Namespace:        "reference",
+		Namespace:        "example",
 		Version:          testModuleVersion,
 		ShellRange:       ">=0.1.0 <1.0.0",
 		ProtocolVersions: []int{testProtocolVersionNumber},

@@ -30,8 +30,8 @@ import (
 
 const (
 	sourceCredential = "canary-source-credential-2f8c"
-	audience         = "reference-status"
-	readScope        = "reference:status:read"
+	audience         = "example-status"
+	readScope        = "example:status:read"
 	organization     = "reference-org"
 	invocation       = "invocation-7f2a"
 )
@@ -90,7 +90,7 @@ func TestATokenForAnotherAudienceIsRejected(t *testing.T) {
 
 func TestATokenWithoutTheReadScopeIsRejected(t *testing.T) {
 	wrong := claims()
-	wrong.Scopes = []string{"reference:status:write"}
+	wrong.Scopes = []string{"example:status:write"}
 
 	response := call(t, options(), request(t, mint(t, wrong)))
 
@@ -265,7 +265,7 @@ func mint(t *testing.T, claims devtoken.Claims) string {
 	return token
 }
 
-// request builds the call the reference module makes.
+// request builds the call the example module makes.
 func request(t *testing.T, token string) *http.Request {
 	t.Helper()
 	outgoing := httptest.NewRequest(http.MethodGet, statusservice.StatusPath, nil)
@@ -295,7 +295,7 @@ func assertRejected(t *testing.T, response *httptest.ResponseRecorder, want int)
 	}
 }
 
-// whoamiRequest builds the whoami call the reference module makes.
+// whoamiRequest builds the whoami call the example module makes.
 func whoamiRequest(t *testing.T, token string) *http.Request {
 	t.Helper()
 	outgoing := httptest.NewRequest(http.MethodGet, statusservice.WhoamiPath, nil)

@@ -166,11 +166,11 @@ derives a second one carrying strictly less than the session holds:
 
 ```
 LOGIN SMOKE: granted  — asked for everything the session carries, received access of
-                        1261 characters bound to "reference-status" carrying
-                        [reference:status:read reference:status:write]
+                        1261 characters bound to "example-status" carrying
+                        [example:status:read example:status:write]
 LOGIN SMOKE: narrowed — asked for one permission out of the 2 the session holds,
-                        received access of 1230 characters bound to "reference-status"
-                        carrying [reference:status:read]
+                        received access of 1230 characters bound to "example-status"
+                        carrying [example:status:read]
 ```
 
 The second line is the one that measures anything about narrowing. When the
@@ -217,9 +217,9 @@ LOGIN SMOKE: refused auth.narrowing_unavailable — asked for one permission out
 the 2 the session holds, and the shell would not hand the module a grant it could
 not prove was exactly what it asked for. Login and session persistence passed;
 this refusal is the designed outcome, not a failure.
-  auth_policy: auth.narrowing_unavailable: the "reference" module asked for the
-  permissions reference:status:read and the deployment issued
-  reference:status:read, reference:status:write
+  auth_policy: auth.narrowing_unavailable: the "example" module asked for the
+  permissions example:status:read and the deployment issued
+  example:status:read, example:status:write
 ```
 
 and the run passes. The shell does not hand a module more authority than it
@@ -385,7 +385,7 @@ window when that is also turned on).
 | Fixed-port loopback (`127.0.0.1:<port>`) registrable | Registrable — all four callback ports were registered literally and a login bound and returned to `127.0.0.1:10425`. |
 | Any-port loopback (RFC 8252 §7.3) | **Supported** — a login through `127.0.0.1:16000`, a port the application never registered, completed. |
 | Redirect URI validation rules | Exact match by default; a `regexp=(url1\|url2)` prefix ORs several exact URLs. Not otherwise measured — a true single-URL wildcard syntax is a documentation question an experiment cannot disprove. |
-| Refresh-grant scope narrowing | **Honored** — a session for `reference:status:read reference:status:write`, refreshed for `reference:status:read` alone, received exactly that (no protocol scopes retained either). |
+| Refresh-grant scope narrowing | **Honored** — a session for `example:status:read example:status:write`, refreshed for `example:status:read` alone, received exactly that (no protocol scopes retained either). |
 | Access token `aud` | The **client ID**, never the API resource identifier, and not configurable — the Protocol tab's Audience field applies to the ID token only. |
 
 ### Identity Server 7.3.0 (`https://localhost:9443/oauth2/token`, measured 2026-08-06)
@@ -410,7 +410,7 @@ products never raise.
 | Resource indicator on the refresh grant | Not required — inherited from the authorization that established the session. |
 | Resource indicator on client credentials | Required, same default-resource exception as authorization. |
 | Multiple resource indicators | Rejected — "Only a single resource parameter is supported." |
-| Resource server identifier format | Must be an absolute URI; a bare name like `reference-status` is refused. |
+| Resource server identifier format | Must be an absolute URI; a bare name like `example-status` is refused. |
 | Unauthorised scopes on client credentials | Silently dropped — the grant still succeeds with a narrower token, so the shell then refuses because it cannot prove the token carries what was asked for. |
 | Device authorization grant | Absent — no `device_authorization_endpoint` in discovery. |
 

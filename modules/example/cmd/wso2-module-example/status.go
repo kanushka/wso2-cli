@@ -45,7 +45,7 @@ const (
 // defaultStatusTimeout bounds one call to the status service when the
 // invocation names no other. It is well inside the shell's invocation deadline,
 // so a slow service produces this module's typed problem rather than the shell
-// terminating the process. "wso2 reference call --timeout" overrides it, which
+// terminating the process. "wso2 example call --timeout" overrides it, which
 // is what gives this module a declared flag to exercise (#153).
 const defaultStatusTimeout = 5 * time.Second
 
@@ -64,13 +64,13 @@ type serviceStatus struct {
 // verbatim, and access material has no place in user-facing text.
 func readStatus(ctx context.Context, endpoint, invocationID, token string, timeout time.Duration) (serviceStatus, error) {
 	if endpoint == "" {
-		return serviceStatus{}, problem.New(problem.CategoryUsage, "reference.no_endpoint",
-			"the selected context does not name a reference status service").
-			WithRecovery("Select a context whose endpoint names the local reference status service.")
+		return serviceStatus{}, problem.New(problem.CategoryUsage, "example.no_endpoint",
+			"the selected context does not name an example status service").
+			WithRecovery("Select a context whose endpoint names the local example status service.")
 	}
 	target, err := url.JoinPath(endpoint, statusPath)
 	if err != nil {
-		return serviceStatus{}, problem.New(problem.CategoryUsage, "reference.unreadable_endpoint",
+		return serviceStatus{}, problem.New(problem.CategoryUsage, "example.unreadable_endpoint",
 			"the selected context names an endpoint this module cannot call").
 			WithRecovery("Select a context whose endpoint is an absolute HTTP URL.")
 	}
@@ -127,16 +127,16 @@ func statusFailure(target string, status int) error {
 	case status == http.StatusOK:
 		return nil
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
-		return problem.New(problem.CategoryProductService, "reference.status_access_rejected",
-			"the reference status service at "+target+
+		return problem.New(problem.CategoryProductService, "example.status_access_rejected",
+			"the example status service at "+target+
 				" did not accept the access this command was granted").
 			WithRecovery("Retry the command. Report the failure if the service keeps refusing valid access.")
 	case status == http.StatusNotFound || status == http.StatusMethodNotAllowed || status == http.StatusGone:
 		// The host answered and does not serve this path. Retrying cannot
 		// change that, so this must not be reported as a service that failed.
-		return problem.New(problem.CategoryProductService, "reference.status_not_served",
-			"no reference status service is served at "+target).
-			WithRecovery("Check the url recorded for the reference product in wso2 context show. " +
+		return problem.New(problem.CategoryProductService, "example.status_not_served",
+			"no example status service is served at "+target).
+			WithRecovery("Check the url recorded for the example product in wso2 context show. " +
 				"Retrying will not change this answer.")
 	default:
 		return unavailable(target, "could not report its status")
@@ -148,11 +148,11 @@ func statusFailure(target string, status int) error {
 //
 // The endpoint is named because the module is the only party that knows which
 // URL it called: the shell's diagnostics stop at the access it brokered, and a
-// user reading this error would otherwise have to cross-reference
+// user reading this error would otherwise have to cross-example
 // wso2 context show against this module's source to find out (#147).
 func unavailable(target, what string) problem.Problem {
-	return problem.New(problem.CategoryProductService, "reference.status_unavailable",
-		"the reference status service at "+target+" "+what).
+	return problem.New(problem.CategoryProductService, "example.status_unavailable",
+		"the example status service at "+target+" "+what).
 		WithRecovery("Retry the command. Report the failure if it persists.")
 }
 
@@ -165,8 +165,8 @@ func unavailable(target, what string) problem.Problem {
 // same way every time, and "retry the command" would send the user round a loop
 // that cannot terminate (#147).
 func unreadable(target, what string) problem.Problem {
-	return problem.New(problem.CategoryProductService, "reference.status_unavailable",
-		"the reference status service at "+target+" "+what).
-		WithRecovery("Check that this endpoint is a reference status service; it is recorded for the " +
-			"reference product in wso2 context show. Retrying will not change this answer.")
+	return problem.New(problem.CategoryProductService, "example.status_unavailable",
+		"the example status service at "+target+" "+what).
+		WithRecovery("Check that this endpoint is an example status service; it is recorded for the " +
+			"example product in wso2 context show. Retrying will not change this answer.")
 }

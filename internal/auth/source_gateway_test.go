@@ -32,7 +32,7 @@ import (
 
 const (
 	// gatewayNamespace is the product whose gateway record is asked for. It
-	// sorts after "reference" for the reason siblingNamespace does.
+	// sorts after "example" for the reason siblingNamespace does.
 	gatewayNamespace = "zapim"
 	// gatewayAudienceName is the logical audience the module declares for
 	// its gateway; gatewayResource is what this deployment binds it to.

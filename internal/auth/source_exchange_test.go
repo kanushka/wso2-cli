@@ -99,7 +99,7 @@ func TestAnExchangedProductIsAnsweredWithoutASessionOfItsOwn(t *testing.T) {
 	// The whole point of the strategy: nothing was stored for the product, so
 	// there is no second credential to rotate, revoke or lose.
 	if _, err := (session.Store{StateRoot: deployment.stateRoot}).Load(
-		contexts.ProductSessionRef(sessionRef, "reference")); err == nil {
+		contexts.ProductSessionRef(sessionRef, "example")); err == nil {
 		t.Fatal("the exchange stored a session for the product, and an exchanged product keeps none")
 	}
 }

@@ -29,20 +29,20 @@ import (
 // file did not is a verdict silently recorded wrong — which is the failure this
 // test exists to catch. Keep them byte-identical to the format strings there.
 const (
-	messageOpaqueToken = `the deployment issued access for the "reference" module in a form ` +
+	messageOpaqueToken = `the deployment issued access for the "example" module in a form ` +
 		`the shell cannot check against what the module asked for`
 	messageNoScopeStated = `the deployment did not state which permissions it issued for the ` +
-		`"reference" module, so the shell cannot prove they are the ones it asked for`
+		`"example" module, so the shell cannot prove they are the ones it asked for`
 	messageAudienceUnbound = `the deployment issued access that is not bound to the ` +
-		`"reference-status" audience the "reference" module needs`
+		`"example-status" audience the "example" module needs`
 	messageRefusedToNarrow = `the deployment refused to narrow this session to the permissions ` +
-		`the "reference" module asked for`
+		`the "example" module asked for`
 )
 
 // scopeMismatch renders the refusal narrowing.go raises when the issued
 // permissions are not the ones requested, in that site's exact wording.
 func scopeMismatch(requested, issued string) string {
-	return `the "reference" module asked for the permissions ` + requested +
+	return `the "example" module asked for the permissions ` + requested +
 		` and the deployment issued ` + issued
 }
 
@@ -57,53 +57,53 @@ func TestNarrowingVerdictReadsEachRefusal(t *testing.T) {
 		{
 			name: "granted",
 			code: "", message: "",
-			requested: []string{"reference:status:read"},
+			requested: []string{"example:status:read"},
 			want:      smoke.VerdictHonored,
 		},
 		{
 			name: "issuer answered invalid_scope",
 			code: "auth.narrowing_unavailable", message: messageRefusedToNarrow,
-			requested: []string{"reference:status:read"},
+			requested: []string{"example:status:read"},
 			want:      smoke.VerdictRejected,
 		},
 		{
 			name: "deployment issued a wider product scope set",
 			code: "auth.narrowing_unavailable",
-			message: scopeMismatch("reference:status:read",
-				"reference:status:read, reference:status:write"),
-			requested: []string{"reference:status:read"},
+			message: scopeMismatch("example:status:read",
+				"example:status:read, example:status:write"),
+			requested: []string{"example:status:read"},
 			want:      smoke.VerdictIgnored,
 		},
 		{
 			name: "deployment issued an unrelated scope set",
 			code: "auth.narrowing_unavailable",
-			message: scopeMismatch("reference:status:read",
-				"reference:status:write"),
-			requested: []string{"reference:status:read"},
+			message: scopeMismatch("example:status:read",
+				"example:status:write"),
+			requested: []string{"example:status:read"},
 			want:      smoke.VerdictIgnored,
 		},
 		{
 			name: "opaque access token",
 			code: "auth.narrowing_unavailable", message: messageOpaqueToken,
-			requested: []string{"reference:status:read"},
+			requested: []string{"example:status:read"},
 			want:      smoke.VerdictInconclusiveOpaque,
 		},
 		{
 			name: "deployment stated no scope",
 			code: "auth.narrowing_unavailable", message: messageNoScopeStated,
-			requested: []string{"reference:status:read"},
+			requested: []string{"example:status:read"},
 			want:      smoke.VerdictInconclusiveUnstated,
 		},
 		{
 			name: "token not bound to the audience",
 			code: "auth.narrowing_unavailable", message: messageAudienceUnbound,
-			requested: []string{"reference:status:read"},
+			requested: []string{"example:status:read"},
 			want:      smoke.VerdictInconclusiveAudience,
 		},
 		{
 			name: "some other refusal entirely",
 			code: "auth.login_required", message: "the stored session was not accepted",
-			requested: []string{"reference:status:read"},
+			requested: []string{"example:status:read"},
 			want:      "inconclusive (auth.login_required)",
 		},
 	} {
@@ -130,15 +130,15 @@ func TestNarrowingVerdictSeparatesProtocolScopesFromAWiderGrant(t *testing.T) {
 		name   string
 		issued string
 	}{
-		{name: "openid retained", issued: "openid, reference:status:read"},
-		{name: "offline_access retained", issued: "offline_access, reference:status:read"},
-		{name: "both retained", issued: "offline_access, openid, reference:status:read"},
-		{name: "profile and email retained", issued: "email, openid, profile, reference:status:read"},
+		{name: "openid retained", issued: "openid, example:status:read"},
+		{name: "offline_access retained", issued: "offline_access, example:status:read"},
+		{name: "both retained", issued: "offline_access, openid, example:status:read"},
+		{name: "profile and email retained", issued: "email, openid, profile, example:status:read"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			got := smoke.NarrowingVerdict("auth.narrowing_unavailable",
-				scopeMismatch("reference:status:read", testCase.issued),
-				[]string{"reference:status:read"})
+				scopeMismatch("example:status:read", testCase.issued),
+				[]string{"example:status:read"})
 			if got != smoke.VerdictHonoredWithProtocolScopes {
 				t.Errorf("NarrowingVerdict = %q, want %q", got, smoke.VerdictHonoredWithProtocolScopes)
 			}
@@ -150,9 +150,9 @@ func TestNarrowingVerdictSeparatesProtocolScopesFromAWiderGrant(t *testing.T) {
 // wider grant, and must not be excused by the protocol-scope rule.
 func TestNarrowingVerdictDoesNotExcuseAWiderGrantCarryingProtocolScopes(t *testing.T) {
 	got := smoke.NarrowingVerdict("auth.narrowing_unavailable",
-		scopeMismatch("reference:status:read",
-			"openid, reference:status:read, reference:status:write"),
-		[]string{"reference:status:read"})
+		scopeMismatch("example:status:read",
+			"openid, example:status:read, example:status:write"),
+		[]string{"example:status:read"})
 	if got != smoke.VerdictIgnored {
 		t.Errorf("NarrowingVerdict = %q, want %q", got, smoke.VerdictIgnored)
 	}
@@ -162,9 +162,9 @@ func TestNarrowingVerdictDoesNotExcuseAWiderGrantCarryingProtocolScopes(t *testi
 // honored the request either.
 func TestNarrowingVerdictDoesNotCallAShortGrantHonored(t *testing.T) {
 	got := smoke.NarrowingVerdict("auth.narrowing_unavailable",
-		scopeMismatch("reference:status:read, reference:status:write",
-			"openid, reference:status:read"),
-		[]string{"reference:status:read", "reference:status:write"})
+		scopeMismatch("example:status:read, example:status:write",
+			"openid, example:status:read"),
+		[]string{"example:status:read", "example:status:write"})
 	if got != smoke.VerdictIgnored {
 		t.Errorf("NarrowingVerdict = %q, want %q", got, smoke.VerdictIgnored)
 	}

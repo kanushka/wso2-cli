@@ -47,7 +47,7 @@ import (
 
 // sdkTagPrefix is the SDK's own tag namespace. The SDK is not a product module
 // and publishes no module archives, so its tags are not module tags. Every
-// other prefixed tag is a module tag and is required to name a buildable
+// other prefixed tag, except local demonstration-module tags, is required to name a buildable
 // module, which is what keeps a mistyped namespace from being ignored.
 const sdkTagPrefix = "sdk/"
 
@@ -63,7 +63,7 @@ func run() error {
 	outputPath := flag.String("out", "releases.json", "Path to write the assembled input document to.")
 	flag.Parse()
 
-	declarations, err := catalog.Discover(*repositoryRoot)
+	declarations, err := catalog.DiscoverProducts(*repositoryRoot)
 	if err != nil {
 		return err
 	}
@@ -94,7 +94,9 @@ func (p publishedReleases) ModuleTags() ([]string, error) {
 	}
 	var tags []string
 	for _, tag := range strings.Fields(listed) {
-		if strings.HasPrefix(tag, sdkTagPrefix) {
+		// Demonstration modules are installed from the checkout, not published.
+		// Exclude both the current namespace and its historical release tags.
+		if strings.HasPrefix(tag, sdkTagPrefix) || strings.HasPrefix(tag, "reference/") || strings.HasPrefix(tag, "example/") {
 			continue
 		}
 		tags = append(tags, tag)

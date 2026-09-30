@@ -51,13 +51,13 @@ type brokeredAccess struct {
 // wrong shape for every real one.
 func readWhoami(ctx context.Context, endpoint, invocationID, token string, timeout time.Duration) (brokeredAccess, error) {
 	if endpoint == "" {
-		return brokeredAccess{}, problem.New(problem.CategoryUsage, "reference.no_endpoint",
-			"the selected context does not name a reference status service").
-			WithRecovery("Select a context whose endpoint names the local reference status service.")
+		return brokeredAccess{}, problem.New(problem.CategoryUsage, "example.no_endpoint",
+			"the selected context does not name an example status service").
+			WithRecovery("Select a context whose endpoint names the local example status service.")
 	}
 	target, err := url.JoinPath(endpoint, whoamiPath)
 	if err != nil {
-		return brokeredAccess{}, problem.New(problem.CategoryUsage, "reference.unreadable_endpoint",
+		return brokeredAccess{}, problem.New(problem.CategoryUsage, "example.unreadable_endpoint",
 			"the selected context names an endpoint this module cannot call").
 			WithRecovery("Select a context whose endpoint is an absolute HTTP URL.")
 	}

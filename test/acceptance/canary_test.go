@@ -55,8 +55,8 @@ func TestAModuleThatDisclosesAllItCanReachStillDisclosesNoCredential(t *testing.
 		name string
 		args []string
 	}{
-		{name: "table", args: []string{"reference", "status"}},
-		{name: "json", args: []string{"reference", "status", "--output", "json"}},
+		{name: "table", args: []string{"example", "status"}},
+		{name: "json", args: []string{"example", "status", "--output", "json"}},
 	} {
 		t.Run(mode.name, func(t *testing.T) {
 			stateRoot := isolatedStateRoot(t)
@@ -107,7 +107,7 @@ func TestNoFileTheRunLeavesBehindHoldsTheCredential(t *testing.T) {
 	shell := buildShell(t)
 	deployed := deploy(t, statusservice.Options{})
 
-	runShell(t, shell, deployed.stateRoot, "reference", "call")
+	runShell(t, shell, deployed.stateRoot, "example", "call")
 
 	scanned := 0
 	err := filepath.WalkDir(deployed.stateRoot, func(path string, entry fs.DirEntry, err error) error {
@@ -167,7 +167,7 @@ func TestNoTypedProblemDisclosesTheCredential(t *testing.T) {
 		},
 		{
 			name:    "a service that refuses the claims",
-			problem: "reference.status_access_rejected",
+			problem: "example.status_access_rejected",
 			arrange: func(t *testing.T) string {
 				deployed := deploy(t, statusservice.Options{Organization: "another-org"})
 				return deployed.stateRoot
@@ -188,7 +188,7 @@ func TestNoTypedProblemDisclosesTheCredential(t *testing.T) {
 		t.Run(refusal.name, func(t *testing.T) {
 			stateRoot := refusal.arrange(t)
 
-			stdout, stderr, _ := runShellWithCeiling(t, shell, stateRoot, "reference", "call")
+			stdout, stderr, _ := runShellWithCeiling(t, shell, stateRoot, "example", "call")
 
 			// Proving the run failed the way it was meant to is what makes the
 			// scan meaningful: a run that succeeded quietly would have no
@@ -216,7 +216,7 @@ func TestNoCrashDiagnosticDisclosesTheCredential(t *testing.T) {
 			service := startStatusService(t, statusservice.Options{})
 			installReferenceContext(t, stateRoot, service.server.URL, credentialVariable)
 
-			stdout, stderr, _ := runShellWithCeiling(t, shell, stateRoot, "reference", "call")
+			stdout, stderr, _ := runShellWithCeiling(t, shell, stateRoot, "example", "call")
 
 			if stderr == "" {
 				t.Fatalf("the %s fault produced no diagnostics, so this scan reads nothing", fault)
@@ -235,7 +235,7 @@ func TestTheBuiltArtifactsCarryNoDevelopmentCredential(t *testing.T) {
 		path string
 	}{
 		{name: "the shell", path: buildShell(t)},
-		{name: "the reference module", path: buildReferenceModule(t)},
+		{name: "the example module", path: buildReferenceModule(t)},
 	} {
 		content, err := os.ReadFile(artifact.path)
 		if err != nil {
@@ -258,7 +258,7 @@ func TestTheShellHasNoCredentialToFallBackOn(t *testing.T) {
 	shell := buildShell(t)
 	deployed := deploy(t, statusservice.Options{})
 
-	stdout, stderr, err := runShellWithoutCredential(t, shell, deployed.stateRoot, "reference", "call")
+	stdout, stderr, err := runShellWithoutCredential(t, shell, deployed.stateRoot, "example", "call")
 
 	if exitCode(t, err) != exitAuthPolicy {
 		t.Fatalf("exit status = %v, want the authentication class %d\nstderr:\n%s", err, exitAuthPolicy, stderr)
@@ -310,7 +310,7 @@ func disclosures(t *testing.T, stderr string) map[string]string {
 	return disclosed
 }
 
-// installCanaryModule installs the disclosing fixture under the reference
+// installCanaryModule installs the disclosing fixture under the example
 // module's namespace, version, and declared access.
 func installCanaryModule(t *testing.T, stateRoot string) {
 	t.Helper()

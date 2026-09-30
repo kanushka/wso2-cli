@@ -42,8 +42,8 @@ func configured() map[string]string {
 	return map[string]string{
 		smoke.IssuerVar:   "https://api.asgardeo.io/t/acme/oauth2/token",
 		smoke.ClientIDVar: "abc123",
-		smoke.AudienceVar: "reference-status",
-		smoke.ScopeVar:    "reference:status:read reference:status:write",
+		smoke.AudienceVar: "example-status",
+		smoke.ScopeVar:    "example:status:read example:status:write",
 	}
 }
 
@@ -58,10 +58,10 @@ func TestLoadReadsALiveDeployment(t *testing.T) {
 	if config.ClientID != "abc123" {
 		t.Errorf("client id = %q", config.ClientID)
 	}
-	if config.Audience != "reference-status" {
+	if config.Audience != "example-status" {
 		t.Errorf("audience = %q", config.Audience)
 	}
-	want := []string{"reference:status:read", "reference:status:write"}
+	want := []string{"example:status:read", "example:status:write"}
 	if !slices.Equal(config.Scopes, want) {
 		t.Errorf("scopes = %v, want %v", config.Scopes, want)
 	}
@@ -354,7 +354,7 @@ func TestNarrowTargetPicksOneScopeOutOfMany(t *testing.T) {
 // report a verdict it cannot support.
 func TestNarrowTargetRefusesASingleScope(t *testing.T) {
 	values := configured()
-	values[smoke.ScopeVar] = "reference:status:read"
+	values[smoke.ScopeVar] = "example:status:read"
 
 	config, err := smoke.Load(environment(values))
 	if err != nil {

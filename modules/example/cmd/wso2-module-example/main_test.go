@@ -25,7 +25,7 @@ import (
 	"github.com/wso2/wso2-cli/sdk/module"
 )
 
-// TestReportIdentityWritesTheDescriptorAsJSONToStderr proves what "wso2-module-reference
+// TestReportIdentityWritesTheDescriptorAsJSONToStderr proves what "wso2-module-example
 // --module-info" actually promises acceptance tests: a single JSON document on
 // standard error, since standard output is reserved for protocol frames.
 func TestReportIdentityWritesTheDescriptorAsJSONToStderr(t *testing.T) {
@@ -81,7 +81,7 @@ func TestModuleOptionsDeclareTheReferenceNamespace(t *testing.T) {
 }
 
 // TestCommandTreeDeclaresEveryCommand is what lets the shell parse "wso2
-// reference <command> --help" or name a mistyped command without launching
+// example <command> --help" or name a mistyped command without launching
 // the module: a tree that declared nothing would still serve, and this is the
 // test that would catch it.
 func TestCommandTreeDeclaresEveryCommand(t *testing.T) {

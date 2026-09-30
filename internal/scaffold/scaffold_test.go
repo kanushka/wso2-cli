@@ -29,7 +29,7 @@
 // the rest of the suite is building in parallel, so a package compiling at the
 // wrong moment would see a workspace entry for a directory being deleted. The
 // temporary repository carries what a generation reads — a workspace and the
-// reference module's requirements — and composes the SDK from this checkout the
+// example module's requirements — and composes the SDK from this checkout the
 // way a published release will be resolved from the proxy.
 package scaffold_test
 
@@ -122,7 +122,7 @@ func TestAScaffoldedModuleIsGeneratedAgainstWhatTheCheckoutDeclares(t *testing.T
 
 	const distinctSDK = "v0.42.7"
 	const distinctCobra = "v1.8.1"
-	referencePath := filepath.Join(root, "modules", "reference", "go.mod")
+	referencePath := filepath.Join(root, "modules", "example", "go.mod")
 	declared := readFile(t, referencePath)
 	declared = strings.Replace(declared,
 		"github.com/wso2/wso2-cli/sdk "+sdkRequirementIn(t, declared),
@@ -232,7 +232,8 @@ func TestGenerationIsRefusedAndWritesNothing(t *testing.T) {
 		// The load-bearing one. The shell resolves its own commands first, so
 		// a module here would build, release, install, and never run.
 		{name: "a shell command name", namespace: app.CommandNames()[0], reason: "shell command"},
-		{name: "the reserved reference namespace", namespace: "reference", reason: "reserved"},
+		{name: "the reserved example namespace", namespace: "example", reason: "reserved"},
+		{name: "the retired reference namespace", namespace: "reference", reason: "retired"},
 		{name: "an uppercase name", namespace: "MyCloud", reason: "lowercase"},
 		{name: "a name with a hyphen", namespace: "my-cloud", reason: "lowercase"},
 		{name: "a name starting with a digit", namespace: "1cloud", reason: "lowercase"},
@@ -257,7 +258,7 @@ func TestGenerationIsRefusedAndWritesNothing(t *testing.T) {
 			if !strings.Contains(strings.ToLower(err.Error()), refusal.reason) {
 				t.Errorf("the refusal does not name %q: %v", refusal.reason, err)
 			}
-			if refusal.namespace != "" && refusal.namespace != "reference" {
+			if refusal.namespace != "" && refusal.namespace != "example" {
 				if _, statErr := os.Stat(filepath.Join(root, "modules", refusal.namespace)); !os.IsNotExist(statErr) {
 					t.Errorf("a refused generation left a directory behind: %v", statErr)
 				}
@@ -404,7 +405,7 @@ func checkoutRoot(t *testing.T) string {
 }
 
 // temporaryRepository builds the smallest repository a generation can run in: a
-// workspace, and the reference module's go.mod, which is where the SDK version
+// workspace, and the example module's go.mod, which is where the SDK version
 // and the language version are read from.
 //
 // The workspace resolves the SDK from this checkout, which is what makes a
@@ -415,19 +416,19 @@ func temporaryRepository(t *testing.T) string {
 	checkout := checkoutRoot(t)
 	root := t.TempDir()
 
-	reference := filepath.Join(root, "modules", "reference")
-	if err := os.MkdirAll(reference, 0o755); err != nil {
-		t.Fatalf("cannot create the reference module directory: %v", err)
+	example := filepath.Join(root, "modules", "example")
+	if err := os.MkdirAll(example, 0o755); err != nil {
+		t.Fatalf("cannot create the example module directory: %v", err)
 	}
-	referenceGoMod := readFile(t, filepath.Join(checkout, "modules", "reference", "go.mod"))
-	writeFile(t, filepath.Join(reference, "go.mod"), referenceGoMod)
+	referenceGoMod := readFile(t, filepath.Join(checkout, "modules", "example", "go.mod"))
+	writeFile(t, filepath.Join(example, "go.mod"), referenceGoMod)
 
-	// The reference module has to be a module the workspace can compose, so it
+	// The example module has to be a module the workspace can compose, so it
 	// needs at least one package. Nothing here builds it; it exists so the
 	// workspace is valid.
-	writeFile(t, filepath.Join(reference, "doc.go"), "// Package reference is a fixture.\npackage reference\n")
+	writeFile(t, filepath.Join(example, "doc.go"), "// Package example is a fixture.\npackage example\n")
 
-	workspace := "go " + goDirective(t, referenceGoMod) + "\n\nuse (\n\t./modules/reference\n)\n\n" +
+	workspace := "go " + goDirective(t, referenceGoMod) + "\n\nuse (\n\t./modules/example\n)\n\n" +
 		"replace github.com/wso2/wso2-cli/sdk " + sdkRequirementIn(t, referenceGoMod) +
 		" => " + filepath.Join(checkout, "sdk") + "\n"
 	writeFile(t, filepath.Join(root, "go.work"), workspace)
@@ -442,7 +443,7 @@ func goDirective(t *testing.T, goMod string) string {
 			return fields[1]
 		}
 	}
-	t.Fatal("the reference module declares no language version")
+	t.Fatal("the example module declares no language version")
 	return ""
 }
 
@@ -457,7 +458,7 @@ func sdkRequirementIn(t *testing.T, goMod string) string {
 			}
 		}
 	}
-	t.Fatal("the reference module requires no SDK version")
+	t.Fatal("the example module requires no SDK version")
 	return ""
 }
 
@@ -493,11 +494,11 @@ func TestTheScaffoldNamesCommandsTheShellStillHas(t *testing.T) {
 	// their first minute, and the templates are not Go source so a rename pass
 	// over *.go never sees them.
 	root := temporaryRepository(t)
-	if _, err := scaffold.Generate(scaffold.Request{RepositoryRoot: root, Namespace: "example"}); err != nil {
+	if _, err := scaffold.Generate(scaffold.Request{RepositoryRoot: root, Namespace: "sample"}); err != nil {
 		t.Fatalf("scaffold: %v", err)
 	}
-	generated, err := os.ReadFile(filepath.Join(root, "modules", "example",
-		"cmd", "wso2-module-example", "main.go"))
+	generated, err := os.ReadFile(filepath.Join(root, "modules", "sample",
+		"cmd", "wso2-module-sample", "main.go"))
 	if err != nil {
 		t.Fatal(err)
 	}

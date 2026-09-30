@@ -47,8 +47,8 @@ The namespace is four things at once: the command users type (`ws abc`), the
 tag prefix (`abc/v1.0.0`), the program name (`wso2-module-abc`), and the
 environment variable prefix (`WSO2_ABC_*`). Renaming it later is a migration.
 The generator refuses names a shell command already owns, names another module
-declares, `reference`, and anything that isn't lowercase letters and digits
-starting with a letter.
+declares, reserved or retired demonstration namespaces including `example`,
+and anything that isn't lowercase letters and digits starting with a letter.
 
 Checkpoint:
 
@@ -264,5 +264,5 @@ When something is refused, [troubleshoot a
 module](troubleshoot-module.md) lists every code the shell prints and what
 causes it. The full API is in the [module SDK](../reference/module-sdk.md)
 and [module manifest](../reference/module-manifest.md) references. See
-[set up the reference module](setup-example-module.md) to run a working module
+[set up the example module](setup-example-module.md) to run a working module
 locally.

@@ -85,7 +85,7 @@ func decodeLegacy(data []byte) (Document, error) {
 		}
 		if candidate.Endpoint != "" {
 			context.Products = map[string]Product{
-				"reference": {Endpoint: candidate.Endpoint},
+				"example": {Endpoint: candidate.Endpoint},
 			}
 		}
 		document.Contexts = append(document.Contexts, context)

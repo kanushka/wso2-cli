@@ -1,4 +1,4 @@
-module github.com/wso2/wso2-cli/modules/reference
+module github.com/wso2/wso2-cli/modules/example
 
 go 1.25.13
 

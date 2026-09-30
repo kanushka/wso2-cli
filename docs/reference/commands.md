@@ -111,11 +111,11 @@ parsing any output.
 An unrecognized problem category is reported as a module process failure, `70`,
 rather than as success.
 
-One command opts out of the `77` class on purpose: `ws reference status`
+One command opts out of the `77` class on purpose: `ws example status`
 reports a broker refusal as fields of its result and exits `0`, because
 whether access was granted is the question it exists to answer, and a report
 that cannot say "no" cannot answer it. A gate that must fail without access
-runs `ws reference call` or `ws reference whoami`, which keep the `77`
+runs `ws example call` or `ws example whoami`, which keep the `77`
 class for the same refusal.
 
 ## Non-interactive use
@@ -375,15 +375,15 @@ PRODUCT     INSTALLED   CHANNEL   UPDATE
 am          v1.2.0      stable    v1.3.0 available
 apim        v0.9.0      stable    current
 intg        v0.4.0      —         pinned to v0.4.0
-reference   —           stable    v0.1.0 to install
+iam         —           stable    v0.1.0 to install
 
 1 product has an update available. Run ws product update --all to take it.
 1 product is current.
 1 product is pinned and will not be updated.
-1 product is not installed. Run ws product install reference to install it.
+1 product is not installed. Run ws product install iam to install it.
 ```
 
-A product the catalog publishes that is not installed, such as `reference`
+A product the catalog publishes that is not installed, such as `iam`
 above, is a row of its own: INSTALLED shows `—`, CHANNEL the channel a plain
 install would follow, and UPDATE the version that install would take. A product
 published only on prerelease names that channel, and the install command

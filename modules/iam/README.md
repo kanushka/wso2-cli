@@ -54,7 +54,7 @@ module holds: declare an audience and a scope in `module.json` and in
 `moduleOptions`, then ask for them with `request.Access.Acquire`. A module never
 sees a credential and cannot obtain a second token.
 
-`modules/reference` is the worked example: a client on the product's REST
+`modules/example` is the worked example: a client on the product's REST
 API, two read-only commands, and tests that drive the module through the
 contract against a fake deployment. The guide at
 `docs/guides/build-module-quickstart.md` walks through it.

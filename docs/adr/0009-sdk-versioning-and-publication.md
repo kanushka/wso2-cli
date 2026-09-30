@@ -3,7 +3,7 @@
 **Status:** Accepted
 
 The public SDK is published as a Go submodule of this repository, by tag, and
-starting at `v0.1.0`. Until now it has not been published at all: the reference
+starting at `v0.1.0`. Until now it has not been published at all: the example
 module requires `github.com/wso2/wso2-cli/sdk v0.0.0`, a placeholder that only
 resolves because `go.work` replaces it with this checkout. That arrangement was
 correct while no version had shipped, and it is what stops a product team from

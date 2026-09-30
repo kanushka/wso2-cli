@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 )
 
@@ -31,13 +32,13 @@ const DeclarationFileName = "module.json"
 
 // declarationRoots are the directories a module may live in, relative to the
 // repository root. Every module lives one directory per namespace under
-// modules/, the reference module included: it is not a product and owns a
+// modules/, the example module included: it is not a product and owns a
 // reserved namespace, but nothing about discovering it differs.
 var declarationRoots = []string{"modules"}
 
 // Discover reads the module declarations in a checkout, which is what decides
 // whether a tag names a buildable module. A directory name is not the answer:
-// the namespace a module owns is declared by the module, so the reference
+// the namespace a module owns is declared by the module, so the example
 // module's directory and its namespace are free to differ.
 func Discover(repositoryRoot string) ([]Declaration, error) {
 	declarations := []Declaration{}
@@ -86,4 +87,16 @@ func readDeclaration(path string) (Declaration, bool, error) {
 		return Declaration{}, false, fmt.Errorf("catalog: %s is not a readable module declaration: %w", path, err)
 	}
 	return declaration, true, nil
+}
+
+// DiscoverProducts reads declarations for the public catalog. Demonstration
+// modules remain available through Discover for local installation and tests.
+func DiscoverProducts(repositoryRoot string) ([]Declaration, error) {
+	declarations, err := Discover(repositoryRoot)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(declarations, func(declaration Declaration) bool {
+		return declaration.Namespace == "example" || declaration.Namespace == "reference"
+	}), nil
 }

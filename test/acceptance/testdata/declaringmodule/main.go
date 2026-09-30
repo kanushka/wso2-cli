@@ -18,7 +18,7 @@
 // used to prove the shell parses a product command line against what the module
 // says it accepts.
 //
-// The reference module cannot play this part. It is built outside this
+// The example module cannot play this part. It is built outside this
 // workspace by the relocation test, against the published SDK, which is how the
 // architecture proves a product module can live in another repository — so it
 // cannot use an SDK API until that API is released. This module is built from
@@ -45,10 +45,10 @@ import (
 var moduleVersion = "0.0.0-dev"
 
 // ResultSchema identifies the shape this module reports.
-const ResultSchema = "reference.declared/v1"
+const ResultSchema = "example.declared/v1"
 
 func main() {
-	root := &cobra.Command{Use: "reference", Short: "A module that declares its commands."}
+	root := &cobra.Command{Use: "example", Short: "A module that declares its commands."}
 	status := &cobra.Command{Use: "status", Short: "Report what the shell forwarded."}
 	status.Flags().String("since", "", "How far back to look.")
 	status.Flags().BoolP("all", "a", false, "Include everything.")
@@ -63,10 +63,10 @@ func main() {
 		Handle(list, report("apps list"))
 
 	options := module.Options{
-		Namespace:     "reference",
+		Namespace:     "example",
 		Version:       moduleVersion,
-		AuthAudiences: []string{"reference-status"},
-		AuthScopes:    []string{"reference:status:read"},
+		AuthAudiences: []string{"example-status"},
+		AuthScopes:    []string{"example:status:read"},
 	}
 	if err := tree.Serve(context.Background(), options); err != nil {
 		fmt.Fprintf(os.Stderr, "declaringmodule: %v\n", err)

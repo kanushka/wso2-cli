@@ -518,10 +518,10 @@ func TestAnInstallReportsThePinItCreatesAndThePinItClears(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the pinning install returned %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
-	if !strings.Contains(stdout, "Pinned reference to v4.4.0.") {
+	if !strings.Contains(stdout, "Pinned example to v4.4.0.") {
 		t.Errorf("the pinning install does not say a pin was created:\n%s", stdout)
 	}
-	if !strings.Contains(stdout, "run wso2 product install reference to clear it") {
+	if !strings.Contains(stdout, "run wso2 product install example to clear it") {
 		t.Errorf("the pinning install does not name the command that clears the pin:\n%s", stdout)
 	}
 

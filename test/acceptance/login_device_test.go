@@ -96,7 +96,7 @@ func TestADeviceLoginEstablishesASessionAndTheModuleReceivesNarrowedAccess(t *te
 	}
 
 	if code := deployment.status(t); code != exit.OK {
-		t.Fatalf("reference status exited %d\nstderr:\n%s", code, deployment.errOut)
+		t.Fatalf("example status exited %d\nstderr:\n%s", code, deployment.errOut)
 	}
 	presented := deployment.service.presented()
 	if len(presented) != 1 {
@@ -182,7 +182,7 @@ func TestNoDeviceCodeOrTokenMaterialReachesAnyOutputSurfaceOfADeviceLogin(t *tes
 	afterLogin := deployment.storedSession(t)
 
 	if code := deployment.status(t); code != exit.OK {
-		t.Fatalf("reference status exited %d\nstderr:\n%s", code, deployment.errOut)
+		t.Fatalf("example status exited %d\nstderr:\n%s", code, deployment.errOut)
 	}
 	presented := deployment.service.presented()
 	if len(presented) != 1 {
@@ -528,6 +528,6 @@ func TestADeviceLoginWithoutAnIdentityTokenStillEstablishesASession(t *testing.T
 	// The session still reaches a module, which is the whole reason the missing
 	// claim is tolerated rather than refused over.
 	if code := deployment.status(t); code != exit.OK {
-		t.Fatalf("reference status exited %d\nstderr:\n%s", code, deployment.errOut)
+		t.Fatalf("example status exited %d\nstderr:\n%s", code, deployment.errOut)
 	}
 }

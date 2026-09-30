@@ -77,8 +77,8 @@ func releasedWorld(tags ...string) fakeReleases {
 			SchemaVersion: catalog.SchemaVersion,
 			Namespace:     namespace,
 			Compatibility: modules.Compatibility{Shell: ">=0.1.0 <2.0.0", ProtocolVersions: []int{2}},
-			Capabilities:  modules.Capabilities{AuthAudiences: []string{"reference-status"}},
-			Directory:     "modules/reference",
+			Capabilities:  modules.Capabilities{AuthAudiences: []string{"example-status"}},
+			Directory:     "modules/example",
 		}
 		published := release.Published{Digests: map[string]string{}}
 		for _, platform := range release.Platforms {
@@ -98,14 +98,14 @@ func releasedWorld(tags ...string) fakeReleases {
 func referenceDeclarations() []catalog.Declaration {
 	return []catalog.Declaration{{
 		SchemaVersion: catalog.SchemaVersion,
-		Namespace:     "reference",
+		Namespace:     "example",
 		Compatibility: modules.Compatibility{Shell: ">=0.1.0 <2.0.0", ProtocolVersions: []int{2}},
-		Directory:     "modules/reference",
+		Directory:     "modules/example",
 	}}
 }
 
 func TestAssembleInputGeneratesACatalogFromTheTagsThatExist(t *testing.T) {
-	world := releasedWorld("reference/v4.5.0", "reference/v4.4.0")
+	world := releasedWorld("example/v4.5.0", "example/v4.4.0")
 	input, err := release.AssembleInput(world, referenceDeclarations())
 	if err != nil {
 		t.Fatalf("assembling the input returned %v", err)
@@ -135,12 +135,12 @@ func TestAssembleInputGeneratesACatalogFromTheTagsThatExist(t *testing.T) {
 // Regenerating over an unchanged tag set may not produce a change: nothing in
 // the assembly is ordered by the order the tags arrived in.
 func TestAssembleInputIsDeterministic(t *testing.T) {
-	first, err := release.AssembleInput(releasedWorld("reference/v4.4.0", "reference/v4.5.0"),
+	first, err := release.AssembleInput(releasedWorld("example/v4.4.0", "example/v4.5.0"),
 		referenceDeclarations())
 	if err != nil {
 		t.Fatalf("assembling the input returned %v", err)
 	}
-	second, err := release.AssembleInput(releasedWorld("reference/v4.5.0", "reference/v4.4.0"),
+	second, err := release.AssembleInput(releasedWorld("example/v4.5.0", "example/v4.4.0"),
 		referenceDeclarations())
 	if err != nil {
 		t.Fatalf("assembling the input returned %v", err)
@@ -175,10 +175,10 @@ func rendered(t *testing.T, input catalog.Input) []byte {
 }
 
 func TestAssembleInputRefusesAReleaseMissingAPlatform(t *testing.T) {
-	world := releasedWorld("reference/v4.5.0")
-	published := world.published["reference/v4.5.0"]
+	world := releasedWorld("example/v4.5.0")
+	published := world.published["example/v4.5.0"]
 	published.Assets = published.Assets[1:]
-	world.published["reference/v4.5.0"] = published
+	world.published["example/v4.5.0"] = published
 
 	_, err := release.AssembleInput(world, referenceDeclarations())
 	if err == nil {
@@ -190,10 +190,10 @@ func TestAssembleInputRefusesAReleaseMissingAPlatform(t *testing.T) {
 }
 
 func TestAssembleInputRefusesAnArtifactTheChecksumFileDoesNotCover(t *testing.T) {
-	world := releasedWorld("reference/v4.5.0")
-	published := world.published["reference/v4.5.0"]
+	world := releasedWorld("example/v4.5.0")
+	published := world.published["example/v4.5.0"]
 	delete(published.Digests, published.Assets[0].Name)
-	world.published["reference/v4.5.0"] = published
+	world.published["example/v4.5.0"] = published
 
 	if _, err := release.AssembleInput(world, referenceDeclarations()); err == nil {
 		t.Fatal("an artifact no checksum covers was published to the catalog")
@@ -211,19 +211,19 @@ func TestAssembleInputRefusesATagNamingNoBuildableModule(t *testing.T) {
 // happened once — carries no declaration at its own ref. It has to be
 // excluded rather than failing every other tag's release.
 func TestAssembleInputExcludesATagWithNoDeclarationAtItsRef(t *testing.T) {
-	world := releasedWorld("reference/v4.4.0", "reference/v4.5.0")
-	world.missingDeclaration = "reference/v4.4.0"
+	world := releasedWorld("example/v4.4.0", "example/v4.5.0")
+	world.missingDeclaration = "example/v4.4.0"
 
 	input, err := release.AssembleInput(world, referenceDeclarations())
 	if err != nil {
 		t.Fatalf("assembling the input returned %v", err)
 	}
 	for _, tag := range input.Tags {
-		if tag == "reference/v4.4.0" {
+		if tag == "example/v4.4.0" {
 			t.Fatalf("the tag with no declaration at its ref was assembled into the catalog: %v", input.Tags)
 		}
 	}
-	if _, published := input.Published["reference/v4.5.0"]; !published {
+	if _, published := input.Published["example/v4.5.0"]; !published {
 		t.Fatal("the valid tag was excluded along with the invalid one")
 	}
 }

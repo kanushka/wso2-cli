@@ -1,15 +1,17 @@
 # Set up the WSO2 CLI with ThunderID
 
 This guide registers the CLI in ThunderID `1.0.0-beta`, creates a context, and
-logs in. The examples use `https://localhost:8090` and the `reference` product.
+logs in. The examples use `https://localhost:8090` and the `example` product.
 Context fields are described in the
 [context file reference](../reference/context-file.md).
 The commands below use `ws`, the default name of a released CLI.
 
-Install the reference module from this checkout with the
+Install the example module from this checkout with the
 [local setup guide](setup-example-module.md). From the repository root, run
 `export PATH="$PWD/bin:$PATH"` in the same terminal so the `ws` commands below
-use that build. Keep the `WSO2_HOME` value from the local setup guide.
+use that build. The local setup guide removes its temporary store when it finishes. For these
+steps, set `WSO2_HOME` to a directory you want to keep and run
+`make install-module NAMESPACE=example` from the repository root.
 
 ThunderID differs from Asgardeo and Identity Server in three ways:
 
@@ -49,10 +51,10 @@ Set `WSO2_CA_FILE` in the shell that runs `ws`. On macOS the CLI ignores
 In the Console (`https://localhost:8090/console`):
 
 1. Go to **Resource Servers → Add resource server**. Set the name to
-   `Reference Status` and the identifier to
-   `https://localhost:8090/reference-status`.
-2. On the **Resources** tab, build the permission `reference:status:read` as a
-   hierarchy of handles `reference` → `status` → `read`. Handles can't contain `:`.
+   `Example Status` and the identifier to
+   `https://localhost:8090/example-status`.
+2. On the **Resources** tab, build the permission `example:status:read` as a
+   hierarchy of handles `example` → `status` → `read`. Handles can't contain `:`.
 3. Don't use **Set as default**.
 
 ## 4. Register the application
@@ -76,7 +78,7 @@ In the Console (`https://localhost:8090/console`):
 ## 5. Create a user and role
 
 Under **Users**, add a user with a password. Under **Roles**, add a role with
-the `Reference Status` permissions from step 3 and assign the user to it.
+the `Example Status` permissions from step 3 and assign the user to it.
 Without the role, login works but every token is refused.
 
 ## 6. Create the context
@@ -92,13 +94,13 @@ contexts:
       provider: thunder
       issuer: https://localhost:8090
       clientId: REPLACE_WITH_YOUR_CLIENT_ID
-      product: reference
+      product: example
     products:
-      reference:
+      example:
         url: https://localhost:8090
-        audience: https://localhost:8090/reference-status
+        audience: https://localhost:8090/example-status
         scopes:
-          - reference:status:read
+          - example:status:read
 ```
 
 ```sh
@@ -114,9 +116,9 @@ login from its descriptor instead:
 ```sh
 ws context create thunder-local --login-product iam \
   --url https://localhost:8090 --use
-ws context product add reference --url https://localhost:8090 \
-  --audience https://localhost:8090/reference-status \
-  --scopes reference:status:read
+ws context product add example --url https://localhost:8090 \
+  --audience https://localhost:8090/example-status \
+  --scopes example:status:read
 ```
 
 This path records the login only, so add the product before step 7.
@@ -129,7 +131,7 @@ context. Use the context file or `--login-product` so the login names its produc
 ```sh
 ws login
 ws whoami
-ws reference status
+ws example status
 ```
 
 `ws login` opens the browser and prints the authorization URL on standard
@@ -156,11 +158,11 @@ error, so you can open it by hand if no browser appears. `ws whoami` shows
          clientId: REPLACE_WITH_YOUR_CI_CLIENT_ID
          clientSecretVariable: WSO2_THUNDER_CI_SECRET
        products:
-         reference:
+         example:
            url: https://localhost:8090
-           audience: https://localhost:8090/reference-status
+           audience: https://localhost:8090/example-status
            scopes:
-             - reference:status:read
+             - example:status:read
    ```
 
 3. In the job, set `WSO2_NO_INPUT=1`, `WSO2_CA_FILE`, and

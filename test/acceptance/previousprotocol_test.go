@@ -102,18 +102,18 @@ func TestAModuleBuiltAgainstThePreviousProtocolSDKRunsUnderThisShell(t *testing.
 	}
 	deployment := deployInstalled(t, stateRoot, statusservice.Options{})
 
-	stdout, stderr, err := deployment.try(shell, "reference", "call")
+	stdout, stderr, err := deployment.try(shell, "example", "call")
 
 	if err != nil {
-		t.Fatalf("%s: wso2 reference status failed: %v\nstdout:\n%s\nstderr:\n%s",
+		t.Fatalf("%s: wso2 example status failed: %v\nstdout:\n%s\nstderr:\n%s",
 			subject, err, stdout, stderr)
 	}
 	if !strings.Contains(stdout, "operational") {
-		t.Fatalf("%s: wso2 reference status did not report the service:\n%s",
+		t.Fatalf("%s: wso2 example status did not report the service:\n%s",
 			subject, stdout)
 	}
 	if stderr != "" {
-		t.Errorf("%s: wso2 reference status wrote diagnostics:\n%s", subject, stderr)
+		t.Errorf("%s: wso2 example status wrote diagnostics:\n%s", subject, stderr)
 	}
 }
 
@@ -301,7 +301,7 @@ func TestThePreviousProtocolGateRefusesACommittedReplaceDirective(t *testing.T) 
 	clone := cloneRepository(t)
 
 	edit := exec.Command("go", "mod", "edit", "-replace",
-		"github.com/wso2/wso2-cli/sdk=./sdk", "modules/reference/go.mod")
+		"github.com/wso2/wso2-cli/sdk=./sdk", "modules/example/go.mod")
 	edit.Dir = clone
 	if combined, err := edit.CombinedOutput(); err != nil {
 		t.Fatalf("adding a replace directive failed: %v\n%s", err, combined)
@@ -312,7 +312,7 @@ func TestThePreviousProtocolGateRefusesACommittedReplaceDirective(t *testing.T) 
 	if err == nil {
 		t.Fatalf("the gate accepted a committed replace directive:\n%s", output)
 	}
-	if !strings.Contains(string(output), "modules/reference/go.mod") {
+	if !strings.Contains(string(output), "modules/example/go.mod") {
 		t.Errorf("the gate did not name the offending go.mod:\n%s", output)
 	}
 }
@@ -398,11 +398,11 @@ const (
 // message named the module and the checksum database, and said nothing about the
 // fixture, so the same mistake would be as expensive to find the second time.
 func TestNoFixtureVersionCollidesWithThePublishedSDK(t *testing.T) {
-	required := sdkVersionRequiredBy(t, filepath.Join(repoRoot(t), "modules", "reference"))
+	required := sdkVersionRequiredBy(t, filepath.Join(repoRoot(t), "modules", "example"))
 
 	for _, fixture := range []string{fixturePreviousVersion, fixtureCurrentVersion} {
 		if fixture == required {
-			t.Errorf("the fixture version %s is the version the reference module requires; "+
+			t.Errorf("the fixture version %s is the version the example module requires; "+
 				"a fixture must name a version no real release carries", fixture)
 		}
 	}

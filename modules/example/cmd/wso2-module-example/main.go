@@ -14,11 +14,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Command wso2-module-reference is the WSO2 CLI reference module.
+// Command wso2-module-example is the WSO2 CLI example module.
 //
-// The reference module is not a product module. It exists only to prove and
+// The example module is not a product module. It exists only to prove and
 // test the shell, the public SDK, and the module contract, and it owns the
-// reserved non-product "reference" namespace.
+// reserved non-product "example" namespace.
 //
 // It is built against the public SDK alone. It imports no shell package, so it
 // can move to another repository without changing its imports.
@@ -42,30 +42,30 @@ import (
 )
 
 // Namespace is the reserved non-product namespace this module owns.
-const Namespace = "reference"
+const Namespace = "example"
 
 // Declared access. The shell intersects a runtime request with the module
 // receipt, so these values also appear in the receipt written at installation.
 const (
-	StatusAudience = "reference-status"
-	StatusScope    = "reference:status:read"
+	StatusAudience = "example-status"
+	StatusScope    = "example:status:read"
 )
 
-// ReportSchema identifies the semantic shape of "wso2 reference status": what
+// ReportSchema identifies the semantic shape of "wso2 example status": what
 // this module is and what the shell brokered for it. It answers from the
 // invocation alone and calls nothing, so it is the command that works on a
 // developer's machine with nothing deployed (#147).
-const ReportSchema = "reference.report/v1"
+const ReportSchema = "example.report/v1"
 
-// StatusSchema identifies the semantic shape of the reference status service's
-// answer, returned by "wso2 reference call". The name predates the command
+// StatusSchema identifies the semantic shape of the example status service's
+// answer, returned by "wso2 example call". The name predates the command
 // rename and is left alone: it names the shape of a status service's answer,
 // which is what it still is.
 // The shell renders it without interpreting it.
-const StatusSchema = "reference.status/v1"
+const StatusSchema = "example.status/v1"
 
-// WhoamiSchema identifies the semantic shape of the reference whoami result.
-const WhoamiSchema = "reference.whoami/v1"
+// WhoamiSchema identifies the semantic shape of the example whoami result.
+const WhoamiSchema = "example.whoami/v1"
 
 // moduleVersion is this module's own release version. A build injects it with:
 //
@@ -75,7 +75,7 @@ const WhoamiSchema = "reference.whoami/v1"
 var moduleVersion = "0.0.0-dev"
 
 func main() {
-	flags := flag.NewFlagSet("wso2-module-reference", flag.ContinueOnError)
+	flags := flag.NewFlagSet("wso2-module-example", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	describe := flags.Bool("module-info", false,
 		"Report this module's runtime account as JSON on standard error and exit. Used by tests, not by the shell.")
@@ -95,7 +95,7 @@ func main() {
 	// bounded diagnostics.
 	err := commandTree().Serve(context.Background(), options)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "wso2-module-reference: %v\n", err)
+		fmt.Fprintf(os.Stderr, "wso2-module-example: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -124,27 +124,27 @@ func moduleOptions() module.Options {
 // product line without knowing what the module accepts (#153).
 func commandTree() *cobratree.Tree {
 	root := &cobra.Command{
-		Use:   "reference",
-		Short: "Reference product module for the WSO2 CLI.",
+		Use:   "example",
+		Short: "Example product module for the WSO2 CLI.",
 	}
 	statusCommand := &cobra.Command{
 		Use: "status",
 		Short: "Report this module and the access the shell brokered for it. " +
 			"Refusal is part of the report, so it exits 0 either way; " +
-			"wso2 reference call fails instead.",
+			"wso2 example call fails instead.",
 	}
 	callCommand := &cobra.Command{
 		Use:   "call",
-		Short: "Read the reference status service with brokered access.",
+		Short: "Read the example status service with brokered access.",
 	}
 	// A real flag, declared the way a product module declares one, so the
 	// contract is exercised end to end rather than only for command paths: the
-	// shell reads this off the declared tree, parses "wso2 reference call
+	// shell reads this off the declared tree, parses "wso2 example call
 	// --timeout 2s" against it, and forwards it here. Until a module declared
 	// its tree, test/acceptance/testdata/declaringmodule was the only thing
 	// proving that path.
 	timeout := callCommand.Flags().Duration("timeout", defaultStatusTimeout,
-		"Give up on the reference status service after this long.")
+		"Give up on the example status service after this long.")
 	whoamiCommand := &cobra.Command{
 		Use:   "whoami",
 		Short: "Report the access the shell brokered for this invocation.",
@@ -153,7 +153,7 @@ func commandTree() *cobratree.Tree {
 	// same flag. One of the two carrying it and the other a constant would be a
 	// difference with no reason behind it.
 	whoamiTimeout := whoamiCommand.Flags().Duration("timeout", defaultStatusTimeout,
-		"Give up on the reference status service after this long.")
+		"Give up on the example status service after this long.")
 	root.AddCommand(statusCommand, callCommand, whoamiCommand)
 
 	return cobratree.New(root).
@@ -169,7 +169,7 @@ func commandTree() *cobratree.Tree {
 		})
 }
 
-// status answers "wso2 reference status".
+// status answers "wso2 example status".
 //
 // It reports what this module is and what the shell granted it, and calls
 // nothing. That is deliberate: this is a sample module, and the command a
@@ -234,7 +234,7 @@ func contextName(name string) string {
 	return name
 }
 
-// call answers "wso2 reference call".
+// call answers "wso2 example call".
 //
 // It asks the shell for access, reads the status service with what it was
 // granted, and returns semantic fields in presentation order. It performs no
@@ -245,7 +245,7 @@ func contextName(name string) string {
 // short-lived token, and has no way to obtain another.
 //
 // This is the command that proves a brokered token is accepted by a service at
-// the declared audience, so it needs a reference status service to call and
+// the declared audience, so it needs an example status service to call and
 // cannot succeed without one. It carried the name "status" until #147, which
 // gave that name to the command a developer can actually run.
 func call(ctx context.Context, request module.Request, timeout time.Duration) (result.Result, error) {
@@ -270,7 +270,7 @@ func call(ctx context.Context, request module.Request, timeout time.Duration) (r
 		With("checkedAt", "Checked at", status.CheckedAt), nil
 }
 
-// whoami answers "wso2 reference whoami".
+// whoami answers "wso2 example whoami".
 //
 // It reports what the access this invocation was granted actually conveys. The
 // second command exists to make the brokered hand-off visible: status proves
@@ -311,7 +311,7 @@ func reportIdentity(descriptor module.Descriptor) {
 	encoder := json.NewEncoder(os.Stderr)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(descriptor); err != nil {
-		fmt.Fprintf(os.Stderr, "wso2-module-reference: cannot report module account: %v\n", err)
+		fmt.Fprintf(os.Stderr, "wso2-module-example: cannot report module account: %v\n", err)
 		os.Exit(1)
 	}
 }

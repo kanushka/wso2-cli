@@ -29,7 +29,7 @@ import (
 )
 
 // A product module is meant to live in the product's own repository, written by
-// people who have no access to this one. The reference module lives here only
+// people who have no access to this one. The example module lives here only
 // because there is nothing to publish yet, and that convenience is exactly what
 // could quietly become a dependency: an import of a shell internal, a
 // requirement on the shell module, or a build that works only inside this
@@ -47,7 +47,7 @@ func TestTheReferenceModuleWorksFromAnotherRepository(t *testing.T) {
 	service := startStatusService(t, statusservice.Options{})
 	installReferenceContext(t, stateRoot, service.server.URL, credentialVariable)
 
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "call", "--output", "json")
+	stdout, stderr := runShell(t, shell, stateRoot, "example", "call", "--output", "json")
 
 	// The module built somewhere else answers the same command through the
 	// same contract with the same brokered access. Nothing about being outside
@@ -65,7 +65,7 @@ func TestTheReferenceModuleWorksFromAnotherRepository(t *testing.T) {
 	assertNoCredentialDisclosure(t, stdout, stderr)
 }
 
-// relocateReferenceModule copies the reference module outside this repository,
+// relocateReferenceModule copies the example module outside this repository,
 // resolves the SDK the way a published dependency would be resolved, builds it
 // there, and returns the executable.
 //
@@ -77,7 +77,7 @@ func TestTheReferenceModuleWorksFromAnotherRepository(t *testing.T) {
 func relocateReferenceModule(t *testing.T) string {
 	t.Helper()
 	root := repoRoot(t)
-	source := filepath.Join(root, "modules", "reference")
+	source := filepath.Join(root, "modules", "example")
 	// t.TempDir is outside this checkout, so the copy is outside the Go
 	// workspace as well: nothing here composes it with the SDK any more.
 	destination := filepath.Join(t.TempDir(), "product-repository")
@@ -100,12 +100,12 @@ func relocateReferenceModule(t *testing.T) string {
 	// workspace has to carry its own checksums.
 	runGoIn(t, destination, environment, "mod", "tidy")
 
-	binary := filepath.Join(destination, "wso2-module-reference"+executableSuffix())
+	binary := filepath.Join(destination, "wso2-module-example"+executableSuffix())
 	runGoIn(t, destination, environment, "build", "-ldflags", strings.Join([]string{
 		"-X main.moduleVersion=" + testModuleVersion,
 		"-X github.com/wso2/wso2-cli/sdk/module.SDKVersion=" + testSDKVersion,
 		"-X github.com/wso2/wso2-cli/sdk/protocol.Version=" + testProtocolVersion,
-	}, " "), "-o", binary, "./cmd/wso2-module-reference")
+	}, " "), "-o", binary, "./cmd/wso2-module-example")
 	return binary
 }
 
@@ -136,7 +136,7 @@ func copyTree(t *testing.T, source, destination string) {
 		return os.WriteFile(target, content, info.Mode().Perm())
 	})
 	if err != nil {
-		t.Fatalf("copying the reference module to %s: %v", destination, err)
+		t.Fatalf("copying the example module to %s: %v", destination, err)
 	}
 }
 
@@ -186,7 +186,7 @@ func runGoIn(t *testing.T, directory string, environment []string, args ...strin
 }
 
 // skipUntilTheRequiredSDKIsPublished skips this test while the SDK version the
-// reference module requires has no tag yet.
+// example module requires has no tag yet.
 //
 // This is the release bootstrap, and it has a precedent. Until sdk/v0.1.0 the
 // workspace carried a replace for an SDK version that had never been published,
@@ -195,7 +195,7 @@ func runGoIn(t *testing.T, directory string, environment []string, args ...strin
 // repository except this one: the relocation is defined by GOWORK=off, so it
 // resolves the SDK from the module proxy and cannot see the workspace at all.
 //
-// The window is narrow and self-closing. Bumping modules/reference/go.mod is
+// The window is narrow and self-closing. Bumping modules/example/go.mod is
 // what the SDK release gate compares its tag against, so the requirement has to
 // name the new version before the tag exists, and the tag makes it fetchable
 // moments later. What this skip buys is that the commit in between builds and
@@ -213,7 +213,7 @@ func skipUntilTheRequiredSDKIsPublished(t *testing.T, moduleDirectory string, en
 			return
 		}
 	}
-	t.Skipf("the reference module requires SDK %s, which is not published yet: "+
+	t.Skipf("the example module requires SDK %s, which is not published yet: "+
 		"relocation resolves the SDK from the module proxy, so it cannot be "+
 		"proven until the tag exists. Push sdk/%s to close this window.",
 		required, required)

@@ -156,6 +156,8 @@ A product module is released by pushing a tag in its own namespace, which is a
 separate release from the shell's and runs
 `.github/workflows/module-release.yml`. What that workflow publishes follows
 the same conventions as a shell release, with the module's own names.
+The `example` module is local only and is excluded from this workflow and the
+public catalog; use the [local setup guide](../guides/setup-example-module.md).
 
 ```text
 wso2-module-<namespace>-v<version>-<os>-<arch>.<extension>
@@ -200,7 +202,7 @@ nothing an SDK tag triggers publishes a module archive.
 The gate checks the tag names a semantic version, and refuses a major version
 of two or above because that needs a module path suffix `sdk/go.mod` does not
 declare. It then checks the tag against the SDK version this commit is built
-around, which is the version the reference module requires and the version a
+around, which is the version the example module requires and the version a
 scaffolded module is generated against: a tag that disagrees with it would
 publish an SDK nothing in this repository is built against. It then runs the boundaries tests and builds and tests the SDK with
 workspace composition disabled, which is what a consumer resolving a published
@@ -217,8 +219,8 @@ there is no withdrawing one.
 
 ### Releasing a version nothing is built against yet
 
-The gate compares the tag against the SDK version the reference module
-requires, so `modules/reference/go.mod` has to name the new version *before* the
+The gate compares the tag against the SDK version the example module
+requires, so `modules/example/go.mod` has to name the new version *before* the
 tag exists. Nothing can resolve that version until the tag is pushed, which
 leaves a window where the checkout requires a version the proxy cannot serve.
 Two things cover it, and both are narrow and self-closing.
@@ -263,7 +265,7 @@ Before anything is built or uploaded, the release decides whether the module
 can run on a shell that exists at all:
 
 ```sh
-go run ./cmd/wso2-module-release -tag reference/v4.5.0 -gate-only
+go run ./cmd/wso2-module-release -tag apim/v4.5.0 -gate-only
 ```
 
 A module is admitted when at least one module-contract protocol version it

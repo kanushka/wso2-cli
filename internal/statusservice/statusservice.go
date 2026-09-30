@@ -48,7 +48,7 @@ import (
 
 // StatusPath is the only path the service serves.
 //
-// The reference module repeats this path, the bearer scheme, and
+// The example module repeats this path, the bearer scheme, and
 // InvocationHeader rather than importing them: a product module cannot depend
 // on a shell package, so a service's call shape is knowledge a module carries
 // on its own. The duplication is the boundary being real.
@@ -76,7 +76,7 @@ const WhoamiPath = "/whoami"
 const InvocationHeader = "X-WSO2-Invocation-Id"
 
 // ServiceName is the service this fixture reports itself as.
-const ServiceName = "reference"
+const ServiceName = "example"
 
 // Options are the policy one service instance enforces.
 type Options struct {
@@ -159,12 +159,12 @@ func New(options Options) (*Service, error) {
 func (s *Service) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodGet {
 		s.fail(writer, http.StatusMethodNotAllowed, "method_not_allowed",
-			"the reference status service is read-only")
+			"the example status service is read-only")
 		return
 	}
 	if request.URL.Path != StatusPath && request.URL.Path != WhoamiPath {
 		s.fail(writer, http.StatusNotFound, "not_found",
-			"the reference status service serves "+StatusPath+" and "+WhoamiPath)
+			"the example status service serves "+StatusPath+" and "+WhoamiPath)
 		return
 	}
 
@@ -179,7 +179,7 @@ func (s *Service) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	// than the request being refused, and it fails every path alike.
 	if s.options.Fault {
 		s.fail(writer, http.StatusInternalServerError, "unavailable",
-			"the reference status service cannot read its status")
+			"the example status service cannot read its status")
 		return
 	}
 

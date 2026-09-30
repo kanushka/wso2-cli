@@ -94,11 +94,11 @@ const (
 
 // The shape of the document a live run installs.
 const (
-	// Namespace is the module the run brokers access for. The reference module
+	// Namespace is the module the run brokers access for. The example module
 	// is the only one this repository ships, and the broker's product checks
 	// are keyed by namespace.
-	Namespace = "reference"
-	// ModuleAudience is the logical name the reference module asks for access
+	Namespace = "example"
+	// ModuleAudience is the logical name the example module asks for access
 	// by, matching the constant compiled into it. It is deliberately not the
 	// deployment's own audience from AudienceVar.
 	//
@@ -108,7 +108,7 @@ const (
 	// live gate unable to fail on a broker that compared the two, which is a
 	// bug this suite has already had to catch once. The run asks by this name
 	// and proves the grant is bound to AudienceVar.
-	ModuleAudience = "reference-status"
+	ModuleAudience = "example-status"
 	// ContextName is the smoke context's name.
 	ContextName = "smoke"
 	// IdentityName is the smoke identity's name.

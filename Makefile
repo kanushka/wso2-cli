@@ -121,7 +121,7 @@ help:
 #
 # The namespace is the first word of every command the module will answer, so it
 # is refused when it is already taken, when a shell command owns it, when it is
-# the reference module's reserved namespace, or when it is not something a user
+# the example module's reserved namespace, or when it is not something a user
 # could type. See docs/guides/build-module-quickstart.md.
 .PHONY: new-module
 new-module:
@@ -138,7 +138,7 @@ endif
 # The executable is discarded because the question here is whether the module
 # compiles, not what it compiles to. Writing it would drop a binary named after
 # the module into whatever directory make was run from, which for every module
-# but the reference one is an untracked file in the developer's next git status.
+# but the example one is an untracked file in the developer's next git status.
 .PHONY: build-module
 build-module:
 ifndef NAMESPACE
@@ -235,7 +235,7 @@ endif
 # published. Two variables rather than one tag because NAMESPACE is already the
 # word this file uses for a module, and the tool wants the two joined:
 #
-#   make gate-module NAMESPACE=reference VERSION=v4.5.0-rc.1
+#   make gate-module NAMESPACE=apim VERSION=v4.5.0-rc.1
 #
 # See docs/reference/module-manifest.md (compatibility.protocolVersions).
 .PHONY: gate-module

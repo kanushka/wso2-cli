@@ -32,7 +32,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/statusservice"
 )
 
-// The isolated reference deployment every brokered run is exercised against.
+// The isolated example deployment every brokered run is exercised against.
 const (
 	// canaryCredential is the development credential the harness supplies. No
 	// run may disclose it anywhere a user or a log could see it.
@@ -40,10 +40,10 @@ const (
 	// credentialVariable is the environment variable the context names. Only
 	// the shell ever reads it.
 	credentialVariable    = "WSO2_REFERENCE_DEV_CREDENTIAL"
-	referenceContextName  = "reference-local"
-	referenceOrganization = "reference-org"
-	referenceAudience     = "reference-status"
-	referenceReadScope    = "reference:status:read"
+	referenceContextName  = "example-local"
+	referenceOrganization = "example-org"
+	referenceAudience     = "example-status"
+	referenceReadScope    = "example:status:read"
 )
 
 // The exit classes the shell owns. A broker denial and a product-service
@@ -58,13 +58,13 @@ const (
 // mirrors login_test.go's inline deployment, which proves the same identity
 // kind against an in-process shell; here it runs the built binary instead.
 const (
-	oauthIdentityName   = "reference-machine"
-	oauthClientID       = "wso2cli-reference"
+	oauthIdentityName   = "example-machine"
+	oauthClientID       = "wso2cli-example"
 	oauthSecretVariable = "WSO2_REFERENCE_CLIENT_SECRET"
 	// oauthClientSecret is a second canary. The issuer holds the client to it,
 	// so a run that succeeds could only have read it from the variable, and no
 	// surface the shell writes may contain it.
-	oauthClientSecret = "canary-reference-client-secret-4b71"
+	oauthClientSecret = "canary-example-client-secret-4b71"
 )
 
 // credentialKind is how a deployment's shell obtains the access it hands the
@@ -92,7 +92,7 @@ func (k credentialKind) String() string {
 // holds only for the fixture credential is not a boundary.
 var bothCredentialKinds = []credentialKind{developmentCredential, issuerMinted}
 
-// installation is what varies between one deployed reference installation and
+// installation is what varies between one deployed example installation and
 // another: how the shell obtains access, what the service enforces, and how the
 // issuer behaves when there is one.
 type installation struct {
@@ -105,7 +105,7 @@ type installation struct {
 	serviceIssuer string
 }
 
-// deployment is one isolated reference installation: the module, the context,
+// deployment is one isolated example installation: the module, the context,
 // and the local status service it targets.
 type deployment struct {
 	stateRoot string
@@ -124,7 +124,7 @@ func deploy(t *testing.T, options statusservice.Options) deployment {
 	return deployAs(t, installation{service: options})
 }
 
-// deployAs installs the reference module, starts the local status service, and
+// deployAs installs the example module, starts the local status service, and
 // writes the context that points one at the other, for either credential kind.
 func deployAs(t *testing.T, install installation) deployment {
 	t.Helper()
@@ -182,7 +182,7 @@ func withoutVariable(environment []string, name string) []string {
 }
 
 // deployInstalled starts the status service and writes the development-credential
-// context for a state root whose reference module is already installed, so a
+// context for a state root whose example module is already installed, so a
 // test that installs its own build of the module still deploys it the one way.
 func deployInstalled(t *testing.T, stateRoot string, options statusservice.Options) deployment {
 	t.Helper()
@@ -211,7 +211,7 @@ func installOAuthContext(t *testing.T, stateRoot, issuerURL, endpoint string) {
 		DefaultContext: referenceContextName,
 
 		Contexts: []contexts.Context{{Name: referenceContextName, Type: "cloud", Login: contexts.Login{Kind: contexts.KindClientCredentials, Issuer: issuerURL, ClientID: oauthClientID, Tenant: referenceOrganization, ClientSecretVariable: oauthSecretVariable}, Organization: referenceOrganization, Products: map[string]contexts.Product{
-			"reference": {
+			"example": {
 				Endpoint: endpoint,
 				Audience: referenceAudience,
 				Scopes:   []string{referenceReadScope},
@@ -292,7 +292,7 @@ func installReferenceContext(t *testing.T, stateRoot, endpoint, credentialSource
 			},
 		}},
 	}); err != nil {
-		t.Fatalf("installing the reference context: %v", err)
+		t.Fatalf("installing the example context: %v", err)
 	}
 }
 
@@ -307,7 +307,7 @@ func TestBrokeredReferenceStatusReportsTheServicesOwnAnswer(t *testing.T) {
 			shell := buildShell(t)
 			deployed := deployAs(t, installation{kind: kind})
 
-			stdout, stderr := deployed.run(t, shell, "reference", "call")
+			stdout, stderr := deployed.run(t, shell, "example", "call")
 
 			if deployed.calls.Load() != 1 {
 				t.Fatalf("the status service was called %d times, want once", deployed.calls.Load())
@@ -334,7 +334,7 @@ func TestBrokeredReferenceStatusRendersTheServicesAnswerAsJSON(t *testing.T) {
 			shell := buildShell(t)
 			deployed := deployAs(t, installation{kind: kind})
 
-			stdout, stderr := deployed.run(t, shell, "reference", "call", "--output", "json")
+			stdout, stderr := deployed.run(t, shell, "example", "call", "--output", "json")
 
 			decoded := decodeStatusJSON(t, stdout)
 			if decoded["organization"] != referenceOrganization {
@@ -362,7 +362,7 @@ func TestAMissingCredentialIsDeniedWithSafeRecoveryGuidance(t *testing.T) {
 	deployed := deploy(t, statusservice.Options{})
 	installReferenceContext(t, deployed.stateRoot, deployed.service.URL, "WSO2_REFERENCE_ABSENT_CREDENTIAL")
 
-	stdout, stderr, err := tryShell(shell, deployed.stateRoot, "reference", "call")
+	stdout, stderr, err := tryShell(shell, deployed.stateRoot, "example", "call")
 
 	if exitCode(t, err) != exitAuthPolicy {
 		t.Fatalf("exit status = %v, want the authentication class %d\nstderr:\n%s", err, exitAuthPolicy, stderr)
@@ -392,7 +392,7 @@ func TestAnUndeclaredAudienceIsDenied(t *testing.T) {
 	shell := buildShell(t)
 	stateRoot := isolatedStateRoot(t)
 	if _, err := fixture.Install(state.ModuleStore(stateRoot), fixture.Module{
-		Namespace:        "reference",
+		Namespace:        "example",
 		Version:          testModuleVersion,
 		ShellRange:       ">=0.1.0 <1.0.0",
 		ProtocolVersions: []int{testProtocolVersionNumber},
@@ -404,7 +404,7 @@ func TestAnUndeclaredAudienceIsDenied(t *testing.T) {
 	service := startStatusService(t, statusservice.Options{})
 	installReferenceContext(t, stateRoot, service.server.URL, credentialVariable)
 
-	stdout, stderr, err := tryShell(shell, stateRoot, "reference", "call")
+	stdout, stderr, err := tryShell(shell, stateRoot, "example", "call")
 
 	if exitCode(t, err) != exitAuthPolicy {
 		t.Fatalf("exit status = %v, want the authentication class %d\nstderr:\n%s", err, exitAuthPolicy, stderr)
@@ -427,20 +427,20 @@ func TestAnExcessiveScopeIsDenied(t *testing.T) {
 	shell := buildShell(t)
 	stateRoot := isolatedStateRoot(t)
 	if _, err := fixture.Install(state.ModuleStore(stateRoot), fixture.Module{
-		Namespace:        "reference",
+		Namespace:        "example",
 		Version:          testModuleVersion,
 		ShellRange:       ">=0.1.0 <1.0.0",
 		ProtocolVersions: []int{testProtocolVersionNumber},
 		SourcePath:       buildReferenceModule(t),
 		AuthAudiences:    []string{referenceAudience},
-		AuthScopes:       []string{"reference:status:write"},
+		AuthScopes:       []string{"example:status:write"},
 	}); err != nil {
 		t.Fatalf("fixture.Install returned %v", err)
 	}
 	service := startStatusService(t, statusservice.Options{})
 	installReferenceContext(t, stateRoot, service.server.URL, credentialVariable)
 
-	stdout, stderr, err := tryShell(shell, stateRoot, "reference", "call")
+	stdout, stderr, err := tryShell(shell, stateRoot, "example", "call")
 
 	if exitCode(t, err) != exitAuthPolicy {
 		t.Fatalf("exit status = %v, want the authentication class %d\nstderr:\n%s", err, exitAuthPolicy, stderr)
@@ -469,13 +469,13 @@ func TestExpiredAccessIsRefusedByTheService(t *testing.T) {
 				},
 			})
 
-			stdout, stderr, err := expired.try(shell, "reference", "call")
+			stdout, stderr, err := expired.try(shell, "example", "call")
 
 			if exitCode(t, err) != exitProductService {
 				t.Fatalf("exit status = %v, want the product-service class %d\nstderr:\n%s",
 					err, exitProductService, stderr)
 			}
-			if !strings.Contains(stderr, "reference.status_access_rejected") {
+			if !strings.Contains(stderr, "example.status_access_rejected") {
 				t.Errorf("stderr does not report the refused access:\n%s", stderr)
 			}
 			if stdout != "" {
@@ -495,13 +495,13 @@ func TestAFailingServiceAndADeniedRequestEndInDifferentExitClasses(t *testing.T)
 			shell := buildShell(t)
 			faulty := deployAs(t, installation{kind: kind, service: statusservice.Options{Fault: true}})
 
-			stdout, stderr, err := faulty.try(shell, "reference", "call")
+			stdout, stderr, err := faulty.try(shell, "example", "call")
 
 			if exitCode(t, err) != exitProductService {
 				t.Fatalf("exit status = %v, want the product-service class %d\nstderr:\n%s",
 					err, exitProductService, stderr)
 			}
-			if !strings.Contains(stderr, "reference.status_unavailable") {
+			if !strings.Contains(stderr, "example.status_unavailable") {
 				t.Errorf("stderr does not report the service failure:\n%s", stderr)
 			}
 			if strings.Contains(stderr, "auth.") {
@@ -528,13 +528,13 @@ func TestAServiceThatRejectsTheAccessClaimsIsReported(t *testing.T) {
 	shell := buildShell(t)
 	foreign := deploy(t, statusservice.Options{Organization: "another-organization"})
 
-	stdout, stderr, err := tryShell(shell, foreign.stateRoot, "reference", "call")
+	stdout, stderr, err := tryShell(shell, foreign.stateRoot, "example", "call")
 
 	if exitCode(t, err) != exitProductService {
 		t.Fatalf("exit status = %v, want the product-service class %d\nstderr:\n%s",
 			err, exitProductService, stderr)
 	}
-	if !strings.Contains(stderr, "reference.status_access_rejected") {
+	if !strings.Contains(stderr, "example.status_access_rejected") {
 		t.Errorf("stderr does not report the refused claims:\n%s", stderr)
 	}
 	assertNoCredentialDisclosure(t, stdout, stderr)
@@ -554,7 +554,7 @@ func TestTheModuleEnvironmentCarriesNoAmbientCredential(t *testing.T) {
 			installNoisyModule(t, deployed.stateRoot)
 			writeControlFile(t, deployed.stateRoot, "report-environment", "")
 
-			stdout, stderr := deployed.run(t, shell, "reference", "status")
+			stdout, stderr := deployed.run(t, shell, "example", "status")
 
 			const prefix = "module-environment: "
 			if !strings.Contains(stderr, prefix) {
@@ -589,7 +589,7 @@ func TestTheModulesIssuerMintedAccessIsAcceptedByAVerifyingService(t *testing.T)
 	shell := buildShell(t)
 	deployed := deployAs(t, installation{kind: issuerMinted})
 
-	stdout, stderr := deployed.run(t, shell, "reference", "call")
+	stdout, stderr := deployed.run(t, shell, "example", "call")
 
 	if deployed.calls.Load() != 1 {
 		t.Fatalf("the status service was called %d times, want once", deployed.calls.Load())
@@ -630,13 +630,13 @@ func TestAccessFromAnotherOrganizationsIssuerIsRefused(t *testing.T) {
 	foreign := fakeissuer.New(t, fakeissuer.Options{Audience: referenceAudience})
 	deployed := deployAs(t, installation{kind: issuerMinted, serviceIssuer: foreign.URL})
 
-	stdout, stderr, err := deployed.try(shell, "reference", "call")
+	stdout, stderr, err := deployed.try(shell, "example", "call")
 
 	if exitCode(t, err) != exitProductService {
 		t.Fatalf("exit status = %v, want the product-service class %d\nstderr:\n%s",
 			err, exitProductService, stderr)
 	}
-	if !strings.Contains(stderr, "reference.status_access_rejected") {
+	if !strings.Contains(stderr, "example.status_access_rejected") {
 		t.Errorf("stderr does not report the refused access:\n%s", stderr)
 	}
 	if stdout != "" {
@@ -654,13 +654,13 @@ func TestAccessNamingAnotherOrganizationIsRefused(t *testing.T) {
 		issuer: fakeissuer.Options{OrganizationClaim: "another-organization"},
 	})
 
-	stdout, stderr, err := deployed.try(shell, "reference", "call")
+	stdout, stderr, err := deployed.try(shell, "example", "call")
 
 	if exitCode(t, err) != exitProductService {
 		t.Fatalf("exit status = %v, want the product-service class %d\nstderr:\n%s",
 			err, exitProductService, stderr)
 	}
-	if !strings.Contains(stderr, "reference.status_access_rejected") {
+	if !strings.Contains(stderr, "example.status_access_rejected") {
 		t.Errorf("stderr does not report the refused access:\n%s", stderr)
 	}
 	if stdout != "" {
@@ -690,7 +690,7 @@ func TestAccessNamingThisOrganizationIsAccepted(t *testing.T) {
 		issuer: fakeissuer.Options{OrganizationClaim: referenceOrganization},
 	})
 
-	stdout, stderr := deployed.run(t, shell, "reference", "call")
+	stdout, stderr := deployed.run(t, shell, "example", "call")
 
 	if !strings.Contains(stdout, "operational") {
 		t.Errorf("the table does not report the service's answer:\n%s", stdout)

@@ -17,12 +17,12 @@
 // Command noisymodule is a conforming module that misbehaves on purpose, used
 // by the shell's acceptance tests.
 //
-// The reference module has nothing to warn about and never fails, so it cannot
+// The example module has nothing to warn about and never fails, so it cannot
 // demonstrate that structured output survives a talkative module or that the
 // shell reports a module which answers and then exits uncleanly. This one
 // writes to standard error before and after returning its result, and claims
 // the same namespace and version, so the shell resolves and launches it exactly
-// as it would the reference module.
+// as it would the example module.
 //
 // It is steered by files placed beside its own executable rather than by
 // arguments or environment variables, because the shell launches a module with
@@ -68,7 +68,7 @@ var moduleVersion = "0.0.0-dev"
 
 func main() {
 	err := module.Serve(context.Background(),
-		module.Options{Namespace: "reference", Version: moduleVersion},
+		module.Options{Namespace: "example", Version: moduleVersion},
 		module.Command{Path: []string{"status"}, Run: status})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "noisymodule: %v\n", err)
@@ -101,9 +101,9 @@ func status(_ context.Context, _ module.Request) (result.Result, error) {
 		}
 	}
 	fmt.Fprintln(os.Stderr, "a diagnostic from the module")
-	produced := result.New("reference.status/v1").
-		With("organization", "Organization", "reference-org").
-		With("service", "Service", "reference").
+	produced := result.New("example.status/v1").
+		With("organization", "Organization", "example-org").
+		With("service", "Service", "example").
 		With("status", "Status", "operational").
 		With("checkedAt", "Checked at", time.Now().UTC().Format(time.RFC3339))
 	fmt.Fprintln(os.Stderr, "a second diagnostic from the module")

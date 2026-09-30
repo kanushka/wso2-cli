@@ -65,7 +65,7 @@ func seedDerivedDeployment(t *testing.T, login, target fakeissuer.Options) deriv
 	targetIssuer := fakeissuer.New(t, target)
 	root := t.TempDir()
 	seeded := loginIssuer.SeedSession([]string{"openid", "groups", "reference:status:read"})
-	if err := (session.Store{StateRoot: root}).Save(contexts.ProductSessionRef(sessionRef, "reference"),
+	if err := (session.Store{StateRoot: root}).Save(contexts.ProductSessionRef(sessionRef, "example"),
 		session.Session{Issuer: loginIssuer.URL, RefreshToken: seeded}); err != nil {
 		t.Fatalf("seeding the stored session: %v", err)
 	}
@@ -97,7 +97,7 @@ func (d derivedDeployment) broker(t *testing.T) *auth.Broker {
 
 func (d derivedDeployment) storedSession(t *testing.T) session.Session {
 	t.Helper()
-	stored, err := session.Store{StateRoot: d.stateRoot}.Load(contexts.ProductSessionRef(sessionRef, "reference"))
+	stored, err := session.Store{StateRoot: d.stateRoot}.Load(contexts.ProductSessionRef(sessionRef, "example"))
 	if err != nil {
 		t.Fatalf("loading the stored session: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestASessionThatYieldsNoIdentityTokenIsRefused(t *testing.T) {
 	deployment := seedDerivedDeployment(t, fakeissuer.Options{RefreshScopeMode: "ignore"}, fakeissuer.Options{})
 	withoutOpenID := deployment.login.SeedSession([]string{"groups", "reference:status:read"})
 	if err := (session.Store{StateRoot: deployment.stateRoot}).Save(
-		contexts.ProductSessionRef(sessionRef, "reference"),
+		contexts.ProductSessionRef(sessionRef, "example"),
 		session.Session{Issuer: deployment.login.URL, RefreshToken: withoutOpenID}); err != nil {
 		t.Fatalf("reseeding: %v", err)
 	}

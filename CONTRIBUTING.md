@@ -11,11 +11,11 @@ supporting public-source research.
 ## Building and testing
 
 The repository contains three independently buildable Go modules: the shell at
-the repository root, the public SDK in `sdk/`, and the reference module in
-`modules/reference/`. `go.work` composes them from source for local development.
-The SDK version required by the reference module is published, so the workspace
+the repository root, the public SDK in `sdk/`, and the example module in
+`modules/example/`. `go.work` composes them from source for local development.
+The SDK version required by the example module is published, so the workspace
 currently has no `replace` directive. During an SDK release, one temporary
-workspace replacement may be needed while the reference module requires a
+workspace replacement may be needed while the example module requires a
 version that has not been published yet. See
 [release artifacts](docs/reference/release-artifacts.md) for that procedure.
 Committed `replace` directives are prohibited in every
@@ -40,7 +40,7 @@ A second gate proves the older half of the protocol window:
 ```
 
 It resolves the newest published SDK whose protocol generation is the
-predecessor of this branch's, builds the reference module against that SDK
+predecessor of this branch's, builds the example module against that SDK
 with the workspace dropped, and launches it under the shell built from this
 checkout. That is the dependency graph a released module has, and it is the
 one graph nothing else here reproduces. It needs a reachable module proxy;
@@ -74,7 +74,7 @@ While working on one module, run that module alone:
 go build ./...                      # shell
 go test ./...                       # shell, including acceptance tests
 (cd sdk && GOWORK=off go test ./...)  # SDK without workspace composition
-(cd modules/reference && go test ./...)  # reference module
+(cd modules/example && go test ./...)  # example module
 ```
 
 The shell, protocol, SDK, and module versions move independently and are
@@ -87,9 +87,9 @@ injecting `internal/version.protocolVersion`.
 go build -ldflags "\
   -X github.com/wso2/wso2-cli/internal/version.shellVersion=0.1.0" ./cmd/wso2
 
-cd modules/reference && go build -ldflags "\
+cd modules/example && go build -ldflags "\
   -X main.moduleVersion=0.1.0 \
-  -X github.com/wso2/wso2-cli/sdk/module.SDKVersion=0.1.0" ./cmd/wso2-module-reference
+  -X github.com/wso2/wso2-cli/sdk/module.SDKVersion=0.1.0" ./cmd/wso2-module-example
 ```
 
 A release build also injects `internal/catalog.releasedIndex`: the published
@@ -142,7 +142,7 @@ version this repository does not build against.
 The namespace is the first word of every command the module will answer, so it
 is refused when another module already declares it, when a shell command owns it
 — such a module could never be reached, because the shell resolves its own
-commands first — when it is the reference module's reserved namespace, or when
+commands first — when it is the example module's reserved namespace, or when
 it is not something a user could type. Nothing is written when a namespace is
 refused.
 

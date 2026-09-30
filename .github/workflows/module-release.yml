@@ -4,7 +4,8 @@ name: Module release
 # its own namespace, and nothing publishes from a branch. The SDK's own tags
 # share the prefixed shape, so the gate excludes them and every later job is
 # excluded with it: the SDK is not a product module and publishes no module
-# archives.
+# archives. The local example module and historical demonstration-module
+# tags are excluded too.
 on:
   push:
     tags:
@@ -37,7 +38,7 @@ jobs:
   # correct.
   gate:
     name: Release gate
-    if: ${{ !startsWith(github.ref_name, 'sdk/') }}
+    if: ${{ !startsWith(github.ref_name, 'sdk/') && !startsWith(github.ref_name, 'example/') && !startsWith(github.ref_name, 'reference/') }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository

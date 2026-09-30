@@ -63,7 +63,7 @@ func TestLegacyReadMapsToSyntheticIdentity(t *testing.T) {
 	if identity.Auth.CredentialVariable != "WSO2_REFERENCE_DEV_CREDENTIAL" {
 		t.Fatalf("credential variable = %q", identity.Auth.CredentialVariable)
 	}
-	if identity.Products["reference"].Endpoint != "https://service.example.test" {
+	if identity.Products["example"].Endpoint != "https://service.example.test" {
 		t.Fatalf("products = %+v", identity.Products)
 	}
 	if selection.Context.Organization != "reference-org" {

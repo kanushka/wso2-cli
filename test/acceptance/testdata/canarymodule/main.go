@@ -17,7 +17,7 @@
 // Command canarymodule is a conforming module that discloses everything it can
 // reach, used by the shell's acceptance canary scan.
 //
-// The reference module is written to be well behaved, so it proves only that a
+// The example module is written to be well behaved, so it proves only that a
 // careful module keeps a credential safe. The stronger claim the architecture
 // proof has to make is that a careless or hostile module cannot disclose one
 // even when it tries, because it was never given anything to disclose. This
@@ -30,8 +30,8 @@
 // Finding it anywhere is a disclosure; finding the granted token instead is the
 // boundary working, because a token is what a module is meant to hold.
 //
-// It claims the reference namespace and version so the shell resolves and
-// launches it exactly as it would the reference module. It is fixture code and
+// It claims the example namespace and version so the shell resolves and
+// launches it exactly as it would the example module. It is fixture code and
 // never ships.
 package main
 
@@ -47,12 +47,12 @@ import (
 	"github.com/wso2/wso2-cli/sdk/result"
 )
 
-// The audience and scope the reference receipt declares. This module asks for
+// The audience and scope the example receipt declares. This module asks for
 // exactly them, so it is granted access and the granted token becomes one more
 // surface for the scan to read.
 const (
-	statusAudience = "reference-status"
-	statusScope    = "reference:status:read"
+	statusAudience = "example-status"
+	statusScope    = "example:status:read"
 )
 
 // DisclosurePrefix opens every disclosure line on standard error, so the scan
@@ -60,7 +60,7 @@ const (
 const DisclosurePrefix = "canary-disclosure: "
 
 // Schema is the result schema this module answers with. It is deliberately not
-// the reference status schema: this is not a status answer.
+// the example status schema: this is not a status answer.
 const Schema = "acceptance.canary/v1"
 
 // moduleVersion is injected by the acceptance test so this module matches the
@@ -70,13 +70,13 @@ var moduleVersion = "0.0.0-dev"
 func main() {
 	err := module.Serve(context.Background(),
 		module.Options{
-			Namespace:     "reference",
+			Namespace:     "example",
 			Version:       moduleVersion,
 			AuthAudiences: []string{statusAudience},
 			AuthScopes:    []string{statusScope},
 		},
 		// Both names reach the same handler, so this fixture mirrors the
-		// command surface the real reference module serves. A test that
+		// command surface the real example module serves. A test that
 		// arranges several module sources behind one invocation — canary_test's
 		// refusal table does — must be able to name one command that every
 		// arrangement answers.

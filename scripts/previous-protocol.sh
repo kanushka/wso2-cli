@@ -20,7 +20,7 @@
 #
 # The older half of the protocol window is a promise to users who have not
 # updated the shell yet, and nothing in this repository breaks visibly when it
-# is broken: the reference module in this checkout is always built against the
+# is broken: the example module in this checkout is always built against the
 # SDK at head, so it always speaks the current protocol. This gate is the one
 # run that reproduces a released module's dependency graph instead — the
 # workspace dropped, the SDK resolved by version from the module proxy — and
@@ -212,24 +212,24 @@ if [ -z "$resolved" ]; then
 fi
 printf 'Resolved SDK %s for protocol v%s.\n' "$resolved" "$previous"
 
-# 4. Build the reference module against that published SDK with the workspace
+# 4. Build the example module against that published SDK with the workspace
 #    dropped, in a copy outside the workspace. The require is edited rather
 #    than committed because the committed graph is the local one: the module
 #    depends on the SDK version that does not exist yet, and this is the run
 #    that substitutes one that does.
-stage "Build the reference module against SDK $resolved"
+stage "Build the example module against SDK $resolved"
 # The copy is of the working tree rather than of HEAD, so a contributor who
 # runs this gate on an uncommitted change is told about that change.
 module_source="$work/module"
-cp -R modules/reference "$module_source"
-module_binary="$work/wso2-module-reference"
+cp -R modules/example "$module_source"
+module_binary="$work/wso2-module-example"
 (
 	cd "$module_source"
 	GOWORK=off go mod edit -require "github.com/wso2/wso2-cli/sdk@$resolved"
 	GOWORK=off GOFLAGS=-mod=mod go mod tidy
-	GOWORK=off go build -o "$module_binary" ./cmd/wso2-module-reference
+	GOWORK=off go build -o "$module_binary" ./cmd/wso2-module-example
 ) || {
-	printf '\nFAILED: the reference module does not build against SDK %s, '\
+	printf '\nFAILED: the example module does not build against SDK %s, '\
 		"$resolved"
 	printf 'which is the\npublished SDK speaking protocol v%s.\n' "$previous"
 	exit 1
@@ -247,7 +247,7 @@ WSO2_PREVIOUS_PROTOCOL_MODULE="$module_binary" \
 	-run '^TestAModuleBuiltAgainstThePreviousProtocolSDKRunsUnderThisShell$' \
 	>"$work/conformance.log" 2>&1 || {
 	cat "$work/conformance.log"
-	printf '\nFAILED: protocol v%s is broken. A reference module built against '\
+	printf '\nFAILED: protocol v%s is broken. An example module built against '\
 		"$previous"
 	printf 'SDK %s,\nthe published SDK speaking protocol v%s, does not run under '\
 		"$resolved" "$previous"
@@ -266,6 +266,6 @@ if ! grep -q -- '--- PASS: TestAModuleBuiltAgainstThePreviousProtocolSDKRunsUnde
 	exit 1
 fi
 
-printf '\nPASSED: protocol v%s holds. The reference module built against SDK %s '\
+printf '\nPASSED: protocol v%s holds. The example module built against SDK %s '\
 	"$previous" "$resolved"
 printf 'runs\nunder the shell built from this branch.\n'

@@ -2,14 +2,16 @@
 
 This guide registers the CLI in an Asgardeo organization, creates a context
 for it, and logs in. The examples use the organization `acme` and the
-`reference` product. For every field a
+`example` product. For every field a
 context can hold, see the [context file reference](../reference/context-file.md).
 The commands below use `ws`, the default name of a released CLI.
 
-Install the reference module from this checkout with the
+Install the example module from this checkout with the
 [local setup guide](setup-example-module.md). From the repository root, run
 `export PATH="$PWD/bin:$PATH"` in the same terminal so the `ws` commands below
-use that build. Keep the `WSO2_HOME` value from the local setup guide.
+use that build. The local setup guide removes its temporary store when it finishes. For these
+steps, set `WSO2_HOME` to a directory you want to keep and run
+`make install-module NAMESPACE=example` from the repository root.
 
 The linked Asgardeo documentation now uses WSO2 Identity Platform branding.
 Console labels may differ from those shown below.
@@ -40,7 +42,7 @@ In the Asgardeo Console, for your organization:
 ## 2. Add the API resource
 
 1. Go to **API Resources → New API Resource**. Set the identifier to
-   `reference-status` and add the scope `reference:status:read`.
+   `example-status` and add the scope `example:status:read`.
 2. **Requires authorization** can't be changed later. If you leave it
    checked, users get the scopes only through a role (step 3).
 3. In **Applications → WSO2 CLI → Authorization**, authorize the resource and
@@ -74,8 +76,8 @@ Or pass flags:
 ws context create acme \
   --issuer https://api.asgardeo.io/t/acme/oauth2/token \
   --client-id <client-id> --provider asgardeo --use
-ws context product add reference --url https://api.asgardeo.io \
-  --audience <client-id> --scopes reference:status:read
+ws context product add example --url https://api.asgardeo.io \
+  --audience <client-id> --scopes example:status:read
 ```
 
 The issuer must match the `issuer` value in
@@ -95,14 +97,14 @@ login:
   clientId: REPLACE_WITH_YOUR_CLIENT_ID
   tenant: acme
   provider: asgardeo
-  product: reference
+  product: example
 organization: acme
 products:
-  reference:
+  example:
     url: https://api.asgardeo.io
     audience: REPLACE_WITH_YOUR_CLIENT_ID
     scopes:
-      - reference:status:read
+      - example:status:read
 ```
 
 ## 5. Log in and check
@@ -110,7 +112,7 @@ products:
 ```sh
 ws login
 ws whoami
-ws reference status
+ws example status
 ```
 
 `ws login` opens the browser and prints the authorization URL on standard
@@ -135,9 +137,9 @@ CI uses a client-credentials context and doesn't run `ws login`.
    ws context create acme-ci \
      --issuer https://api.asgardeo.io/t/acme/oauth2/token \
      --client-id <m2m-client-id> --client-secret-variable WSO2_ACME_CI_SECRET
-   ws context product add reference --context acme-ci \
+   ws context product add example --context acme-ci \
      --url https://api.asgardeo.io --audience <m2m-client-id> \
-     --scopes reference:status:read
+     --scopes example:status:read
    ```
 
 3. In the job, set `WSO2_CONTEXT=acme-ci`, `WSO2_NO_INPUT=1`, and
@@ -152,7 +154,7 @@ file the job applies with `ws context apply -f context.yaml --use acme-ci`.
 | Error | Fix |
 | --- | --- |
 | `auth.discovery_failed` | The issuer doesn't match the discovery document exactly, or PKCE isn't set to **Mandatory**. If all four callback ports are busy, free one. |
-| `auth.narrowing_unavailable` naming the audience | Set the product's audience to the client ID: `ws context product add reference --url <url> --audience <client-id> --replace`. |
+| `auth.narrowing_unavailable` naming the audience | Set the product's audience to the client ID: `ws context product add example --url <url> --audience <client-id> --replace`. |
 | `auth.narrowing_unavailable` naming permissions | The user holds no role with the scopes (step 3), or the token type isn't **JWT**. |
 | `auth.product_not_configured` | The context doesn't record the product or one of its scopes. Run `ws context product add`. |
 | `auth.login_required` | The session expired or was revoked. Run `ws login`. |

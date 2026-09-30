@@ -21,11 +21,11 @@
 // about its identity, require a capability the shell has never heard of, or put
 // a damaged frame on the wire. Those are exactly the failures the shell has to
 // survive, so this module writes its own frames instead. It is fixture code and
-// never ships: nothing in the shell, the SDK, or the reference module depends
+// never ships: nothing in the shell, the SDK, or the example module depends
 // on it.
 //
-// It claims the reference namespace and version so the shell resolves and
-// launches it exactly as it would the reference module. Which fault it injects
+// It claims the example namespace and version so the shell resolves and
+// launches it exactly as it would the example module. Which fault it injects
 // comes from a control file named "fault" beside its own executable, because
 // the shell passes a module no arguments and sanitizes its environment to
 // nothing. Writing that file also leaves the executable's bytes unchanged, so
@@ -51,7 +51,7 @@ import (
 // control file that selects it.
 const (
 	// FaultNone answers correctly. It is the control case that proves a
-	// hand-written module reaches the same success as the reference module,
+	// hand-written module reaches the same success as the example module,
 	// so a failing assertion elsewhere is about the injected fault.
 	FaultNone = ""
 	// FaultNamespaceMismatch reports a namespace the receipt does not name.
@@ -112,7 +112,7 @@ const (
 const FloodBytes = 512 << 10
 
 // CapabilityName is the capability FaultRequiredCapability demands.
-const CapabilityName = "reference.streaming"
+const CapabilityName = "example.streaming"
 
 // ImpostorNamespace and ImpostorVersion are the identity the mismatch faults
 // report. Neither can match a receipt this module is installed under.
@@ -188,7 +188,7 @@ func run(fault string) error {
 // sendHello opens the handshake, stating an identity or capability set the
 // selected fault has corrupted.
 func sendHello(writer *protocol.Writer, fault string) error {
-	identity := &contractv1.ModuleIdentity{Namespace: "reference", Version: moduleVersion}
+	identity := &contractv1.ModuleIdentity{Namespace: "example", Version: moduleVersion}
 	hello := &contractv1.Hello{
 		Module:           identity,
 		ProtocolVersions: protocol.EncodeVersions(protocol.Supported()),
@@ -335,15 +335,15 @@ func frame(payload []byte) []byte {
 	return append(prefix[:written], payload...)
 }
 
-// statusResult is the terminal message a conforming reference status returns.
+// statusResult is the terminal message a conforming example status returns.
 func statusResult(invocationID string) *contractv1.Envelope {
 	return &contractv1.Envelope{
 		InvocationId: invocationID,
 		Message: &contractv1.Envelope_Result{Result: &contractv1.Result{
-			Schema: "reference.status/v1",
+			Schema: "example.status/v1",
 			Fields: []*contractv1.ResultField{
-				{Name: "organization", Label: "Organization", Value: "reference-org"},
-				{Name: "service", Label: "Service", Value: "reference"},
+				{Name: "organization", Label: "Organization", Value: "example-org"},
+				{Name: "service", Label: "Service", Value: "example"},
 				{Name: "status", Label: "Status", Value: "operational"},
 				{Name: "checkedAt", Label: "Checked at", Value: time.Now().UTC().Format(time.RFC3339)},
 			},

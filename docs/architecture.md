@@ -270,7 +270,11 @@ separate the three:
 - a module uses `<namespace>/v<version>` and may carry its product's own
   version scheme. Build metadata is refused.
 
-A module tag push runs the release gate, builds one archive per platform,
+The `example` module stays in `modules/example/` for local setup and contract
+tests. Its declaration and tags are excluded from the public catalog and
+release workflow. See [local setup](guides/setup-example-module.md).
+
+A product module tag push runs the release gate, builds one archive per platform,
 publishes them to GitHub Releases, regenerates the catalog from every module
 tag, and deploys it. Generation is deterministic. A release is refused when
 the module's protocol versions do not intersect what the released shell
@@ -433,7 +437,7 @@ about which shells can launch the module.
 
 The shell supports the current protocol and its predecessor. The window is
 declared once, in `sdk/protocol`; the shell and the release gate both read
-it. The `previous-protocol` pull-request check builds the reference module
+it. The `previous-protocol` pull-request check builds the example module
 against the published SDK for the older protocol and launches it under the
 branch's shell.
 
@@ -451,7 +455,7 @@ Platform   darwin/arm64
 
 Installed modules
 NAME        VERSION   PLATFORM
-reference   v0.1.0    darwin/arm64
+example     v0.1.0    darwin/arm64
 ```
 
 `ws version` reads receipts only: it launches no module and opens no
@@ -477,7 +481,7 @@ column, because there is no publisher or revocation state to report.
 ├── modules/
 │   ├── apim/
 │   ├── iam/
-│   └── reference/          proves the contract; not a product
+│   └── example/          proves the contract; not a product
 ├── sdk/                    public Go module: module, cobratree,
 │                           commandtree, problem, result, proto, protocol,
 │                           testkit
@@ -531,7 +535,7 @@ one with global initialization.
 - **Acceptance tests** (`make acceptance`, `test/acceptance`): the built
   shell against built modules: install from a fixture catalog, declared
   trees, broker behavior, fail-closed handshakes, canary secrets.
-- **Previous-protocol check**: the reference module built against the
+- **Previous-protocol check**: the example module built against the
   published SDK and launched by the branch's shell.
 - **Smoke and empirical runs** (`test/smoke`, build tag `smoke`): live
   login, device login, logout, and CI runs against real Asgardeo and

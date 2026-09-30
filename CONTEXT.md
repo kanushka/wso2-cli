@@ -19,7 +19,7 @@ _Avoid_: Plugin, extension
 The unique top-level command name assigned to one product module.
 _Avoid_: Module name, command prefix
 
-**Reference module**:
+**Example module**:
 A non-product module used only to prove and test the shell, SDK, and module
 contract before a real product is migrated.
 _Avoid_: Pilot module, Agent module

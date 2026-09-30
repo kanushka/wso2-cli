@@ -23,11 +23,11 @@ import (
 	"github.com/wso2/wso2-cli/internal/statusservice"
 )
 
-// whoamiFields are the semantic fields the reference whoami result carries, in
+// whoamiFields are the semantic fields the example whoami result carries, in
 // the order both renderings must follow.
 var whoamiFields = []string{"organization", "audiences", "scopes", "invocation", "boundTo", "expiresAt"}
 
-// The whoami command is the reference module's second command. Where status
+// The whoami command is the example module's second command. Where status
 // proves that brokered access works, whoami proves what that access is: these
 // runs read the claims back from the audience that verified them, which is the
 // only account of the hand-off neither the shell nor the module can fake.
@@ -36,12 +36,12 @@ func TestReferenceWhoamiReportsTheBrokeredAccess(t *testing.T) {
 	shell := buildShell(t)
 	stateRoot := deploy(t, statusservice.Options{}).stateRoot
 
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "whoami")
+	stdout, stderr := runShell(t, shell, stateRoot, "example", "whoami")
 
 	// The audience and scope are the ones the module declared and the shell
 	// granted. Reading them back from the service proves the token the module
 	// presented actually carried them.
-	for _, want := range []string{"AUDIENCES", "SCOPES", "reference-status", "reference:status:read"} {
+	for _, want := range []string{"AUDIENCES", "SCOPES", "example-status", "example:status:read"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("the table does not contain %q:\n%s", want, stdout)
 		}
@@ -55,7 +55,7 @@ func TestReferenceWhoamiRendersDeterministicJSON(t *testing.T) {
 	shell := buildShell(t)
 	stateRoot := deploy(t, statusservice.Options{}).stateRoot
 
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "whoami", "--output", "json")
+	stdout, stderr := runShell(t, shell, stateRoot, "example", "whoami", "--output", "json")
 
 	decoded := decodeStatusJSON(t, stdout)
 	for _, field := range whoamiFields {
@@ -111,7 +111,7 @@ func TestWhoamiNeverReportsTheAccessMaterialItself(t *testing.T) {
 	shell := buildShell(t)
 	stateRoot := deploy(t, statusservice.Options{}).stateRoot
 
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "whoami")
+	stdout, stderr := runShell(t, shell, stateRoot, "example", "whoami")
 
 	for _, forbidden := range []string{"Bearer", "Authorization", "eyJ"} {
 		if strings.Contains(stdout, forbidden) || strings.Contains(stderr, forbidden) {
@@ -121,10 +121,10 @@ func TestWhoamiNeverReportsTheAccessMaterialItself(t *testing.T) {
 	}
 }
 
-// mustJSON runs "wso2 reference whoami --output json" and fails on diagnostics.
+// mustJSON runs "wso2 example whoami --output json" and fails on diagnostics.
 func mustJSON(t *testing.T, shell, stateRoot string) string {
 	t.Helper()
-	stdout, stderr := runShell(t, shell, stateRoot, "reference", "whoami", "--output", "json")
+	stdout, stderr := runShell(t, shell, stateRoot, "example", "whoami", "--output", "json")
 	if stderr != "" {
 		t.Fatalf("a successful command wrote diagnostics:\n%s", stderr)
 	}

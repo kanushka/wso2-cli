@@ -122,9 +122,9 @@ type servedOptions struct {
 // values: the hello a module sends announces its namespace, its version, and
 // the protocol versions it speaks, and nothing about the audiences it may
 // request. Building the module and driving the handshake would therefore prove
-// nothing here. The reference module happens to expose a test-only
+// nothing here. The example module happens to expose a test-only
 // --module-info switch that prints the whole descriptor, but that switch is the
-// reference module's own invention and the scaffold does not generate it, so a
+// example module's own invention and the scaffold does not generate it, so a
 // check resting on it would silently stop covering the modules it matters most
 // for. Reading the literal covers a module the moment it exists.
 //

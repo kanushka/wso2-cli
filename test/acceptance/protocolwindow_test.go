@@ -31,7 +31,7 @@ import (
 // generation behind still gets module releases. Proving it needs a real shell
 // launching a real module across the generation gap, so every test here builds
 // the shell with the window it declares — no protocol ldflag — and builds the
-// reference module against one protocol version at a time.
+// example module against one protocol version at a time.
 
 // TestTheDeclaredWindowIsTheCurrentProtocolAndItsPredecessor pins the shape of
 // the single declaration the shell reads, and proves the shell speaks it.
@@ -65,13 +65,13 @@ func TestAModuleAtEitherEndOfTheProtocolWindowRuns(t *testing.T) {
 		t.Run("protocol v"+strconv.Itoa(version), func(t *testing.T) {
 			deployment := deployModuleSpeaking(t, version, testModuleVersion)
 
-			stdout, stderr := deployment.run(t, shell, "reference", "call")
+			stdout, stderr := deployment.run(t, shell, "example", "call")
 
 			if !strings.Contains(stdout, "operational") {
-				t.Fatalf("wso2 reference status did not report the service:\n%s", stdout)
+				t.Fatalf("wso2 example status did not report the service:\n%s", stdout)
 			}
 			if stderr != "" {
-				t.Errorf("wso2 reference status wrote diagnostics:\n%s", stderr)
+				t.Errorf("wso2 example status wrote diagnostics:\n%s", stderr)
 			}
 		})
 	}
@@ -87,7 +87,7 @@ func TestAModuleOutsideTheProtocolWindowIsRefusedAsACompatibilityProblem(t *test
 
 	deployment := deployModuleSpeaking(t, beyond, testModuleVersion)
 
-	stdout, stderr, err := deployment.try(shell, "reference", "call")
+	stdout, stderr, err := deployment.try(shell, "example", "call")
 
 	if got := exitCode(t, err); got != exitModuleTrust {
 		t.Fatalf("exit status = %d, want %d\nstderr:\n%s", got, exitModuleTrust, stderr)
@@ -117,26 +117,26 @@ func TestAModuleVersionFarFromTheShellsRunsNormally(t *testing.T) {
 		t.Run("module v"+moduleVersion, func(t *testing.T) {
 			deployment := deployModuleSpeaking(t, current, moduleVersion)
 
-			stdout, stderr := deployment.run(t, shell, "reference", "call")
+			stdout, stderr := deployment.run(t, shell, "example", "call")
 
 			if !strings.Contains(stdout, "operational") {
-				t.Fatalf("wso2 reference status did not report the service:\n%s", stdout)
+				t.Fatalf("wso2 example status did not report the service:\n%s", stdout)
 			}
 			if stderr != "" {
-				t.Errorf("wso2 reference status wrote diagnostics:\n%s", stderr)
+				t.Errorf("wso2 example status wrote diagnostics:\n%s", stderr)
 			}
 		})
 	}
 }
 
-// deployModuleSpeaking installs a reference module built against one protocol
+// deployModuleSpeaking installs an example module built against one protocol
 // version, at one module version, and deploys the status service it answers
 // from.
 func deployModuleSpeaking(t *testing.T, protocolVersion int, moduleVersion string) deployment {
 	t.Helper()
 	stateRoot := isolatedStateRoot(t)
 	if _, err := fixture.Install(state.ModuleStore(stateRoot), fixture.Module{
-		Namespace:        "reference",
+		Namespace:        "example",
 		Version:          moduleVersion,
 		ProtocolVersions: []int{protocolVersion},
 		SourcePath:       buildReferenceModuleSpeaking(t, strconv.Itoa(protocolVersion), moduleVersion),

@@ -8,7 +8,7 @@ go 1.25.13
 // in for it.
 //
 // One replacement is permitted, and only while an SDK release is in flight: the
-// release gate compares its tag against the version modules/reference requires,
+// release gate compares its tag against the version modules/example requires,
 // so that requirement names the new version before the tag exists, and the Go
 // tool cannot build a module graph that requires a version with no revision.
 // TestTheWorkspaceReplacesNothingOutsideAnSDKReleaseWindow permits exactly that
@@ -22,7 +22,7 @@ go 1.25.13
 // against source. See docs/adr/0009-sdk-versioning-and-publication.md.
 use (
 	.
-	./modules/reference
+	./modules/example
 	./modules/apim
 	./modules/iam
 	./sdk

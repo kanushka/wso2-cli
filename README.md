@@ -67,7 +67,7 @@ The principal documents are:
 - [CLI commands](docs/reference/commands.md)
 - [Install and use the CLI](docs/guides/install.md)
 - [Build a module](docs/guides/build-module-quickstart.md)
-- [Set up the reference module](docs/guides/setup-example-module.md)
+- [Set up the example module](docs/guides/setup-example-module.md)
 - [Context file reference](docs/reference/context-file.md)
 - Setup guides: [Asgardeo](docs/guides/setup-asgardeo.md),
   [Identity Server 7.x](docs/guides/setup-identity-server-7.x.md),

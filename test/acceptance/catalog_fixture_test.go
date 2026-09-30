@@ -22,7 +22,7 @@
 // apart while both their tests stayed green, which is the obvious failure mode
 // when a producer and a consumer are tested separately.
 //
-// The archives are real: each carries the reference module built by this
+// The archives are real: each carries the example module built by this
 // repository, so the size and digest a catalog entry publishes describe bytes a
 // test can actually download and check rather than numbers invented to look
 // plausible.
@@ -54,17 +54,17 @@ import (
 // generator that compared a module version against the shell's, or that let a
 // prerelease stand in for the stable channel, would be caught.
 const (
-	catalogNamespace   = "reference"
-	catalogOlderStable = "reference/v4.4.0"
-	catalogStable      = "reference/v4.5.0"
-	catalogPrerelease  = "reference/v4.6.0-rc.1"
+	catalogNamespace   = "example"
+	catalogOlderStable = "example/v4.4.0"
+	catalogStable      = "example/v4.5.0"
+	catalogPrerelease  = "example/v4.6.0-rc.1"
 	// catalogAddedStable extends release history without adding a namespace or
 	// a channel, which is what the index's size must be insensitive to.
-	catalogAddedStable = "reference/v4.7.0"
+	catalogAddedStable = "example/v4.7.0"
 	// catalogAncientStable is far below the shell's own version rather than far
 	// above it, so the two directions of a version comparison the shell must
 	// never make are both represented.
-	catalogAncientStable = "reference/v0.1.0"
+	catalogAncientStable = "example/v0.1.0"
 )
 
 // A second namespace, on its own version scheme. Several criteria are about one
@@ -72,7 +72,7 @@ const (
 // a pin that survives an update run that moves everything else — and none of
 // them can be stated with one namespace in the store.
 //
-// It is a fixture namespace rather than a product module: only the reference
+// It is a fixture namespace rather than a product module: only the example
 // module exists, and migrating apictl, amctl, and mi is separate work.
 const (
 	catalogOtherNamespace  = "sample"
@@ -200,7 +200,7 @@ func (c *catalogHarness) input(tags []string) catalog.Input {
 	}
 
 	// What the module itself declares is what a release publishes, so the
-	// capabilities in a fixture entry are the reference module's own rather
+	// capabilities in a fixture entry are the example module's own rather
 	// than values invented here. A module installed from a catalog that
 	// published none would be denied every brokered request it makes.
 	capabilities := map[string]modules.Capabilities{}
@@ -210,7 +210,7 @@ func (c *catalogHarness) input(tags []string) catalog.Input {
 		compatibility[declaration.Namespace] = declaration.Compatibility
 	}
 	// The second namespace has no module directory, because no second module
-	// exists to give it one. Its declaration is the reference module's, under
+	// exists to give it one. Its declaration is the example module's, under
 	// another namespace, which is all the generator needs to accept its tags.
 	declarations = append(declarations, catalog.Declaration{
 		SchemaVersion: catalog.SchemaVersion,
@@ -285,7 +285,7 @@ func platformExecutableSuffix(platform modules.Platform) string {
 }
 
 // archiveBytes reports the archive one tag publishes for one platform: the
-// reference module this repository builds, under its published name.
+// example module this repository builds, under its published name.
 //
 // One archive per tag and platform is built for the whole package. Compressing
 // a real executable is the expensive part of this fixture, and a test that
@@ -490,7 +490,7 @@ func renderCatalog(t *testing.T, generated catalog.Catalog) map[string][]byte {
 	return rendered
 }
 
-// The reference module is built once per version for the whole package, and
+// The example module is built once per version for the whole package, and
 // each archive is compressed once, because building and compressing a real
 // executable is the expensive part of this fixture and every test that publishes
 // a given version wants the same bytes.
@@ -502,7 +502,7 @@ var (
 	catalogArchiveCache = map[string][]byte{}
 )
 
-// referenceModuleBytes is the reference module built at one module version.
+// referenceModuleBytes is the example module built at one module version.
 func referenceModuleBytes(t *testing.T, version string) []byte {
 	t.Helper()
 	catalogModuleMutex.Lock()

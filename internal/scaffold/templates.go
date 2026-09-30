@@ -31,8 +31,8 @@ var templateFS embed.FS
 
 // files are every file a generation writes, in the order they are written.
 //
-// The bodies are templates rather than copies of modules/reference, because a
-// module copied from the reference module would inherit the parts that exist to
+// The bodies are templates rather than copies of modules/example, because a
+// module copied from the example module would inherit the parts that exist to
 // test the shell. What a developer gets is the smallest module that works.
 var files = []generatedFile{
 	{pathTemplate: "go.mod", template: "go.mod.tmpl"},

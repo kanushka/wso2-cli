@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	// siblingNamespace sorts after "reference" so the fixture's login product
+	// siblingNamespace sorts after "example" so the fixture's login product
 	// (seeded by seedBrowserSession, under the bare session ref) stays the one
 	// Identity.LoginAccess picks: it names the first direct product by
 	// namespace, and a namespace that sorted earlier would make the sibling
@@ -185,7 +185,7 @@ func containsText(text, want string) bool { return len(want) > 0 && strings.Cont
 // different scope set — would be presented as the new one's.
 func TestALoginProductDriftIsRefused(t *testing.T) {
 	deployment := seedBrowserSession(t, fakeissuer.Options{RefreshScopeMode: "honor"})
-	// The stored session records what an ordinary login for "reference" —
+	// The stored session records what an ordinary login for "example" —
 	// today's login product — would have left behind.
 	store := session.Store{StateRoot: deployment.stateRoot}
 	if err := store.Save(sessionRef, session.Session{
@@ -195,10 +195,10 @@ func TestALoginProductDriftIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	broker := deployment.broker(t)
-	// "apim" sorts before "reference", so recording it as a second direct
+	// "apim" sorts before "example", so recording it as a second direct
 	// product makes it the login product LoginAccess picks, and Access("apim")
-	// would otherwise inherit the bare session ref the "reference" login
-	// established, with "reference"'s scopes rather than apim's own.
+	// would otherwise inherit the bare session ref the "example" login
+	// established, with "example"'s scopes rather than apim's own.
 	const apimAudience = "apim-status"
 	const apimScope = "apim:view"
 	broker.Selection.Identity.Products["apim"] = contexts.Product{

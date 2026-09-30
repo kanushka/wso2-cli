@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "namespace": "example",
+  "title": "Example Product",
+  "compatibility": {
+    "shell": ">=0.1.0 <2.0.0",
+    "protocolVersions": [2]
+  },
+  "capabilities": {
+    "authAudiences": ["example-status"],
+    "authScopes": ["example:status:read"]
+  }
+}
