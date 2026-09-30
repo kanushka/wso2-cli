@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Command wso2-module-iam is the WSO2 CLI identity product module.
+// Command wso2-module-iam is the WSO2 CLI iam product module.
 //
 // It is built against the public SDK alone and imports no shell package, which
 // is what lets it be released, installed, and updated on its own schedule.

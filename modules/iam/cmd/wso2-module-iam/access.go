@@ -36,7 +36,7 @@ import (
 func clientFor(ctx context.Context, request module.Request) (thunder.Client, error) {
 	if request.Context.Endpoint == "" {
 		return thunder.Client{}, moduleProblem("iam.product_not_recorded",
-			"the identity product manages Thunder, not Identity Server or Asgardeo, and the "+
+			"the iam product manages Thunder, not Identity Server or Asgardeo, and the "+
 				"selected context records no Thunder endpoint for it, so this command has nowhere to call",
 			"Run wso2 context create <name> --login-product iam --url <thunder-url> --use to "+
 				"create a context that logs in through Thunder, then run wso2 login.")

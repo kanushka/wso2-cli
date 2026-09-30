@@ -173,7 +173,7 @@ func (s Shell) contextCreate(command *cobra.Command, name string, flags contextC
 			return problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
 				"a thunder deployment binds every login to a product, and --issuer creates a context "+
 					"that records none").
-				WithRecovery(fmt.Sprintf("Log in through the identity product instead: wso2 context create "+
+				WithRecovery(fmt.Sprintf("Log in through the iam product instead: wso2 context create "+
 					"%s --login-product iam --url <thunder-url>.", name))
 		}
 	}

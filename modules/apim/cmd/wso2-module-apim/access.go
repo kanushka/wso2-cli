@@ -40,7 +40,7 @@ import (
 func controlPlane(ctx context.Context, request module.Request) (platform.Client, error) {
 	if request.Context.Endpoint == "" {
 		return platform.Client{}, moduleProblem("apim.product_not_recorded",
-			"the selected context records no endpoint for the api product, so this command has "+
+			"the selected context records no endpoint for the apim product, so this command has "+
 				"nowhere to call",
 			"Run wso2 context product add apim --url <url> to record it on the selected context, then "+
 				"run this command again.")
@@ -62,7 +62,7 @@ func controlPlane(ctx context.Context, request module.Request) (platform.Client,
 func gateway(ctx context.Context, request module.Request) (platform.Client, error) {
 	if request.Context.GatewayEndpoint == "" {
 		return platform.Client{}, moduleProblem("apim.gateway_not_recorded",
-			"the selected context records no gateway for the api product, so this command has "+
+			"the selected context records no gateway for the apim product, so this command has "+
 				"nowhere to call",
 			"Run wso2 context product add apim --url <url> --gateway <gateway-url> --replace, "+
 				"then run wso2 login.")
