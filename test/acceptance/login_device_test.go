@@ -468,8 +468,8 @@ func TestADeviceLoginNamesTheSubjectItVerified(t *testing.T) {
 		t.Fatalf("wso2 login exited %d\nstderr:\n%s", code, deployment.errOut)
 	}
 	report := deployment.out.String()
-	if !strings.Contains(report, "User ID") || !strings.Contains(report, "user-1") {
-		t.Errorf("the report does not name the subject the login verified:\n%s", report)
+	if !regexp.MustCompile(`(?m)^Email\s+dev@example\.test$`).MatchString(report) {
+		t.Errorf("the report does not name the person the login verified:\n%s", report)
 	}
 }
 
@@ -519,10 +519,10 @@ func TestADeviceLoginWithoutAnIdentityTokenStillEstablishesASession(t *testing.T
 		t.Fatal("no session was stored, so an unmeasured issuer behaviour decided the login")
 	}
 	report := deployment.out.String()
-	if strings.Contains(report, "User ID") {
-		t.Errorf("the report claims a subject no identity token proved:\n%s", report)
+	if !regexp.MustCompile(`(?m)^Email\s+-$`).MatchString(report) {
+		t.Errorf("the report claims a person no identity token proved:\n%s", report)
 	}
-	if !strings.Contains(report, "Logged in") {
+	if !regexp.MustCompile(`(?m)^Status\s+logged in$`).MatchString(report) {
 		t.Errorf("the login did not report success:\n%s", report)
 	}
 	// The session still reaches a module, which is the whole reason the missing

@@ -20,8 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
-	"slices"
 	"strings"
 	"time"
 
@@ -434,6 +432,7 @@ func (s Shell) establishProduct(selected contexts.Selection, access contexts.Pro
 			ExpiresAt:        result.Token.Expiry.UTC(),
 			Subject:          result.Subject,
 			Name:             result.Name,
+			Email:            result.Email,
 			IDToken:          result.IDToken,
 			SessionExpiresAt: sessionExpiresAt,
 			Strategy:         access.Strategy,
@@ -495,66 +494,36 @@ func (s Shell) establishSession(selected contexts.Selection, access contexts.Pro
 	}.Run(ctx)
 }
 
-// reportLogin states who the login proved you are and what that identity
-// reaches.
+// reportLogin states which context the login was for, who it proved you are,
+// and that you are now logged in. What each product was reached by is wso2
+// whoami -o json's to say; the login keeps to the three facts a person asks.
 //
 // Every value here came out of a verified identity token or the context
 // document. None of it is token material, and there is deliberately nothing in
 // the report a caller could authenticate with.
 func (s Shell) reportLogin(selected contexts.Selection, outcome loginOutcome) error {
-	if _, err := fmt.Fprintf(s.Streams.Out, "\nLogged in to the %q context.\n",
-		selected.Context.Name); err != nil {
+	if _, err := fmt.Fprintln(s.Streams.Out); err != nil {
 		return err
 	}
-	var fields [][2]string
-	// Both are reported only when the login actually verified them. A browser
-	// login always has a subject, because it refuses without a verified
-	// identity token; a device login may not, because RFC 8628's grant is not
-	// defined to carry one and the session does not depend on it. An empty
-	// label would claim the shell knows something it does not.
-	if outcome.first.Subject != "" {
-		fields = append(fields, [2]string{"User ID", outcome.first.Subject})
-	}
-	if outcome.first.Email != "" {
-		fields = append(fields, [2]string{"Email", outcome.first.Email})
-	}
-	if selected.Context.Organization != "" {
-		fields = append(fields, [2]string{"Organization", selected.Context.Organization})
-	}
-	fields = append(fields, [2]string{"Products", productNamespaces(selected.Identity)})
-	// One field per access this login actually established, naming the
-	// strategy that reached it: a reader who sees "apim, federated" knows both
-	// that the product is up and how its session differs from the login's own.
-	for _, access := range outcome.established {
-		label := "Session"
-		if access.Namespace != "" {
-			label = access.Namespace
-		}
-		fields = append(fields, [2]string{label, access.Strategy + ", established"})
-	}
-	// An exchanged product runs no authorization, so it is never among the
-	// established. It gets a field all the same: left out, the report reads as
-	// though a sign-in for it were still to come, when the login session above
-	// is what every command against it exchanges from.
-	for _, namespace := range slices.Sorted(maps.Keys(selected.Identity.Products)) {
-		for _, key := range []string{namespace, contexts.GatewayKey(namespace)} {
-			access, recorded := selected.Identity.Access(key)
-			if recorded && access.Strategy == contexts.StrategyExchanged {
-				fields = append(fields, [2]string{key, "by exchange, no sign-in of its own"})
-			}
-		}
-	}
-	return output.Fields(s.Streams.Out, fields)
+	return output.Fields(s.Streams.Out, [][2]string{
+		{"Context", selected.Context.Name},
+		{"Email", signedInAs(outcome.first.Email, outcome.first.Name, outcome.first.Subject)},
+		{"Status", "logged in"},
+	})
 }
 
-// productNamespaces names the product namespaces this identity claims to reach,
-// in a stable order.
-func productNamespaces(identity contexts.Account) string {
-	namespaces := slices.Sorted(maps.Keys(identity.Products))
-	if len(namespaces) == 0 {
-		return "none configured"
+// signedInAs names the signed-in person in one value: the email when the
+// identity token carried one, the display name when it did not, and the
+// subject when it carried neither. A device login may verify none of them,
+// because RFC 8628's grant is not defined to carry an identity token; that
+// reads "-" rather than a blank a reader would take for a failed load.
+func signedInAs(email, name, subject string) string {
+	for _, candidate := range []string{email, name, subject} {
+		if candidate != "" {
+			return candidate
+		}
 	}
-	return strings.Join(namespaces, ", ")
+	return "-"
 }
 
 // loginUsageRecovery is the way back from every wso2 login usage refusal.

@@ -161,8 +161,12 @@ func TestBrowserLoginRoundTrip(t *testing.T) {
 	if result.Subject != "user-1" || result.Email != "dev@example.test" {
 		t.Fatalf("identity claims: subject %q email %q", result.Subject, result.Email)
 	}
-	if !strings.Contains(printed.String(), issuer.URL+"/authorize") {
-		t.Fatalf("the authorization URL was not printed:\n%s", printed.String())
+	// The opener reported success, which says only that it started: the URL is
+	// printed all the same, for the headless or SSH session where nothing shows.
+	got := printed.String()
+	if !strings.HasPrefix(got, "Opened the browser to log in.\nIf the browser does not open, visit: "+issuer.URL+"/authorize") ||
+		strings.Count(got, "\n") != 2 {
+		t.Fatalf("a login whose browser opened did not print the fallback URL line:\n%s", got)
 	}
 	for _, secret := range []string{result.Token.RefreshToken, result.Token.AccessToken} {
 		if strings.Contains(printed.String(), secret) {

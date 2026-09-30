@@ -67,6 +67,10 @@ type Session struct {
 	// place that reads it, and it falls back to the subject it already knows
 	// rather than rendering a blank field or inventing a name.
 	Name string `json:"name,omitempty"`
+	// Email is the verified identity token's email claim, recorded at login
+	// when the token carries one. omitempty for the reason Subject gives. wso2
+	// whoami reads it to say who is signed in.
+	Email string `json:"email,omitempty"`
 	// SessionExpiresAt is when the REFRESH token stops working, not the access
 	// token — see ExpiresAt above for that one. It is the zero value whenever
 	// the issuer has not disclosed a refresh-token lifetime, which most

@@ -86,13 +86,11 @@ func TestLoginEstablishesOneSessionPerProduct(t *testing.T) {
 	if _, err := store.Load(contexts.ProductSessionRef(credentialRef, "gateway")); err == nil {
 		t.Fatal("the login product got a session of its own beside the login session")
 	}
-	for _, line := range []string{"gateway", "direct", "iam", "sibling", "apim", "federated"} {
-		if !strings.Contains(out.String(), line) {
-			t.Fatalf("report lacks %q:\n%s", line, out)
-		}
+	if !hasField(out.String(), "Status", "logged in") {
+		t.Fatalf("the report does not say the login succeeded:\n%s", out)
 	}
-	if got := strings.Count(errOut.String(), "/authorize?"); got != 3 {
-		t.Fatalf("printed %d authorization URLs, want 3:\n%s", got, errOut)
+	if got := strings.Count(errOut.String(), "Opened the browser"); got != 3 {
+		t.Fatalf("opened the browser %d times, want 3:\n%s", got, errOut)
 	}
 }
 
@@ -125,16 +123,14 @@ func TestLoginNoProductsEstablishesTheLoginSessionAlone(t *testing.T) {
 	if code := shell.Run([]string{"login", "--no-products"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
-	if got := strings.Count(errOut.String(), "/authorize?"); got != 1 {
-		t.Fatalf("printed %d authorization URLs, want 1", got)
+	if got := strings.Count(errOut.String(), "Opened the browser"); got != 1 {
+		t.Fatalf("opened the browser %d times, want 1", got)
 	}
 	// thunderDoc's login product is "gateway" — the first direct product by
 	// sorted namespace ("apim" is a grant, so "gateway" is first) — and
 	// --no-products establishes that one session alone.
-	for _, line := range []string{"gateway", "direct, established"} {
-		if !strings.Contains(out.String(), line) {
-			t.Fatalf("report lacks %q:\n%s", line, out)
-		}
+	if !hasField(out.String(), "Status", "logged in") {
+		t.Fatalf("the report does not say the login succeeded:\n%s", out)
 	}
 }
 
@@ -155,8 +151,10 @@ func TestLoginReportsAnExchangedProductAsReachedByExchange(t *testing.T) {
 	if code := shell.Run([]string{"login", "--no-products"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
-	if !hasField(out.String(), "api", "by exchange, no sign-in of its own") {
-		t.Fatalf("the report does not say how api is reached:\n%s", out)
+	// The report says the context is logged in, which is all an exchanged
+	// product needs: every command against it exchanges from that session.
+	if !hasField(out.String(), "Status", "logged in") || strings.Contains(out.String(), "api") {
+		t.Fatalf("the report does not say the context is logged in, or lists products:\n%s", out)
 	}
 }
 
@@ -174,10 +172,8 @@ func TestLoginWithNoProductsReportsTheBareSession(t *testing.T) {
 	if code := shell.Run([]string{"login"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
-	for _, line := range []string{"Session", "direct, established"} {
-		if !strings.Contains(out.String(), line) {
-			t.Fatalf("report lacks %q:\n%s", line, out)
-		}
+	if !hasField(out.String(), "Status", "logged in") {
+		t.Fatalf("the report does not say the login succeeded:\n%s", out)
 	}
 }
 
@@ -283,7 +279,7 @@ func TestLoginOnlyAnExchangedProductAuthorizesNothing(t *testing.T) {
 	if code := shell.Run([]string{"login", "--only", "api"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !strings.Contains(out.String()+errOut.String(), "api") {
-		t.Fatalf("the report does not mention the product:\n%s%s", out, errOut)
+	if !hasField(out.String(), "Status", "logged in") {
+		t.Fatalf("the report does not say the login finished:\n%s%s", out, errOut)
 	}
 }

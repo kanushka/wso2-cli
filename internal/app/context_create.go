@@ -50,7 +50,7 @@ func (s Shell) contextCreateCommand() *cobra.Command {
 		Short: "Create a context that logs in through a product or an issuer. Makes no network call.",
 		Long: "Create a context in one of two forms.\n\n" +
 			"  wso2 context create <name> --login-product <product> --url <url>\n" +
-			"      logs in through an installed product that is a login provider, such as identity.\n" +
+			"      logs in through an installed product that is a login provider, such as iam.\n" +
 			"      Its descriptor fills in the issuer, client, audience and scopes, and the values are\n" +
 			"      written to the context file. The product is installed first when it is missing.\n\n" +
 			"  wso2 context create <name> --issuer <url> --client-id <id>\n" +
@@ -65,7 +65,7 @@ func (s Shell) contextCreateCommand() *cobra.Command {
 			if len(args) == 1 {
 				name = args[0]
 			}
-			if flags.loginProduct == "" && flags.issuer == "" {
+			if flags.loginProduct == "" && flags.issuer == "" && flags.url == "" {
 				if may, _ := s.mayPrompt(flags.noInput); may {
 					return s.contextCreateWizard(command, name, flags)
 				}
@@ -80,8 +80,8 @@ func (s Shell) contextCreateCommand() *cobra.Command {
 	}
 	f := command.Flags()
 	f.StringVar(&flags.loginProduct, "login-product", "",
-		"The installed product the context logs in through, such as identity.")
-	f.StringVar(&flags.url, "url", "", "The login product's URL. Needs --login-product.")
+		"The product the context logs in through: the installed login product, or iam, by default.")
+	f.StringVar(&flags.url, "url", "", "The login product's URL.")
 	f.StringVar(&flags.issuer, "issuer", "", "The OpenID issuer to log in through, without a login product.")
 	f.StringVar(&flags.clientID, "client-id", "",
 		"The OAuth client the shell presents: required with --issuer, the descriptor's by default otherwise.")
@@ -110,6 +110,11 @@ func (s Shell) contextCreate(command *cobra.Command, name string, flags contextC
 	mode, err := s.shellOutputMode(command)
 	if err != nil {
 		return err
+	}
+	if flags.url != "" && flags.loginProduct == "" && flags.issuer == "" {
+		if flags.loginProduct, err = s.defaultLoginProduct(); err != nil {
+			return err
+		}
 	}
 	if err := checkContextCreateFlags(name, flags); err != nil {
 		return err
@@ -169,7 +174,7 @@ func (s Shell) contextCreate(command *cobra.Command, name string, flags contextC
 				"a thunder deployment binds every login to a product, and --issuer creates a context "+
 					"that records none").
 				WithRecovery(fmt.Sprintf("Log in through the identity product instead: wso2 context create "+
-					"%s --login-product identity --url <thunder-url>.", name))
+					"%s --login-product iam --url <thunder-url>.", name))
 		}
 	}
 	login.Tenant = contexts.TenantForIssuer(login.Issuer)
@@ -238,9 +243,33 @@ func refuseContextName(name string) error {
 		WithRecovery(fmt.Sprintf("A context name is %s. %s", contexts.NameRule, contextCreateUsage))
 }
 
+// defaultLoginProduct is the login product a --url with no --login-product
+// means: the one installed product that is a login provider, or the identity
+// product when none is installed, the same one the wizard suggests. With two
+// installed, the URL could be either's, so it is refused rather than guessed.
+func (s Shell) defaultLoginProduct() (string, error) {
+	installed, lookup := s.wizardProducts()
+	var providers []string
+	for _, namespace := range installed {
+		if lookup(namespace).LoginProvider() {
+			providers = append(providers, namespace)
+		}
+	}
+	switch len(providers) {
+	case 0:
+		return suggestedLoginProduct, nil
+	case 1:
+		return providers[0], nil
+	}
+	return "", problem.New(problem.CategoryUsage, "shell.missing_required_flag",
+		fmt.Sprintf("--url needs --login-product to say which login product runs there: %s are installed",
+			strings.Join(providers, " and "))).
+		WithRecovery(contextCreateUsage)
+}
+
 // checkContextCreateFlags refuses a line that names neither form, or both,
-// before anything is read. A URL alone does not say which product's
-// descriptor applies, so it is never guessed at.
+// before anything is read. By then a --url alone has been given the default
+// login product, so a URL with none is one the default could not name.
 func checkContextCreateFlags(name string, flags contextCreateFlags) error {
 	if err := refuseContextName(name); err != nil {
 		return err

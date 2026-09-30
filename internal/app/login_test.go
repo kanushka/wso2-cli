@@ -303,15 +303,16 @@ func TestLoginHappyPathStoresSessionAndReportsIdentity(t *testing.T) {
 		t.Fatal("the stored session holds no expiry")
 	}
 
-	for _, expected := range []string{"user-1", "dev@example.test", "reference"} {
-		if !strings.Contains(out.String(), expected) {
-			t.Fatalf("the login report is missing %q in:\n%s", expected, out)
+	for _, field := range [][2]string{{"Email", "dev@example.test"}, {"Status", "logged in"}} {
+		if !hasField(out.String(), field[0], field[1]) {
+			t.Fatalf("the login report is missing %s %q in:\n%s", field[0], field[1], out)
 		}
 	}
-	// The URL is printed on the way in, whatever the browser did with it. It
-	// belongs on the diagnostic stream: it is an instruction, not the result.
-	if !strings.Contains(errOut.String(), issuer.URL+"/authorize") {
-		t.Fatalf("the authorization URL was not printed:\n%s", errOut)
+	// The opener reported success, yet the URL is still printed on the
+	// diagnostic stream: an opener that starts can still show nothing.
+	if !strings.Contains(errOut.String(), "Opened the browser") ||
+		!strings.Contains(errOut.String(), "If the browser does not open, visit: "+issuer.URL+"/authorize") {
+		t.Fatalf("a login whose browser opened did not print the fallback URL:\n%s", errOut)
 	}
 	if strings.Contains(out.String(), "/authorize") {
 		t.Fatalf("the authorization URL polluted the result stream:\n%s", out)

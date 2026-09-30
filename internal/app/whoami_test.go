@@ -40,6 +40,7 @@ type whoamiReport struct {
 	Identity      string `json:"account"`
 	Organization  string `json:"organization"`
 	Name          string `json:"name"`
+	Email         string `json:"email"`
 	Subject       string `json:"subject"`
 	Session       string `json:"session"`
 	SessionExpiry string `json:"sessionExpiry"`
@@ -348,8 +349,8 @@ func TestWhoamiReportsTheStoredDisplayName(t *testing.T) {
 	if !strings.Contains(tableOut.String(), "Ada Lovelace") {
 		t.Errorf("the table rendering does not show the stored name:\n%s", tableOut)
 	}
-	if !strings.Contains(tableOut.String(), subject) {
-		t.Errorf("the table rendering does not show the subject alongside the name:\n%s", tableOut)
+	if strings.Contains(tableOut.String(), subject) {
+		t.Errorf("the table rendering shows the subject beside the name it stands in for:\n%s", tableOut)
 	}
 }
 
@@ -564,14 +565,11 @@ func TestWhoamiBothRenderingsAgree(t *testing.T) {
 	if code := tableShell.Run([]string{"whoami"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, tableErrOut)
 	}
-	// Every field the JSON rendering carries, SessionExpiry and Recovery
-	// included: a fact present in one rendering and not checked in the other
-	// is exactly the gap constraint 6 exists to close. Mutation-checked:
-	// deleting the {"Session expiry", ...} row from whoamiReport.fields()
-	// left this test green before this fix; it now fails that mutation.
+	// The table is the summary a person asks for — which context, who, and
+	// whether they are logged in — plus the way back. The issuer, expiry and
+	// per-product detail are the JSON rendering's alone.
 	for _, want := range []string{
-		report.Context, report.Identity, report.Organization, report.Name, report.Subject,
-		report.Session, report.SessionExpiry, output.Hint(tableOut, report.Recovery),
+		report.Context, report.Name, "session expired", output.Hint(tableOut, report.Recovery),
 	} {
 		if !strings.Contains(tableOut.String(), want) {
 			t.Errorf("the table rendering is missing %q, present in JSON:\n%s", want, tableOut)

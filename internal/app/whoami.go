@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -184,6 +183,7 @@ func (s Shell) whoami(command *cobra.Command) error {
 			default:
 				report.Subject = subjectOrUnknown(stored.Subject)
 				report.Name = stored.Name
+				report.Email = stored.Email
 				report.Session, report.SessionExpiry, report.Recovery = sessionExpiryState(stored, time.Now())
 			}
 		}
@@ -304,6 +304,9 @@ type whoamiReport struct {
 	// because the subject is an identifier and not a name, and a reader of
 	// name would take whatever it holds for the person.
 	Name string `json:"name,omitempty"`
+	// Email is the email the login verified and stored, empty and absent from
+	// JSON when the session carries none.
+	Email string `json:"email,omitempty"`
 	// Session is one of whoamiSessionNone, whoamiSessionPresent, or
 	// whoamiSessionExpired.
 	Session string `json:"session"`
@@ -343,58 +346,33 @@ type whoamiProduct struct {
 	SessionExpiry string `json:"sessionExpiry"`
 }
 
+// fields is the table rendering: which context, who, and whether they are
+// logged in. The issuer, session expiry and per-product state stay in the JSON
+// rendering, for a script or a reader diagnosing a sign-in, rather than making
+// the one question most people ask answer in eight rows.
 func (w whoamiReport) fields() [][2]string {
-	pairs := [][2]string{
+	return [][2]string{
 		{"Context", w.Context},
-		{"Issuer", w.Issuer},
+		{"Email", signedInAs(w.Email, w.Name, w.Subject)},
+		{"Status", w.status()},
 	}
-	// Organization is left out when the context names none, for the reason
-	// the Name row is below: a blank row reads as a value that failed to load.
-	if w.Organization != "" {
-		pairs = append(pairs, [2]string{"Organization", w.Organization})
+}
+
+// status says in words whether the context is logged in.
+func (w whoamiReport) status() string {
+	switch w.Session {
+	case whoamiSessionPresent:
+		return "logged in"
+	case whoamiSessionExpired:
+		return "session expired"
+	case whoamiSessionInline:
+		return "machine credentials, no login needed"
+	default:
+		return "not logged in"
 	}
-	// The Name row is left out, rather than shown blank, when the session
-	// carries no name: the User ID row below already identifies who signed
-	// in, and a blank Name would read as a value the shell failed to load.
-	if w.Name != "" {
-		pairs = append(pairs, [2]string{"Name", w.Name})
-	}
-	pairs = append(pairs, [][2]string{
-		{"User ID", w.Subject},
-		{"Session", w.Session},
-		{"Session expiry", w.SessionExpiry},
-		{"Products", w.productsField()},
-	}...)
-	return pairs
 }
 
 // next is the recovery, which the table prints as its trailing next step.
 func (w whoamiReport) next() string {
 	return w.Recovery
-}
-
-// productsField renders every record on one line, namespace order:
-// "apim: federated, none; apim/gateway: sibling, present; iam: direct, present".
-// A product that holds no session of its own, exchanged or inline, has no
-// session state to add to its strategy. An inline one is rendered "ci: inline".
-// An exchanged one is rendered "api: by exchange (not checked)": whoami makes
-// no call, so it cannot say whether the issuer will grant the exchange, and a
-// bare "exchanged" reads as one that already happened.
-func (w whoamiReport) productsField() string {
-	if len(w.Products) == 0 {
-		return "none configured"
-	}
-	parts := make([]string, 0, len(w.Products))
-	for _, product := range w.Products {
-		if product.Session == whoamiSessionExchanged {
-			parts = append(parts, fmt.Sprintf("%s: by exchange (not checked)", product.Namespace))
-			continue
-		}
-		if product.Session == whoamiSessionInline {
-			parts = append(parts, fmt.Sprintf("%s: %s", product.Namespace, product.Strategy))
-			continue
-		}
-		parts = append(parts, fmt.Sprintf("%s: %s, %s", product.Namespace, product.Strategy, product.Session))
-	}
-	return strings.Join(parts, "; ")
 }

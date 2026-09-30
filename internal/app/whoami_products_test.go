@@ -43,10 +43,8 @@ func TestWhoamiReportsEveryProductSession(t *testing.T) {
 	if code := shell.Run([]string{"whoami"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	for _, want := range []string{"gateway: direct, present", "iam: sibling, present", "apim: federated, none"} {
-		if !strings.Contains(out.String(), want) {
-			t.Fatalf("missing %q in:\n%s", want, out)
-		}
+	if !hasField(out.String(), "Status", "logged in") {
+		t.Fatalf("whoami does not report the login session:\n%s", out)
 	}
 	out.Reset()
 	if code := shell.Run([]string{"whoami", "--output", "json"}); code != exit.OK {
@@ -66,7 +64,7 @@ func TestWhoamiReportsAClientCredentialsIdentityAsInline(t *testing.T) {
 	if code := shell.Run([]string{"whoami"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !strings.Contains(out.String(), "inline") || strings.Contains(out.String(), "wso2 login") {
+	if !strings.Contains(out.String(), "no login needed") || strings.Contains(out.String(), "wso2 login") {
 		t.Fatalf("a client-credentials account was told to log in:\n%s", out)
 	}
 }
@@ -88,10 +86,14 @@ func TestWhoamiReportsAnExchangedProductAsServedByTheLoginSession(t *testing.T) 
 		Issuer: "http://login.example", RefreshToken: "rt", Subject: "user-1"}); err != nil {
 		t.Fatal(err)
 	}
-	if code := shell.Run([]string{"whoami"}); code != exit.OK {
+	if code := shell.Run([]string{"whoami", "--output", "json"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !strings.Contains(out.String(), "apip: by exchange (not checked)") {
+	exchanged := false
+	for _, product := range decodeWhoamiReport(t, out.Bytes()).Products {
+		exchanged = exchanged || (product.Namespace == "apip" && product.Session == "exchanged")
+	}
+	if !exchanged {
 		t.Fatalf("an exchanged product was not reported as served by the login session:\n%s", out)
 	}
 }

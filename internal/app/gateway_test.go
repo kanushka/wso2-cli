@@ -130,6 +130,12 @@ func TestLoginEstablishesTheGatewaySessionBesideTheOthers(t *testing.T) {
 	shell, out, errOut := newLoginShell(t)
 	installLogin(t, shell, gatewayDoc(login.URL, product.URL))
 	followBrowser(&shell)
+	var opened []string
+	follow := shell.OpenBrowser
+	shell.OpenBrowser = func(authURL string) error {
+		opened = append(opened, authURL)
+		return follow(authURL)
+	}
 	if code := shell.Run([]string{"login"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
@@ -142,14 +148,16 @@ func TestLoginEstablishesTheGatewaySessionBesideTheOthers(t *testing.T) {
 	if _, err := store.Load(contexts.ProductSessionRef(credentialRef, "apim")); err != nil {
 		t.Fatalf("the management session was not established: %v", err)
 	}
-	if !hasField(out.String(), "apim/gateway", "sibling, established") {
-		t.Fatalf("the report does not list the gateway session:\n%s", out)
+	if !hasField(out.String(), "Status", "logged in") {
+		t.Fatalf("the report does not say the login succeeded:\n%s", out)
 	}
-	if got := strings.Count(errOut.String(), "/authorize?"); got != 3 {
-		t.Fatalf("printed %d authorization URLs, want 3:\n%s", got, errOut)
+	if got := strings.Count(errOut.String(), "Opened the browser"); got != 3 {
+		t.Fatalf("opened the browser %d times, want 3:\n%s", got, errOut)
 	}
-	if !strings.Contains(errOut.String(), "resource="+url.QueryEscape(gatewayAudience)) {
-		t.Fatalf("the gateway authorization carried no resource indicator:\n%s", errOut)
+	if !slices.ContainsFunc(opened, func(authURL string) bool {
+		return strings.Contains(authURL, "resource="+url.QueryEscape(gatewayAudience))
+	}) {
+		t.Fatalf("the gateway authorization carried no resource indicator:\n%s", strings.Join(opened, "\n"))
 	}
 }
 
@@ -230,10 +238,8 @@ func TestWhoamiShowsTheGatewayRecordBesideTheManagementOne(t *testing.T) {
 	if code := shell.Run([]string{"whoami"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	for _, want := range []string{"iam: direct, present", "apim: federated, none", "apim/gateway: sibling, present"} {
-		if !strings.Contains(out.String(), want) {
-			t.Fatalf("missing %q in:\n%s", want, out)
-		}
+	if !hasField(out.String(), "Status", "logged in") {
+		t.Fatalf("whoami does not report the login session:\n%s", out)
 	}
 	out.Reset()
 	if code := shell.Run([]string{"whoami", "--output", "json"}); code != exit.OK {
@@ -256,7 +262,7 @@ func TestWhoamiShowsTheGatewayRecordBesideTheManagementOne(t *testing.T) {
 	if code := shell.Run([]string{"whoami"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !strings.Contains(out.String(), "apim/gateway: inline") || strings.Contains(out.String(), "inline, inline") {
+	if !hasField(out.String(), "Status", "machine credentials, no login needed") {
 		t.Fatalf("report:\n%s", out)
 	}
 }

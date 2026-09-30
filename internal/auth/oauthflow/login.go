@@ -107,12 +107,12 @@ type Login struct {
 	// http.DefaultClient.
 	HTTPClient *http.Client
 	// OpenBrowser opens the authorization URL. It defaults to the OS opener.
-	// Failing to open a browser is not failing to log in: the URL is printed
-	// first, so the user can complete the login from anywhere.
+	// Failing to open a browser is not failing to log in: the URL is always
+	// printed, so the user can complete the login from anywhere.
 	OpenBrowser func(url string) error
-	// Out receives the always-printed authorization URL and progress lines. It
-	// defaults to standard output, because a login whose URL goes nowhere is
-	// a login nobody can complete.
+	// Out receives the progress line and the always-printed authorization URL.
+	// It defaults to standard output, because a login whose URL goes nowhere
+	// is a login nobody can complete.
 	Out io.Writer
 	// Resource is the protected resource this session is for, sent as an RFC
 	// 8707 resource indicator. It is empty for a deployment that decides the
@@ -133,7 +133,18 @@ type Login struct {
 	Ports []int
 }
 
-// prompt is the line printed above the authorization URL. A login that is
+// openedLine is the line printed when the opener reported success, above the
+// fallback line carrying the authorization URL. A login that is for a product names it, since one wso2
+// login may open one tab per product.
+func (l Login) openedLine() string {
+	if l.Label == "" {
+		return "Opened the browser to log in."
+	}
+	return fmt.Sprintf("Opened the browser to authorize the %q product.", l.Label)
+}
+
+// prompt is the line printed above the authorization URL, when the browser
+// could not be opened. A login that is
 // for a product says which one and where, since one wso2 login prints one
 // URL per product and the URLs alone do not say which is which.
 func (l Login) prompt() string {
@@ -238,13 +249,24 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 		authOptions = append(authOptions, oauth2.SetAuthURLParam("resource", l.Resource))
 	}
 	authURL := config.AuthCodeURL(state, authOptions...)
-	if _, err := fmt.Fprintf(l.out(), "%s\n%s\n", l.prompt(), output.Subtle(l.out(), authURL)); err != nil {
+	// The URL is printed whether or not the opener reports success. An opener
+	// only reports whether it could be started: over SSH or on a headless
+	// machine xdg-open, open or $BROWSER exits cleanly and shows nothing, and
+	// WSO2_NO_BROWSER skips it outright. A login whose URL went unprinted there
+	// is a login nobody can complete. A browser that did open gets the URL as
+	// a subtle fallback line; one that could not be opened gets it as the
+	// instruction.
+	var printed string
+	if openErr := l.openBrowser(authURL); openErr == nil {
+		printed = fmt.Sprintf("%s\nIf the browser does not open, visit: %s\n",
+			l.openedLine(), output.Subtle(l.out(), authURL))
+	} else {
+		printed = fmt.Sprintf("%s\n%s\n", l.prompt(), output.Subtle(l.out(), authURL))
+	}
+	if _, err := io.WriteString(l.out(), printed); err != nil {
 		return Result{}, notCompleted("the shell could not print the authorization URL this login needs",
 			"Run wso2 login with standard output attached to your terminal.")
 	}
-	// Best effort by contract: the URL is already printed, so a machine with no
-	// browser logs in exactly as well as one with a browser.
-	_ = l.openBrowser(authURL)
 
 	code, err := callback.wait(ctx)
 	if err != nil {

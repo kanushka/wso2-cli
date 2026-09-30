@@ -70,7 +70,7 @@ func TestContextCreateWizardLogsInAfterCreate(t *testing.T) {
 	if !strings.Contains(out, `Created the "wizlogin" context.`) {
 		t.Errorf("stdout does not report the create:\n%s", out)
 	}
-	for _, want := range []string{"user-1", "dev@example.test"} {
+	for _, want := range []string{"dev@example.test", "logged in"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("stdout does not report the login that followed:\n%s", out)
 		}
@@ -174,7 +174,7 @@ func TestAskThunderLoginEndOfInputRefusesBeforeAClientIDOrAudience(t *testing.T)
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
 			shell, _, _ := newShell(t)
-			installFixture(t, shell, fixture.Module{Namespace: "identity", Version: "0.1.0",
+			installFixture(t, shell, fixture.Module{Namespace: "iam", Version: "0.1.0",
 				Product: &modules.ProductDescriptor{
 					Provider: contexts.ProviderThunder, Audience: modules.AudienceResource, Scopes: []string{"system"},
 				}})

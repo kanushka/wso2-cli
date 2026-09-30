@@ -219,12 +219,26 @@ func TestContextCreateWithAClientSecretVariableIsAMachineContext(t *testing.T) {
 	}
 }
 
+// A URL alone logs in through the one installed login product, so a person
+// setting up a Thunder context names where it runs and the client, and not a
+// product namespace they have no reason to know yet.
+func TestContextCreateWithAURLAloneLogsInThroughTheLoginProduct(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	mustRun(t, shell, "context", "create", "local", "--url", thunderURL, "--client-id", "demo-cli")
+
+	local := contextNamed(t, loadDocument(t, shell), "local")
+	want := contexts.Login{Kind: contexts.KindOAuthBrowser, Issuer: thunderURL, ClientID: "demo-cli",
+		Provider: contexts.ProviderThunder, Product: "iam"}
+	if local.Login != want {
+		t.Errorf("login = %+v, want %+v", local.Login, want)
+	}
+}
+
 func TestContextCreateRefusals(t *testing.T) {
 	cases := map[string]struct {
 		args []string
 		code string
 	}{
-		"a url alone":           {[]string{"--url", thunderURL}, "shell.missing_required_flag"},
 		"a login product alone": {[]string{"--login-product", "iam"}, "shell.missing_required_flag"},
 		"neither form":          {nil, "shell.missing_required_flag"},
 		"both forms": {[]string{"--login-product", "iam", "--url", thunderURL, "--issuer", thunderURL,
