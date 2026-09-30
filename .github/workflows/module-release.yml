@@ -11,8 +11,8 @@ on:
       - '*/v*'
 
 # Read-only by default. Only the job that publishes the release is granted write
-# access to repository contents, only the job that deploys the catalog is
-# granted Pages access, and nothing here is granted anything else.
+# access to repository contents and attestations, only the job that deploys
+# the catalog is granted Pages access.
 permissions:
   contents: read
 
@@ -41,12 +41,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.25.x'
           cache-dependency-path: |
@@ -83,14 +83,16 @@ jobs:
       # Creating the release for this tag and uploading its assets. Nothing
       # else: this release publishes no container image and no package.
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.25.x'
           cache-dependency-path: |
@@ -123,12 +125,25 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh release create "${GITHUB_REF_NAME}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --title "${GITHUB_REF_NAME}" \
-            --generate-notes \
-            --verify-tag \
-            dist/*
+          if draft="$(gh release view "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [[ "${draft}" != true ]]; then
+              echo '::error::the release already exists and is public; refusing to replace its assets'
+              exit 1
+            fi
+            # A previous run may have stopped after creating the draft. Replace
+            # its assets, then repeat the verification and attestation steps.
+            gh release upload "${GITHUB_REF_NAME}" dist/* \
+              --repo "${GITHUB_REPOSITORY}" --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${GITHUB_REF_NAME}" \
+              --generate-notes \
+              --draft \
+              --verify-tag \
+              dist/*
+          fi
 
       # Proves what the catalog will point at by fetching it back from the
       # release page rather than by inspecting the build output. The catalog
@@ -164,6 +179,32 @@ jobs:
           fi
           echo "$(wc -l <published-names.txt) archives published and all verified"
 
+      - name: Attest module archives and checksums
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/checksums.txt
+
+      - name: Verify published attestations
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          published="$(mktemp -d)"
+          gh release download "${GITHUB_REF_NAME}" --dir "${published}" --repo "${GITHUB_REPOSITORY}"
+          for artifact in "${published}"/*; do
+            gh attestation verify "${artifact}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/module-release.yml" \
+              --source-ref "${GITHUB_REF}"
+          done
+
+      - name: Publish verified module release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false
+
   # A successful release regenerates the catalog from the tags that exist and
   # deploys it to the origin that already serves the install scripts. The whole
   # site is assembled by the same script the Pages workflow runs, because a
@@ -189,7 +230,7 @@ jobs:
       contents: read
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Every module tag has to be present, because the catalog is a
           # function of all of them and not of this one.
@@ -197,7 +238,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.25.x'
           cache-dependency-path: |
@@ -225,13 +266,13 @@ jobs:
           echo "${namespace} ${version} is in the catalog about to be deployed"
 
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - name: Upload the site
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site
 
       - name: Deploy to Pages
         id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

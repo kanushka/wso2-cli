@@ -20,9 +20,9 @@ Removes what scripts/install.ps1 added.
 
 .DESCRIPTION
 Removes the binary, the directory the installer created for it, the per-user PATH
-entry, and the per-user WSO2_HOME variable. It does not remove configuration,
-or contexts unless -Purge is given: removing a binary is not the
-same decision as abandoning a setup.
+entry, the per-user WSO2_HOME variable, and the tab completion block in the
+PowerShell profile. It does not remove configuration or contexts unless -Purge
+is given: removing a binary is not the same decision as abandoning a setup.
 
 Running it when nothing is installed is not a failure. It reports what it found
 and exits successfully, which is also what makes it usable to clean up after an
@@ -43,6 +43,77 @@ $ErrorActionPreference = 'Stop'
 $stateRoot = if ($env:WSO2_HOME) { $env:WSO2_HOME } else { Join-Path $HOME '.wso2' }
 $binDir = Join-Path $stateRoot 'bin'
 $removed = $false
+
+# Resolve-RealPath reports where a path really leads: made absolute, ".." and
+# repeated or trailing separators folded, and every symbolic link or junction
+# along it followed. Windows folds ".." before it reaches the file system, so
+# doing that first matches what Remove-Item would act on.
+function Resolve-RealPath([string] $Path) {
+    $full = [System.IO.Path]::GetFullPath($Path)
+    for ($hop = 0; $hop -lt 64; $hop++) {
+        $root = [System.IO.Path]::GetPathRoot($full)
+        $parts = @($full.Substring($root.Length) -split '[\\/]' | Where-Object { $_ })
+        $current = $root
+        $followed = $false
+        for ($k = 0; $k -lt $parts.Count; $k++) {
+            $current = [System.IO.Path]::Combine($current, $parts[$k])
+            $item = Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
+            if ($item -and $item.LinkType -in @('SymbolicLink', 'Junction')) {
+                $target = @($item.Target)[0]
+                if (-not [System.IO.Path]::IsPathRooted($target)) {
+                    $target = [System.IO.Path]::Combine((Split-Path -LiteralPath $current -Parent), $target)
+                }
+                for ($rest = $k + 1; $rest -lt $parts.Count; $rest++) {
+                    $target = [System.IO.Path]::Combine($target, $parts[$rest])
+                }
+                $full = [System.IO.Path]::GetFullPath($target)
+                $followed = $true
+                break
+            }
+        }
+        if (-not $followed) {
+            $trimmed = $full.TrimEnd('\', '/')
+            $rootTrimmed = $root.TrimEnd('\', '/')
+            if ($trimmed.Length -le $rootTrimmed.Length) { return $root }
+            return $trimmed
+        }
+    }
+    throw "too many links while resolving $Path"
+}
+
+# -Purge deletes the state root recursively, and WSO2_HOME chooses it. A
+# mistaken or inherited value — a drive root, the home directory, a directory
+# above it — would turn a purge into the loss of unrelated data. So the root is
+# resolved the way the file system sees it and refused when it is a drive or
+# share root, or is or contains the home directory. This is checked before
+# anything is removed, so a refused purge changes nothing.
+if ($Purge -and (Test-Path -LiteralPath $stateRoot -PathType Container)) {
+    # Absolute means fully qualified: "C:\x" or "\\server\share\x". "\x" and
+    # "C:x" depend on the current drive or directory, as a relative path does.
+    if ($stateRoot -notmatch '^([A-Za-z]:[\\/]|[\\/]{2}[^\\/]|/)' ) {
+        [Console]::Error.WriteLine("error: WSO2_HOME must be an absolute path, got $stateRoot.")
+        [Console]::Error.WriteLine('Refusing to purge. Nothing was removed.')
+        exit 1
+    }
+    $resolvedRoot = Resolve-RealPath $stateRoot
+    $resolvedHome = Resolve-RealPath $HOME
+    $separators = [char[]]@('\', '/')
+    $unsafe = $null
+    if ($resolvedRoot.TrimEnd($separators) -ieq [System.IO.Path]::GetPathRoot($resolvedRoot).TrimEnd($separators)) {
+        $unsafe = 'a drive or file system root'
+    } elseif ($resolvedRoot -ieq $resolvedHome) {
+        $unsafe = 'your home directory'
+    } elseif (($resolvedHome.TrimEnd($separators) + '\').Replace('/', '\').StartsWith(
+            ($resolvedRoot.TrimEnd($separators) + '\').Replace('/', '\'),
+            [System.StringComparison]::OrdinalIgnoreCase)) {
+        $unsafe = 'a directory that contains your home directory'
+    }
+    if ($unsafe) {
+        [Console]::Error.WriteLine("error: the state root $stateRoot resolves to $resolvedRoot ($unsafe).")
+        [Console]::Error.WriteLine('Refusing to purge it. Nothing was removed. Check WSO2_HOME.')
+        exit 1
+    }
+}
 
 # The binary, under the name the installer recorded; an install from before
 # the record was named wso2.
@@ -111,6 +182,74 @@ $userStateRoot = [Environment]::GetEnvironmentVariable('WSO2_HOME', 'User')
 if ($userStateRoot -and $userStateRoot.TrimEnd('\') -ieq $stateRoot.TrimEnd('\')) {
     [Environment]::SetEnvironmentVariable('WSO2_HOME', $null, 'User')
     Write-Output 'Removed the user WSO2_HOME variable.'
+    $removed = $true
+}
+
+# The tab completion block `completion install` wrote into a PowerShell profile.
+# Both editions' profiles are checked, because the install may have run under
+# the other one. Only the lines between the markers go. A profile whose markers
+# do not pair up, start before end, is left alone rather than guessed at.
+#
+# The profile is rewritten byte for byte apart from the block: it is read as
+# Latin-1, which maps every byte to one character, so UTF-8 with or without a
+# BOM and the ANSI code page all survive; only UTF-16, which PowerShell also
+# writes, is read as what it is. The rewrite goes through a temporary file
+# beside the profile, so an interrupted run cannot truncate it.
+$BlockBegin = '# >>> wso2 cli >>>'
+$BlockEnd = '# <<< wso2 cli <<<'
+$profiles = @()
+if ($env:WSO2_CLI_POWERSHELL_PROFILE) {
+    $profiles += $env:WSO2_CLI_POWERSHELL_PROFILE
+} else {
+    $documents = [Environment]::GetFolderPath('MyDocuments')
+    $profiles += $PROFILE
+    foreach ($edition in @('PowerShell', 'WindowsPowerShell')) {
+        $profiles += Join-Path (Join-Path $documents $edition) 'Microsoft.PowerShell_profile.ps1'
+    }
+}
+foreach ($profilePath in ($profiles | Select-Object -Unique)) {
+    if (-not $profilePath -or -not (Test-Path -LiteralPath $profilePath)) { continue }
+    $bytes = [System.IO.File]::ReadAllBytes($profilePath)
+    $encoding = [System.Text.Encoding]::GetEncoding(28591)
+    if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) {
+        $encoding = [System.Text.Encoding]::Unicode
+    } elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) {
+        $encoding = [System.Text.Encoding]::BigEndianUnicode
+    }
+    $lines = $encoding.GetString($bytes) -split "`n"
+
+    $kept = New-Object System.Collections.Generic.List[string]
+    $inside = $false
+    $found = $false
+    $malformed = $false
+    foreach ($line in $lines) {
+        $bare = $line.TrimEnd("`r")
+        if ($bare -ceq $BlockBegin) {
+            if ($inside) { $malformed = $true; break }
+            $inside = $true
+            $found = $true
+            continue
+        }
+        if ($bare -ceq $BlockEnd) {
+            if (-not $inside) { $malformed = $true; break }
+            $inside = $false
+            continue
+        }
+        if (-not $inside) { $kept.Add($line) }
+    }
+    if ($inside) { $malformed = $true }
+    if (-not $found -and -not $malformed) { continue }
+    if ($malformed) {
+        [Console]::Error.WriteLine("warning: the wso2 block markers in $profilePath do not pair up.")
+        [Console]::Error.WriteLine("Left it alone rather than guessing where the block ends. Remove these lines by hand:")
+        [Console]::Error.WriteLine("  $BlockBegin ... $BlockEnd")
+        continue
+    }
+
+    $staged = "$profilePath.wso2-uninstall.$PID"
+    [System.IO.File]::WriteAllBytes($staged, $encoding.GetBytes($kept -join "`n"))
+    Move-Item -LiteralPath $staged -Destination $profilePath -Force
+    Write-Output "Removed the wso2 block from $profilePath"
     $removed = $true
 }
 

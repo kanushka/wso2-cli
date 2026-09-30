@@ -58,6 +58,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
+	"github.com/wso2/wso2-cli/internal/auth/trustedhttp"
 	"github.com/wso2/wso2-cli/internal/output"
 
 	"github.com/wso2/wso2-cli/sdk/problem"
@@ -192,6 +193,9 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 		return Result{}, discoveryFailed(
 			"the shell could not read the identity provider's OpenID configuration",
 			"Check the issuer of the selected context and that this machine can reach it, then retry.")
+	}
+	if issuertrust.Plaintext(provider.Claims) {
+		return Result{}, issuertrust.PlaintextProblem()
 	}
 	var capabilities struct {
 		CodeChallengeMethods []string `json:"code_challenge_methods_supported"`
@@ -365,9 +369,9 @@ func (l Login) httpClient() *http.Client {
 	if l.HTTPClient != nil {
 		base = l.HTTPClient
 	}
-	stripped := *base
+	stripped := trustedhttp.Client(base)
 	stripped.Transport = certificateStripper{base: base.Transport}
-	return &stripped
+	return stripped
 }
 
 func (l Login) out() io.Writer {

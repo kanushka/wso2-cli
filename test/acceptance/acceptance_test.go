@@ -32,12 +32,15 @@ package acceptance_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/wso2/wso2-cli/internal/modules/fixture"
@@ -267,14 +270,97 @@ func buildReferenceModuleSpeaking(t *testing.T, protocolVersion, moduleVersion s
 	return binary
 }
 
+// build writes the executable for packagePath, built in directory with
+// ldflags, to output.
+//
+// The same few builds are asked for over a hundred times across the package,
+// and go build relinks every time even when every package is cached, which
+// alone was minutes of the suite (#235). So each distinct build is linked
+// once, and every caller gets its own copy at the path it named: a test still
+// owns a fresh executable in its own directory, and nothing it does to that
+// file reaches another test.
 func build(t *testing.T, directory, output, ldflags, packagePath string) {
 	t.Helper()
+	cached, err := builds.executable(directory, ldflags, packagePath)
+	if err != nil {
+		t.Fatalf("building %s failed: %v", packagePath, err)
+	}
+	if err := copyExecutable(cached, output); err != nil {
+		t.Fatalf("copying the build of %s: %v", packagePath, err)
+	}
+}
+
+// builds is the package's cache of linked executables. TestMain removes its
+// directory once every test has run.
+var builds buildCache
+
+type buildCache struct {
+	mu        sync.Mutex
+	directory string
+	built     map[string]string
+}
+
+func (c *buildCache) executable(directory, ldflags, packagePath string) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// The environment the build reads is part of what it produces, so it is
+	// part of the key: a test that changed it gets a build of its own.
+	key := strings.Join([]string{directory, ldflags, packagePath,
+		os.Getenv("GOOS"), os.Getenv("GOARCH"), os.Getenv("GOFLAGS"),
+		os.Getenv("CGO_ENABLED"), os.Getenv("GOWORK"), os.Getenv("GOEXPERIMENT")}, "\x00")
+	if path, ok := c.built[key]; ok {
+		return path, nil
+	}
+	if c.directory == "" {
+		created, err := os.MkdirTemp("", "wso2-acceptance-builds")
+		if err != nil {
+			return "", err
+		}
+		c.directory = created
+		c.built = map[string]string{}
+	}
+	slot := filepath.Join(c.directory, strconv.Itoa(len(c.built)))
+	if err := os.MkdirAll(slot, 0o755); err != nil {
+		return "", err
+	}
+	output := filepath.Join(slot, filepath.Base(packagePath)+executableSuffix())
 	command := exec.Command("go", "build", "-ldflags", ldflags, "-o", output, packagePath)
 	command.Dir = directory
 	command.Env = os.Environ()
 	if combined, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("building %s failed: %v\n%s", packagePath, err, combined)
+		return "", fmt.Errorf("%w\n%s", err, combined)
 	}
+	c.built[key] = output
+	return output, nil
+}
+
+func (c *buildCache) remove() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.directory != "" {
+		_ = os.RemoveAll(c.directory)
+	}
+}
+
+func copyExecutable(source, destination string) error {
+	contents, err := os.ReadFile(source)
+	if err != nil {
+		return err
+	}
+	// go build creates the directory it writes into, so the copy does too.
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(destination, contents, 0o755); err != nil {
+		return err
+	}
+	return os.Chmod(destination, 0o755)
+}
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	builds.remove()
+	os.Exit(code)
 }
 
 // isolatedStateRoot returns a temporary shell state root. No test ever reads or

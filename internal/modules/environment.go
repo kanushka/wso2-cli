@@ -26,21 +26,18 @@ import (
 // SanitizedEnvironment builds a module process's environment from nothing.
 //
 // The shell decides what a module may see rather than filtering what it must
-// not: a deny list would leak every variable nobody thought of. Three things
-// are added back: the entries an operating system needs to start a process
-// at all, the certificate file the shell itself trusts (CAFileEnvVar), and
-// the variables a user exported under this module's own prefix, WSO2_IAM_ for
-// the iam module. The prefix is how a secret a command needs, such as an
-// administrator password for a one-time bootstrap, reaches a module that
-// cannot prompt: the user names the module in the variable, and no other
-// module sees it. Empty values are not passed; an unset variable and an
-// empty one mean the same thing to a module.
+// not: a deny list would leak every variable nobody thought of. It starts from
+// DeclarationEnvironment — what an operating system needs to start a process,
+// and the certificate file the shell itself trusts — and adds the variables a
+// user exported under this module's own prefix, WSO2_IAM_ for the iam module.
+// The prefix is how a secret a command needs, such as an administrator
+// password for a one-time bootstrap, reaches a module that cannot prompt: the
+// user names the module in the variable, and no other module sees it. Empty
+// values are not passed; an unset variable and an empty one mean the same
+// thing to a module.
 //
-// It lives here rather than beside either caller because there are two, and a
-// module process is launched twice in a module's life — once at install, to ask
-// what commands it serves, and again for every invocation. Two copies of this
-// rule would be two places for it to drift, and the one that drifted would be
-// the one nobody was looking at.
+// It serves invocation only. Declaration runs no command, so it is launched
+// with DeclarationEnvironment and never sees the prefix.
 //
 // withheld names variables that carry the shell's own credentials, read from
 // the context document: an identity's client secret variable and a product's
@@ -49,6 +46,31 @@ import (
 // identity, and a module must never see the credential the shell mints its
 // access from, so those are withheld whatever their name.
 func SanitizedEnvironment(namespace string, withheld ...string) []string {
+	environment := DeclarationEnvironment()
+	prefix := NamespaceEnvPrefix(namespace)
+	for _, entry := range os.Environ() {
+		name, value, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(name, prefix) && value != "" && !slices.Contains(withheld, name) {
+			environment = append(environment, entry)
+		}
+	}
+	return environment
+}
+
+// DeclarationEnvironment builds the environment a module is asked what commands
+// it serves in: the entries an operating system needs to start a process at
+// all, and the certificate file the shell itself trusts (CAFileEnvVar).
+// Nothing a user exported, under the module's prefix or any other, is passed;
+// the caller adds the path the declaration is written to.
+//
+// Declaration runs a binary that was downloaded moments ago over an unsigned
+// catalog, and it runs no command, so it has no use for a secret meant for one.
+//
+// Invocation builds on this same list, because a module process is launched
+// twice in a module's life — once at install and again for every invocation —
+// and two copies of the operating system minimum would be two places for it to
+// drift.
+func DeclarationEnvironment() []string {
 	names := []string{CAFileEnvVar}
 	if runtime.GOOS == "windows" {
 		// Windows cannot reliably start a process without these, and neither
@@ -59,13 +81,6 @@ func SanitizedEnvironment(namespace string, withheld ...string) []string {
 	for _, name := range names {
 		if value, present := os.LookupEnv(name); present && value != "" {
 			environment = append(environment, name+"="+value)
-		}
-	}
-	prefix := NamespaceEnvPrefix(namespace)
-	for _, entry := range os.Environ() {
-		name, value, _ := strings.Cut(entry, "=")
-		if strings.HasPrefix(name, prefix) && value != "" && !slices.Contains(withheld, name) {
-			environment = append(environment, entry)
 		}
 	}
 	return environment

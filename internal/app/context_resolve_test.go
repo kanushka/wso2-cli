@@ -75,6 +75,18 @@ func TestContextProductAddResolutionRefusals(t *testing.T) {
 			code:  "shell.missing_required_flag",
 			exit:  exit.Usage,
 		},
+		"a product url in plain http off loopback": {
+			setup: func(t *testing.T, shell app.Shell) { localSetup(t, shell) },
+			args:  []string{"api", "--url", "http://api.example"},
+			code:  "shell.invalid_argument",
+			exit:  exit.Usage,
+		},
+		"a gateway url in plain http off loopback": {
+			setup: func(t *testing.T, shell app.Shell) { localSetup(t, shell) },
+			args:  []string{"api", "--url", "https://api.example", "--gateway", "http://gw.example"},
+			code:  "shell.invalid_argument",
+			exit:  exit.Usage,
+		},
 		"a gateway on a product declaring none": {
 			setup: func(t *testing.T, shell app.Shell) { localSetup(t, shell) },
 			args:  []string{"reference", "--url", "https://ref.example", "--gateway", "https://ref.example/gw"},

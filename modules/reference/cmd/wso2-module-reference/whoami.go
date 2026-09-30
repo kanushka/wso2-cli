@@ -72,7 +72,7 @@ func readWhoami(ctx context.Context, endpoint, invocationID, token string, timeo
 	request.Header.Set(invocationHeader, invocationID)
 	request.Header.Set("Accept", "application/json")
 
-	response, err := http.DefaultClient.Do(request)
+	response, err := bearerClient.Do(request)
 	if err != nil {
 		return brokeredAccess{}, unavailable(target, "did not answer")
 	}

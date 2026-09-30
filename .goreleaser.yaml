@@ -107,9 +107,11 @@ changelog:
       - Merge pull request
 
 release:
+  # Keep assets private until the workflow has attested and verified the
+  # downloaded copies. The workflow publishes the draft as its final step.
+  draft: true
   # A tag carrying a prerelease identifier publishes as a prerelease, which is
   # what the installers' prerelease channel resolves and what keeps a release
   # candidate from becoming every user's default.
   prerelease: auto
-  draft: false
   name_template: "{{ .Tag }}"

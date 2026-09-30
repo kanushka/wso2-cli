@@ -62,7 +62,7 @@ type Command struct {
 }
 ```
 
-`Path` is the command path within the namespace, so `wso2 apim status` binds as
+`Path` is the command path within the namespace, so `ws apim status` binds as
 `[]string{"status"}`; the namespace itself is not an element. Matching is exact
 slice equality, with no prefix matching and no aliases. An empty path is the
 namespace's own default command. A
@@ -220,7 +220,7 @@ and asks for each once.
 The token is opaque. Do not parse it, log it, persist it, or pass it in
 command-line arguments. `ExpiresAt` lets a module fail early; the audience
 enforces expiry regardless. The one command that returns a token as its result
-is one whose whole purpose is to hand it over (`wso2 apim api get-token`), and it
+is one whose whole purpose is to hand it over (`ws apim api get-token`), and it
 says on standard error that the token is stored nowhere.
 
 A denial arrives as a typed problem and should be returned unchanged.
@@ -290,7 +290,7 @@ report := result.New("iam.resourceServers/v1").
 for _, server := range found {
 	report = report.WithRow(server.Name, server.Identifier)
 }
-return report.With("next", "Next", "Record one with wso2 context product add."), nil
+return report.With("next", "Next", "Record one with ws context product add."), nil
 ```
 
 The columns are declared once rather than restated by every row, which is what

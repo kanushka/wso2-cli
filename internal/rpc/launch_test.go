@@ -60,6 +60,11 @@ func buildFakeModule(t *testing.T) string {
 			t.Logf("building the fake module: %s", output)
 			return
 		}
+		// Run it once, with no control files, so it exits at once. An
+		// operating system may check an executable the first time it runs,
+		// which on a loaded macOS machine took seconds; paying that here keeps
+		// it out of every test that times a module (#235).
+		_ = exec.Command(binary).Run()
 		fakeModulePath = binary
 	})
 	if fakeModuleErr != nil {
@@ -96,13 +101,7 @@ func install(t *testing.T, scripted script) Launcher {
 		executable += ".exe"
 	}
 
-	source, err := os.ReadFile(buildFakeModule(t))
-	if err != nil {
-		t.Fatalf("reading the fake module: %v", err)
-	}
-	if err := os.WriteFile(executable, source, 0o755); err != nil {
-		t.Fatalf("installing the fake module: %v", err)
-	}
+	installExecutable(t, buildFakeModule(t), executable)
 
 	write := func(name string, contents []byte) {
 		if err := os.WriteFile(filepath.Join(directory, name), contents, 0o644); err != nil {
@@ -140,6 +139,29 @@ func install(t *testing.T, scripted script) Launcher {
 		},
 		Shell:        ShellIdentity{Version: "0.0.0-dev", Platform: "test/arch"},
 		InvocationID: testInvocationID,
+	}
+}
+
+// installExecutable puts the built fake module at executable, as a hard link
+// where it can.
+//
+// A freshly written copy is a new file to the operating system, and macOS
+// checks every new executable the first time it runs: that cost half a second
+// to over five on a loaded machine, all of it charged to the module's deadline
+// (#235). A link is the file buildFakeModule already ran, so the check is not
+// repeated. No test writes to the installed executable, so sharing it is safe;
+// a copy remains the fallback where the two paths cannot be linked.
+func installExecutable(t *testing.T, built, executable string) {
+	t.Helper()
+	if err := os.Link(built, executable); err == nil {
+		return
+	}
+	source, err := os.ReadFile(built)
+	if err != nil {
+		t.Fatalf("reading the fake module: %v", err)
+	}
+	if err := os.WriteFile(executable, source, 0o755); err != nil {
+		t.Fatalf("installing the fake module: %v", err)
 	}
 }
 
@@ -400,15 +422,18 @@ func TestTheDeadlineDoesNotRunWhileTheBrokerIsConsulted(t *testing.T) {
 	// terminated because the person the broker sent to a browser took longer
 	// than the module's own deadline: that time is the shell's, not the
 	// module's.
-	// The budgets are generous because starting the module is the module's
-	// time too, and a freshly written executable can take a few hundred
-	// milliseconds to start; what matters is that the broker's delay alone
-	// exceeds the deadline.
+	// The deadline is the thing under test, not a wait: the module has to
+	// answer inside it, and the broker's delay alone has to exceed it, so the
+	// delay is stated relative to it. It is a few seconds rather than one
+	// because starting the module is the module's time too, and on a loaded
+	// machine a start that is normally tens of milliseconds can take far
+	// longer (#235).
+	const deadline = 3 * time.Second
 	launcher := install(t, script{stdout: moduleStream(t, conformingHello(), accessRequest(), statusResult()).Bytes()})
-	launcher.Broker = slowBroker{delay: 1500 * time.Millisecond}
+	launcher.Broker = slowBroker{delay: deadline + 500*time.Millisecond}
 
 	outcome, err := launcher.Invoke(t.Context(), Invocation{
-		Namespace: testNamespace, Command: []string{"status"}, Timeout: time.Second,
+		Namespace: testNamespace, Command: []string{"status"}, Timeout: deadline,
 	})
 
 	if err != nil {

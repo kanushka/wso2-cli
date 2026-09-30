@@ -140,7 +140,7 @@ runs. All three members are optional and absent when empty.
 
 - `authAudiences` are the audiences a handler may name.
 - `authScopes` are the scopes it may ask for.
-- `product` is the product descriptor the `wso2 context` setup commands fill a
+- `product` is the product descriptor the `ws context` setup commands fill a
   product record in from; see below.
 
 `authAudiences` and `authScopes` are a ceiling, not a request. A newly
@@ -176,8 +176,8 @@ its handlers then name none.
 ## `capabilities.product`
 
 The **product descriptor**: what the module declares about reaching its
-product, so that `wso2 context create --login-product`, `wso2 context product
-add` and `wso2 context apply` can write a context's product record from the URL
+product, so that `ws context create --login-product`, `ws context product
+add` and `ws context apply` can write a context's product record from the URL
 alone. It travels with the other capabilities through the catalog into the
 receipt, and the shell reads it from the receipt when a record is written; the
 values are frozen into the record then, so a later module update changes no
@@ -208,17 +208,17 @@ public configuration, and it names no credential.
 | `grant` | How the product is reached when it is not the login provider: `exchange` (the login session's token exchanged per command; the product's audience defaults to its URL), `federated` (a public client at the product's own issuer, through the same browser sign-on) or `jwt-bearer`. Empty for a product only its own provider serves. | It names a grant this shell does not implement. |
 | `machine` | The strategies a client-credentials context may use: `inline` (the context's own machine client, minted per product) and/or `credential` (a credential of the product's own, given as variable names). | It names a strategy this shell does not implement. |
 | `invocation` | Declares that the module calls the APIs its product serves the way their consumers would, asking the broker for the `api` record bound to a resource the request names. Its one member is `audience`, which must be `resource`. Requires `grant` to be `exchange`: the access is exchanged from the login session. Absent for a module that does not, which has the `api` record refused. | Its `audience` is not `resource`, or the descriptor's `grant` is not `exchange`. |
-| `gateway` | The defaults for the product's gateway record, when it has one: its own `audience` (`resource` or `client`), `scopes`, and `machine` strategies. `wso2 context product add --gateway <url>` writes the URL; these three come from here. Absent for a product with no gateway, which has `--gateway` refused. | It names an `audience` or `machine` value this shell does not implement. |
+| `gateway` | The defaults for the product's gateway record, when it has one: its own `audience` (`resource` or `client`), `scopes`, and `machine` strategies. `ws context product add --gateway <url>` writes the URL; these three come from here. Absent for a product with no gateway, which has `--gateway` refused. | It names an `audience` or `machine` value this shell does not implement. |
 
 The refusals above are made when the receipt is read, as `modules.receipt_malformed`,
 naming the field. A manifest carrying them builds and tests clean, so read the
 table before tagging.
 
 Two shapes occur. A product that is itself the login provider declares
-`provider`, so `wso2 context create <name> --login-product <namespace> --url
+`provider`, so `ws context create <name> --login-product <namespace> --url
 <url>` creates a context that logs in through it. A product reached through a
 login provider declares its `grant` (and for a federated one `issuerPath`,
-`audience` and its `machine` strategies), so `wso2 context product add
+`audience` and its `machine` strategies), so `ws context product add
 <namespace> --url <url>` adds it to a context that logs in elsewhere, and a
 pipeline hands it a credential of the product's own.
 

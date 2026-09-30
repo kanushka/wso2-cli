@@ -1,9 +1,15 @@
 # Set up the WSO2 CLI with ThunderID
 
 This guide registers the CLI in ThunderID `1.0.0-beta`, creates a context, and
-logs in. The examples use `https://localhost:8090` and the `reference` product
-(`wso2 product install reference`). Context fields are described in the
+logs in. The examples use `https://localhost:8090` and the `reference` product.
+Context fields are described in the
 [context file reference](../reference/context-file.md).
+The commands below use `ws`, the default name of a released CLI.
+
+Install the reference module from this checkout with the
+[local setup guide](setup-example-module.md). From the repository root, run
+`export PATH="$PWD/bin:$PATH"` in the same terminal so the `ws` commands below
+use that build. Keep the `WSO2_HOME` value from the local setup guide.
 
 ThunderID differs from Asgardeo and Identity Server in three ways:
 
@@ -23,10 +29,9 @@ docker run -d --name thunderid -p 8090:8090 \
 Keep the host port at 8090: the issuer the server advertises must match the
 URL you reach it on.
 
-ThunderID's docs now lead with a Compose quick-start
-(`docker compose -f oci://ghcr.io/thunder-id/thunderid-quick-start:latest up`)
-instead of this `docker run` form; the command above was written on
-2026-08-06 and still works against `1.0.0-beta`.
+This walkthrough targets `1.0.0-beta`. For a newer release, use the
+[current ThunderID quick start](https://thunderid.dev/docs/next/getting-started/get-thunderid/)
+and check its Console steps before continuing.
 
 ## 2. Trust the server's certificate
 
@@ -36,7 +41,7 @@ openssl s_client -connect localhost:8090 -servername localhost </dev/null 2>/dev
 export WSO2_CA_FILE=$PWD/thunder-localhost.pem
 ```
 
-Set `WSO2_CA_FILE` in the shell that runs `wso2`. On macOS the CLI ignores
+Set `WSO2_CA_FILE` in the shell that runs `ws`. On macOS the CLI ignores
 `SSL_CERT_FILE`.
 
 ## 3. Register the resource server
@@ -97,40 +102,39 @@ contexts:
 ```
 
 ```sh
-wso2 context apply -f thunder-local.yaml --no-install --use thunder-local
+ws context apply -f thunder-local.yaml --no-install --use thunder-local
 ```
 
-The CLI stores it with `credentialRef: thunder-local`; `wso2 context show`
+The CLI stores it with `credentialRef: thunder-local`; `ws context show`
 summarizes it.
 
-If the `iam` product is installed, `wso2 context create` can build the
+If the `iam` product is installed, `ws context create` can build the
 login from its descriptor instead:
 
 ```sh
-wso2 context create thunder-local --login-product iam \
+ws context create thunder-local --login-product iam \
   --url https://localhost:8090 --use
-wso2 context product add reference --url https://localhost:8090 \
+ws context product add reference --url https://localhost:8090 \
   --audience https://localhost:8090/reference-status \
   --scopes reference:status:read
 ```
 
-That path records the login only, so add the product you are going to run
-before step 7.
+This path records the login only, so add the product before step 7.
 
-`wso2 context create --issuer` and `wso2 login --url` can't create a ThunderID
-context.
+`ws context create --issuer` and `ws login --url` can't create a ThunderID
+context. Use the context file or `--login-product` so the login names its product.
 
 ## 7. Log in and check
 
 ```sh
-wso2 login
-wso2 whoami
-wso2 reference status
+ws login
+ws whoami
+ws reference status
 ```
 
-`wso2 login` opens the browser and prints the authorization URL on standard
-error, so you can open it by hand if no browser appears. `wso2 whoami` shows
-`Status  logged in` once you're logged in. `wso2 logout` ends the session.
+`ws login` opens the browser and prints the authorization URL on standard
+error, so you can open it by hand if no browser appears. `ws whoami` shows
+`Status  logged in` once you're logged in. `ws logout` ends the session.
 
 ## CI
 
@@ -161,8 +165,8 @@ error, so you can open it by hand if no browser appears. `wso2 whoami` shows
 
 3. In the job, set `WSO2_NO_INPUT=1`, `WSO2_CA_FILE`, and
    `WSO2_THUNDER_CI_SECRET`, run
-   `wso2 context apply -f thunder-ci.yaml --use thunder-ci`, then run product
-   commands. Don't run `wso2 login`.
+   `ws context apply -f thunder-ci.yaml --use thunder-ci`, then run product
+   commands. Don't run `ws login`.
 
 ## If login fails
 
@@ -170,7 +174,7 @@ error, so you can open it by hand if no browser appears. `wso2 whoami` shows
 | --- | --- |
 | `auth.certificate_untrusted` | Set `WSO2_CA_FILE` (step 2). |
 | `auth.discovery_failed` | The issuer must be the bare origin, and the port must match what the server advertises. |
-| `auth.narrowing_unavailable` about a protected resource | Add `provider: thunder` to the context's `login` block (`wso2 context edit`). |
+| `auth.narrowing_unavailable` about a protected resource | Add `provider: thunder` to the context's `login` block (`ws context edit`). |
 | `auth.narrowing_unavailable` about permissions | The user has no role with the permissions (step 5). |
 | `auth.product_not_configured` with `invalid_target` | The audience isn't a registered resource server identifier (step 3). |
 | `shell.invalid_argument` or `contexts.document_malformed` about the audience | The audience must be an absolute URI. |

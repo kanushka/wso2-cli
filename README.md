@@ -28,12 +28,35 @@ Neither needs administrator rights, and both are plain text at the URLs above if
 you would rather read one before running it.
 
 Released binaries are checksum-verified but not code signed or notarized.
+The release also has [artifact attestations](docs/reference/release-artifacts.md#checksums)
+that you can verify before installing by hand.
 Supported platforms are Linux on `amd64`, `arm64`, `arm`, and `386`, and macOS and
 Windows on `amd64` and `arm64`.
 
-The [installation guide](docs/guides/install.md) covers installing from the
-release page without running a remote script, pinning a version, release
-candidates, where files go, and how to uninstall.
+The [install and use guide](docs/guides/install.md) walks through the first
+commands. [Installer details](docs/reference/installer.md) covers manual
+installation, pinned versions, completion, and removal options.
+
+Stock releases install the command as `ws`. The installer prints the command
+name if a release uses a different one.
+
+### Tab completion
+
+The installers set up tab completion for your shell. To set it up yourself, for
+the shell `$SHELL` names or the one you give:
+
+```sh
+ws completion install [bash|zsh|fish|powershell]
+```
+
+Or add the line for your shell to its profile by hand:
+
+| Shell | Line | Where |
+| --- | --- | --- |
+| zsh | `source <(ws completion zsh)` | `~/.zshrc`, after `autoload -Uz compinit && compinit` |
+| bash | `eval "$(ws completion bash)"` | `~/.bashrc` (needs the `bash-completion` package) |
+| fish | `ws completion fish \| source` | `~/.config/fish/completions/ws.fish` |
+| PowerShell | `ws completion powershell \| Out-String \| Invoke-Expression` | `$PROFILE` |
 
 ## Documentation
 
@@ -41,9 +64,10 @@ The [documentation index](docs/README.md) provides the complete reading order.
 The principal documents are:
 
 - [Architecture](docs/architecture.md)
-- [wso2 cli commands](docs/reference/commands.md)
-- [Install](docs/guides/install.md)
-- [Build a module quickstart](docs/guides/build-module-quickstart.md)
+- [CLI commands](docs/reference/commands.md)
+- [Install and use the CLI](docs/guides/install.md)
+- [Build a module](docs/guides/build-module-quickstart.md)
+- [Set up the reference module](docs/guides/setup-example-module.md)
 - [Context file reference](docs/reference/context-file.md)
 - Setup guides: [Asgardeo](docs/guides/setup-asgardeo.md),
   [Identity Server 7.x](docs/guides/setup-identity-server-7.x.md),

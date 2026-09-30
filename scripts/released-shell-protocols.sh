@@ -49,13 +49,34 @@ trap 'rm -rf "${work}"' EXIT
 
 archive="wso2-cli-${tag}-linux-amd64.tar.gz"
 gh release download "${tag}" --repo "${repository}" --pattern "${archive}" --dir "${work}"
-tar -xzf "${work}/${archive}" -C "${work}"
+mkdir "${work}/unpacked"
+tar -xzf "${work}/${archive}" -C "${work}/unpacked"
+
+# The command's name is chosen when a release is built, so it is read from the
+# archive rather than assumed, the way scripts/install.sh reads it: the binary
+# is the one file beside the licence and notice.
+shell=''
+for entry in "${work}/unpacked"/*; do
+	case "${entry##*/}" in
+	LICENSE* | NOTICE* | README* | *.md) continue ;;
+	esac
+	[ -f "${entry}" ] || continue
+	if [ -n "${shell}" ]; then
+		echo "the released shell ${tag} holds more than one candidate binary: ${shell##*/} and ${entry##*/}" >&2
+		exit 1
+	fi
+	shell="${entry}"
+done
+if [ -z "${shell}" ]; then
+	echo "the released shell ${tag} did not contain a binary" >&2
+	exit 1
+fi
 
 # The state root is redirected so that reading the module inventory cannot touch
 # the runner's home directory.
 WSO2_HOME="${work}/state"
 export WSO2_HOME
-reported="$("${work}/wso2" version)"
+reported="$("${shell}" version)"
 
 window="$(printf '%s\n' "${reported}" | awk '$1 == "Protocol" { sub(/^Protocol[[:space:]]+/, ""); print }')"
 if [ -z "${window}" ] || [ "${window}" = "unavailable" ]; then

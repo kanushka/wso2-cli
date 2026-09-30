@@ -327,6 +327,17 @@ func outcomeFor(status Status) Outcome {
 	return outcome
 }
 
+// Outcomes reports what an update run decides for statuses in which nothing
+// has an update: pinned, not published, or current. It lets a caller that has
+// already read Check report that run without a second catalog request.
+func Outcomes(statuses []Status) []Outcome {
+	outcomes := make([]Outcome, 0, len(statuses))
+	for _, status := range statuses {
+		outcomes = append(outcomes, outcomeFor(status))
+	}
+	return outcomes
+}
+
 // updateOne moves one module, or reports why it was not moved.
 func (i Installer) updateOne(ctx context.Context, index catalog.Index, status Status) Outcome {
 	outcome := outcomeFor(status)

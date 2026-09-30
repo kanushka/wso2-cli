@@ -76,11 +76,13 @@ func declaredTree(ctx context.Context, namespace, versionDir, executableName str
 	// module itself was killed. WaitDelay bounds what remains.
 	command := exec.CommandContext(ctx, filepath.Join(versionDir, executableName))
 	command.Dir = versionDir
-	// The environment is built from nothing, exactly as it is for an ordinary
-	// invocation. This runs a binary that was downloaded moments ago, so the
+	// The environment is built from nothing, and holds less than an ordinary
+	// invocation's: not even the variables under the module's own prefix. This
+	// runs a binary that was downloaded moments ago and runs no command, so the
 	// ambient environment — every WSO2_ variable, every credential a CI runner
-	// exports — is precisely what it must not inherit.
-	command.Env = append(modules.SanitizedEnvironment(namespace), module.CommandTreeEnv+"="+answer)
+	// exports, every secret meant for a command — is precisely what it must not
+	// inherit.
+	command.Env = append(modules.DeclarationEnvironment(), module.CommandTreeEnv+"="+answer)
 	command.WaitDelay = time.Second
 	if err := command.Run(); err != nil {
 		return commandtree.Tree{}, nil

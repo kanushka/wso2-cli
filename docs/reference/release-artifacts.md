@@ -1,7 +1,7 @@
 # Release artifacts
 
 **Related:** [module catalog](module-catalog.md), [architecture](../architecture.md)
-**Last reviewed:** 2026-08-20
+**Last reviewed:** 2026-09-28
 
 This document is the naming contract between a published release and the
 programs that download from it. An install script derives every URL it needs
@@ -105,11 +105,32 @@ The install scripts fetch this file and verify the archive they downloaded
 before extracting it. Verification failure is fatal: nothing is extracted and
 nothing is installed.
 
-Artifacts are not signed or notarized. Code signing belongs to the per-platform
-channels, and until then integrity rests on this checksum file and on HTTPS. A
-checksum proves that an archive is the one published beside it; it does not
-prove that the checksum file is authentic. Signing is a tracked follow-up,
-recorded in [architecture](../architecture.md) section 15.
+The release workflows also create GitHub artifact attestations for every
+archive and `checksums.txt`. These bind the files' SHA-256 digests to the
+repository, tag, and workflow that published them. Releases remain drafts while
+the workflows download the uploaded assets and verify their attestations.
+They publish the releases only after those checks pass.
+
+To authenticate a downloaded shell archive and checksum file, use the GitHub
+CLI (replace `<tag>` with the release tag):
+
+```sh
+gh attestation verify "wso2-cli-<tag>-linux-amd64.tar.gz" \
+  --repo wso2/wso2-cli \
+  --signer-workflow wso2/wso2-cli/.github/workflows/release.yml \
+  --source-ref "refs/tags/<tag>"
+gh attestation verify checksums.txt \
+  --repo wso2/wso2-cli \
+  --signer-workflow wso2/wso2-cli/.github/workflows/release.yml \
+  --source-ref "refs/tags/<tag>"
+```
+
+Do this before trusting the checksum file. The install scripts still verify
+archive checksums but do not verify attestations, so unattended installs rely
+on the GitHub release endpoint and HTTPS for publisher identity. These GitHub
+attestations are not platform code signing or notarization; those remain work
+for the per-platform channels described in [architecture](../architecture.md)
+section 15.
 
 ## Version reporting
 
@@ -160,6 +181,10 @@ format `sha256sum` reads. It is what the catalog's digests are read back from:
 the release API reports no digest, so a release whose checksum file does not
 cover an archive publishes nothing that archive could be verified against, and
 catalog generation fails rather than publishing an entry with no digest.
+The module release workflow also attests every archive and `checksums.txt`.
+Verify a downloaded module archive with `gh attestation verify` as above, using
+`wso2/wso2-cli/.github/workflows/module-release.yml` as the signer workflow
+and `refs/tags/<namespace>/v<version>` as the source ref.
 
 ## SDK releases
 

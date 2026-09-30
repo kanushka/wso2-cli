@@ -31,9 +31,9 @@ func TestDoctorReportsNoneNamingTheProductsWithoutASession(t *testing.T) {
 	keyring.MockInit()
 	shell, out, _ := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
-	installLogin(t, shell, thunderDoc("http://login.example", "http://apim.example"))
+	installLogin(t, shell, thunderDoc("https://login.example", "https://apim.example"))
 	store := session.Store{StateRoot: shell.StateRoot}
-	if err := store.Save(credentialRef, session.Session{Issuer: "http://login.example", RefreshToken: "rt"}); err != nil {
+	if err := store.Save(credentialRef, session.Session{Issuer: "https://login.example", RefreshToken: "rt"}); err != nil {
 		t.Fatal(err)
 	}
 	// Being logged out of a product is the state wso2 logout leaves behind,
@@ -53,7 +53,7 @@ func TestDoctorTreatsAClientCredentialsIdentityAsHealthyWithoutASession(t *testi
 	keyring.MockInit()
 	shell, out, errOut := newShell(t)
 	t.Setenv("WSO2_CONTEXT", "")
-	installLogin(t, shell, identityDoc(contexts.KindClientCredentials)("http://login.example"))
+	installLogin(t, shell, identityDoc(contexts.KindClientCredentials)("https://login.example"))
 	if code := shell.Run([]string{"doctor", "--output", "json"}); code != exit.OK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}

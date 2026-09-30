@@ -10,7 +10,7 @@ entries its sessions live under (its `credentialRef`), and optionally the
 organization and project to act within. Each context owns its own sessions —
 no two contexts share a `credentialRef` — so two targets that need the same
 login are two contexts that each log in, or one context whose organization
-`wso2 org use` switches.
+`ws org use` switches.
 
 Two files hold this shape, for two different jobs:
 
@@ -22,15 +22,15 @@ Two files hold this shape, for two different jobs:
   installed products' descriptors already know.
 
 ```sh
-wso2 context apply -f team-context.yaml --use local
-wso2 login
+ws context apply -f team-context.yaml --use local
+ws login
 ```
 
 `apply` fills in the input file's gaps from each installed product's
 descriptor and writes complete records to the local document. Reading the
 descriptor at apply time rather than at login time is deliberate ("frozen
-defaults"): a later `wso2 product update` changes no login until the file is
-applied again. `wso2 doctor` and `wso2 context show` say when a record
+defaults"): a later `ws product update` changes no login until the file is
+applied again. `ws doctor` and `ws context show` say when a record
 differs from what the installed product would write now.
 
 ## Where it lives
@@ -40,7 +40,7 @@ differs from what the installed product would write now.
 ```
 
 Set `WSO2_HOME` to use a different state root; it must be an absolute path,
-and the file then lives at `$WSO2_HOME/cli/contexts.yaml`. `wso2 context show`
+and the file then lives at `$WSO2_HOME/cli/contexts.yaml`. `ws context show`
 reports the path whether or not a document has been written there yet.
 
 The document is YAML. The shell reads only the subset of YAML that has a JSON
@@ -48,8 +48,8 @@ meaning, and refuses anchors, aliases, merge keys, custom tags and repeated
 keys ([ADR 0019](../adr/0019-yaml-context-documents.md)).
 
 A `contexts.json` that an earlier shell wrote is not read. Recreate its
-contexts with `wso2 context create`, or apply your team's context file again
-with `wso2 context apply -f <file>`, then sign in to each one.
+contexts with `ws context create`, or apply your team's context file again
+with `ws context apply -f <file>`, then sign in to each one.
 
 ## The local document
 
@@ -82,13 +82,13 @@ contexts:
           - system
 ```
 
-This is what `wso2 context apply` writes for the short `team-context.yaml`
+This is what `ws context apply` writes for the short `team-context.yaml`
 below it — a login product (`iam`, direct) and a second product (`apim`)
 reached by exchanging the login session's token, with its own gateway record.
-Products are written in namespace order. Two things this asserts, and either can be wrong at runtime: every
-listed product accepts access derived from that session (a product that
-validates only its own resident issuer does not belong here), and the user is
-*authorized* for each — one login authenticates for all of them, it does not
+Products are written in namespace order. Two things this asserts, and either
+can be wrong at runtime: every listed product accepts access derived from that
+session (a product that validates only its own resident issuer does not belong
+here), and the user is *authorized* for each — one login authenticates for all of them, it does not
 authorize.
 
 ### Field reference
@@ -101,7 +101,7 @@ authorize.
 | `contexts[].type` | `cloud` or `onprem`. Selects defaults and wording, never structure. Required here; `context apply` derives it from the issuer when an input file omits it. |
 | `contexts[].credentialRef` | The name this context's sessions are stored under in the OS secure store: the login session under the reference, and each product's own under `<ref>.<product>`. **Required** for `oauth-browser`, `oauth-device` and `pat`; **not allowed** for `client-credentials`. Unique across the document; it stays when the context is renamed, so no session moves. |
 | `login.kind` | `oauth-browser` for a person at a browser, `oauth-device` for a context that can only be established without one, `client-credentials` for CI. `pat` is named by the schema but not implemented in this release. |
-| `login.issuer` | The issuer, verbatim from its discovery document. |
+| `login.issuer` | The issuer, verbatim from its discovery document. Must be `https`; plain `http` is accepted only on a loopback host (`localhost`, `127.0.0.0/8`, `::1`), because the shell sends credentials to it. The same rule applies to a grant's own issuer and to every endpoint the issuer's discovery document names — a plaintext one is refused as `auth.discovery_failed`. |
 | `login.clientId` | The registered public client. |
 | `login.tenant` | The home tenant the login belongs to at the issuer; derived from an Asgardeo issuer when absent. Not the same as `organization`, which is what commands target. |
 | `login.provider` | Names the product when the shell must ask it for tokens in a product-specific shape: `asgardeo`, `identity-server` or `thunder`. Required for Thunder. |
@@ -109,12 +109,12 @@ authorize.
 | `login.product` | The product the login authorization runs for. **Required** once the context reaches a direct product, so recording another product can never move the login from under the sessions already stored. |
 | `login.clientSecretVariable` | `client-credentials` only. The **name** of an environment variable holding the secret, never the secret. |
 | `products.<namespace>` | What this context may reach for one module. The namespace follows the same character rules as a context name. |
-| `products.<namespace>.url` | The product's base URL. **Required**, and must be an absolute `http` or `https` URL with a host. |
+| `products.<namespace>.url` | The product's base URL. **Required**, and must be an absolute `https` URL with a host; plain `http` is accepted only on a loopback host (`localhost`, `127.0.0.0/8`, `::1`), because the access token for the product is sent to it. A plaintext one is refused as `contexts.document_malformed`. |
 | `products.<namespace>.audience` | What the issued token's `aud` claim must carry. Not compared against the audience a module asks for by its own logical name — this is the concrete string *this* deployment stamps into `aud`. |
 | `products.<namespace>.scopes` | The permissions this context carries. A module asking for one that is not listed is refused. |
 | `products.<namespace>.grant` | How a product is reached when the login session does not already cover it: `exchange` (the login session's token exchanged per command, RFC 8693), `jwt-bearer` (an identity token from the login session presented at the product's own issuer), or `federated` (a public client at the product's own issuer, through the same browser sign-on). Absent for a product the login session covers directly. |
 | `products.<namespace>.clientIdVariable` / `clientSecretVariable` | A credential of the product's own, for a `client-credentials` context whose machine client the product cannot map to its roles. Names, never values. |
-| `products.<namespace>.gateway` | The product's gateway, when it has one: its own `url`, `audience` and `scopes`. |
+| `products.<namespace>.gateway` | The product's gateway, when it has one: its own `url`, `audience` and `scopes`. Its `url` follows the product `url`'s rule: `https`, or plain `http` only on a loopback host. |
 | `contexts[].organization` | The organization to act within. Either leave it out, or set it to `login.tenant` — this release cannot switch a session out of its home tenant. |
 | `contexts[].project` | The project inside the organization to narrow the target to. |
 
@@ -197,7 +197,7 @@ URL ends a session when it moves the issuer or the resource the session was
 bound to.
 
 ```sh
-wso2 context apply -f team-context.yaml --dry-run
+ws context apply -f team-context.yaml --dry-run
 ```
 
 `--dry-run` prints what would be installed, created or replaced, a
@@ -231,6 +231,7 @@ Apply refuses the whole file and writes nothing. The message names the cause:
 | `selects a context (defaultContext), and a shared file never does` | a selection in the file |
 | `logs the context "x" in through the "y" product, which it does not list under products` | `login.product` names a namespace with no `products` entry |
 | `gives the context "x" neither a login product nor an issuer and client id` | no way to log in |
+| `a product url on the context "x" is not served over HTTPS` (or `a product gateway url on the context "x" …`) | a product or gateway `url` in plain `http` on a host that is not loopback |
 | `json: unknown field "logn"` | a misspelled or unsupported member |
 
 With `--no-install`, a login product that is not installed must also state
@@ -238,22 +239,22 @@ With `--no-install`, a login product that is not installed must also state
 
 ## Share one
 
-`wso2 context export [<name>]` prints your contexts in the input-file form, as
+`ws context export [<name>]` prints your contexts in the input-file form, as
 YAML (`--output json` for JSON), with the credential references and the
 selection removed, ready to commit:
 
 ```sh
-wso2 context export > team-context.yaml
+ws context export > team-context.yaml
 ```
 
 Export writes complete records, so the file is longer than an input file, and
-`wso2 context apply -f <file> --no-install` writes it unchanged on a machine
+`ws context apply -f <file> --no-install` writes it unchanged on a machine
 that has none of the products installed. Export does not write `version`
 pins; add those by hand if your team wants them.
 
 ## Signing in without a browser
 
-`kind: oauth-device` (or `wso2 context create --device`) is for a context
+`kind: oauth-device` (or `ws context create --device`) is for a context
 that can *only* be established without a browser — a deployment whose
 loopback callback URLs cannot be registered, or one whose users are never at a
 machine that can reach one. It is a property of the context, not of where you
@@ -282,7 +283,7 @@ device grant and refuse this kind outright.
 
 A CI job has no browser and no secure store, so it uses a machine-to-machine
 context that carries its own credential and exchanges it inline, on every
-command — there is **no login step**. A job that runs `wso2 login` against
+command — there is **no login step**. A job that runs `ws login` against
 such a context is refused with `auth.login_not_required`.
 
 ```yaml
@@ -310,16 +311,16 @@ env:
   WSO2_CLIENT_SECRET: ${{ secrets.WSO2_CLIENT_SECRET }}
   WSO2_NO_INPUT: "1"
 steps:
-  - run: wso2 context apply -f ci/context.yaml --use ci
-  - run: wso2 iam status
+  - run: ws context apply -f ci/context.yaml --use ci
+  - run: ws iam status
 ```
 
 The shell reads the variable into process memory for the length of one grant,
 performs the token exchange itself, and hands the module only the resulting
 short-lived access token — the secret never reaches the module, the
 filesystem, or the OS secure store. Set `WSO2_NO_INPUT=1` on any job where a
-stray `wso2 login` should fail loudly rather than wait on a browser that will
-never open. The variable covers every step, including `wso2 context apply`,
+stray `ws login` should fail loudly rather than wait on a browser that will
+never open. The variable covers every step, including `ws context apply`,
 which takes no `--no-input` flag; see [non-interactive
 use](commands.md#non-interactive-use).
 

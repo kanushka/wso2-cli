@@ -1,8 +1,9 @@
 module github.com/wso2/wso2-cli
 
-go 1.25.8
+go 1.25.13
 
 require (
+	charm.land/bubbles/v2 v2.0.0
 	charm.land/huh/v2 v2.0.3
 	charm.land/lipgloss/v2 v2.0.1
 	github.com/charmbracelet/x/term v0.2.2
@@ -18,7 +19,6 @@ require (
 )
 
 require (
-	charm.land/bubbles/v2 v2.0.0 // indirect
 	charm.land/bubbletea/v2 v2.0.2 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/catppuccin/go v0.2.0 // indirect

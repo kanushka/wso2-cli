@@ -32,6 +32,30 @@ func TestFormSelectMovesWithTheArrowKeys(t *testing.T) {
 	}
 }
 
+// huh turns any form into its line-reading accessible mode when TERM is dumb.
+// The form prompter is only chosen for a terminal a form can be drawn on, so
+// it must draw one whatever TERM says, or arrow keys are never read.
+func TestFormIsDrawnWhateverTERMSays(t *testing.T) {
+	t.Setenv("TERM", "dumb")
+	var out bytes.Buffer
+	p := formPrompter{in: terminal(t, "\x1b[B\r"), out: &out}
+	picked, err := p.Select("Q", []Option{{Label: "a"}, {Label: "b"}}, 0)
+	if err != nil || picked != 1 {
+		t.Fatalf("Select = %d, %v; want 1", picked, err)
+	}
+}
+
+func TestADumbTerminalIsNotDrawable(t *testing.T) {
+	t.Setenv("TERM", "dumb")
+	if !dumbTerminal() {
+		t.Error("TERM=dumb is not taken for a dumb terminal")
+	}
+	t.Setenv("TERM", "xterm-256color")
+	if dumbTerminal() {
+		t.Error("TERM=xterm-256color is taken for a dumb terminal")
+	}
+}
+
 func TestFormSelectRefusesAnUnavailableOption(t *testing.T) {
 	var out bytes.Buffer
 	// Enter on the unavailable first option is refused; down then enter picks.
@@ -68,6 +92,33 @@ func TestFormConfirmTakesTheDefault(t *testing.T) {
 	p := formPrompter{in: terminal(t, "\r"), out: &out}
 	if yes, err := p.Confirm("Go?", true); err != nil || !yes {
 		t.Fatalf("Confirm = %v, %v", yes, err)
+	}
+	p = formPrompter{in: terminal(t, "\r"), out: &out}
+	if yes, err := p.Confirm("Go?", false); err != nil || yes {
+		t.Fatalf("Confirm = %v, %v; want the No default", yes, err)
+	}
+}
+
+func TestFormConfirmIsASelectOfYesAndNo(t *testing.T) {
+	var out bytes.Buffer
+	p := formPrompter{in: terminal(t, "\x1b[B\r"), out: &out}
+	if yes, err := p.Confirm("Go?", true); err != nil || yes {
+		t.Fatalf("Confirm = %v, %v; want No after moving down", yes, err)
+	}
+	p = formPrompter{in: terminal(t, "\x1b[A\r"), out: &out}
+	if yes, err := p.Confirm("Go?", false); err != nil || !yes {
+		t.Fatalf("Confirm = %v, %v; want Yes after moving up", yes, err)
+	}
+}
+
+func TestFormConfirmOffersNoFilter(t *testing.T) {
+	var out bytes.Buffer
+	p := formPrompter{in: terminal(t, "\r"), out: &out}
+	if _, err := p.Confirm("Go?", true); err != nil {
+		t.Fatalf("Confirm err = %v", err)
+	}
+	if bytes.Contains(out.Bytes(), []byte("filter")) {
+		t.Errorf("Confirm drew a filter hint:\n%s", out.String())
 	}
 }
 

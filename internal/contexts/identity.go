@@ -23,6 +23,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
 )
 
 // The deployment kinds an identity may declare in its type member.
@@ -537,8 +539,34 @@ func (a AccountAuth) validate(identity string) error {
 		if parsed.User != nil {
 			return malformed(fmt.Sprintf("declares an issuer for the %s that embeds credentials in its URL", identity))
 		}
+		if !issuertrust.Secure(parsed) {
+			return plaintextIssuer(fmt.Sprintf("the issuer for the %s", identity))
+		}
 	}
 	return nil
+}
+
+// plaintextIssuer refuses an issuer the shell would send credentials to in the
+// clear. The issuer is not echoed, for the same reason no rejected URL is.
+func plaintextIssuer(subject string) error {
+	return plaintextURL(subject, "issuer", "the shell sends credentials to the issuer")
+}
+
+// plaintextEndpoint refuses a product or gateway url a module would send the
+// shell's access token to in the clear. Like every rejected URL, it is not
+// echoed.
+func plaintextEndpoint(subject string) error {
+	return plaintextURL(subject, "url", "the access token for it is sent there")
+}
+
+// plaintextURL is the one refusal for a URL issuertrust.Secure rejects: what
+// is not served over HTTPS, what to write instead, and why loopback is the
+// only exception.
+func plaintextURL(subject, member, reason string) error {
+	return contextProblem("contexts.document_malformed",
+		subject+" is not served over HTTPS",
+		"Use an https:// "+member+". Plain http is accepted only on a loopback host (localhost, "+
+			"127.0.0.1, ::1), because "+reason+".")
 }
 
 func (p Product) validate(identity string) error {
@@ -558,6 +586,9 @@ func (p Product) validate(identity string) error {
 			fmt.Sprintf("a product url on the %s embeds credentials in its URL", identity),
 			"Remove the user information from the url. A context names a credential source; "+
 				"it never carries a credential.")
+	}
+	if !issuertrust.Secure(parsed) {
+		return plaintextEndpoint(fmt.Sprintf("a product url on the %s", identity))
 	}
 	// A product credential is a secret variable and the client it belongs
 	// to: the client id from its own variable, or, for a product reached
@@ -627,6 +658,9 @@ func (g Gateway) validate(identity string) error {
 			"Remove the user information from the url. A context names a credential source; "+
 				"it never carries a credential.")
 	}
+	if !issuertrust.Secure(parsed) {
+		return plaintextEndpoint(fmt.Sprintf("a product gateway url on the %s", identity))
+	}
 	return nil
 }
 
@@ -664,6 +698,9 @@ func (g Grant) validate(identity string) error {
 			fmt.Sprintf("a product grant on the %s embeds credentials in its issuer URL", identity),
 			"Remove the user information from the issuer. A context names a credential source; "+
 				"it never carries a credential.")
+	}
+	if !issuertrust.Secure(parsed) {
+		return plaintextIssuer(fmt.Sprintf("a product grant's issuer on the %s", identity))
 	}
 	if g.Resource != "" && !absoluteURI(g.Resource) {
 		return malformed(fmt.Sprintf(

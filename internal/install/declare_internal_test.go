@@ -230,3 +230,27 @@ func TestTheDeclaringProcessInheritsNothing(t *testing.T) {
 		t.Errorf("the declaring process inherited the shell's environment: %+v", tree)
 	}
 }
+
+// TestTheDeclaringProcessNeverSeesItsNamespaceVariables proves declaration is
+// not an invocation.
+//
+// An invocation hands a module the variables a user exported under its own
+// prefix, so a command that needs a secret can have one. Declaration runs no
+// command: it asks an executable that arrived moments ago over an unsigned
+// catalog what commands it serves, and a secret exported for the module a user
+// meant to run must not reach whatever binary the catalog pointed at.
+func TestTheDeclaringProcessNeverSeesItsNamespaceVariables(t *testing.T) {
+	t.Setenv("WSO2_REFERENCE_SECRET", "leaked")
+	versionDir, name := installHelper(t, helperControl{
+		Mode: "declare", Namespace: "reference", EchoEnvironment: "WSO2_REFERENCE_SECRET",
+	})
+
+	tree, err := declaredTree(t.Context(), "reference", versionDir, name)
+	if err != nil {
+		t.Fatalf("reading the declaration: %v", err)
+	}
+
+	if _, ok := tree.Child(nil, "unset"); !ok {
+		t.Errorf("the declaring process was handed its namespace's variables: %+v", tree)
+	}
+}

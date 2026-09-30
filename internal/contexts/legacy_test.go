@@ -139,6 +139,8 @@ func TestALegacyDocumentThisShellCannotReadFailsClosed(t *testing.T) {
 			`{"name":"a","endpoint":"127.0.0.1:8080"}]}`,
 		"endpoint embedding credentials": `{"schemaVersion":1,"defaultContext":"a","contexts":[` +
 			`{"name":"a","endpoint":"http://operator:s3cr3t@127.0.0.1:8080"}]}`,
+		"plaintext endpoint": `{"schemaVersion":1,"defaultContext":"a","contexts":[` +
+			`{"name":"a","endpoint":"http://service.example.test"}]}`,
 		"trailing document": `{"schemaVersion":1,"defaultContext":"a","contexts":[]}{"schemaVersion":1}`,
 	} {
 		t.Run(name, func(t *testing.T) {
