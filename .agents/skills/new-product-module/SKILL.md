@@ -1,56 +1,48 @@
 ---
 name: new-product-module
-description: Plan and build a WSO2 CLI product module using the Go SDK and Cobra. Use for a new product namespace, module scaffolding, specs and tickets, or commands in an existing product module.
+description: Use when planning or building a WSO2 CLI product module, adding a product namespace, scaffolding a module, writing its spec or tickets, or extending its commands.
 ---
 
 # New product module
 
-A **product module** is a separately released executable that owns one **product namespace** (`CONTEXT.md`). The shell owns login, tokens, rendering and exit codes; the module owns a Cobra command tree whose handlers return results. `modules/iam` and `modules/apim` are the prior art; copy their shape.
-
-Before any step, read what `docs/agents/domain.md` lists, plus ADRs 0002, 0003, 0004, 0013 and 0015. Use glossary words in every issue, identifier and help line: _product module_, _product namespace_, _context_, _module contract_, never _plugin_ or _account_.
+Before starting, read the documents required by [domain guidance](../../../docs/agents/domain.md), including ADRs 0002, 0003, 0004, 0013 and 0015. Use the glossary's vocabulary.
 
 ## Pick the branch
 
-- **Plan**: the module has no approved spec yet → steps 1–3.
-- **Build**: an issue labelled `ready-for-agent` describes it → steps 4–6.
-- **Extend**: the module exists and needs a command → steps 5–6 only.
+- Plan: no approved spec yet. Follow steps 1–3.
+- Build: a `ready-for-agent` issue describes the module. Follow steps 4–6.
+- Extend: add commands to an existing module. Follow steps 5–6.
+
+The planning and implementation workflow skills are user-invoked. Recommend the relevant skill; when the user authorizes proceeding inline, follow its template under `.agents/skills/` and name the workflow you performed.
 
 ## 1. Settle the design
 
-The workflow skills here (`/grill-with-docs`, `/to-spec`, `/to-tickets`, `/triage`, `/implement`) are user-invoked: you cannot fire them. Tell the user which to run and when. When the user is unavailable or tells you to get on with it, do the same work inline, following the templates in the skills' own `SKILL.md` files under `.agents/skills/` plus the shapes in [PLANNING.md](PLANNING.md), and say which skill's work you stood in for.
-
-Fill every row of the **module sheet** in [PLANNING.md](PLANNING.md). A row you cannot fill from the conversation or the code is an open question, never a quiet guess: the authentication rows in particular build and test clean and fail the first user. Done when every row has a value, and every guess is named as one.
+Recommend `/grill-with-docs`. Read [command design](../../../docs/guides/command-design.md) before defining the tree. Fill the [module sheet](PLANNING.md#module-sheet); record unresolved decisions as questions. Done when every row has a value and assumptions are explicit.
 
 ## 2. Spec
 
-Ask the user to run `/to-spec`. The spec is one issue titled `spec: <namespace> product module for <product>`, and its Implementation Decisions carry the whole module sheet. Done when the issue exists with `ready-for-agent`.
+Recommend `/to-spec` using the [spec shape](PLANNING.md#spec-shape). Done when the spec issue carries the whole module sheet and is labelled `ready-for-agent`.
 
 ## 3. Tickets
 
-Ask the user to run `/to-tickets` on the spec issue. Slice the module as [PLANNING.md](PLANNING.md) describes, so the first ticket is a tracer bullet that reaches the real shell. Done when every ticket is published as a sub-issue of the spec, with its blockers linked.
+Recommend `/to-tickets` using [ticket slicing](PLANNING.md#ticket-slicing). Done when every ticket is a sub-issue of the spec with blockers linked.
 
 ## 4. Scaffold
 
-Follow `docs/guides/build-module-quickstart.md` step 1. Always use `make new-module`; never copy another module's directory, because the generator stamps SDK and protocol versions from the checkout. Then fill in `module.json` and `moduleOptions()` from the module sheet. Done when `make test-module NAMESPACE=<ns>` passes on the untouched scaffold.
+Follow [Generate it](../../../docs/guides/build-module-quickstart.md#1-generate-it), including its untouched-scaffold test checkpoint. Then apply the approved module sheet to the manifest and SDK options.
 
 ## 5. Commands, test-first
 
-For each command in the ticket, write a failing `testkit.Run` test against an `httptest` stub of the product API, then the handler. Follow [CONVENTIONS.md](CONVENTIONS.md) for layout, results, problems and the API client. The SDK surface itself is in `docs/reference/module-sdk.md`; read it rather than guessing a signature.
+Before implementing, read [command design](../../../docs/guides/command-design.md), [Add a command](../../../docs/guides/build-module-quickstart.md#2-add-a-command), [Call your product](../../../docs/guides/build-module-quickstart.md#3-call-your-product), [code conventions](CONVENTIONS.md), and the [SDK reference](../../../docs/reference/module-sdk.md). For extensions, inspect existing decisions and update both manifest and SDK access declarations when requirements change.
 
-Done when every command in the ticket has a test that proves:
-
-- the result schema and fields, including `next`,
-- the brokered token reached the stub (`Bearer <token>`),
-- each refusal path maps to the category in the sheet.
+Write a failing `testkit.Run` test against an `httptest` product stub, then the handler. Done when every command proves its schema and fields including `next`, each refusal category, and, for protected API calls, the brokered Bearer token received by the stub.
 
 ## 6. Prove it under the real shell
 
-`testkit` never checks declared audiences and scopes, so green tests do not prove the module runs. Follow the guide's steps 4–5: `make install-module`, run every new command through `./bin/ws <ns> ...`, then run `./scripts/acceptance.sh`.
+Always `export WSO2_HOME=$(mktemp -d)` before installation. Follow [Run it in a real shell](../../../docs/guides/build-module-quickstart.md#4-run-it-in-a-real-shell) and [Test it](../../../docs/guides/build-module-quickstart.md#5-test-it); `testkit` cannot prove shell capability checks. Reinstall after code or declaration changes.
 
-Always `export WSO2_HOME=$(mktemp -d)` first. This keeps the developer's real module store untouched.
+If installation, launch or access fails, consult [troubleshooting](../../../docs/guides/troubleshoot-module.md) before changing declarations.
 
-A command that needs a live product is proven as far as it goes without one: its help under `./bin/ws`, and the refusals it gives with no context and no argument. Say in your report which commands reached the product and which stopped at a refusal, rather than implying a full round trip.
+Done when the [review checklist](../../../docs/guides/build-module-quickstart.md#before-you-open-the-pull-request) holds and every new command has run through `./bin/ws`. Without a live product, check help and applicable missing-context and missing-argument refusals. Report which commands reached the product and which stopped at a refusal.
 
-Done when every item in the guide's "Before you open the pull request" list holds and each new command has run under `./bin/ws`. Then commit (one-line Conventional Commit, scope = namespace, e.g. `feat(abc): add project list`) and reference the ticket in the PR.
-
-Releasing (`make gate-module`, tag `<ns>/vX.Y.Z-rc.N`) is its own ticket and needs a human to push the tag.
+[Release](../../../docs/guides/build-module-quickstart.md#6-release-it) is a separate ticket; a human pushes the tag.

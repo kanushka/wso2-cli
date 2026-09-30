@@ -1,23 +1,25 @@
 # Planning a product module
 
-What a module spec and its tickets must carry beyond the generic `/to-spec` and `/to-tickets` templates. Issue mechanics (`gh`, labels, sub-issues) live in `docs/agents/issue-tracker.md` and `docs/agents/triage-labels.md`.
+Use this when preparing a module spec or tickets with the `/to-spec` and `/to-tickets` templates. Before publishing, read [issue mechanics](../../../docs/agents/issue-tracker.md) and [triage labels](../../../docs/agents/triage-labels.md).
 
 ## Module sheet
 
 Every row gets a value before the spec is written. Each one is costly to change after release.
 
-The third column is for whoever builds the module. Keep it out of the issues: a decision belongs in a spec as prose ("every command requests the `<ns>-management` audience, declared to both the manifest and the SDK options"), because a path or a snippet in an issue goes stale the first time the tree moves.
+Read [command design](../../../docs/guides/command-design.md) before defining the tree, and [Call your product](../../../docs/guides/build-module-quickstart.md#3-call-your-product) before deciding access requirements.
+
+Write decisions in issues as prose. The third column locates their implementation for the builder and stays out of the issues.
 
 | Row | What to decide | Where it lands |
 | --- | --- | --- |
 | Product | The WSO2 product and which deployments it serves (ThunderID, Identity Server, Asgardeo, APIM…) | Spec problem statement |
-| Namespace | Lowercase letters and digits, named after the **product**, not a deployment (ADR 0015). Renaming later is a migration. Not a shell command, not `reference`, not already taken. ADR 0015 and `docs/product-requirements.md` enumerate the sanctioned namespaces: a namespace absent from that list is an ADR conflict to surface as its own prerequisite, never something to assume into the spec | `Namespace`, `module.json`, program path `wso2-module-<ns>`, tag prefix |
+| Namespace | Choose a sanctioned product namespace from [ADR 0015](../../../docs/adr/0015-one-word-per-concept-in-the-command-surface.md) and [requirements](../../../docs/product-requirements.md). An absent namespace is an ADR conflict requiring its own prerequisite. Check availability and syntax using [Generate it](../../../docs/guides/build-module-quickstart.md#1-generate-it) | `Namespace`, `module.json`, program path `wso2-module-<ns>`, tag prefix |
 | Title | Human name shown in `wso2 product` listings | `module.json` `title` |
-| Command tree | Every `wso2 <ns> <group> <verb>` with args and flags. Nouns singular (`user`, `resource-server`), even for `list`, verbs `list`/`create`/`delete`/…, and `status` always present | Cobra tree in `commands()` |
+| Command tree | Every path with arguments, flags and provider limits, following the command design guide. Resource grouping is optional when the namespace names the primary resource. Include `status` | Cobra tree in `commands()` |
 | Product API | Base URL source (always `request.Context.Endpoint`), paths each command calls, auth header, pagination | `internal/<product>/client.go` |
 | Audiences | Logical names such as `<ns>-management`, never a deployment URL; the user maps them in the context | `module.json` `capabilities.authAudiences` and `module.Options.AuthAudiences` |
 | Scopes | Per audience, the minimum each command needs | `authScopes` and `AuthScopes` |
-| Product descriptor | Whether `capabilities.product` is declared (provider, clientId, audience binding, scopes, machine strategies), or deliberately absent. See `docs/reference/module-manifest.md` | `module.json` |
+| Product descriptor | Whether [capabilities.product](../../../docs/reference/module-manifest.md#capabilitiesproduct) is declared, with its provider, clientId, audience binding, scopes and machine strategies, or deliberately absent | `module.json` |
 | Result schemas | One `<ns>.<noun>/v1` per result shape, fields in display order | Schema constants |
 | Failure map | For each refusal: code `<ns>.<snake_case>`, category (usage / product_service / auth_policy) and recovery line | `access.go` helpers |
 | Test seam | `testkit.Run` against an `httptest` stub of the product API: the one seam, reused by every ticket | Spec Testing Decisions |
