@@ -10,7 +10,7 @@ ThunderID differs from Asgardeo and Identity Server in three ways:
 - The issuer is the bare origin, `https://localhost:8090`.
 - A product's audience is a resource server identifier, which must be an
   absolute URI.
-- The context must set `"provider": "thunder"`. There is no device-code login.
+- The context must set `provider: thunder`. There is no device-code login.
 
 ## 1. Run a server
 
@@ -76,39 +76,32 @@ Without the role, login works but every token is refused.
 
 ## 6. Create the context
 
-Save this as `thunder-local.json`, then apply it with the command below:
+Save this as `thunder-local.yaml`, then apply it with the command below:
 
-```json
-{
-  "contexts": [
-    {
-      "name": "thunder-local",
-      "type": "onprem",
-      "login": {
-        "kind": "oauth-browser",
-        "provider": "thunder",
-        "issuer": "https://localhost:8090",
-        "clientId": "REPLACE_WITH_YOUR_CLIENT_ID",
-        "product": "reference"
-      },
-      "products": {
-        "reference": {
-          "url": "https://localhost:8090",
-          "audience": "https://localhost:8090/reference-status",
-          "scopes": ["reference:status:read"]
-        }
-      }
-    }
-  ]
-}
+```yaml
+contexts:
+  - name: thunder-local
+    type: onprem
+    login:
+      kind: oauth-browser
+      provider: thunder
+      issuer: https://localhost:8090
+      clientId: REPLACE_WITH_YOUR_CLIENT_ID
+      product: reference
+    products:
+      reference:
+        url: https://localhost:8090
+        audience: https://localhost:8090/reference-status
+        scopes:
+          - reference:status:read
 ```
 
 ```sh
-wso2 context apply -f thunder-local.json --no-install --use thunder-local
+wso2 context apply -f thunder-local.yaml --no-install --use thunder-local
 ```
 
-The CLI stores it with `"credentialRef": "thunder-local"`; `wso2 context show`
-prints it.
+The CLI stores it with `credentialRef: thunder-local`; `wso2 context show`
+summarizes it.
 
 If the `iam` product is installed, `wso2 context create` can build the
 login from its descriptor instead:
@@ -144,37 +137,30 @@ wso2 reference status
    **Grant Types** to `client_credentials`, turn **Public Client** off, set
    **Client Authentication Method** to `client_secret_basic`, and record the
    client ID and secret.
-2. Save and apply this context file. Keep `"provider": "thunder"`, because
+2. Save and apply this context file. Keep `provider: thunder`, because
    ThunderID refuses a client-credentials grant that names no resource server.
 
-   ```json
-   {
-     "contexts": [
-       {
-         "name": "thunder-ci",
-         "type": "onprem",
-         "login": {
-           "kind": "client-credentials",
-           "provider": "thunder",
-           "issuer": "https://localhost:8090",
-           "clientId": "REPLACE_WITH_YOUR_CI_CLIENT_ID",
-           "clientSecretVariable": "WSO2_THUNDER_CI_SECRET"
-         },
-         "products": {
-           "reference": {
-             "url": "https://localhost:8090",
-             "audience": "https://localhost:8090/reference-status",
-             "scopes": ["reference:status:read"]
-           }
-         }
-       }
-     ]
-   }
+   ```yaml
+   contexts:
+     - name: thunder-ci
+       type: onprem
+       login:
+         kind: client-credentials
+         provider: thunder
+         issuer: https://localhost:8090
+         clientId: REPLACE_WITH_YOUR_CI_CLIENT_ID
+         clientSecretVariable: WSO2_THUNDER_CI_SECRET
+       products:
+         reference:
+           url: https://localhost:8090
+           audience: https://localhost:8090/reference-status
+           scopes:
+             - reference:status:read
    ```
 
 3. In the job, set `WSO2_NO_INPUT=1`, `WSO2_CA_FILE`, and
    `WSO2_THUNDER_CI_SECRET`, run
-   `wso2 context apply -f thunder-ci.json --use thunder-ci`, then run product
+   `wso2 context apply -f thunder-ci.yaml --use thunder-ci`, then run product
    commands. Don't run `wso2 login`.
 
 ## If login fails
@@ -183,7 +169,7 @@ wso2 reference status
 | --- | --- |
 | `auth.certificate_untrusted` | Set `WSO2_CA_FILE` (step 2). |
 | `auth.discovery_failed` | The issuer must be the bare origin, and the port must match what the server advertises. |
-| `auth.narrowing_unavailable` about a protected resource | Add `"provider": "thunder"` to the context's `login` block (`wso2 context edit`). |
+| `auth.narrowing_unavailable` about a protected resource | Add `provider: thunder` to the context's `login` block (`wso2 context edit`). |
 | `auth.narrowing_unavailable` about permissions | The user has no role with the permissions (step 5). |
 | `auth.product_not_configured` with `invalid_target` | The audience isn't a registered resource server identifier (step 3). |
 | `shell.invalid_argument` or `contexts.document_malformed` about the audience | The audience must be an absolute URI. |

@@ -76,31 +76,27 @@ The issuer must match the `issuer` value in
 `https://api.asgardeo.io/t/acme/oauth2/token/.well-known/openid-configuration`
 exactly.
 
-`wso2 context show` prints what was written. The stored context looks like
-this:
+`wso2 context show` summarizes what was written. In `contexts.yaml` the
+context looks like this:
 
-```json
-{
-  "name": "acme",
-  "type": "cloud",
-  "credentialRef": "acme",
-  "login": {
-    "kind": "oauth-browser",
-    "issuer": "https://api.asgardeo.io/t/acme/oauth2/token",
-    "clientId": "REPLACE_WITH_YOUR_CLIENT_ID",
-    "tenant": "acme",
-    "provider": "asgardeo",
-    "product": "reference"
-  },
-  "organization": "acme",
-  "products": {
-    "reference": {
-      "url": "https://api.asgardeo.io",
-      "audience": "REPLACE_WITH_YOUR_CLIENT_ID",
-      "scopes": ["reference:status:read"]
-    }
-  }
-}
+```yaml
+name: acme
+type: cloud
+credentialRef: acme
+login:
+  kind: oauth-browser
+  issuer: https://api.asgardeo.io/t/acme/oauth2/token
+  clientId: REPLACE_WITH_YOUR_CLIENT_ID
+  tenant: acme
+  provider: asgardeo
+  product: reference
+organization: acme
+products:
+  reference:
+    url: https://api.asgardeo.io
+    audience: REPLACE_WITH_YOUR_CLIENT_ID
+    scopes:
+      - reference:status:read
 ```
 
 ## 5. Log in and check

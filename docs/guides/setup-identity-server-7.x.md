@@ -97,29 +97,25 @@ wso2 context product add reference --url https://localhost:9443 \
 The issuer must match the `issuer` value in
 `https://localhost:9443/oauth2/token/.well-known/openid-configuration` exactly.
 
-`wso2 context show` prints what was written. The stored context looks like
-this:
+`wso2 context show` summarizes what was written. In `contexts.yaml` the
+context looks like this:
 
-```json
-{
-  "name": "is-local",
-  "type": "onprem",
-  "credentialRef": "is-local",
-  "login": {
-    "kind": "oauth-browser",
-    "issuer": "https://localhost:9443/oauth2/token",
-    "clientId": "REPLACE_WITH_YOUR_CLIENT_ID",
-    "provider": "identity-server",
-    "product": "reference"
-  },
-  "products": {
-    "reference": {
-      "url": "https://localhost:9443",
-      "audience": "reference-status",
-      "scopes": ["reference:status:read"]
-    }
-  }
-}
+```yaml
+name: is-local
+type: onprem
+credentialRef: is-local
+login:
+  kind: oauth-browser
+  issuer: https://localhost:9443/oauth2/token
+  clientId: REPLACE_WITH_YOUR_CLIENT_ID
+  provider: identity-server
+  product: reference
+products:
+  reference:
+    url: https://localhost:9443
+    audience: reference-status
+    scopes:
+      - reference:status:read
 ```
 
 ## 7. Log in and check
