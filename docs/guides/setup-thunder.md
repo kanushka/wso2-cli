@@ -128,8 +128,9 @@ wso2 whoami
 wso2 reference status
 ```
 
-`wso2 whoami` shows `Session  present` once you're logged in.
-`wso2 logout` ends the session.
+`wso2 login` opens the browser and prints the authorization URL on standard
+error, so you can open it by hand if no browser appears. `wso2 whoami` shows
+`Status  logged in` once you're logged in. `wso2 logout` ends the session.
 
 ## CI
 

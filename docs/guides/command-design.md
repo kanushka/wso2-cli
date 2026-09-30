@@ -17,8 +17,8 @@ ws <product-namespace> [<resource>] <action> [<arguments>] [flags]
 - The shell owns shared commands such as `context`, `login`, `org`, and
   `product`. Put a command there only when its behavior applies across
   products. A product module owns exactly one top-level namespace, such as
-  `apim`, `iam`, `agent`, or `integration`. Do not use a shell command name
-  as a product namespace.
+  `apim`, `iam`, `am`, or `intg`. Do not use a shell command name as a
+  product namespace.
 - Under a product namespace, group operations on the same kind of resource
   under one noun. Put the action at the end of the command path. Omit the
   resource group when the namespace already names the primary resource, or
@@ -28,30 +28,31 @@ ws <product-namespace> [<resource>] <action> [<arguments>] [flags]
   command path should describe the target without repeating the product name
   unnecessarily.
 
-For a product that manages APIs, a consistent tree would look like this:
+The `apim` module follows this shape. A resource group holds its actions, and
+a child resource gets its own noun level under its parent:
 
 ```text
 ws apim api list
-ws apim api show <api>
-ws apim api create --file <file>
-ws apim api deploy <api> --environment <environment>
-ws apim api delete <api>
+ws apim api create --file <file> --project <project>
+ws apim api deploy <api> --gateway-id <gateway>
+ws apim api delete <api> --yes
+ws apim gateway api list
+ws apim gateway token create <gateway>
 ```
 
-These illustrate naming, not commands currently supplied by the `apim` module.
 `ws product install apim` is a shell command because it installs the product
 module; `ws apim ...` contains that module's product operations.
 
-The `agent` namespace already names its primary resource. Its actions can sit
-directly under the namespace, while another resource gets its own group:
+A short namespace such as `am` does not name a resource by itself, so the
+resource it manages still gets a group, beside the other resources:
 
 ```text
-ws agent list
-ws agent show <agent>
-ws agent project list
+ws am agent list
+ws am agent show <agent>
+ws am project list
 ```
 
-These are naming examples, not commands currently supplied by an `agent` module.
+These are naming examples, not commands currently supplied by an `am` module.
 
 ## Names and grammar
 
@@ -62,8 +63,8 @@ These are naming examples, not commands currently supplied by an `agent` module.
   group stays singular for every action, including `list`: `api list`,
   `api show <api>`, and `user delete <user>`. This matches the shell's own
   `context`, `product`, and `org` families, so one rule covers the whole
-  command tree. Do not repeat the primary resource after its namespace: use
-  `agent list`, not `agent agent list`.
+  command tree. Do not repeat the namespace in a group name: use
+  `am agent list`, not `am am-agent list`.
 - Use an imperative verb for an action. Prefer `list` for a collection,
   `show` for one resource, `create` for a new resource, `update` for a change,
   and `delete` for removal. Use a product verb such as `deploy` when it names a

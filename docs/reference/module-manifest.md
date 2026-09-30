@@ -19,15 +19,15 @@ one means and what refuses when it is wrong.
 ```json
 {
   "schemaVersion": 1,
-  "namespace": "apim",
-  "title": "API Platform",
+  "namespace": "iam",
+  "title": "Identity",
   "compatibility": {
     "shell": ">=0.1.0 <2.0.0",
     "protocolVersions": [2]
   },
   "capabilities": {
-    "authAudiences": ["api.example.com"],
-    "authScopes": ["api:read"],
+    "authAudiences": ["identity-management"],
+    "authScopes": ["system"],
     "product": {
       "provider": "thunder",
       "clientId": "wso2-cli",
@@ -106,8 +106,9 @@ a new module is expected to support, not because anything measured it.
 The shell checks this on **every launch**, against its own version, and refuses
 with `modules.incompatible_shell` when it does not hold. Catalog selection does
 not check it, so a module can install successfully and then refuse to launch.
-That gap is why a shell built from a checkout, which reports `0.0.0-dev`, cannot
-launch a module declaring `>=0.1.0`: a prerelease sorts below its own release.
+That gap is why a shell built from a checkout with a plain `go build`, which
+reports `0.0.0-dev`, cannot launch a module declaring `>=0.1.0`: a prerelease
+sorts below its own release. `make build` injects `1.0.0-dev` to avoid it.
 See [troubleshooting](../guides/troubleshoot-module.md).
 
 The release gate refuses a range it cannot parse, naming the module, rather than

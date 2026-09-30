@@ -8,8 +8,8 @@ It lives in this repository and is released by its own tag, independently of the
 shell and of every other module:
 
 ```sh
-git tag api/v0.1.0-rc.1
-git push origin api/v0.1.0-rc.1
+git tag apim/v0.1.0-rc.1
+git push origin apim/v0.1.0-rc.1
 ```
 
 That tag builds the module for every supported platform, publishes the archives,
@@ -22,7 +22,7 @@ no shell that exists can launch it.
 # From the repository root.
 make build-module NAMESPACE=apim
 make test-module NAMESPACE=apim
-make install-module NAMESPACE=apim   # then ./bin/wso2 apim status
+make install-module NAMESPACE=apim   # then ./bin/ws apim status
 ```
 
 The workspace composes this module with the SDK from source, so a change to the
@@ -53,8 +53,8 @@ Every command above reaches the control plane's own session, except `gateway api
 
 ## What to change first
 
-`cmd/wso2-module-apim/main.go` declares one `status` command that reports what it
-can know without asking the shell for anything. To call your product, a handler
+`cmd/wso2-module-apim/main.go` declares the command tree above in `commands()`
+and binds each command to its handler. To call your product, a handler
 needs access, and access is something the shell brokers rather than something a
 module holds: declare an audience and a scope in `module.json` and in
 `moduleOptions`, then ask for them with `request.Access.Acquire`. A module never

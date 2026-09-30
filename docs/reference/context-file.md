@@ -67,11 +67,6 @@ contexts:
       provider: thunder
       product: iam
     products:
-      iam:
-        url: http://localhost:8501
-        audience: https://localhost:8090/mcp
-        scopes:
-          - system
       apim:
         url: http://localhost:9251
         audience: http://localhost:9251
@@ -80,12 +75,17 @@ contexts:
         gateway:
           url: http://localhost:9091
           audience: http://localhost:9091
+      iam:
+        url: http://localhost:8501
+        audience: https://localhost:8090/mcp
+        scopes:
+          - system
 ```
 
 This is what `wso2 context apply` writes for the short `team-context.yaml`
 below it — a login product (`iam`, direct) and a second product (`apim`)
-reached by exchanging the login session's token, each with its own gateway
-record. Two things this asserts, and either can be wrong at runtime: every
+reached by exchanging the login session's token, with its own gateway record.
+Products are written in namespace order. Two things this asserts, and either can be wrong at runtime: every
 listed product accepts access derived from that session (a product that
 validates only its own resident issuer does not belong here), and the user is
 *authorized* for each — one login authenticates for all of them, it does not
@@ -308,17 +308,19 @@ secret store injects the value into that variable at run time:
 ```yaml
 env:
   WSO2_CLIENT_SECRET: ${{ secrets.WSO2_CLIENT_SECRET }}
+  WSO2_NO_INPUT: "1"
 steps:
-  - run: wso2 context apply -f ci/context.yaml --use ci --no-input
+  - run: wso2 context apply -f ci/context.yaml --use ci
   - run: wso2 iam status
 ```
 
 The shell reads the variable into process memory for the length of one grant,
 performs the token exchange itself, and hands the module only the resulting
 short-lived access token — the secret never reaches the module, the
-filesystem, or the OS secure store. Set `--no-input` or `WSO2_NO_INPUT=1` on
-any job where a stray `wso2 login` should fail loudly rather than wait on a
-browser that will never open; see [non-interactive
+filesystem, or the OS secure store. Set `WSO2_NO_INPUT=1` on any job where a
+stray `wso2 login` should fail loudly rather than wait on a browser that will
+never open. The variable covers every step, including `wso2 context apply`,
+which takes no `--no-input` flag; see [non-interactive
 use](commands.md#non-interactive-use).
 
 A product accepts a machine identity only when its descriptor says how one
@@ -332,8 +334,8 @@ A product reached by `jwt-bearer` instead of directly presents an identity
 token from the CI session at its own issuer:
 
 ```yaml
-integration:
-  url: https://integration.acme.example
+intg:
+  url: https://intg.acme.example
   grant:
     kind: jwt-bearer
 ```

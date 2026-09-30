@@ -131,15 +131,19 @@ diagnostics.
 
 ```go
 type Context struct {
-	Name           string
-	OrganizationID string
-	Endpoint       string
+	Name            string
+	OrganizationID  string
+	Endpoint        string
+	GatewayEndpoint string
 }
 ```
 
 The selected context, and only its non-secret part. `Endpoint` says where to
 call, never that the module may: access still comes from the broker.
-`OrganizationID` is empty when no context is selected.
+`GatewayEndpoint` is the product's gateway URL when the context records one
+beside the product, and empty otherwise; a handler calls it with access asked
+for as `module.RecordGateway`. `OrganizationID` is empty when no context is
+selected.
 
 ### What a request deliberately does not carry
 
@@ -324,7 +328,7 @@ how a module gets a stable category and code instead.
 
 `Message` and `Recovery` are rendered verbatim and must never carry credential
 material. `Code` is stable and machine-readable, conventionally prefixed with
-the namespace, such as `apim.status_unavailable`.
+the namespace, such as `apim.gateway_unreachable`.
 
 ### The codes the SDK produces for you
 

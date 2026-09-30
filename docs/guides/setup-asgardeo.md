@@ -107,8 +107,9 @@ wso2 whoami
 wso2 reference status
 ```
 
-`wso2 login` opens the browser. `wso2 whoami` shows `Session  present` once
-you're logged in. `wso2 logout` ends the session.
+`wso2 login` opens the browser and prints the authorization URL on standard
+error, so you can open it by hand if no browser appears. `wso2 whoami` shows
+`Status  logged in` once you're logged in. `wso2 logout` ends the session.
 
 To log in from a machine with no browser, enable the **Device Code** grant
 (step 1) and create the context with `--device`. `wso2 login` then prints a

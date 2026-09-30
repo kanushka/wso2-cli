@@ -120,7 +120,7 @@ func main() {
     module.Serve(ctx, module.Options{
         Namespace:     "apim",
         Version:       version,
-        AuthAudiences: []string{"api-platform"},
+        AuthAudiences: []string{"api-management"},
     }, commands...)
 }
 ```
@@ -469,8 +469,8 @@ column, because there is no publisher or revocation state to report.
 │                           contexts, devorigin, install, modules, output,
 │                           parsetree, rpc, state, wizard, and others
 ├── modules/
-│   ├── api/
-│   ├── identity/
+│   ├── apim/
+│   ├── iam/
 │   └── reference/          proves the contract; not a product
 ├── sdk/                    public Go module: module, cobratree,
 │                           commandtree, problem, result, proto, protocol,
