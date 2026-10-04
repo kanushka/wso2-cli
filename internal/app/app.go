@@ -255,7 +255,16 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 		if moved := movedCommand(namespace, args, nil); moved != nil {
 			return moved
 		}
-		return s.unknownNamespace(root, namespace, namespaces)
+		// A product the catalog publishes is offered for install, and the
+		// command runs as typed once it is there (autoinstall.go). Anything
+		// else is a word nothing owns.
+		title, published := s.publishedProduct(namespace)
+		if !published {
+			return s.unknownNamespace(root, namespace, namespaces)
+		}
+		if err := s.offerInstall(namespace, title, noInput); err != nil {
+			return err
+		}
 	}
 
 	identity, err := s.identity()
@@ -406,6 +415,11 @@ func (s Shell) helpTopic(root *cobra.Command, args []string) error {
 		return err
 	}
 	if !slices.Contains(namespaces, namespace) {
+		// Asking about a product is not using it, so help names the install
+		// rather than offering one.
+		if _, published := s.publishedProduct(namespace); published {
+			return notInstalled(namespace, "its help comes from the installed product")
+		}
 		return s.unknownNamespace(root, namespace, namespaces)
 	}
 	identity, err := s.identity()

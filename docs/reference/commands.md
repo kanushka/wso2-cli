@@ -52,6 +52,7 @@ and how each refusal is reported.
 | `ws config unset <key>` | Built today: removes one preference, so its built-in default governs again. Unsetting a key that was never set succeeds and reports the default that governs, since the config family already treats "unset" as a fact rather than an error. |
 | `ws product available` | Deprecated spelling of `ws product list`, which ADR 0015 merged it into. It is hidden from help, runs the merged list, and names `ws product list` on standard error. |
 | `ws module …` | Deprecated spelling of the `ws product` family, kept by ADR 0015. It is hidden from help, runs the same subcommand, and names `ws product` on standard error. |
+| `ws <product> …` for a product that is not installed | A product the module catalog publishes on the stable channel, but this machine has not installed, is offered for install rather than refused as unknown: `API Platform (apim) is not installed. Install it now? [Y/n]`. Enter or yes installs it exactly as `ws product install <product>` would, reporting on standard error, and the command then runs as typed. No, `--no-input`, `WSO2_NO_INPUT`, or a standard input that is not a terminal refuses instead with `shell.product_not_installed` in the usage class, naming `ws product install <product>`, and nothing is installed. `ws help <product>` names the install the same way and never offers it. Against the built-in origin, whether a product is published is read from the copy of the index the release carries, so asking costs no request; under `WSO2_CLI_CATALOG_ORIGIN` or the `catalog-origin` preference the origin's index is read, and an origin that cannot be reached leaves the word refused as `shell.unknown_command`, as it is for any word no product owns. |
 | `ws product install <product>` | Installs the latest compatible stable release of a module, or the latest on the channel `--channel <channel>` names, and records that channel as the one the module follows. |
 | `ws product install <product>@<version>` | Installs an exact compatible module version. |
 | `ws product list` | Lists every product the module catalog publishes or this machine has installed, in one table: the installed version or `—`, the channel, and the update available or the version an install would take. When the catalog cannot be reached, it lists the installed products with update `unknown`, warns on standard error that the updates and the installable products are unknown, and exits 0. |
@@ -132,6 +133,11 @@ with `shell.cancelled`, having written nothing. Where standard input or
 standard error is not a terminal, and whenever `WSO2_ACCESSIBLE` is set to any
 non-empty value, the same questions are printed as numbered, line-oriented
 prompts, which suit a screen reader (ADR 0017).
+
+A command for a product that is not installed is refused under `--no-input`
+or `WSO2_NO_INPUT` with `shell.product_not_installed` rather than offered
+for install, so a job installs what it needs with `ws product install`
+first.
 
 A browser or device login under `--no-input` is refused with
 `auth.non_interactive` and exit class `77`. Automation authenticates with a

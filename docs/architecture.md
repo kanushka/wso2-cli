@@ -320,6 +320,14 @@ module over. `ws product list` reads the catalog index on request and
 reports installed versions, channels, and available updates. `ws product
 remove` deletes a module.
 
+A command for a product the catalog publishes on the stable channel but this
+machine has not installed is offered the same install at a prompt (default
+yes), then runs as typed; where nothing may be asked it is refused with
+`shell.product_not_installed`. Against the built-in origin, whether a
+product is published comes from the index copy the release carries, so the
+check costs no request; another origin's index is read. `ws context create`
+installs a missing login product without asking, unless `--no-install`.
+
 Every launch rechecks the executable against the digest in its receipt.
 Performance work must not replace that check with file timestamps.
 
@@ -327,8 +335,6 @@ Performance work must not replace that check with file timestamps.
 
 - rollback to a retained version, and a `verify` command;
 - background catalog refresh and update notices after other commands;
-- automatic install of a missing module on first use (`ws context create`
-  installs a missing login product unless `--no-install`);
 - revocation;
 - offline bundles and `.wso2module` files (deferred; their signed trust model
   must be reconciled with section 9.2 first);
