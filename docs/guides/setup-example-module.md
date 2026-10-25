@@ -6,7 +6,7 @@ a release or connecting to a product service. Its source is in
 `ws product install example` does not install it. Use the local installation
 commands below.
 
-You need Go 1.26.9 or later and a clone of this repository. Run these commands
+You need Go 1.26.10 or later and a clone of this repository. Run these commands
 from the repository root.
 
 ```sh

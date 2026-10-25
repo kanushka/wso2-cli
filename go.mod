@@ -1,6 +1,6 @@
 module github.com/wso2/wso2-cli
 
-go 1.26.9
+go 1.26.10
 
 require (
 	charm.land/bubbles/v2 v2.0.0
