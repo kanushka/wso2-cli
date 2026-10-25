@@ -20,9 +20,12 @@
 #
 # The shell reads a copy it cannot decode as one naming no product, so a
 # mangled injection would otherwise ship a help page that silently names
-# nothing. Help lists only products with a stable release, so only those are
-# required. The state root is redirected to an empty directory, so nothing is
-# installed and every listed product has to be marked.
+# nothing. The copy is decoded and its shape checked here first, so an
+# unreadable copy fails. Help lists only products with a stable release, so only
+# those are required; a catalog with none is legitimate before any product is
+# released, and passes with nothing to check. The state root is redirected to an
+# empty directory, so nothing is installed and every listed product has to be
+# marked.
 #
 #	./scripts/help-lists-released-catalog.sh <wso2 binary> <base64 index.json>
 set -eu
@@ -36,11 +39,16 @@ trap 'rm -rf "${state}"' EXIT
 help="$(WSO2_HOME="${state}" "${binary}" help)"
 # jq decodes the copy, because base64 spells its decode flag differently on
 # GNU and BSD systems and this runs on both.
-namespaces="$(printf '%s' "${encoded}" | jq -Rr '@base64d' |
+index="$(printf '%s' "${encoded}" | jq -Rr '@base64d')"
+if ! printf '%s' "${index}" | jq -e '(.schemaVersion | type) == "number" and (.modules | type) == "array"' >/dev/null 2>&1; then
+	echo "the catalog copy is not a catalog index with a schemaVersion and a modules list" >&2
+	exit 1
+fi
+namespaces="$(printf '%s' "${index}" |
 	jq -r '.modules[] | select(any(.channels[]?; .channel == "stable")) | .namespace')"
 if [ -z "${namespaces}" ]; then
-	echo "the catalog copy names no product with a stable release, so there is nothing to check" >&2
-	exit 1
+	echo "the catalog copy names no product with a stable release, so there is nothing to check"
+	exit 0
 fi
 for namespace in ${namespaces}; do
 	if ! printf '%s\n' "${help}" | grep -qE "^   ${namespace} .*\(not installed\)$"; then
