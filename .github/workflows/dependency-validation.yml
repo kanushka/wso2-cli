@@ -94,11 +94,13 @@ jobs:
             let comment = '## Dependency Validation Results\n\n';
 
             let hasUnapproved = false;
+            let hasResults = false;
 
             // Read all dependencies status
             if (fs.existsSync('/tmp/all_deps_status.txt')) {
               const allDepsStatus = fs.readFileSync('/tmp/all_deps_status.txt', 'utf8').trim();
               if (allDepsStatus) {
+                hasResults = true;
                 const lines = allDepsStatus.split('\n');
                 for (const line of lines) {
                   if (line.trim()) {
@@ -129,8 +131,11 @@ jobs:
                   }
                 }
               }
-            } else {
-              comment += 'Validation stopped before producing results. Review the job log for the error.\n\n';
+            }
+
+            if (!hasResults) {
+              const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+              comment += `The validator exited before producing results. See the [job log](${runUrl}) for the error.\n\n`;
             }
 
             if (hasUnapproved) {
