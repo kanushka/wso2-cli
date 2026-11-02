@@ -48,9 +48,9 @@ jobs:
 
           echo "Comparing $BASE_SHA...$HEAD_SHA"
 
-          # Find all go.mod files that were modified. Disable path quoting so
-          # paths with special characters still match the go.mod filter.
-          CHANGED_FILES=$(git -c core.quotePath=false diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep 'go.mod$' || true)
+          # Find all go.mod files that were modified. Use NUL-separated output
+          # so git never quotes paths and the go.mod filter still matches.
+          CHANGED_FILES=$(git diff -z --name-only "$BASE_SHA" "$HEAD_SHA" | tr '\0' '\n' | grep 'go\.mod$' || true)
 
           if [ -z "$CHANGED_FILES" ]; then
             echo "No go.mod files were modified"
