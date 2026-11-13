@@ -78,7 +78,7 @@ a context named `cloud-<environment>` when the machine has none, selects it,
 and signs in through the browser, asking nothing.
 
 An environment's values are read from `cloud/<environment>.yaml` under the
-state directory, only when the context is first written:
+state directory:
 
 | Member | Meaning |
 | --- | --- |
@@ -90,7 +90,41 @@ state directory, only when the context is first written:
 A name that is not lowercase letters, digits and hyphens is refused with
 `shell.invalid_argument`, a missing file with
 `shell.cloud_environment_unknown`, and a file missing a member or carrying an
-unknown one with `shell.input_malformed`.
+unknown one with `shell.input_malformed`, as is a `baseDomain` that is not a
+lowercase domain name or an `environment` that is not one host name label.
+
+### Products on a WSO2 Cloud context
+
+Each login to the environment records, on its context, every installed WSO2
+Cloud product the context does not record yet, and then signs in to each
+product it records. Nothing has to be typed: the product's URL and the
+resource server its access is bound to come from the environment file, and its
+scopes from the installed module.
+
+| Product | URL | Resource server |
+| --- | --- | --- |
+| `apim` | `https://<environment>-wso2cloud.gateway.<baseDomain>/apip-platform-api-apip-platform-api-endpoint` | `urn:wso2:cloud` |
+| `intg` | `https://<environment>-wso2cloud.gateway.<baseDomain>/ipaas-service-ipaas-api-endpoint` | `urn:wso2:cloud` |
+| `am` | `https://<environment>-wso2cloud.gateway.<baseDomain>/agent-manager-service-agent-manager-api/api/v1` | `urn:wso2:cloud` |
+| `iam` | `https://api-<environment>.gateway.<baseDomain>/iam/v1` | the URL itself |
+
+A product installed after the first login is recorded on the next one. A
+record already on the context is never changed, whether the login wrote it or
+a person did; to take the derived values again, remove the record with
+`ws context product remove <product>` and log in. When the environment file is
+gone, the login still signs in to what is recorded and names the products it
+could not record and where the file belongs. A module whose namespace is not in
+the table is never recorded by a login.
+
+Every product on a WSO2 Cloud context is reached by its own authorization at
+the context's identity provider, naming its own resource server and exactly
+its own scopes; the provider's sign-on answers each one without a second
+password. This holds whatever grant a module's product descriptor names, and
+for a product recorded with `ws context product add` or `ws context apply`
+too: a token exchange there would carry no permissions, so a record that
+states a grant is refused with `shell.conflicting_arguments`. A context is a
+WSO2 Cloud context when its `type` is `cloud` and it signs in with the
+`thunder` provider.
 
 ## Login errors
 

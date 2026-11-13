@@ -119,10 +119,10 @@ func Providers() []string {
 // an issuer on a WSO2-operated cloud host is TypeCloud, and anything else is
 // TypeOnprem, because a host WSO2 does not operate can only be self-hosted.
 //
-// The answer is descriptive today: the type member selects defaults and
-// wording, never structure (docs/reference/context-file.md), and no
-// logic in this repository branches on it beyond how the login report phrases
-// itself. The derivation exists so the document tells the truth about the
+// The answer is mostly descriptive: the type member selects defaults and
+// wording (docs/reference/context-file.md). Beyond how the login report
+// phrases itself, the one branch on it is that a cloud context signing in
+// with thunder records every product without a grant. The derivation exists so the document tells the truth about the
 // deployment kind — a login against Asgardeo must not record WSO2's own cloud
 // as an on-premises deployment.
 //

@@ -130,6 +130,10 @@ func TestCloudEnvironmentLoginRefusals(t *testing.T) {
 			"shell.input_malformed"},
 		{"a context file", "dev", "contexts:\n  - name: a\n    login: {issuer: https://a.example, clientId: x}\n",
 			"shell.input_malformed"},
+		{"base domain with a path", "dev", "issuer: https://idp.example\nbaseDomain: d.example/x\nenvironment: development\n",
+			"shell.input_malformed"},
+		{"environment with a dot", "dev", "issuer: https://idp.example\nbaseDomain: d.example\nenvironment: a.b\n",
+			"shell.input_malformed"},
 		{"issuer not a URL", "dev", "issuer: idp.example\nbaseDomain: d.example\nenvironment: development\n",
 			"shell.invalid_argument"},
 	} {

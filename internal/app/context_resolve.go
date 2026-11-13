@@ -277,6 +277,9 @@ func resolveProduct(namespace string, descriptor *modules.ProductDescriptor, spe
 		Endpoint: spec.URL, Audience: spec.Audience, Scopes: spec.Scopes, Grant: spec.Grant,
 		ClientIDVariable: spec.ClientIDVariable, ClientSecretVariable: spec.ClientSecretVariable,
 	}
+	if onWSO2Cloud(target) {
+		return resolveCloudProduct(namespace, descriptor, spec, target, product)
+	}
 	if descriptor == nil {
 		if spec.Gateway != nil {
 			product.Gateway = &contexts.Gateway{Endpoint: spec.Gateway.URL, Audience: spec.Gateway.Audience,
@@ -309,10 +312,7 @@ func resolveProduct(namespace string, descriptor *modules.ProductDescriptor, spe
 			return contexts.Product{}, machineNotAccepted(namespace, target.Name, *descriptor, asked)
 		}
 	} else if spec.ClientSecretVariable != "" || spec.ClientIDVariable != "" {
-		return contexts.Product{}, problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
-			fmt.Sprintf("--client-secret-variable records a product credential, which belongs to a "+
-				"client-credentials context; %q logs in through the browser", target.Name)).
-			WithRecovery("Omit the credential variables for this context.")
+		return contexts.Product{}, browserProductCredential(target)
 	}
 	switch {
 	case product.Grant != nil:
@@ -350,6 +350,49 @@ func resolveProduct(namespace string, descriptor *modules.ProductDescriptor, spe
 		product.Audience = spec.URL
 	}
 	return product, resolveGateway(namespace, descriptor, spec, target, &product)
+}
+
+// resolveCloudProduct builds the record for a product on a WSO2 Cloud
+// context. Whatever grant the descriptor names, the product is reached by its
+// own authorization at the context's login issuer, under its own resource and
+// exactly its own scopes: a token exchange there carries no permission
+// scopes, and a login provider's descriptor describes a deployment of its
+// own, not a product behind the Cloud gateway.
+func resolveCloudProduct(namespace string, descriptor *modules.ProductDescriptor, spec productSpec,
+	target contexts.Context, product contexts.Product) (contexts.Product, error) {
+	if spec.Grant != nil {
+		return contexts.Product{}, problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
+			fmt.Sprintf("the %s product states a %s grant, and on the WSO2 Cloud context %q every product "+
+				"is authorized at the login issuer", namespace, spec.Grant.Kind, target.Name)).
+			WithRecovery("Drop the grant; the product is reached under its own audience and scopes.")
+	}
+	if target.Login.Kind != contexts.KindClientCredentials &&
+		(spec.ClientSecretVariable != "" || spec.ClientIDVariable != "") {
+		return contexts.Product{}, browserProductCredential(target)
+	}
+	if descriptor != nil && spec.Scopes == nil {
+		product.Scopes = descriptor.Scopes
+	}
+	if product.Audience == "" {
+		product.Audience = spec.URL
+	}
+	if spec.Gateway != nil && descriptor != nil {
+		return product, resolveGateway(namespace, descriptor, spec, target, &product)
+	}
+	if spec.Gateway != nil {
+		product.Gateway = &contexts.Gateway{Endpoint: spec.Gateway.URL, Audience: spec.Gateway.Audience,
+			Scopes: spec.Gateway.Scopes}
+	}
+	return product, nil
+}
+
+// browserProductCredential refuses a product credential on a context that
+// signs in through the browser.
+func browserProductCredential(target contexts.Context) problem.Problem {
+	return problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
+		fmt.Sprintf("--client-secret-variable records a product credential, which belongs to a "+
+			"client-credentials context; %q logs in through the browser", target.Name)).
+		WithRecovery("Omit the credential variables for this context.")
 }
 
 // resolveGateway fills in a product's gateway record from its spec, when the

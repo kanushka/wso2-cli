@@ -1,0 +1,339 @@
+// Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package app_test
+
+import (
+	"bytes"
+	"maps"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+
+	keyring "github.com/zalando/go-keyring"
+
+	"github.com/wso2/wso2-cli/internal/app"
+	"github.com/wso2/wso2-cli/internal/auth/fakeissuer"
+	"github.com/wso2/wso2-cli/internal/auth/session"
+	"github.com/wso2/wso2-cli/internal/contexts"
+	"github.com/wso2/wso2-cli/internal/exit"
+	"github.com/wso2/wso2-cli/internal/modules"
+	"github.com/wso2/wso2-cli/internal/modules/fixture"
+)
+
+const (
+	cloudAPIMURL = "https://development-wso2cloud.gateway.dev.cloud.example/apip-platform-api-apip-platform-api-endpoint"
+	cloudIAMURL  = "https://api-development.gateway.dev.cloud.example/iam/v1"
+	cloudShared  = "urn:wso2:cloud"
+)
+
+var (
+	cloudAPIMScopes = []string{"ap:api:manage", "ap:api:view"}
+	cloudIAMScopes  = []string{"iam:system"}
+)
+
+// cloudLogin is a shell set to log in to the dev WSO2 Cloud environment,
+// against an issuer that binds every authorization to one resource server,
+// recording every authorization URL the login opens.
+type cloudLogin struct {
+	shell     app.Shell
+	out       *bytes.Buffer
+	errOut    *bytes.Buffer
+	issuer    *fakeissuer.Issuer
+	mutex     sync.Mutex
+	authorize []url.Values
+}
+
+func newCloudLogin(t *testing.T) *cloudLogin {
+	t.Helper()
+	keyring.MockInit()
+	issuer := fakeissuer.New(t, fakeissuer.Options{Host: "localhost", RequireResource: true})
+	shell, out, errOut := newLoginShell(t)
+	login := &cloudLogin{shell: shell, out: out, errOut: errOut, issuer: issuer}
+	login.shell.OpenBrowser = func(authURL string) error {
+		if parsed, err := url.Parse(authURL); err == nil {
+			login.mutex.Lock()
+			login.authorize = append(login.authorize, parsed.Query())
+			login.mutex.Unlock()
+		}
+		go func() {
+			if response, err := http.Get(authURL); err == nil {
+				_ = response.Body.Close()
+			}
+		}()
+		return nil
+	}
+	login.shell.Reader = failIfReadReader{t}
+	t.Setenv(app.CloudEnvVar, "dev")
+	writeCloudEnvironment(t, shell.StateRoot, "dev", cloudEnvironmentBody(issuer.URL))
+	return login
+}
+
+func (c *cloudLogin) run(t *testing.T, args ...string) {
+	t.Helper()
+	c.errOut.Reset()
+	if code := c.shell.Run(args); code != exit.OK {
+		t.Fatalf("%v failed: exit %d, stderr %s", args, code, c.errOut)
+	}
+}
+
+// authorizedScopes is the product scopes each authorization asked for, by the
+// resource it named.
+func (c *cloudLogin) authorizedScopes() map[string][]string {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	asked := map[string][]string{}
+	for _, query := range c.authorize {
+		var scopes []string
+		for _, scope := range strings.Fields(query.Get("scope")) {
+			if !slices.Contains([]string{"openid", "offline_access", "profile", "email"}, scope) {
+				scopes = append(scopes, scope)
+			}
+		}
+		slices.Sort(scopes)
+		asked[query.Get("resource")] = scopes
+	}
+	return asked
+}
+
+func installCloudAPIM(t *testing.T, shell app.Shell) {
+	t.Helper()
+	installFixture(t, shell, fixture.Module{Namespace: "apim", Version: "0.1.0",
+		Product: &modules.ProductDescriptor{
+			Audience: modules.AudienceResource, Grant: contexts.GrantExchange, Scopes: cloudAPIMScopes,
+		}})
+}
+
+func installCloudIAM(t *testing.T, shell app.Shell) {
+	t.Helper()
+	installFixture(t, shell, fixture.Module{Namespace: "iam", Version: "0.1.0",
+		Product: &modules.ProductDescriptor{
+			Provider: contexts.ProviderThunder, Audience: modules.AudienceResource, Scopes: cloudIAMScopes,
+		}})
+}
+
+func cloudContext(t *testing.T, shell app.Shell) contexts.Context {
+	t.Helper()
+	found, ok := loadDocument(t, shell).Find("cloud-dev")
+	if !ok {
+		t.Fatal("no cloud-dev context")
+	}
+	return found
+}
+
+func TestCloudLoginRecordsEveryInstalledCloudProductAndAuthorizesEach(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudAPIM(t, login.shell)
+	installCloudIAM(t, login.shell)
+
+	login.run(t, "login")
+
+	recorded := cloudContext(t, login.shell).Products
+	apim, iam := recorded["apim"], recorded["iam"]
+	if apim.Endpoint != cloudAPIMURL || apim.Audience != cloudShared || !slices.Equal(apim.Scopes, cloudAPIMScopes) {
+		t.Errorf("apim = %+v, want the environment's apim URL, the shared resource and the descriptor's scopes", apim)
+	}
+	if apim.Grant != nil {
+		t.Errorf("apim grant = %+v; a Cloud product is reached by its own authorization, never by exchange", apim.Grant)
+	}
+	if iam.Endpoint != cloudIAMURL || iam.Audience != cloudIAMURL || !slices.Equal(iam.Scopes, cloudIAMScopes) ||
+		iam.Grant != nil {
+		t.Errorf("iam = %+v, want its own URL as URL and audience and the descriptor's scopes", iam)
+	}
+
+	asked := login.authorizedScopes()
+	if len(asked) != 2 || !slices.Equal(asked[cloudShared], cloudAPIMScopes) ||
+		!slices.Equal(asked[cloudIAMURL], cloudIAMScopes) {
+		t.Errorf("authorizations asked for %v, want one per product with exactly its resource and scopes", asked)
+	}
+	store := session.Store{StateRoot: login.shell.StateRoot}
+	for ref, resource := range map[string]string{
+		cloudContext(t, login.shell).CredentialRef:                                    cloudShared,
+		contexts.ProductSessionRef(cloudContext(t, login.shell).CredentialRef, "iam"): cloudIAMURL,
+	} {
+		stored, err := store.Load(ref)
+		if err != nil || stored.Resource != resource {
+			t.Errorf("session %s = %+v, %v; want one bound to %s", ref, stored, err, resource)
+		}
+	}
+
+	login.run(t, "context", "show")
+	for _, want := range []string{"apim", "iam", cloudAPIMURL, cloudIAMURL} {
+		if !strings.Contains(login.out.String(), want) {
+			t.Errorf("context show does not show %q:\n%s", want, login.out)
+		}
+	}
+	login.out.Reset()
+	login.run(t, "whoami", "--output", "json")
+	strategies := map[string]string{}
+	for _, product := range decodeWhoamiReport(t, login.out.Bytes()).Products {
+		strategies[product.Namespace] = product.Strategy
+	}
+	if strategies["apim"] != contexts.StrategyDirect || strategies["iam"] != contexts.StrategySibling {
+		t.Errorf("whoami reports %v, want apim direct and iam sibling", strategies)
+	}
+}
+
+func TestCloudLoginRecordsAModuleInstalledAfterTheFirstLogin(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudAPIM(t, login.shell)
+	login.run(t, "login")
+	before := cloudContext(t, login.shell).Products["apim"]
+
+	installCloudIAM(t, login.shell)
+	login.run(t, "login")
+
+	after := cloudContext(t, login.shell)
+	if iam, found := after.Products["iam"]; !found || iam.Endpoint != cloudIAMURL || iam.Audience != cloudIAMURL {
+		t.Fatalf("iam = %+v (recorded %v), want it recorded on the next login", iam, found)
+	}
+	if apim := after.Products["apim"]; apim.Endpoint != before.Endpoint || apim.Audience != before.Audience {
+		t.Errorf("apim changed from %+v to %+v", before, apim)
+	}
+	if after.Login.Product != "apim" {
+		t.Errorf("login product = %q; recording a product must not move the login to it", after.Login.Product)
+	}
+}
+
+func TestCloudLoginLeavesAProductEditedByHandAlone(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudAPIM(t, login.shell)
+	installCloudIAM(t, login.shell)
+	login.run(t, "login")
+
+	edited := contexts.Product{Endpoint: "https://apim.elsewhere.example", Audience: "https://apim.elsewhere.example",
+		Scopes: []string{"ap:api:view"}}
+	if err := contexts.Update(login.shell.StateRoot, func(document contexts.Document) (contexts.Document, error) {
+		target, _ := document.Find("cloud-dev")
+		products := map[string]contexts.Product{"apim": edited}
+		target.Products = products
+		return document.Put(target), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	login.run(t, "login")
+
+	recorded := cloudContext(t, login.shell).Products
+	if apim := recorded["apim"]; apim.Endpoint != edited.Endpoint || !slices.Equal(apim.Scopes, edited.Scopes) {
+		t.Errorf("apim = %+v, want the hand-edited record kept", apim)
+	}
+	if _, found := recorded["iam"]; !found {
+		t.Error("iam, removed by the edit and still installed, was not recorded again")
+	}
+}
+
+func TestCloudLoginRecordsNothingOutsideTheCloudProducts(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudAPIM(t, login.shell)
+	installFixture(t, login.shell, fixture.Module{Namespace: "reference", Version: "0.1.0",
+		Product: &modules.ProductDescriptor{Audience: modules.AudienceResource, Grant: contexts.GrantExchange,
+			Scopes: []string{"reference:status:read"}}})
+
+	login.run(t, "login")
+
+	recorded := cloudContext(t, login.shell).Products
+	if _, found := recorded["reference"]; found || len(recorded) != 1 {
+		t.Errorf("products = %v, want apim alone", slices.Sorted(maps.Keys(recorded)))
+	}
+}
+
+func TestCloudLoginWithoutTheEnvironmentFileRecordsNothingAndStillLogsIn(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudAPIM(t, login.shell)
+	login.run(t, "login")
+	if err := os.RemoveAll(filepath.Join(login.shell.StateRoot, "cloud")); err != nil {
+		t.Fatal(err)
+	}
+	installCloudIAM(t, login.shell)
+
+	login.run(t, "login")
+
+	if _, found := cloudContext(t, login.shell).Products["iam"]; found {
+		t.Error("iam was recorded with no environment file to derive it from")
+	}
+	if !strings.Contains(login.errOut.String(), "iam") ||
+		!strings.Contains(login.errOut.String(), filepath.Join("cloud", "dev.yaml")) {
+		t.Errorf("stderr does not say which product went unrecorded and which file would record it:\n%s",
+			login.errOut)
+	}
+}
+
+func TestOnlyACloudContextRecordsProductsAtLogin(t *testing.T) {
+	login := newCloudLogin(t)
+	t.Setenv(app.CloudEnvVar, "")
+	installCloudAPIM(t, login.shell)
+
+	plain := fakeissuer.New(t, fakeissuer.Options{Host: "localhost"})
+	login.run(t, "login", "--url", plain.URL, "--client-id", "wso2-cli", "--context", "local")
+	login.run(t, "login", "--context", "local")
+
+	local, _ := loadDocument(t, login.shell).Find("local")
+	if len(local.Products) != 0 {
+		t.Errorf("a login to a context that is not a Cloud one recorded %v", local.Products)
+	}
+}
+
+// A product recorded by hand on a Cloud context is reached the Cloud way too,
+// whatever grant its descriptor names, while the same product on another
+// context keeps the descriptor's grant.
+func TestTheResolverRecordsACloudProductDirect(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudAPIM(t, login.shell)
+	installCloudIAM(t, login.shell)
+	login.run(t, "login")
+
+	login.run(t, "context", "product", "add", "apim", "--replace", "--url", cloudAPIMURL, "--audience", cloudShared,
+		"--context", "cloud-dev")
+	if apim := cloudContext(t, login.shell).Products["apim"]; apim.Grant != nil {
+		t.Errorf("apim grant = %+v on a Cloud context, want none", apim.Grant)
+	}
+
+	login.run(t, "context", "create", "local", "--login-product", "iam", "--url", "http://localhost:8501",
+		"--client-id", "wso2-cli", "--audience", "https://local.example/iam")
+	login.run(t, "context", "product", "add", "apim", "--url", "https://apim.local.example", "--context", "local")
+	local, _ := loadDocument(t, login.shell).Find("local")
+	if apim := local.Products["apim"]; apim.Grant == nil || apim.Grant.Kind != contexts.GrantExchange {
+		t.Errorf("apim = %+v on a context that is not a Cloud one, want the descriptor's exchange grant", apim)
+	}
+}
+
+func TestACloudContextRefusesAStatedGrant(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudAPIM(t, login.shell)
+	login.run(t, "login")
+
+	login.errOut.Reset()
+	file := filepath.Join(t.TempDir(), "cloud.yaml")
+	body := "contexts:\n  - name: cloud-dev\n    type: cloud\n    login:\n      issuer: " + login.issuer.URL +
+		"\n      clientId: WSO2_CLI\n      provider: thunder\n    products:\n      apim:\n        url: " + cloudAPIMURL +
+		"\n        audience: " + cloudShared + "\n        grant:\n          kind: exchange\n"
+	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := login.shell.Run([]string{"context", "apply", "-f", file}); code != exit.Usage {
+		t.Fatalf("apply exit %d, want usage; stderr %s", code, login.errOut)
+	}
+	requireRefusal(t, login.errOut.String(), "shell.conflicting_arguments")
+	if !strings.Contains(login.errOut.String(), "authorized at the login issuer") {
+		t.Errorf("the refusal is not the Cloud one:\n%s", login.errOut)
+	}
+}

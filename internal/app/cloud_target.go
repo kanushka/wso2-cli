@@ -42,6 +42,12 @@ const cloudClientID = "WSO2_CLI"
 
 var cloudEnvName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
 
+var (
+	hostLabel  = `[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?`
+	hostLabels = regexp.MustCompile(`^` + hostLabel + `$`)
+	hostDomain = regexp.MustCompile(`^` + hostLabel + `(\.` + hostLabel + `)+$`)
+)
+
 // cloudEnvironment is what one environment file states.
 type cloudEnvironment struct {
 	Issuer string `json:"issuer"`
@@ -81,6 +87,7 @@ func (s Shell) loginCloud(flags loginFlags, root string, document contexts.Docum
 	}
 	name := cloudContextName(env)
 	flags.contextName = name
+	lookup := s.installedDescriptors()
 	var written *contexts.Context
 	if !declaresContext(document, name) {
 		environment, err := readCloudEnvironment(root, env)
@@ -91,9 +98,19 @@ func (s Shell) loginCloud(flags loginFlags, root string, document contexts.Docum
 		if err != nil {
 			return flags, err
 		}
+		context, err = withCloudProducts(context, environment, unrecordedCloudProducts(context, lookup), lookup)
+		if err != nil {
+			return flags, err
+		}
 		written = &context
-	} else if document.DefaultContext == name {
-		return flags, nil
+	} else {
+		existing, _ := document.Find(name)
+		if err := s.recordCloudProducts(root, env, existing, lookup); err != nil {
+			return flags, err
+		}
+		if document.DefaultContext == name {
+			return flags, nil
+		}
 	}
 	if err := contexts.Writable(root); err != nil {
 		return flags, s.explainWriteRefusal(root, err)
@@ -143,11 +160,18 @@ func readCloudEnvironment(root, env string) (cloudEnvironment, error) {
 			return cloudEnvironment{}, malformed("states no " + member)
 		}
 	}
+	// Both become part of every product's host name.
+	if !hostDomain.MatchString(environment.BaseDomain) {
+		return cloudEnvironment{}, malformed("states a baseDomain that is not a lowercase domain name")
+	}
+	if !hostLabels.MatchString(environment.Environment) {
+		return cloudEnvironment{}, malformed("states an environment that is not a lowercase host name label")
+	}
 	return environment, nil
 }
 
 // context is the context a login to the environment writes: its login alone.
-// Products are recorded as their modules are installed.
+// Its products are recorded beside it, for the modules installed.
 func (e cloudEnvironment) context(name string) (contexts.Context, error) {
 	clientID := e.ClientID
 	if clientID == "" {
