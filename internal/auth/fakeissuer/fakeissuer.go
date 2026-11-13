@@ -158,6 +158,10 @@ type Options struct {
 	// resource server that was never registered — the same OAuth error as a
 	// request that named none, arriving for the opposite reason.
 	RegisteredResource string
+	// WithheldScopes are permissions this user holds no role for. An
+	// authorization asking for one answers 200 with it left out of the issued
+	// token, as ThunderID was measured doing on 2026-11-13.
+	WithheldScopes []string
 	// RotateRefreshTokens issues a new refresh token on every refresh,
 	// invalidating the one presented.
 	RotateRefreshTokens bool
@@ -631,7 +635,7 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		i.mutex.Lock()
 		i.codes[code] = codeGrant{
 			challenge:   query.Get("code_challenge"),
-			scopes:      splitScopes(query.Get("scope")),
+			scopes:      i.withoutWithheld(splitScopes(query.Get("scope"))),
 			redirectURI: redirectURI,
 			nonce:       query.Get("nonce"),
 			clientID:    query.Get("client_id"),
@@ -1448,6 +1452,12 @@ func randomToken(prefix string) string {
 		panic(fmt.Sprintf("fakeissuer: random token: %v", err))
 	}
 	return prefix + "-" + hex.EncodeToString(raw)
+}
+
+func (i *Issuer) withoutWithheld(scopes []string) []string {
+	return slices.DeleteFunc(scopes, func(scope string) bool {
+		return slices.Contains(i.opts.WithheldScopes, scope)
+	})
 }
 
 func splitScopes(value string) []string {
