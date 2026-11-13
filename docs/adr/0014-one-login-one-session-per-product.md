@@ -139,3 +139,11 @@ sessions: product sessions are keyed by the context's credential reference,
 and no two contexts share one. A stored session also records the resource and
 audience it was authorized for, and is presented only for a record that still
 asks for them.
+
+## Amendment (ADR 0022)
+
+On WSO2 Cloud every product is reached by its own authorization at the login
+issuer, and the `exchanged` strategy is not used there, because that exchange
+carries no permission scopes. A `sibling` session at a ThunderID login issuer
+is obtained from the sign-on's device secret when the sign-in issued one, and
+through the browser otherwise.
