@@ -299,12 +299,21 @@ func TestTheResolverRecordsACloudProductDirect(t *testing.T) {
 	login := newCloudLogin(t)
 	installCloudAPIM(t, login.shell)
 	installCloudIAM(t, login.shell)
+	installFixture(t, login.shell, fixture.Module{Namespace: "reference", Version: "0.1.0",
+		Product: &modules.ProductDescriptor{Audience: modules.AudienceResource, Grant: contexts.GrantExchange,
+			Scopes: []string{"reference:status:read"}}})
 	login.run(t, "login")
 
-	login.run(t, "context", "product", "add", "apim", "--replace", "--url", cloudAPIMURL, "--audience", cloudShared,
+	login.run(t, "context", "product", "add", "apim", "--replace", "--url", "https://apim.elsewhere.example",
 		"--context", "cloud-dev")
-	if apim := cloudContext(t, login.shell).Products["apim"]; apim.Grant != nil {
-		t.Errorf("apim grant = %+v on a Cloud context, want none", apim.Grant)
+	login.run(t, "context", "product", "add", "reference", "--url", "https://reference.cloud.example",
+		"--context", "cloud-dev")
+	recorded := cloudContext(t, login.shell).Products
+	if apim := recorded["apim"]; apim.Grant != nil || apim.Audience != cloudShared {
+		t.Errorf("apim = %+v on a Cloud context, want no grant and the Cloud resource server", apim)
+	}
+	if reference := recorded["reference"]; reference.Grant != nil || reference.Audience != "https://reference.cloud.example" {
+		t.Errorf("reference = %+v on a Cloud context, want no grant and its own URL as audience", reference)
 	}
 
 	login.run(t, "context", "create", "local", "--login-product", "iam", "--url", "http://localhost:8501",
@@ -316,24 +325,24 @@ func TestTheResolverRecordsACloudProductDirect(t *testing.T) {
 	}
 }
 
-func TestACloudContextRefusesAStatedGrant(t *testing.T) {
+// Only the descriptor's grant is set aside on a Cloud context: a grant a
+// person states is recorded as stated, as on any other context.
+func TestACloudContextKeepsAStatedGrant(t *testing.T) {
 	login := newCloudLogin(t)
 	installCloudAPIM(t, login.shell)
 	login.run(t, "login")
 
-	login.errOut.Reset()
 	file := filepath.Join(t.TempDir(), "cloud.yaml")
 	body := "contexts:\n  - name: cloud-dev\n    type: cloud\n    login:\n      issuer: " + login.issuer.URL +
 		"\n      clientId: WSO2_CLI\n      provider: thunder\n    products:\n      apim:\n        url: " + cloudAPIMURL +
-		"\n        audience: " + cloudShared + "\n        grant:\n          kind: exchange\n"
+		"\n        grant:\n          kind: exchange\n"
 	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code := login.shell.Run([]string{"context", "apply", "-f", file}); code != exit.Usage {
-		t.Fatalf("apply exit %d, want usage; stderr %s", code, login.errOut)
-	}
-	requireRefusal(t, login.errOut.String(), "shell.conflicting_arguments")
-	if !strings.Contains(login.errOut.String(), "authorized at the login issuer") {
-		t.Errorf("the refusal is not the Cloud one:\n%s", login.errOut)
+	login.run(t, "context", "apply", "-f", file)
+
+	apim := cloudContext(t, login.shell).Products["apim"]
+	if apim.Grant == nil || apim.Grant.Kind != contexts.GrantExchange || apim.Audience != cloudShared {
+		t.Errorf("apim = %+v, want the stated exchange grant under the Cloud resource server", apim)
 	}
 }

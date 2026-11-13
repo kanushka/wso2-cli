@@ -19,6 +19,7 @@ package app_test
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	keyring "github.com/zalando/go-keyring"
@@ -86,6 +87,9 @@ func TestOneLoginReachesTwoProductsWithDifferentAudiences(t *testing.T) {
 	if code := shell.Run([]string{"login"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
+	if strings.Contains(errOut.String(), "left out") {
+		t.Errorf("a login granted everything it asked for warned about scopes:\n%s", errOut)
+	}
 	store := session.Store{StateRoot: shell.StateRoot}
 	first, err := store.Load(credentialRef)
 	if err != nil || first.Strategy != contexts.StrategyDirect || first.Resource != firstAudience {
@@ -125,9 +129,11 @@ func TestOneLoginReachesTwoProductsWithDifferentAudiences(t *testing.T) {
 }
 
 // ThunderID answers an authorization asking for a permission the user holds
-// no role for with a token that leaves it out. The login does not notice: it
-// stores the session as asked for. The module's command is where it surfaces:
-// the shell authorizes the product once more, and refuses when the second
+// no role for with a token that leaves it out. The login still succeeds, and
+// says on standard error which permissions each product went without. The
+// session keeps the scope set its record asks for, which is what binds it to
+// the record. The module's command is where the shortfall is enforced: the
+// shell authorizes the product once more, and refuses when the second
 // authorization is answered the same way.
 func TestAWithheldScopeSurfacesAtTheCommandNotTheLogin(t *testing.T) {
 	keyring.MockInit()
@@ -140,6 +146,17 @@ func TestAWithheldScopeSurfacesAtTheCommandNotTheLogin(t *testing.T) {
 
 	if code := shell.Run([]string{"login"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
+	}
+	lines := strings.Split(strings.TrimSpace(errOut.String()), "\n")
+	var warned []string
+	for _, line := range lines {
+		if strings.Contains(line, "left out") {
+			warned = append(warned, line)
+		}
+	}
+	if len(warned) != 1 || !strings.Contains(warned[0], "second:write") || !strings.Contains(warned[0], `"second"`) ||
+		strings.Contains(warned[0], "second:read") {
+		t.Errorf("want one line naming the second product and second:write alone, got %q in:\n%s", warned, errOut)
 	}
 	stored, err := session.Store{StateRoot: shell.StateRoot}.Load(contexts.ProductSessionRef(credentialRef, "second"))
 	if err != nil {

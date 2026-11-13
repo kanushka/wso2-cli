@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -211,8 +212,46 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 			outcome.first = result
 		}
 		outcome.established = append(outcome.established, access)
+		s.reportWithheldScopes(access, result)
 	}
 	return outcome, nil
+}
+
+// reportWithheldScopes says, on the diagnostic stream, which of the scopes an
+// authorization asked for it was not granted. A provider such as ThunderID
+// answers a scope the user holds no role for by leaving it out of an
+// otherwise successful grant, and the login is not refused for it: the
+// product may serve commands that need only the rest. An issuer that states
+// no scopes at all says nothing either way, so nothing is reported.
+func (s Shell) reportWithheldScopes(access contexts.ProductAccess, result oauthflow.Result) {
+	if result.Token == nil {
+		return
+	}
+	responseScope, _ := result.Token.Extra("scope").(string)
+	granted := auth.GrantedScopes(responseScope, result.Token.AccessToken)
+	if len(granted) == 0 {
+		return
+	}
+	var withheld []string
+	for _, scope := range access.Scopes {
+		if !slices.Contains(granted, scope) {
+			withheld = append(withheld, scope)
+		}
+	}
+	if len(withheld) == 0 {
+		return
+	}
+	// Best effort, as reportPartialLogin: the login itself succeeded.
+	_, _ = fmt.Fprintf(s.Streams.Err, "The identity provider left out %s from %s, usually because "+
+		"this user's role does not carry them; commands that need them will be refused.\n",
+		strings.Join(withheld, ", "), withheldLabel(access))
+}
+
+func withheldLabel(access contexts.ProductAccess) string {
+	if access.Namespace == "" {
+		return "the login session"
+	}
+	return fmt.Sprintf("the %q product's session", access.Namespace)
 }
 
 // establishedLabel names one authorized access for a user-facing message: its

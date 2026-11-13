@@ -111,20 +111,28 @@ scopes from the installed module.
 A product installed after the first login is recorded on the next one. A
 record already on the context is never changed, whether the login wrote it or
 a person did; to take the derived values again, remove the record with
-`ws context product remove <product>` and log in. When the environment file is
+`ws context product remove <product>` and log in. A removal is not remembered:
+while the product's module is installed, the next login records it again. When
+the environment file is
 gone, the login still signs in to what is recorded and names the products it
 could not record and where the file belongs. A module whose namespace is not in
 the table is never recorded by a login.
 
-Every product on a WSO2 Cloud context is reached by its own authorization at
-the context's identity provider, naming its own resource server and exactly
-its own scopes; the provider's sign-on answers each one without a second
-password. This holds whatever grant a module's product descriptor names, and
-for a product recorded with `ws context product add` or `ws context apply`
-too: a token exchange there would carry no permissions, so a record that
-states a grant is refused with `shell.conflicting_arguments`. A context is a
-WSO2 Cloud context when its `type` is `cloud` and it signs in with the
-`thunder` provider.
+On a WSO2 Cloud context a product's descriptor grant is set aside: a token
+exchange there would carry no permissions, so every product is reached by its
+own authorization at the context's identity provider, naming its own resource
+server and exactly its own scopes, and the provider's sign-on answers each one
+without a second password. This holds for a product recorded with
+`ws context product add` or `ws context apply` too, where an `apim`, `intg` or
+`am` record that states no audience takes the resource server in the table
+above and any other takes its URL. A grant stated in an input file is recorded
+as stated, as on any other context. A context is a WSO2 Cloud context when its
+`type` is `cloud` and it signs in with the `thunder` provider.
+
+An identity provider may answer an authorization with fewer scopes than it
+asked for, leaving out the ones the user's role does not carry. `ws login`
+still succeeds, and prints one line per session on standard error naming the
+scopes left out; a command that needs them is refused when it runs.
 
 ## Login errors
 

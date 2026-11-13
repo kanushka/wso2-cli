@@ -353,25 +353,23 @@ func resolveProduct(namespace string, descriptor *modules.ProductDescriptor, spe
 }
 
 // resolveCloudProduct builds the record for a product on a WSO2 Cloud
-// context. Whatever grant the descriptor names, the product is reached by its
-// own authorization at the context's login issuer, under its own resource and
-// exactly its own scopes: a token exchange there carries no permission
-// scopes, and a login provider's descriptor describes a deployment of its
-// own, not a product behind the Cloud gateway.
+// context. The descriptor's grant is set aside: a token exchange there carries
+// no permission scopes, so unless a person states a grant the product is
+// reached by its own authorization at the context's login issuer, under its
+// own resource and exactly its own scopes. A login provider's descriptor
+// describes a deployment of its own, not a product behind the Cloud gateway,
+// so it is not refused here as recorded elsewhere.
 func resolveCloudProduct(namespace string, descriptor *modules.ProductDescriptor, spec productSpec,
 	target contexts.Context, product contexts.Product) (contexts.Product, error) {
-	if spec.Grant != nil {
-		return contexts.Product{}, problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
-			fmt.Sprintf("the %s product states a %s grant, and on the WSO2 Cloud context %q every product "+
-				"is authorized at the login issuer", namespace, spec.Grant.Kind, target.Name)).
-			WithRecovery("Drop the grant; the product is reached under its own audience and scopes.")
-	}
 	if target.Login.Kind != contexts.KindClientCredentials &&
 		(spec.ClientSecretVariable != "" || spec.ClientIDVariable != "") {
 		return contexts.Product{}, browserProductCredential(target)
 	}
 	if descriptor != nil && spec.Scopes == nil {
 		product.Scopes = descriptor.Scopes
+	}
+	if known, found := cloudProducts[namespace]; product.Audience == "" && found && known.audience != "" {
+		product.Audience = known.audience
 	}
 	if product.Audience == "" {
 		product.Audience = spec.URL

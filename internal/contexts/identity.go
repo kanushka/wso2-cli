@@ -122,8 +122,8 @@ func Providers() []string {
 // The answer is mostly descriptive: the type member selects defaults and
 // wording (docs/reference/context-file.md). Beyond how the login report
 // phrases itself, the one branch on it is that a cloud context signing in
-// with thunder records every product without a grant. The derivation exists so the document tells the truth about the
-// deployment kind — a login against Asgardeo must not record WSO2's own cloud
+// with thunder sets aside a product descriptor's grant. The derivation exists
+// so the document tells the truth about the deployment kind — a login against Asgardeo must not record WSO2's own cloud
 // as an on-premises deployment.
 //
 // Two zones are WSO2-operated clouds: asgardeo.io, where Asgardeo issuers live

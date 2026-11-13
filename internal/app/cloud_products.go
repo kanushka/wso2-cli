@@ -71,8 +71,9 @@ func (p cloudProduct) spec(e cloudEnvironment) productSpec {
 
 // onWSO2Cloud reports whether a context signs in to WSO2 Cloud, whose
 // identity provider is ThunderID. There a token exchange carries no
-// permission scopes, so every product is authorized on its own at the login
-// issuer, for its own resource and scopes.
+// permission scopes, so a product descriptor's grant is set aside and the
+// product is authorized on its own at the login issuer, for its own resource
+// and scopes.
 func onWSO2Cloud(c contexts.Context) bool {
 	return c.Type == contexts.TypeCloud && c.Login.Provider == contexts.ProviderThunder
 }

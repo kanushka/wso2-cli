@@ -74,6 +74,20 @@ func bearerClaims(token string) (bearerFacts, error) {
 	return facts, nil
 }
 
+// GrantedScopes is what an authorization issued: the token response's scope
+// member when it states one, else the access token's scope claim, as
+// verifyNarrowing reads it. It is nil when neither says.
+func GrantedScopes(responseScope, accessToken string) []string {
+	if granted := strings.Fields(responseScope); len(granted) > 0 {
+		return granted
+	}
+	facts, err := bearerClaims(accessToken)
+	if err != nil {
+		return nil
+	}
+	return facts.Scopes
+}
+
 // audienceList normalizes the aud claim, which RFC 7519 allows to be either one
 // string or an array of them.
 func audienceList(claim any) []string {
