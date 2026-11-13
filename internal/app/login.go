@@ -212,7 +212,6 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 			outcome.first = result
 		}
 		outcome.established = append(outcome.established, access)
-		s.reportWithheldScopes(access, result)
 	}
 	return outcome, nil
 }
@@ -408,11 +407,17 @@ func checkDerivedResource(identity contexts.Account, access contexts.ProductAcce
 // login session or a further product: each is one authorization and one
 // stored session, and nothing here needs to know which.
 func (s Shell) establishProduct(selected contexts.Selection, access contexts.ProductAccess) (oauthflow.Result, error) {
-	if err := checkDerivedResource(selected.Identity, access); err != nil {
-		return oauthflow.Result{}, err
+	result, established, err := s.establishFromDeviceSecret(selected, access)
+	if err != nil || established {
+		return result, err
 	}
-	root, err := s.stateRoot()
-	if err != nil {
+	return s.establishThroughBrowser(selected, access)
+}
+
+// establishThroughBrowser runs one authorization in the browser and stores
+// the session it produced.
+func (s Shell) establishThroughBrowser(selected contexts.Selection, access contexts.ProductAccess) (oauthflow.Result, error) {
+	if err := checkDerivedResource(selected.Identity, access); err != nil {
 		return oauthflow.Result{}, err
 	}
 	// Recorded before the flow starts, because the commonest login failure is a
@@ -450,7 +455,16 @@ func (s Shell) establishProduct(selected contexts.Selection, access contexts.Pro
 		"subject", result.Subject,
 		"access_expires_at", result.Token.Expiry.UTC().Format(time.RFC3339),
 		"credential_ref", access.SessionRef)
+	return result, s.storeSession(access, result, "")
+}
 
+// storeSession stores what one authorization produced as access's session,
+// and says which of the scopes it asked for it was not granted.
+func (s Shell) storeSession(access contexts.ProductAccess, result oauthflow.Result, establishedBy string) error {
+	root, err := s.stateRoot()
+	if err != nil {
+		return err
+	}
 	store := session.Store{StateRoot: root}
 	// The refresh token's own lifetime, when the token response discloses one
 	// as refresh_token_expires_in, read through the same rule
@@ -480,12 +494,18 @@ func (s Shell) establishProduct(selected contexts.Selection, access contexts.Pro
 			Resource:         access.Resource,
 			Audience:         access.Audience,
 			Bound:            true,
+			DeviceSecret:     result.DeviceSecret,
+			// The secret is stored as returned and its expiry read without
+			// verifying it: only the provider that signed it ever checks it.
+			DeviceSecretExpiresAt: auth.DeviceSecretExpiry(result.DeviceSecret),
+			EstablishedBy:         establishedBy,
 		})
 	})
 	if err != nil {
-		return oauthflow.Result{}, err
+		return err
 	}
-	return result, nil
+	s.reportWithheldScopes(access, result)
+	return nil
 }
 
 // establishSession runs the login mode the selected account's kind names, for
@@ -530,6 +550,7 @@ func (s Shell) establishSession(selected contexts.Selection, access contexts.Pro
 		Scopes:      access.Scopes,
 		Resource:    access.Resource,
 		Label:       access.Namespace,
+		DeviceSSO:   asksForDeviceSecret(selected.Identity, access),
 		OpenBrowser: s.OpenBrowser,
 		Out:         s.Streams.Err,
 	}.Run(ctx)

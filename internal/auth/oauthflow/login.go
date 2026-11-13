@@ -136,7 +136,14 @@ type Login struct {
 	Label string
 	// Ports overrides LoopbackPorts. Tests bind an ephemeral port with []int{0}.
 	Ports []int
+	// DeviceSSO asks for ThunderID's device secret, when the provider's
+	// discovery document lists the device_sso scope. The secret describes the
+	// browser session the sign-in started, and is issued only when one was.
+	DeviceSSO bool
 }
+
+// scopeDeviceSSO asks ThunderID for a device secret.
+const scopeDeviceSSO = "device_sso"
 
 // openedLine is the line printed when the opener reported success, above the
 // fallback line carrying the authorization URL. A login that is for a product names it, since one wso2
@@ -179,6 +186,10 @@ type Result struct {
 	// the four is disclosed — an issuer that names nobody is not asked to have
 	// one invented for it. See displayName.
 	Name string
+	// DeviceSecret is the device secret the token response carried, empty
+	// when none was asked for or the sign-in reused a browser session. It is a
+	// credential: it is stored and never printed or logged.
+	DeviceSecret string
 }
 
 // Run performs the login and returns the issued token with the verified
@@ -195,6 +206,7 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	}
 	var capabilities struct {
 		CodeChallengeMethods []string `json:"code_challenge_methods_supported"`
+		ScopesSupported      []string `json:"scopes_supported"`
 	}
 	if err := provider.Claims(&capabilities); err != nil ||
 		!slices.Contains(capabilities.CodeChallengeMethods, challengeMethodS256) {
@@ -235,7 +247,7 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 		ClientID:    l.ClientID,
 		Endpoint:    endpoint,
 		RedirectURL: redirectURL(listener),
-		Scopes:      l.scopes(),
+		Scopes:      l.scopes(l.DeviceSSO && slices.Contains(capabilities.ScopesSupported, scopeDeviceSSO)),
 	}
 	authOptions := []oauth2.AuthCodeOption{
 		oauth2.S256ChallengeOption(verifier),
@@ -306,12 +318,14 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	// An issuer that discloses no email is a legal issuer; the login reports
 	// what it verified rather than refusing over a claim it did not need.
 	_ = idToken.Claims(&claims)
+	deviceSecret, _ := token.Extra("device_secret").(string)
 	return Result{
-		Token:   token,
-		Subject: idToken.Subject,
-		IDToken: rawIDToken,
-		Email:   claims.Email,
-		Name:    displayName(claims.Name, claims.GivenName, claims.FamilyName, claims.Email),
+		Token:        token,
+		Subject:      idToken.Subject,
+		IDToken:      rawIDToken,
+		Email:        claims.Email,
+		Name:         displayName(claims.Name, claims.GivenName, claims.FamilyName, claims.Email),
+		DeviceSecret: deviceSecret,
 	}, nil
 }
 
@@ -340,8 +354,11 @@ func displayName(name, givenName, familyName, email string) string {
 // about what a product may do. That keeps them out of the scope set a session
 // is recorded against, so a session stored before this change is not read as
 // one authorized for a different product.
-func (l Login) scopes() []string {
+func (l Login) scopes(deviceSSO bool) []string {
 	requested := []string{oidc.ScopeOpenID, scopeOfflineAccess, scopeProfile, scopeEmail}
+	if deviceSSO {
+		requested = append(requested, scopeDeviceSSO)
+	}
 	for _, scope := range l.Scopes {
 		if !slices.Contains(requested, scope) {
 			requested = append(requested, scope)

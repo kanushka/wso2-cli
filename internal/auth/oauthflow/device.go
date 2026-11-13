@@ -283,7 +283,7 @@ func approvalFailed(err error) error {
 // scopes asks for the same permissions a browser login asks for, so a session
 // established either way narrows down to the same product access afterwards.
 func (d DeviceLogin) scopes() []string {
-	return Login{Scopes: d.Scopes}.scopes()
+	return Login{Scopes: d.Scopes}.scopes(false)
 }
 
 // httpClient wraps the caller's client so a key set is read for its keys and
