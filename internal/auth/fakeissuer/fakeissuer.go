@@ -162,6 +162,16 @@ type Options struct {
 	// authorization asking for one answers 200 with it left out of the issued
 	// token, as ThunderID was measured doing on 2026-11-13.
 	WithheldScopes []string
+	// DeviceSSO models ThunderID's device secret, as measured on 2026-11-13:
+	// discovery lists the device_sso scope, an authorization that asks for it
+	// is answered with a device_secret describing the browser session it
+	// started, and a token exchange presenting that secret is answered as a
+	// fresh authorization bound to the resource it names.
+	DeviceSSO bool
+	// ReusedBrowserSession models a sign-in that found a browser session
+	// already there: ThunderID then issues no device secret, whatever was
+	// asked for.
+	ReusedBrowserSession bool
 	// RotateRefreshTokens issues a new refresh token on every refresh,
 	// invalidating the one presented.
 	RotateRefreshTokens bool
@@ -322,6 +332,9 @@ type Issuer struct {
 	refuseExchange bool
 	// onRevoke runs once, the first time the revocation endpoint is reached.
 	onRevoke func()
+	// deviceSecrets are the device secrets issued, each live until the
+	// browser session it describes ends.
+	deviceSecrets map[string]bool
 }
 
 type codeGrant struct {
@@ -387,6 +400,7 @@ func New(t *testing.T, opts Options) *Issuer {
 		keyID:         randomToken("key"),
 		codes:         map[string]codeGrant{},
 		refreshTokens: map[string]refreshRecord{},
+		deviceSecrets: map[string]bool{},
 		accessTokens:  map[string]tokenRecord{},
 		idTokens:      map[string]string{},
 		deviceGrants:  map[string]*deviceGrant{},
@@ -504,6 +518,9 @@ func (i *Issuer) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
 	}
 	if i.opts.OmitS256 {
 		delete(document, "code_challenge_methods_supported")
+	}
+	if i.opts.DeviceSSO {
+		document["scopes_supported"] = []string{"openid", "offline_access", "profile", "email", deviceSSOScope}
 	}
 	if i.opts.OmitRevocationEndpoint {
 		delete(document, "revocation_endpoint")
@@ -722,6 +739,10 @@ func (i *Issuer) RefuseExchange() {
 // OIDC scopes and nothing more, which is why an exchanged product is
 // authorized by the claims it carries rather than by a scope set.
 func (i *Issuer) exchangeGrant(w http.ResponseWriter, r *http.Request) {
+	if i.opts.DeviceSSO && r.PostForm.Get("subject_token_type") == jwtTokenType {
+		i.deviceSecretGrant(w, r)
+		return
+	}
 	i.mutex.Lock()
 	refusing, registered := i.refuseExchange, i.opts.ExchangeGrant
 	subject, minted := i.accessTokens[r.PostForm.Get("subject_token")]
@@ -828,7 +849,72 @@ func (i *Issuer) exchangeCode(w http.ResponseWriter, r *http.Request) {
 			response["refresh_token_expires_in"] = value
 		}
 	}
+	if i.opts.DeviceSSO && !i.opts.ReusedBrowserSession && slices.Contains(grant.scopes, deviceSSOScope) {
+		response["device_secret"] = i.mintDeviceSecret()
+	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+const (
+	deviceSSOScope = "device_sso"
+	jwtTokenType   = "urn:ietf:params:oauth:token-type:jwt"
+)
+
+func (i *Issuer) mintDeviceSecret() string {
+	now := time.Now()
+	secret := i.sign(map[string]any{
+		"iss": i.Identifier(), "aud": i.Identifier(), "sub": "user-1", "sid": randomToken("sid"),
+		"iat": now.Unix(), "exp": now.Add(24 * time.Hour).Unix(),
+	})
+	i.mutex.Lock()
+	i.deviceSecrets[secret] = true
+	i.mutex.Unlock()
+	return secret
+}
+
+// EndBrowserSession ends the browser session every device secret describes,
+// as a sign-out or a session timeout at the provider does.
+func (i *Issuer) EndBrowserSession() {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	for secret := range i.deviceSecrets {
+		i.deviceSecrets[secret] = false
+	}
+}
+
+// deviceSecretGrant answers a token exchange presenting a device secret the
+// way ThunderID does: a fresh authorization, with a refresh token of its own,
+// bound to the one resource named and carrying the requested scopes the user
+// holds, or interaction_required once the browser session has ended.
+func (i *Issuer) deviceSecretGrant(w http.ResponseWriter, r *http.Request) {
+	i.mutex.Lock()
+	live, issued := i.deviceSecrets[r.PostForm.Get("subject_token")]
+	i.mutex.Unlock()
+	switch {
+	case presentedClientID(r) == "":
+		oauthError(w, http.StatusUnauthorized, "invalid_client")
+		return
+	case !issued:
+		oauthError(w, http.StatusBadRequest, "invalid_grant")
+		return
+	case !live:
+		oauthError(w, http.StatusBadRequest, "interaction_required")
+		return
+	}
+	resource := r.PostForm.Get("resource")
+	scopes := i.withoutWithheld(splitScopes(r.PostForm.Get("scope")))
+	refreshToken := randomToken("rt")
+	i.mutex.Lock()
+	i.refreshTokens[refreshToken] = refreshRecord{scopes: scopes, resource: resource}
+	i.mutex.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"access_token":      i.mintAccessTokenFor("user-1", scopes, resource),
+		"refresh_token":     refreshToken,
+		"issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+		"token_type":        "Bearer",
+		"expires_in":        300,
+		"scope":             strings.Join(scopes, " "),
+	})
 }
 
 // refreshTokenExpiresInValue reports the refresh_token_expires_in value this
