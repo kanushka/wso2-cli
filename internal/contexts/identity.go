@@ -419,19 +419,16 @@ func (i Account) validate() error {
 // A resource-bound derivation names the protected resource it binds to, and
 // takes that name from the product the module asks for. What follows is
 // refused here rather than at the end of a browser sign-in: a product that
-// names no audience leaves nothing to bind to, and an identity naming none at
-// all has nothing to name either. An identity may still record several direct
+// names no audience leaves nothing to bind to. An identity naming no product
+// at all is legal: its login names no resource, which a deployment with a
+// default resource server accepts and any other refuses at sign-in. An
+// identity may still record several direct
 // products — each becomes its own resource-bound session, the login's or a
 // sibling's, since the deployments this derivation serves accept only one
 // resource indicator per authorization, not one product per identity.
 func (i Account) validateDerivation() error {
 	if i.Auth.Derivation() != DerivationTokenResource {
 		return nil
-	}
-	if len(i.Products) == 0 {
-		return malformed(fmt.Sprintf(
-			"declares the %s against a deployment that binds a login to a product, "+
-				"and gives it none", i.label()))
 	}
 	for _, namespace := range slices.Sorted(maps.Keys(i.Products)) {
 		if !i.Products[namespace].Direct() {

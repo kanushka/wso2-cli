@@ -69,6 +69,29 @@ modules.
 offline bundle family (`create`, `inspect`, `install`) for air-gapped
 machines.
 
+## WSO2 Cloud environments
+
+`WSO2_CLOUD_ENV` names a WSO2 Cloud environment for `ws login` to sign in to
+when neither `--context`, `--url` nor `WSO2_CONTEXT` names a target. The
+names are `dev`, `stage`, `prod-us` (also `prod`) and `prod-eu`. Login writes
+a context named `cloud-<environment>` when the machine has none, selects it,
+and signs in through the browser, asking nothing.
+
+An environment's values are read from `cloud/<environment>.yaml` under the
+state directory, only when the context is first written:
+
+| Member | Meaning |
+| --- | --- |
+| `issuer` | The environment's identity provider URL. |
+| `baseDomain` | The domain the environment's product APIs are served under. |
+| `environment` | The environment's name inside that domain. |
+| `clientId` | The OAuth client the shell presents itself as. Optional; `WSO2_CLI` when absent. |
+
+A name that is not lowercase letters, digits and hyphens is refused with
+`shell.invalid_argument`, a missing file with
+`shell.cloud_environment_unknown`, and a file missing a member or carrying an
+unknown one with `shell.input_malformed`.
+
 ## Login errors
 
 Every refusal `ws login` and a brokered command make carries a typed code.

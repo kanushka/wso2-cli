@@ -76,7 +76,13 @@ func (s Shell) resolveLoginTarget(flags loginFlags) (loginFlags, error) {
 	}
 	// WSO2_CONTEXT is a selection the user made, just not on this command
 	// line, so it is honoured the way the selection that follows honours it.
-	if !may || os.Getenv("WSO2_CONTEXT") != "" {
+	if os.Getenv("WSO2_CONTEXT") != "" {
+		return flags, nil
+	}
+	if os.Getenv(CloudEnvVar) != "" {
+		return s.loginCloud(flags, root, document)
+	}
+	if !may {
 		return flags, nil
 	}
 	if len(document.Contexts) == 0 {

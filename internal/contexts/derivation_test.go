@@ -126,17 +126,15 @@ func TestAThunderIdentityWhoseProductNamesNoAudienceIsRefused(t *testing.T) {
 	assertProblemCode(t, err, "contexts.document_malformed")
 }
 
-// An identity that binds access to a resource and names no product has no
-// resource to bind to. Login would then send no indicator and be refused by the
-// deployment, which is the failure this validation exists to move earlier.
-func TestAResourceBoundIdentityWithoutAProductIsRefused(t *testing.T) {
-	_, err := contexts.Decode([]byte(withoutProducts(withProvider(contexts.ProviderThunder))))
-	assertProblemCode(t, err, "contexts.document_malformed")
+// An identity that binds access to a resource may name no product yet. Its
+// login then sends no resource indicator: a deployment with a default resource
+// server accepts that, and any other refuses it at sign-in.
+func TestAResourceBoundIdentityWithoutAProductIsLegal(t *testing.T) {
+	if _, err := contexts.Decode([]byte(withoutProducts(withProvider(contexts.ProviderThunder)))); err != nil {
+		t.Fatalf("a resource-bound identity with no products should validate: %v", err)
+	}
 }
 
-// An identity that derives the way every deployment did before may still
-// declare no product; the refusal above is about the derivation, not about
-// identities in general.
 func TestAnIdentityWithoutAProductStaysLegalOtherwise(t *testing.T) {
 	if _, err := contexts.Decode([]byte(withoutProducts(validV2()))); err != nil {
 		t.Fatalf("an identity with no products should validate: %v", err)
