@@ -12,7 +12,7 @@ require (
 	github.com/spf13/pflag v1.0.9
 	github.com/wso2/wso2-cli/sdk v0.4.0
 	github.com/zalando/go-keyring v0.2.8
-	go.yaml.in/yaml/v3 v3.0.5
+	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
