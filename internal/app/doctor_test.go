@@ -350,14 +350,12 @@ func TestDoctorHappyPathPassesEveryCheck(t *testing.T) {
 	}
 }
 
-// TestDoctorReportsALoggedOutContextAsNoneNotAFault is finding N8: a
-// configured context with no stored session is the state a confirmed
-// wso2 logout leaves behind, so doctor reports the session check as none —
-// not fail, which made monitoring wrappers alert on a deliberate action, and
-// not not-applicable, which would claim the check could not be asked — keeps
-// the login pointer in the recovery column, exits 0, and writes no error line
-// to stderr.
-func TestDoctorReportsALoggedOutContextAsNoneNotAFault(t *testing.T) {
+// TestDoctorFailsAContextWithNoLoginSession: a configured context nobody is
+// logged in to cannot run a single product command, so doctor fails the
+// session check and exits with the class a command refused for no login
+// exits with, keeping the login pointer as the recovery. This reverses N8,
+// which reported it as none and exited 0.
+func TestDoctorFailsAContextWithNoLoginSession(t *testing.T) {
 	keyring.MockInit()
 	seeded := identityOnlyDocument()
 	seeded.DefaultContext = "acme"
@@ -365,31 +363,24 @@ func TestDoctorReportsALoggedOutContextAsNoneNotAFault(t *testing.T) {
 
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, seeded)
-	if code := shell.Run([]string{"doctor", "--output", "json"}); code != exit.OK {
-		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	if code := shell.Run([]string{"doctor", "--output", "json"}); code != exit.AuthPolicy {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.AuthPolicy, errOut)
 	}
-	report := decodeDoctorReport(t, out.Bytes())
-	finding := report.findingFor(t, "session")
-	if finding.Status != "none" {
-		t.Errorf("session check = %q, want none on a logged-out context", finding.Status)
+	finding := decodeDoctorReport(t, out.Bytes()).findingFor(t, "session")
+	if finding.Status != "fail" {
+		t.Errorf("session check = %q, want fail on a logged-out context", finding.Status)
 	}
 	if !strings.Contains(finding.Recovery, "wso2 login") {
 		t.Errorf("session recovery = %q, want the wso2 login pointer kept", finding.Recovery)
 	}
-	if errOut.Len() != 0 {
-		t.Errorf("stderr is not empty on a healthy, logged-out machine:\n%s", errOut)
-	}
 
 	tableShell, tableOut, tableErrOut := newShell(t)
 	installLogin(t, tableShell, seeded)
-	if code := tableShell.Run([]string{"doctor"}); code != exit.OK {
-		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, tableErrOut)
+	if code := tableShell.Run([]string{"doctor"}); code != exit.AuthPolicy {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.AuthPolicy, tableErrOut)
 	}
-	if status := tableStatus(t, tableOut.String(), "session"); status != "none" {
-		t.Errorf("session row status = %q, want none to agree with the JSON rendering:\n%s", status, tableOut)
-	}
-	if tableErrOut.Len() != 0 {
-		t.Errorf("stderr restates a finding no longer reported as a failure:\n%s", tableErrOut)
+	if status := tableStatus(t, tableOut.String(), "session"); status != "fail" {
+		t.Errorf("session row status = %q, want fail to agree with the JSON rendering:\n%s", status, tableOut)
 	}
 }
 
@@ -598,12 +589,12 @@ func TestDoctorHonorsContextPrecedence(t *testing.T) {
 		shell, out, errOut := newShell(t)
 		seedBetaSession(t, shell)
 
-		if code := shell.Run([]string{"doctor", "--output", "json"}); code != exit.OK {
-			t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+		if code := shell.Run([]string{"doctor", "--output", "json"}); code != exit.AuthPolicy {
+			t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.AuthPolicy, errOut)
 		}
 		report := decodeDoctorReport(t, out.Bytes())
-		if finding := report.findingFor(t, "session"); finding.Status != "none" {
-			t.Errorf("session check = %q, want none: the default context is acme, which has no session", finding.Status)
+		if finding := report.findingFor(t, "session"); finding.Status != "fail" {
+			t.Errorf("session check = %q, want fail: the default context is acme, which has no session", finding.Status)
 		}
 	})
 
@@ -626,12 +617,12 @@ func TestDoctorHonorsContextPrecedence(t *testing.T) {
 		seedBetaSession(t, shell)
 		t.Setenv("WSO2_CONTEXT", "beta")
 
-		if code := shell.Run([]string{"doctor", "--context", "acme", "--output", "json"}); code != exit.OK {
-			t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+		if code := shell.Run([]string{"doctor", "--context", "acme", "--output", "json"}); code != exit.AuthPolicy {
+			t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.AuthPolicy, errOut)
 		}
 		report := decodeDoctorReport(t, out.Bytes())
-		if finding := report.findingFor(t, "session"); finding.Status != "none" {
-			t.Errorf("session check = %q, want none: --context acme must win over WSO2_CONTEXT=beta", finding.Status)
+		if finding := report.findingFor(t, "session"); finding.Status != "fail" {
+			t.Errorf("session check = %q, want fail: --context acme must win over WSO2_CONTEXT=beta", finding.Status)
 		}
 	})
 }

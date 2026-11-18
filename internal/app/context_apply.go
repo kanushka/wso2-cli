@@ -68,7 +68,7 @@ type inputContext struct {
 type inputProduct struct {
 	URL                  string            `json:"url"`
 	Audience             string            `json:"audience,omitempty"`
-	Scopes               []string          `json:"scopes,omitempty"`
+	Scopes               []string          `json:"scopes,omitzero"`
 	Grant                *contexts.Grant   `json:"grant,omitempty"`
 	ClientIDVariable     string            `json:"clientIdVariable,omitempty"`
 	ClientSecretVariable string            `json:"clientSecretVariable,omitempty"`
@@ -691,6 +691,19 @@ func (s Shell) contextExport(name string, mode output.Mode) error {
 	return err
 }
 
+// productDrift is one record whose frozen values differ from what its
+// installed product's descriptor would produce now: the fact, and the command
+// that adopts the new values.
+type recordDrift struct {
+	fact, adopt string
+}
+
+// note is the drift as one sentence pair, as wso2 context show prints it.
+func (d recordDrift) note() string {
+	return d.fact + " If that was not set deliberately, adopt the new value with " + d.adopt +
+		", or by applying the context file again."
+}
+
 // driftNotes names every record whose frozen values differ from what its
 // installed product's descriptor would produce now, and the command that
 // adopts the new ones. A product update never edits a context by itself
@@ -698,6 +711,14 @@ func (s Shell) contextExport(name string, mode output.Mode) error {
 // something.
 func driftNotes(document contexts.Document, lookup descriptorLookup) []string {
 	var notes []string
+	for _, drift := range recordDrifts(document, lookup) {
+		notes = append(notes, drift.note())
+	}
+	return notes
+}
+
+func recordDrifts(document contexts.Document, lookup descriptorLookup) []recordDrift {
+	var drifts []recordDrift
 	for _, context := range document.Contexts {
 		for _, namespace := range slices.Sorted(maps.Keys(context.Products)) {
 			descriptor := lookup(namespace)
@@ -705,21 +726,23 @@ func driftNotes(document contexts.Document, lookup descriptorLookup) []string {
 				continue
 			}
 			for _, drift := range productDrift(namespace, *descriptor, context) {
-				notes = append(notes, fmt.Sprintf("The %q product on the %q context records %s. If that was "+
-					"not set deliberately, adopt the new value with wso2 context product add %s --url %s "+
-					"--replace --context %s, or by applying the context file again.",
-					namespace, context.Name, drift, namespace, context.Products[namespace].Endpoint, context.Name))
+				drifts = append(drifts, recordDrift{
+					fact: fmt.Sprintf("The %q product on the %q context records %s.", namespace, context.Name, drift),
+					adopt: fmt.Sprintf("wso2 context product add %s --url %s --replace --context %s",
+						namespace, context.Products[namespace].Endpoint, context.Name),
+				})
 			}
 		}
 	}
-	return notes
+	return drifts
 }
 
 // productDrift describes how a context's record of a product differs from
 // what its descriptor would write there now, in the members the descriptor
-// alone decides. On WSO2 Cloud the descriptor's grant is set aside and the
-// Cloud product table's scopes, where it states any, stand in for the
-// descriptor's.
+// alone decides. On WSO2 Cloud the descriptor's grant is set aside (ADR 0022)
+// and the Cloud product table's scopes, where it states any, stand in for the
+// descriptor's. A scope list stated empty was stated on purpose, so it is not
+// drift.
 func productDrift(namespace string, descriptor modules.ProductDescriptor, context contexts.Context) []string {
 	product := context.Products[namespace]
 	cloud := onWSO2Cloud(context)
@@ -737,7 +760,8 @@ func productDrift(namespace string, descriptor modules.ProductDescriptor, contex
 				recorded, namespace, descriptor.Grant))
 		}
 	}
-	if len(descriptor.Scopes) > 0 && !sameScopes(product.Scopes, descriptor.Scopes) {
+	statedEmpty := product.Scopes != nil && len(product.Scopes) == 0
+	if len(descriptor.Scopes) > 0 && !statedEmpty && !sameScopes(product.Scopes, descriptor.Scopes) {
 		drifts = append(drifts, fmt.Sprintf("the scopes %q where the installed %s product now asks for %q",
 			strings.Join(product.Scopes, ","), namespace, strings.Join(descriptor.Scopes, ",")))
 	}
