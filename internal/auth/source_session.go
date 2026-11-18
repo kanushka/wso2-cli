@@ -117,6 +117,10 @@ func (s sessionSource) mint(request Request, now time.Time) (Grant, error) {
 	if err := s.ensureSession(); err != nil {
 		return Grant{}, err
 	}
+	request, err := s.withinGrant(request)
+	if err != nil {
+		return Grant{}, err
+	}
 	granted, err := s.mintUnderLock(request, now)
 	var again reauthorize
 	if !errors.As(err, &again) {
@@ -137,8 +141,70 @@ func (s sessionSource) mint(request Request, now time.Time) (Grant, error) {
 	return granted, err
 }
 
+// withinGrant holds a request on a resource-bound session to what the
+// sign-in was granted, before any call to the issuer. A scope the sign-in
+// asked for and was not granted is refused by name, since only an
+// administrator giving the user a role can bring it, and signing in again
+// before that cannot; a request that named no scope is narrowed to what was
+// granted. A scope the record does not carry was refused before this, by
+// checkProduct.
+//
+// It applies to a session established for this product's own resource and
+// scopes, and only once the session says what it was granted; an older one is
+// renewed and proved as before.
+func (s sessionSource) withinGrant(request Request) (Request, error) {
+	if !s.resourceBound || (s.strategy != contexts.StrategyDirect && s.strategy != contexts.StrategySibling) {
+		return request, nil
+	}
+	stored, err := s.sessions.Load(s.ref)
+	if err != nil || stored.Granted == nil {
+		return request, nil
+	}
+	if request.recordScopes {
+		var held []string
+		for _, scope := range request.Scopes {
+			if slices.Contains(stored.Granted, scope) {
+				held = append(held, scope)
+			}
+		}
+		if len(held) > 0 {
+			request.Scopes = held
+			return request, nil
+		}
+	}
+	if withheld := scopesOutside(request.Scopes, stored.Granted); len(withheld) > 0 {
+		return request, denial("auth.scope_not_granted",
+			fmt.Sprintf("the %q module needs %s, which the sign-in asked for and the identity provider did "+
+				"not grant, because this user's roles do not carry it", s.namespace, scopeList(withheld)),
+			fmt.Sprintf("Ask an administrator of %s to give this user a role that carries %s on %q. "+
+				"Signing in again will not add it until then; afterwards, %s.",
+				s.issuer, scopeList(withheld), s.audience, s.reestablish()))
+	}
+	return request, nil
+}
+
+// reestablish is the command that authorizes this session afresh: the
+// product's own login, or for the login session a logout and a login.
+func (s sessionSource) reestablish() string {
+	if s.strategy == contexts.StrategyDirect {
+		return fmt.Sprintf("wso2 logout --context %s and wso2 login --context %s", s.contextName, s.contextName)
+	}
+	return "wso2 login --only " + s.product
+}
+
+// scopesOutside are the scopes in requested that held does not carry.
+func scopesOutside(requested, held []string) []string {
+	var outside []string
+	for _, scope := range requested {
+		if !slices.Contains(held, scope) {
+			outside = append(outside, scope)
+		}
+	}
+	return outside
+}
+
 // notAuthorizedForProduct is the refusal for a product whose issuer signed
-// the user in again and still issued none of the permissions asked for.
+// the user in again and still did not issue all the permissions asked for.
 //
 // It replaces the narrowing refusal at this point because the narrowing is
 // no longer the news: the issuer was given every chance to grant the
@@ -153,7 +219,7 @@ func (s sessionSource) notAuthorizedForProduct(request Request) error {
 		recovery = s.narrowing(request).recovery
 	}
 	return denial("auth.narrowing_unavailable",
-		fmt.Sprintf("the %q product's identity provider signed this user in again but issued none of "+
+		fmt.Sprintf("the %q product's identity provider signed this user in again but did not issue all of "+
 			"the permissions the module asked for (%s), so the user is not authorized for the product",
 			s.namespace, scopeList(request.Scopes)),
 		recovery)

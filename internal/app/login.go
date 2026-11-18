@@ -255,14 +255,23 @@ func (s Shell) reportWithheldScopes(access contexts.ProductAccess, result oauthf
 		strings.Join(withheld, ", "), withheldLabel(access))
 }
 
+// grantedScopes are the scopes an authorization issued, or nil when it
+// stated none.
+func grantedScopes(result oauthflow.Result) []string {
+	if result.Token == nil {
+		return nil
+	}
+	responseScope, _ := result.Token.Extra("scope").(string)
+	return auth.GrantedScopes(responseScope, result.Token.AccessToken)
+}
+
 // withheldScopes are the scopes access asked for that the authorization did
 // not grant, or nil when it granted them all or stated nothing.
 func withheldScopes(access contexts.ProductAccess, result oauthflow.Result) []string {
 	if result.Token == nil {
 		return nil
 	}
-	responseScope, _ := result.Token.Extra("scope").(string)
-	granted := auth.GrantedScopes(responseScope, result.Token.AccessToken)
+	granted := grantedScopes(result)
 	if len(granted) == 0 {
 		return nil
 	}
@@ -525,6 +534,7 @@ func (s Shell) storeSession(access contexts.ProductAccess, result oauthflow.Resu
 			Resource:         access.Resource,
 			Audience:         access.Audience,
 			Bound:            true,
+			Granted:          grantedScopes(result),
 			DeviceSecret:     result.DeviceSecret,
 			// The secret is stored as returned and its expiry read without
 			// verifying it: only the provider that signed it ever checks it.

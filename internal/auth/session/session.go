@@ -107,6 +107,12 @@ type Session struct {
 	Resource string `json:"resource,omitempty"`
 	Audience string `json:"audience,omitempty"`
 	Bound    bool   `json:"bound,omitempty"`
+	// Granted are the scopes the authorization that established the session
+	// issued, when the issuer stated them. It may be fewer than Scopes: an
+	// issuer such as ThunderID leaves out a scope the user's roles do not
+	// carry and still answers 200. Nil for a session stored before the field
+	// existed, or from an issuer that stated nothing.
+	Granted []string `json:"granted,omitempty"`
 	// DeviceSecret is the ThunderID device secret the login's sign-in
 	// returned, kept on the login session alone so that ending the login
 	// session ends it too. Each further product session is obtained from it

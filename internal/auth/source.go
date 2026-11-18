@@ -226,13 +226,32 @@ func (b *Broker) checkProduct(request Request) error {
 			if !slices.Contains(product.Scopes, scope) {
 				return denial("auth.product_not_configured",
 					fmt.Sprintf("the %q module asked for the %q permission, which this context's %q "+
-						"product does not carry", b.namespace(), scope, b.namespace()),
-					fmt.Sprintf("Add the permission once the deployment grants it: wso2 context product add "+
-						"%s --url <url> --scopes <list> --replace, then retry the command.", b.namespace()))
+						"product does not carry, so no sign-in asked for it", b.namespace(), scope, b.namespace()),
+					b.unrecordedScopeRecovery(scope))
 			}
 		}
 	}
 	return nil
+}
+
+// unrecordedScopeRecovery is the way back from a request for a scope the
+// product record does not carry: record it, then, for a context that signs
+// in, sign in again so the authorization asks for it.
+func (b *Broker) unrecordedScopeRecovery(scope string) string {
+	record := fmt.Sprintf("Add %s to the %s product's scopes (wso2 context edit, or the context file and "+
+		"wso2 context apply)", scope, b.namespace())
+	switch b.Selection.Identity.Auth.Kind {
+	case contexts.KindOAuthBrowser, contexts.KindOAuthDevice:
+	default:
+		return record + ", then retry the command."
+	}
+	access, _ := b.Selection.Identity.Access(b.Namespace)
+	if access.Strategy == contexts.StrategyDirect {
+		name := b.Selection.Context.Name
+		return fmt.Sprintf("%s, then run wso2 logout --context %s and wso2 login --context %s so the "+
+			"sign-in asks for it.", record, name, name)
+	}
+	return fmt.Sprintf("%s, then run wso2 login --only %s so the sign-in asks for it.", record, b.namespace())
 }
 
 // checkInvocable refuses the api record where nothing can answer it: the
