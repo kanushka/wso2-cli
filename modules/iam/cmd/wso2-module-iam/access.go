@@ -41,10 +41,10 @@ func clientFor(ctx context.Context, request module.Request) (thunder.Client, err
 			"Run wso2 context create <name> --login-product iam --url <thunder-url> --use to "+
 				"create a context that logs in through Thunder, then run wso2 login.")
 	}
-	access, err := request.Access.Acquire(ctx, module.AccessRequest{
-		Audience: ManagementAudience,
-		Scopes:   []string{ManagementScope},
-	})
+	// No scope is named: the deployments spell the management permission
+	// differently, and the shell proves a token carries exactly what was asked,
+	// so the context's product record says which one this deployment grants.
+	access, err := request.Access.Acquire(ctx, module.AccessRequest{Audience: ManagementAudience})
 	if err != nil {
 		// The shell's own account of a refusal is returned unchanged: it knows
 		// why access was denied and this module does not.

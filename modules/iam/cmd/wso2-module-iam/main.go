@@ -55,8 +55,11 @@ const StatusSchema = "iam.status/v1"
 const ManagementAudience = "identity-management"
 
 // ManagementScope is the permission every command here needs: the deployment's
-// own management permission.
+// own management permission, as a self-hosted ThunderID names it.
 const ManagementScope = "system"
+
+// CloudManagementScope is the same permission as WSO2 Cloud names it.
+const CloudManagementScope = "iam:system"
 
 // NextField is the field name the shell renders as a trailing next-step line.
 // Every result this module returns ends with it, so a user is never left
@@ -86,17 +89,17 @@ func main() {
 
 // moduleOptions describe this module to the SDK.
 //
-// AuthAudiences and AuthScopes name the management audience and scope every
-// handler requests access for, and module.json declares the same values: the
-// shell intersects a runtime request with what the module declared at
-// installation, so an audience declared in only one place is refused rather
-// than granted.
+// AuthAudiences names the management audience every handler requests access
+// for, and module.json declares the same values: the shell intersects a
+// runtime request with what the module declared at installation, so an
+// audience declared in only one place is refused rather than granted.
+// AuthScopes names the management permission under both deployments' names.
 func moduleOptions() module.Options {
 	return module.Options{
 		Namespace:     Namespace,
 		Version:       moduleVersion,
 		AuthAudiences: []string{ManagementAudience},
-		AuthScopes:    []string{ManagementScope},
+		AuthScopes:    []string{ManagementScope, CloudManagementScope},
 	}
 }
 

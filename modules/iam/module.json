@@ -8,7 +8,7 @@
   },
   "capabilities": {
     "authAudiences": ["identity-management"],
-    "authScopes": ["system"],
+    "authScopes": ["system", "iam:system"],
     "product": {
       "provider": "thunder",
       "clientId": "wso2-cli",
