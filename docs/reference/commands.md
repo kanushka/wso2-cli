@@ -99,7 +99,8 @@ Each login to the environment records, on its context, every installed WSO2
 Cloud product the context does not record yet, and then signs in to each
 product it records. Nothing has to be typed: the product's URL and the
 resource server its access is bound to come from the environment file, and its
-scopes from the installed module.
+scopes from the installed module, except that `iam` records `iam:system`, the
+one Identity permission WSO2 Cloud knows.
 
 | Product | URL | Resource server |
 | --- | --- | --- |
@@ -108,8 +109,12 @@ scopes from the installed module.
 | `am` | `https://<environment>-wso2cloud.gateway.<baseDomain>/agent-manager-service-agent-manager-api/api/v1` | `urn:wso2:cloud` |
 | `iam` | `https://api-<environment>.gateway.<baseDomain>/iam/v1` | the URL itself |
 
-Every login to an environment first installs each of these products that is
-not installed yet, one at a time, without asking, under `--no-input` too. A
+The context records the environment it was written for, as
+`cloudEnvironment`, and every login of it, however the context is named
+(`WSO2_CLOUD_ENV`, `--context`, `WSO2_CONTEXT` or the selection), first
+installs each of these products that is not installed yet, one at a time,
+without asking, under `--no-input` too. A Cloud context written before it
+recorded an environment does this only when `WSO2_CLOUD_ENV` names it. A
 product the catalog cannot supply is reported on standard error as
 `Skipped <product>: <reason>` and left out; the sign-in goes on with the rest,
 and the next login tries it again. A product installed any other way is

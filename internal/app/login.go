@@ -76,6 +76,11 @@ type loginFlags struct {
 	// shell cannot invent one.
 	clientID string
 	noInput  bool
+	// cloudEnv is the WSO2 Cloud environment WSO2_CLOUD_ENV named, for a
+	// context that was already there; cloudPrepared says the login that wrote
+	// the context already installed and recorded its products.
+	cloudEnv      string
+	cloudPrepared bool
 	// only is --only <namespace>: authorize this one product's access instead
 	// of every access the identity records.
 	only string
@@ -128,6 +133,9 @@ func (s Shell) login(flags loginFlags) error {
 		return problem.New(problem.CategoryUsage, "shell.missing_required_flag",
 			"wso2 login takes --client-id only with --url, which names the issuer the client is registered with").
 			WithRecovery(loginUsageRecovery)
+	}
+	if err := s.prepareCloudLogin(flags); err != nil {
+		return err
 	}
 	selected, err := s.selection(flags.contextName)
 	if err != nil {

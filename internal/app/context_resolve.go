@@ -374,10 +374,15 @@ func resolveCloudProduct(namespace string, descriptor *modules.ProductDescriptor
 			return contexts.Product{}, machineNotAccepted(namespace, target.Name, *descriptor, asked)
 		}
 	}
-	if descriptor != nil && spec.Scopes == nil {
+	known := cloudProducts[namespace]
+	switch {
+	case spec.Scopes != nil:
+	case known.scopes != nil:
+		product.Scopes = slices.Clone(known.scopes)
+	case descriptor != nil:
 		product.Scopes = descriptor.Scopes
 	}
-	if known, found := cloudProducts[namespace]; product.Audience == "" && found && known.audience != "" {
+	if product.Audience == "" && known.audience != "" {
 		product.Audience = known.audience
 	}
 	if product.Audience == "" {

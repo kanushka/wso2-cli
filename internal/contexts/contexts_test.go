@@ -203,7 +203,10 @@ func TestAContextRecordsNoCredentialValue(t *testing.T) {
 	// The document names where credentials come from. It must have nowhere to
 	// put a credential itself, so a reviewer can prove the absence from the
 	// types rather than from every writer of them.
-	allowedContext := []string{"name", "type", "credentialRef", "login", "organization", "project", "products"}
+	// cloudEnvironment is the name of a WSO2 Cloud environment, never a secret.
+	allowedContext := []string{
+		"name", "type", "credentialRef", "login", "organization", "project", "products", "cloudEnvironment",
+	}
 	// provider and narrowing say which deployment this is and how access is
 	// derived from it, product names which product the login is run for, and
 	// issuerId the identifier the provider names. All are names of behaviour,

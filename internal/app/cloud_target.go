@@ -79,7 +79,10 @@ func cloudEnvironmentPath(root, env string) string {
 }
 
 // loginCloud returns the flags that log in to the selected environment's
-// context, selecting it, and writing it first when this machine has none.
+// context, selecting it, and writing it first when this machine has none. A
+// context it writes records its environment and the Cloud products installed;
+// for one already there, prepareCloudLogin does the same work any login of a
+// Cloud context does.
 func (s Shell) loginCloud(flags loginFlags, root string, document contexts.Document) (loginFlags, error) {
 	env, err := cloudEnvironmentName()
 	if err != nil {
@@ -87,45 +90,41 @@ func (s Shell) loginCloud(flags loginFlags, root string, document contexts.Docum
 	}
 	name := cloudContextName(env)
 	flags.contextName = name
-	existing, declared := document.Find(name)
-	var environment cloudEnvironment
-	if !declared {
-		if environment, err = readCloudEnvironment(root, env); err != nil {
-			return flags, err
+	if declaresContext(document, name) {
+		flags.cloudEnv = env
+		if document.DefaultContext == name {
+			return flags, nil
 		}
+		return flags, s.selectContext(root, name, nil)
 	}
-	// A context of that name that a person made for something else is
-	// selected and logged in to as it is, with nothing installed or recorded.
-	if !declared || onWSO2Cloud(existing) {
-		if err := s.installCloudProducts(); err != nil {
-			return flags, err
-		}
+	environment, err := readCloudEnvironment(root, env)
+	if err != nil {
+		return flags, err
+	}
+	if err := s.installCloudProducts(); err != nil {
+		return flags, err
 	}
 	lookup := s.installedDescriptors()
-	var written *contexts.Context
-	switch {
-	case !declared:
-		context, err := environment.context(name)
-		if err != nil {
-			return flags, err
-		}
-		context, err = withCloudProducts(context, environment, unrecordedCloudProducts(context, lookup), lookup)
-		if err != nil {
-			return flags, err
-		}
-		written = &context
-	case onWSO2Cloud(existing):
-		if err := s.recordCloudProducts(root, env, existing, lookup); err != nil {
-			return flags, err
-		}
+	context, err := environment.context(name)
+	if err != nil {
+		return flags, err
 	}
-	if written == nil && document.DefaultContext == name {
-		return flags, nil
+	context.CloudEnvironment = env
+	context, err = withCloudProducts(context, environment, unrecordedCloudProducts(context, lookup), lookup)
+	if err != nil {
+		return flags, err
 	}
+	flags.cloudPrepared = true
+	return flags, s.selectContext(root, name, &context)
+}
+
+// selectContext selects the named context, writing written first when it is
+// new.
+func (s Shell) selectContext(root, name string, written *contexts.Context) error {
 	if err := contexts.Writable(root); err != nil {
-		return flags, s.explainWriteRefusal(root, err)
+		return s.explainWriteRefusal(root, err)
 	}
-	return flags, contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
+	return contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
 		if written != nil {
 			written.CredentialRef = document.NewCredentialRef(name)
 			document = document.Put(*written)
@@ -133,6 +132,36 @@ func (s Shell) loginCloud(flags loginFlags, root string, document contexts.Docum
 		document.DefaultContext = name
 		return document, nil
 	})
+}
+
+// prepareCloudLogin installs the WSO2 Cloud products a Cloud context's login
+// lacks and records the installed ones it does not record yet, for whichever
+// way the login names the context. The environment is the one the context
+// stores; a context written before it stored one is prepared only when
+// WSO2_CLOUD_ENV named it. Any other context is left alone.
+func (s Shell) prepareCloudLogin(flags loginFlags) error {
+	if flags.cloudPrepared {
+		return nil
+	}
+	selected, err := s.selection(flags.contextName)
+	if err != nil || !onWSO2Cloud(selected.Context) {
+		return nil
+	}
+	env := selected.Context.CloudEnvironment
+	if env == "" {
+		env = flags.cloudEnv
+	}
+	if env == "" {
+		return nil
+	}
+	root, err := s.stateRoot()
+	if err != nil {
+		return err
+	}
+	if err := s.installCloudProducts(); err != nil {
+		return err
+	}
+	return s.recordCloudProducts(root, env, selected.Context, s.installedDescriptors())
 }
 
 func readCloudEnvironment(root, env string) (cloudEnvironment, error) {

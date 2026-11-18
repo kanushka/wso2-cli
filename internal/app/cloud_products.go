@@ -40,6 +40,8 @@ type cloudProduct struct {
 	// audience is the resource server the product is authorized under, or
 	// empty when that is the product's own URL.
 	audience string
+	// scopes, when set, replace the module descriptor's on WSO2 Cloud.
+	scopes []string
 }
 
 func cloudProductGateway(e cloudEnvironment) string {
@@ -58,7 +60,10 @@ var cloudProducts = map[string]cloudProduct{
 	"intg": {host: cloudProductGateway, path: "/ipaas-service-ipaas-api-endpoint", audience: cloudSharedResource},
 	"am": {host: cloudProductGateway, path: "/agent-manager-service-agent-manager-api/api/v1",
 		audience: cloudSharedResource},
-	"iam": {host: cloudAPIGateway, path: "/iam/v1"},
+	// The preview iam module declares the self-hosted permission system beside
+	// WSO2 Cloud's iam:system, and asks for whatever its record holds; Cloud
+	// knows only iam:system.
+	"iam": {host: cloudAPIGateway, path: "/iam/v1", scopes: []string{"iam:system"}},
 }
 
 func (p cloudProduct) spec(e cloudEnvironment) productSpec {
@@ -71,7 +76,13 @@ func (p cloudProduct) spec(e cloudEnvironment) productSpec {
 // product is authorized on its own at the login issuer, for its own resource
 // and scopes.
 func onWSO2Cloud(c contexts.Context) bool {
-	return c.Type == contexts.TypeCloud && c.Login.Provider == contexts.ProviderThunder
+	return c.Type == contexts.TypeCloud && signsInAtThunderID(c.Account())
+}
+
+// signsInAtThunderID reports whether an account's login provider is ThunderID,
+// which is what WSO2 Cloud and the device secret both depend on.
+func signsInAtThunderID(account contexts.Account) bool {
+	return account.Auth.Provider == contexts.ProviderThunder
 }
 
 // unrecordedCloudProducts are the installed WSO2 Cloud products a context

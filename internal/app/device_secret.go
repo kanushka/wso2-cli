@@ -44,14 +44,14 @@ const deviceSecretDeadline = 30 * time.Second
 // sign-on that sign-in started and every later product is obtained
 // from it.
 func asksForDeviceSecret(identity contexts.Account, access contexts.ProductAccess) bool {
-	return identity.Auth.Provider == contexts.ProviderThunder && access.SessionRef == identity.LoginAccess().SessionRef
+	return signsInAtThunderID(identity) && access.SessionRef == identity.LoginAccess().SessionRef
 }
 
 // fromDeviceSecret reports whether an access may be obtained by exchanging
 // the login session's device secret: a session of its own at the login issuer,
 // which is the one a browser authorization would otherwise be opened for.
 func fromDeviceSecret(identity contexts.Account, access contexts.ProductAccess) bool {
-	return identity.Auth.Provider == contexts.ProviderThunder && access.Strategy == contexts.StrategySibling &&
+	return signsInAtThunderID(identity) && access.Strategy == contexts.StrategySibling &&
 		access.Issuer == identity.Auth.Issuer && access.SessionRef != identity.LoginAccess().SessionRef
 }
 

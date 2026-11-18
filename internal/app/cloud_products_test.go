@@ -126,7 +126,8 @@ func installCloudIAM(t *testing.T, shell app.Shell) {
 	t.Helper()
 	installFixture(t, shell, fixture.Module{Namespace: "iam", Version: "0.1.0",
 		Product: &modules.ProductDescriptor{
-			Provider: contexts.ProviderThunder, Audience: modules.AudienceResource, Scopes: cloudIAMScopes,
+			Provider: contexts.ProviderThunder, Audience: modules.AudienceResource,
+			Scopes: []string{"system", "iam:system"},
 		}})
 }
 
@@ -378,5 +379,81 @@ func TestEveryCloudLoginInstallsTheCloudProductsItLacks(t *testing.T) {
 		if !strings.Contains(login.errOut.String(), "Skipped "+namespace+":") {
 			t.Errorf("a later login did not try to install %s:\n%s", namespace, login.errOut)
 		}
+	}
+}
+
+func TestACloudContextRecordsItsEnvironment(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudAPIM(t, login.shell)
+	login.run(t, "login")
+
+	if got := cloudContext(t, login.shell).CloudEnvironment; got != "dev" {
+		t.Errorf("cloudEnvironment = %q, want dev", got)
+	}
+}
+
+func TestAnyLoginOfACloudContextRecordsItsProducts(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		args        []string
+		environment string
+	}{
+		"named by --context":    {[]string{"login", "--context", "cloud-dev"}, ""},
+		"named by WSO2_CONTEXT": {[]string{"login"}, "cloud-dev"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			login := newCloudLogin(t)
+			installCloudAPIM(t, login.shell)
+			login.run(t, "login")
+			t.Setenv(app.CloudEnvVar, "")
+			t.Setenv("WSO2_CONTEXT", testCase.environment)
+			args := testCase.args
+			installCloudIAM(t, login.shell)
+
+			login.run(t, args...)
+
+			if _, found := cloudContext(t, login.shell).Products["iam"]; !found {
+				t.Error("iam, installed after the first login, was not recorded")
+			}
+			if !strings.Contains(login.errOut.String(), "Skipped am:") {
+				t.Errorf("the login did not install the products it lacks:\n%s", login.errOut)
+			}
+		})
+	}
+}
+
+func TestACloudContextWithNoStoredEnvironmentIsLoggedInToAsBefore(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudAPIM(t, login.shell)
+	login.run(t, "login")
+	if err := contexts.Update(login.shell.StateRoot, func(document contexts.Document) (contexts.Document, error) {
+		target, _ := document.Find("cloud-dev")
+		target.CloudEnvironment = ""
+		return document.Put(target), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(app.CloudEnvVar, "")
+	installCloudIAM(t, login.shell)
+
+	login.run(t, "login", "--context", "cloud-dev")
+
+	if _, found := cloudContext(t, login.shell).Products["iam"]; found {
+		t.Error("a Cloud context with no stored environment recorded a product")
+	}
+	if strings.Contains(login.errOut.String(), "Skipped") || strings.Contains(login.errOut.String(), "Not recorded") {
+		t.Errorf("the login said something about products:\n%s", login.errOut)
+	}
+}
+
+// The preview iam module declares system beside iam:system; on WSO2 Cloud only
+// iam:system is a permission, so the Cloud table supplies it.
+func TestACloudIAMRecordTakesTheCloudScope(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudIAM(t, login.shell)
+
+	login.run(t, "login")
+
+	if got := cloudContext(t, login.shell).Products["iam"].Scopes; !slices.Equal(got, []string{"iam:system"}) {
+		t.Errorf("iam scopes = %v, want [iam:system]", got)
 	}
 }
