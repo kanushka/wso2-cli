@@ -29,10 +29,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 
 	"github.com/spf13/cobra"
 
+	"github.com/wso2/wso2-cli/modules/apim/internal/platform"
 	"github.com/wso2/wso2-cli/sdk/cobratree"
 	"github.com/wso2/wso2-cli/sdk/module"
 	"github.com/wso2/wso2-cli/sdk/result"
@@ -370,6 +372,14 @@ func status(ctx context.Context, request module.Request) (result.Result, error) 
 	if listing.Count == 0 || len(listing.List) == 0 {
 		return report.With(NextField, "Next",
 			"Run wso2 apim project create <name> to create the first project."), nil
+	}
+	// The listing it would suggest needs a permission the token may not carry.
+	// A token naming no permission was reached by exchange and is authorized
+	// by the user's group, so only one that names some can rule it out.
+	if carried := platform.TokenScopes(client.Token); len(carried) > 0 && !slices.Contains(carried, scopeAPIRead) {
+		return report.With(NextField, "Next",
+			"This session cannot list APIs: it does not carry "+scopeAPIRead+". Run wso2 login so the "+
+				"sign-in asks for it again, or ask an administrator for a role that carries it."), nil
 	}
 	return report.With(NextField, "Next",
 		"Run wso2 apim api list --project "+listing.List[0].ID+" to see what "+

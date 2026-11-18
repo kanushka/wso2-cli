@@ -139,7 +139,7 @@ func (c Client) do(ctx context.Context, method, path string, body, out any) erro
 	}
 	if answer.StatusCode < 200 || answer.StatusCode > 299 {
 		refusal := failure(answer.StatusCode, read)
-		refusal.Asked, refusal.Carried = c.Scopes, tokenScopes(c.Token)
+		refusal.Asked, refusal.Carried = c.Scopes, TokenScopes(c.Token)
 		return refusal
 	}
 	if out == nil {
@@ -189,10 +189,10 @@ func readMessage(raw json.RawMessage) string {
 	return ""
 }
 
-// tokenScopes reads the scopes a JWT access token names, without verifying it:
+// TokenScopes reads the scopes a JWT access token names, without verifying it:
 // the shell proved the token, and this only explains a refusal. An opaque
 // token, or one naming no scope, yields none.
-func tokenScopes(token string) []string {
+func TokenScopes(token string) []string {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return nil

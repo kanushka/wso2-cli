@@ -180,3 +180,39 @@ func TestARefusalSaysWhetherSigningInAgainHelps(t *testing.T) {
 		})
 	}
 }
+
+func TestStatusSuggestsOnlyWhatTheSessionMayRun(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"count":1,"list":[{"id":"demo","displayName":"demo"}]}`))
+	}))
+	t.Cleanup(server.Close)
+	next := func(token string) testkit.Outcome {
+		return testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
+			Command: []string{"status"},
+			Context: module.Context{Name: "c1", Endpoint: server.URL},
+			Access:  &testkit.Access{Token: token},
+		})
+	}
+	for _, testCase := range []struct {
+		name, token string
+		listing     bool
+	}{
+		{"granted", scopedToken("ap:project:read ap:rest_api:read"), true},
+		{"left out", scopedToken("ap:project:read"), false},
+		{"exchanged, no scopes", "control-plane-token", true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			outcome := next(testCase.token)
+			if len(outcome.AccessRequests) != 1 {
+				t.Errorf("access requests = %d, want one", len(outcome.AccessRequests))
+			}
+			got := fieldValue(outcome, NextField)
+			if listing := strings.Contains(got, "wso2 apim api list --project demo"); listing != testCase.listing {
+				t.Errorf("next = %q, want the API listing: %v", got, testCase.listing)
+			}
+			if !testCase.listing && !strings.Contains(got, scopeAPIRead) {
+				t.Errorf("next = %q, want it to name %s", got, scopeAPIRead)
+			}
+		})
+	}
+}
