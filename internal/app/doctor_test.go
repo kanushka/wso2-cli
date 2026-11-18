@@ -105,21 +105,25 @@ func tableStatus(t *testing.T, rendered, check string) string {
 	panic("unreached")
 }
 
-// TestDoctorOnAnUnconfiguredMachineExitsCleanly is #121's core requirement: a
-// machine nobody has configured yet is reported as unconfigured, not as
-// broken.
-func TestDoctorOnAnUnconfiguredMachineExitsCleanly(t *testing.T) {
+// TestDoctorOnAnUnconfiguredMachineFailsTheSessionCheck: a machine nobody has
+// configured is reported as unconfigured, not as broken, but no command can
+// run there, so the session check fails and names the setup (ADR 0024).
+func TestDoctorOnAnUnconfiguredMachineFailsTheSessionCheck(t *testing.T) {
 	shell, out, errOut := newShell(t)
 
-	if code := shell.Run([]string{"doctor", "--output", "json"}); code != exit.OK {
-		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	if code := shell.Run([]string{"doctor", "--output", "json"}); code != exit.AuthPolicy {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.AuthPolicy, errOut)
 	}
 	report := decodeDoctorReport(t, out.Bytes())
-	for _, check := range []string{"context", "secure-store", "session"} {
+	for _, check := range []string{"context", "secure-store"} {
 		finding := report.findingFor(t, check)
 		if finding.Status != "not-applicable" {
 			t.Errorf("%s check = %q, want not-applicable on an unconfigured machine", check, finding.Status)
 		}
+	}
+	if finding := report.findingFor(t, "session"); finding.Status != "fail" ||
+		!strings.Contains(finding.Recovery, "wso2 context") {
+		t.Errorf("session check = %+v, want a failure naming the setup", finding)
 	}
 	if strings.Contains(strings.ToLower(out.String()), "broken") {
 		t.Errorf("an unconfigured machine is reported as broken:\n%s", out)
@@ -200,13 +204,37 @@ func TestDoctorNamesTheContextDocumentInEveryContextCheckOutcome(t *testing.T) {
 func TestDoctorOnAnUnconfiguredMachineTableModeSaysSo(t *testing.T) {
 	shell, out, errOut := newShell(t)
 
-	if code := shell.Run([]string{"doctor"}); code != exit.OK {
-		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	if code := shell.Run([]string{"doctor"}); code != exit.AuthPolicy {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.AuthPolicy, errOut)
 	}
-	for _, check := range []string{"context", "secure-store", "session"} {
+	for _, check := range []string{"context", "secure-store"} {
 		if status := tableStatus(t, out.String(), check); status != "not-applicable" {
 			t.Errorf("%s row status = %q, want not-applicable on an unconfigured machine:\n%s", check, status, out)
 		}
+	}
+	if status := tableStatus(t, out.String(), "session"); status != "fail" {
+		t.Errorf("session row status = %q, want fail on an unconfigured machine:\n%s", status, out)
+	}
+}
+
+// TestDoctorFailsWhenNoContextIsSelected: contexts exist and none is
+// selected, so no command can run; the session check fails naming
+// wso2 context use.
+func TestDoctorFailsWhenNoContextIsSelected(t *testing.T) {
+	keyring.MockInit()
+	t.Setenv("WSO2_CONTEXT", "")
+	shell, out, errOut := newShell(t)
+	seeded := identityOnlyDocument()
+	seeded.DefaultContext = ""
+	seeded.Contexts = []contexts.Context{acmeCloud("acme")}
+	installLogin(t, shell, seeded)
+
+	if code := shell.Run([]string{"doctor", "--output", "json"}); code != exit.AuthPolicy {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.AuthPolicy, errOut)
+	}
+	finding := decodeDoctorReport(t, out.Bytes()).findingFor(t, "session")
+	if finding.Status != "fail" || !strings.Contains(finding.Recovery, "wso2 context use") {
+		t.Errorf("session check = %+v, want a failure naming wso2 context use", finding)
 	}
 }
 
@@ -466,10 +494,9 @@ func TestDoctorOpensNoNetworkConnectionWithoutOnline(t *testing.T) {
 // TestDoctorOnlineChecksCatalogReachability proves --online is wired to a real
 // reachability probe rather than being a flag nothing reads: pointed at a
 // local origin serving a valid index, the catalog check passes and the run
-// exits 0; pointed at one that answers nothing, it fails, and — because
-// catalog is ranked in severityRank same as any other check, just last — that
-// failure's own class, exit.ModuleProcess (70), decides the exit status on an
-// otherwise healthy, unconfigured machine.
+// passes; pointed at one that answers nothing, it fails. The run itself exits
+// with the session check's class, since an unconfigured machine fails that
+// check (ADR 0024); severityRank's order is pinned by TestMostSevereFailure.
 func TestDoctorOnlineChecksCatalogReachability(t *testing.T) {
 	keyring.MockInit()
 
@@ -486,8 +513,8 @@ func TestDoctorOnlineChecksCatalogReachability(t *testing.T) {
 		t.Setenv(catalog.OriginEnvVar, server.URL)
 
 		shell, out, errOut := newShell(t)
-		if code := shell.Run([]string{"doctor", "--online", "--output", "json"}); code != exit.OK {
-			t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+		if code := shell.Run([]string{"doctor", "--online", "--output", "json"}); code != exit.AuthPolicy {
+			t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.AuthPolicy, errOut)
 		}
 		report := decodeDoctorReport(t, out.Bytes())
 		if finding := report.findingFor(t, "catalog"); finding.Status != "pass" {
@@ -503,12 +530,10 @@ func TestDoctorOnlineChecksCatalogReachability(t *testing.T) {
 		t.Setenv(catalog.OriginEnvVar, server.URL)
 
 		shell, out, errOut := newShell(t)
-		// An otherwise healthy, unconfigured machine still exits nonzero once
-		// --online adds a failing catalog check: catalog decides the exit
-		// status like any other check when it is the only one that failed.
-		if code := shell.Run([]string{"doctor", "--online", "--verbose", "--output", "json"}); code != exit.Unreachable {
-			t.Fatalf("exit code = %d, want %d (unreachable, the catalog client's own class); stderr: %s",
-				code, exit.Unreachable, errOut)
+		// The session check, failing on an unconfigured machine, outranks
+		// the catalog check, which ranks last.
+		if code := shell.Run([]string{"doctor", "--online", "--verbose", "--output", "json"}); code != exit.AuthPolicy {
+			t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.AuthPolicy, errOut)
 		}
 		// The probe shares the module commands' diagnostic log, so --verbose
 		// surfaces the raw transport detail here exactly as wso2 product list
@@ -531,8 +556,8 @@ func TestDoctorWithoutOnlineNeverAddsACatalogCheck(t *testing.T) {
 	keyring.MockInit()
 	shell, out, errOut := newShell(t)
 
-	if code := shell.Run([]string{"doctor", "--output", "json"}); code != exit.OK {
-		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	if code := shell.Run([]string{"doctor", "--output", "json"}); code != exit.AuthPolicy {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.AuthPolicy, errOut)
 	}
 	report := decodeDoctorReport(t, out.Bytes())
 	for _, finding := range report.Checks {

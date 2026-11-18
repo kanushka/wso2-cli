@@ -387,12 +387,12 @@ func TestDoctorOnlineHonorsTheConfiguredCatalogOrigin(t *testing.T) {
 	}
 	out.Reset()
 
-	if code := shell.Run([]string{"doctor", "--online", "--output", "json"}); code != exit.OK {
-		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
-	}
+	// Unconfigured, so the session check fails the run; the catalog check is
+	// what this test reads.
+	shell.Run([]string{"doctor", "--online", "--output", "json"})
 	report := decodeDoctorReport(t, out.Bytes())
 	if finding := report.findingFor(t, "catalog"); finding.Status != "pass" {
-		t.Errorf("catalog check = %q, want pass against the configured origin", finding.Status)
+		t.Errorf("catalog check = %q, want pass against the configured origin; stderr: %s", finding.Status, errOut)
 	}
 }
 

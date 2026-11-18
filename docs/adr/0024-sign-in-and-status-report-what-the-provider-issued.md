@@ -80,8 +80,10 @@ without, and ends with a `Next` line.
 
 ## Doctor fails when nothing can run
 
-`ws doctor` fails the session check, with `auth.login_required` and exit class
-77, when the selected context has no login session. This reverses the
+`ws doctor` fails the session check, with exit class 77, when no command could
+run: the selected context has no login session (`auth.login_required`), no
+context is configured (`auth.login_required`, naming the setup), or contexts
+exist and none is selected (`auth.context_not_selected`). This reverses the
 decision that a logged-out context is reported as `none` and exits 0: no
 product command can run without the login session, and a status that passes
 then is not one a script can trust. Product records without a session of

@@ -256,11 +256,18 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 		findings = append(findings, notApplicableFinding(checkSession,
 			"the context document could not be read, so no credential reference could be resolved"))
 	case len(document.Contexts) == 0:
-		findings = append(findings, notApplicableFinding(checkSession,
-			"no context is configured, so there is no session to check"))
+		// Nothing can run on a machine with no context, so the check fails
+		// rather than calling the absence not-applicable (ADR 0024).
+		typed := problem.New(problem.CategoryAuthPolicy, "auth.login_required",
+			"no context is configured, so nothing is signed in").WithRecovery(contextSetupHint)
+		failures[checkSession] = typed
+		findings = append(findings, failFinding(checkSession, typed))
 	case contextName == "" && document.DefaultContext == "":
-		findings = append(findings, notApplicableFinding(checkSession,
-			"no context is selected, so there is no session to check"))
+		typed := problem.New(problem.CategoryAuthPolicy, "auth.context_not_selected",
+			"no context is selected, so no command has a sign-in to run with").
+			WithRecovery("Run wso2 context use <name> to select one; wso2 context list shows them.")
+		failures[checkSession] = typed
+		findings = append(findings, failFinding(checkSession, typed))
 	default:
 		chosen, selErr := document.Select(contextName)
 		if selErr != nil {
