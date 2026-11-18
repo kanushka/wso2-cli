@@ -27,7 +27,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -36,7 +35,6 @@ import (
 
 	"github.com/wso2/wso2-cli/sdk/cobratree"
 	"github.com/wso2/wso2-cli/sdk/module"
-	"github.com/wso2/wso2-cli/sdk/problem"
 	"github.com/wso2/wso2-cli/sdk/result"
 )
 
@@ -349,35 +347,25 @@ func markRequired(command *cobra.Command, names ...string) {
 // status answers "wso2 apim status".
 //
 // It works out where this machine stands with the product and names the one
-// command that moves it on, which is what help, and a person, want from a
-// status: nothing recorded names the context command; a product that cannot
-// be reached names the login or the failure's own recovery; a reachable
-// organization with no project names project create, and one with projects
-// names the listing of the first. Status never fails for a state it can
-// describe, so it exits 0 whether or not the product answered.
+// command that moves it on: a reachable organization with no project names
+// project create, and one with projects names the listing of the first. A
+// product that cannot be reached is a failure, with the failure's own
+// recovery, so a script can tell a working setup from a broken one by the
+// exit code.
 func status(ctx context.Context, request module.Request) (result.Result, error) {
-	report := result.New(StatusSchema).
-		With("namespace", "Namespace", Namespace).
-		With("version", "Version", moduleVersion).
-		With("endpoint", "Endpoint", request.Context.Endpoint)
-	if request.Context.Endpoint == "" {
-		return report.With("reachable", "Reachable", "no").
-			With(NextField, "Next",
-				"Record where this product runs on the selected context: wso2 context product add apim --url <url>."), nil
-	}
 	client, err := controlPlane(ctx, request, scopeProjectRead)
 	if err != nil {
-		return report.With("reachable", "Reachable", "no").
-			With(NextField, "Next", statusRecovery(err,
-				"Run wso2 login, then wso2 apim status again.")), nil
+		return result.Result{}, err
 	}
 	var listing page[project]
 	if err := client.Get(ctx, controlPlanePath+"/projects", &listing); err != nil {
-		return report.With("reachable", "Reachable", "no").
-			With(NextField, "Next", statusRecovery(callFailed(err, "read the projects", request.Context.Endpoint),
-				"Check that "+request.Context.Endpoint+" is the control plane, then run wso2 apim status again.")), nil
+		return result.Result{}, callFailed(err, "read the projects", request.Context.Endpoint)
 	}
-	report = report.With("reachable", "Reachable", "yes").
+	report := result.New(StatusSchema).
+		With("namespace", "Namespace", Namespace).
+		With("version", "Version", moduleVersion).
+		With("endpoint", "Endpoint", request.Context.Endpoint).
+		With("reachable", "Reachable", "yes").
 		With("projects", "Projects", strconv.Itoa(listing.Count))
 	if listing.Count == 0 || len(listing.List) == 0 {
 		return report.With(NextField, "Next",
@@ -386,14 +374,4 @@ func status(ctx context.Context, request module.Request) (result.Result, error) 
 	return report.With(NextField, "Next",
 		"Run wso2 apim api list --project "+listing.List[0].ID+" to see what "+
 			listing.List[0].DisplayName+" holds."), nil
-}
-
-// statusRecovery is the next step a failure leaves: the failure's own recovery
-// when it is a typed problem that names one, and fallback otherwise.
-func statusRecovery(err error, fallback string) string {
-	var typed problem.Problem
-	if errors.As(err, &typed) && typed.Recovery != "" {
-		return typed.Recovery
-	}
-	return fallback
 }

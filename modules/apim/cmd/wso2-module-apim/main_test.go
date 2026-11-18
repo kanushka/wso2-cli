@@ -34,8 +34,14 @@ import (
 // the right fields inside a module that answers the wrong message is not a
 // working module.
 func TestStatusAnswersThroughTheContract(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"count":0,"list":[]}`)
+	}))
+	t.Cleanup(server.Close)
 	outcome := testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
 		Command: []string{"status"},
+		Context: module.Context{Name: "c1", Endpoint: server.URL},
+		Access:  &testkit.Access{Token: "control-plane-token"},
 	})
 
 	// The exchange is checked before the answer. Result and Problem are both
@@ -148,25 +154,34 @@ func TestStatusWorksOutTheProjectStateAndNamesTheNextCommand(t *testing.T) {
 	}
 }
 
-// TestStatusReportsADeniedAccessAsItsRecoveryRatherThanFailing proves a
-// product that cannot be reached is a state status describes: the denial's
-// own recovery is the next step, and the command still exits 0.
-func TestStatusReportsADeniedAccessAsItsRecoveryRatherThanFailing(t *testing.T) {
+// TestStatusFailsWhenTheProductCannotBeReached proves status exits non-zero,
+// with the failure's own code and recovery, for every way the product can
+// fail to answer: nothing recorded, access denied, and a platform that does
+// not respond.
+func TestStatusFailsWhenTheProductCannotBeReached(t *testing.T) {
 	denial := problem.New(problem.CategoryAuthPolicy, "auth.login_required", "no session").
 		WithRecovery("Run wso2 login to establish a session for this context.")
-	outcome := testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
-		Command: []string{"status"},
-		Context: module.Context{Name: "c1", Endpoint: "https://apim.example.test"},
-		Access:  &testkit.Access{Deny: &denial},
-	})
-	if outcome.Err != nil || outcome.Problem != nil {
-		t.Fatalf("status failed on a denial: %v %v", outcome.Err, outcome.Problem)
-	}
-	if got := fieldValue(outcome, "reachable"); got != "no" {
-		t.Errorf("reachable = %q, want no", got)
-	}
-	if got := fieldValue(outcome, NextField); got != denial.Recovery {
-		t.Errorf("next = %q, want the denial's recovery %q", got, denial.Recovery)
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+	for _, testCase := range []struct {
+		name, endpoint string
+		access         *testkit.Access
+		code           string
+	}{
+		{"nothing recorded", "", &testkit.Access{Token: "t"}, "apim.product_not_recorded"},
+		{"access denied", "https://apim.example.test", &testkit.Access{Deny: &denial}, "auth.login_required"},
+		{"no answer", closed.URL, &testkit.Access{Token: "t"}, "apim.deployment_unreachable"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			outcome := testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
+				Command: []string{"status"},
+				Context: module.Context{Name: "c1", Endpoint: testCase.endpoint},
+				Access:  testCase.access,
+			})
+			if outcome.Problem == nil || outcome.Problem.Code != testCase.code {
+				t.Fatalf("problem = %+v, err = %v, want %s", outcome.Problem, outcome.Err, testCase.code)
+			}
+		})
 	}
 }
 
