@@ -139,7 +139,7 @@ func TestStatusWorksOutTheProjectStateAndNamesTheNextCommand(t *testing.T) {
 	if got := fieldValue(outcome, "projects"); got != "1" {
 		t.Errorf("projects = %q, want 1", got)
 	}
-	if got := fieldValue(outcome, NextField); !strings.Contains(got, "wso2 apim api list --project proj-1") {
+	if got := fieldValue(outcome, NextField); !strings.Contains(got, "ws apim api list --project proj-1") {
 		t.Errorf("next = %q, want the first project's listing", got)
 	}
 	assertEndsWithNext(t, outcome)
@@ -149,7 +149,7 @@ func TestStatusWorksOutTheProjectStateAndNamesTheNextCommand(t *testing.T) {
 	if outcome.Err != nil || outcome.Problem != nil {
 		t.Fatalf("status failed with no projects: %v %v", outcome.Err, outcome.Problem)
 	}
-	if got := fieldValue(outcome, NextField); !strings.Contains(got, "wso2 apim project create <name>") {
+	if got := fieldValue(outcome, NextField); !strings.Contains(got, "ws apim project create <name>") {
 		t.Errorf("next = %q, want project create", got)
 	}
 }
@@ -160,7 +160,7 @@ func TestStatusWorksOutTheProjectStateAndNamesTheNextCommand(t *testing.T) {
 // not respond.
 func TestStatusFailsWhenTheProductCannotBeReached(t *testing.T) {
 	denial := problem.New(problem.CategoryAuthPolicy, "auth.login_required", "no session").
-		WithRecovery("Run wso2 login to establish a session for this context.")
+		WithRecovery("Run ws login to establish a session for this context.")
 	closed := httptest.NewServer(http.NotFoundHandler())
 	closed.Close()
 	for _, testCase := range []struct {
@@ -187,7 +187,7 @@ func TestStatusFailsWhenTheProductCannotBeReached(t *testing.T) {
 
 // TestEveryVisibleCommandDeclaresAnExampleAndCreateMarksItsRequiredFlags pins
 // what the shell's help pages read from this tree: an example on every command
-// a user can reach, and the required marks on wso2 apim api create's --file
+// a user can reach, and the required marks on ws apim api create's --file
 // and --project, which the shell shows and the SDK enforces.
 func TestEveryVisibleCommandDeclaresAnExampleAndCreateMarksItsRequiredFlags(t *testing.T) {
 	declared := commands().Declare()
@@ -196,7 +196,7 @@ func TestEveryVisibleCommandDeclaresAnExampleAndCreateMarksItsRequiredFlags(t *t
 			continue
 		}
 		if len(command.Examples()) == 0 {
-			t.Errorf("wso2 apim %s declares no example", strings.Join(command.Path, " "))
+			t.Errorf("ws apim %s declares no example", strings.Join(command.Path, " "))
 		}
 	}
 	for _, command := range declared.Commands {

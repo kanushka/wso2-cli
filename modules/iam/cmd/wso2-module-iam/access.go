@@ -38,8 +38,8 @@ func clientFor(ctx context.Context, request module.Request) (thunder.Client, err
 		return thunder.Client{}, moduleProblem("iam.product_not_recorded",
 			"the iam product manages Thunder, not Identity Server or Asgardeo, and the "+
 				"selected context records no Thunder endpoint for it, so this command has nowhere to call",
-			"Run wso2 context create <name> --login-product iam --url <thunder-url> --use to "+
-				"create a context that logs in through Thunder, then run wso2 login.")
+			"Run ws context create <name> --login-product iam --url <thunder-url> --use to "+
+				"create a context that logs in through Thunder, then run ws login.")
 	}
 	// No scope is named: the deployments spell the management permission
 	// differently, and the shell proves a token carries exactly what was asked,
@@ -78,7 +78,7 @@ func callFailed(err error, attempted, endpoint string) error {
 		return moduleProblem("iam.not_authorized",
 			"the deployment refused this context's access when asked to "+attempted,
 			"Ask an administrator to grant this user a role carrying the system permission on "+
-				"the deployment's own resource server, then run wso2 login again.")
+				"the deployment's own resource server, then run ws login again.")
 	}
 	if refusal.Status == 400 {
 		return moduleProblem("iam.call_failed",
@@ -123,7 +123,7 @@ func refusalMessage(refusal thunder.Failure) string {
 // every other mistyped command rather than reading as a deployment failure.
 func usageProblem(message string) error {
 	return problem.New(problem.CategoryUsage, "iam.invalid_argument", message).
-		WithRecovery("Run wso2 iam resource-server create <name> --identifier <uri> " +
+		WithRecovery("Run ws iam resource-server create <name> --identifier <uri> " +
 			"[--ou <id-or-handle>] [--permission <handle>]... [--description <text>].")
 }
 

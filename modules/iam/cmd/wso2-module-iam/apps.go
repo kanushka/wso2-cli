@@ -39,7 +39,7 @@ type applicationListing struct {
 	Applications []application `json:"applications"`
 }
 
-// appsList answers "wso2 iam app list".
+// appsList answers "ws iam app list".
 func appsList(ctx context.Context, request module.Request) (result.Result, error) {
 	client, err := clientFor(ctx, request)
 	if err != nil {
@@ -60,5 +60,5 @@ func appsList(ctx context.Context, request module.Request) (result.Result, error
 		report = report.WithRow(app.Name, app.ClientID, app.Type)
 	}
 	return report.With(NextField, "Next",
-		"The shell logs in as one of these; wso2 context show shows which."), nil
+		"The shell logs in as one of these; ws context show shows which."), nil
 }

@@ -127,7 +127,7 @@ func TestRemovalsAskBeforeDeletingAndHonourEveryAnswer(t *testing.T) {
 		})
 		t.Run(name+" under --no-input", func(t *testing.T) {
 			server, calls := recordingServer(t, nil)
-			refusal := testkit.NonInteractive("wso2 apim " + name + " hello")
+			refusal := testkit.NonInteractive("ws apim " + name + " hello")
 			outcome := runRemovalAnswering(server, &testkit.Confirmation{Refuse: refusal}, removal.command, "hello")
 			if outcome.Problem == nil || *outcome.Problem != *refusal {
 				t.Fatalf("a run that may not ask was reported as %+v, want the shell's refusal unchanged", outcome.Problem)

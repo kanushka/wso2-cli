@@ -34,16 +34,16 @@ at the version every other module in this repository requires, and carries no
 
 | Command | Does |
 | --- | --- |
-| `wso2 iam status` | Reports this module's own status and what to run first. |
-| `wso2 iam user list` | Lists the users the deployment records. |
-| `wso2 iam app list` | Lists the applications the deployment records. |
-| `wso2 iam resource-server list` | Lists the resource servers the deployment records. |
-| `wso2 iam resource-server create <name> --identifier <uri> [--description <text>] [--permission <handle>]... [--ou <id-or-handle>]` | Creates a resource server a product's access is bound to. `--identifier` is the absolute URI its tokens are bound to. `--ou` is required when the deployment records more than one organization unit. |
-| `wso2 iam resource-server delete <id-or-identifier> [--yes]` | Asks `Delete the resource server <id-or-identifier> and its permissions? This cannot be undone.` through the shell, then deletes the permissions and the resource server. `--yes` deletes without asking; a no is `shell.cancelled`, and where nothing may be asked (`--no-input`, `WSO2_NO_INPUT`, no terminal) the shell refuses with `shell.non_interactive`, naming `--yes`, before anything is read. |
+| `ws iam status` | Reports this module's own status and what to run first. |
+| `ws iam user list` | Lists the users the deployment records. |
+| `ws iam app list` | Lists the applications the deployment records. |
+| `ws iam resource-server list` | Lists the resource servers the deployment records. |
+| `ws iam resource-server create <name> --identifier <uri> [--description <text>] [--permission <handle>]... [--ou <id-or-handle>]` | Creates a resource server a product's access is bound to. `--identifier` is the absolute URI its tokens are bound to. `--ou` is required when the deployment records more than one organization unit. |
+| `ws iam resource-server delete <id-or-identifier> [--yes]` | Asks `Delete the resource server <id-or-identifier> and its permissions? This cannot be undone.` through the shell, then deletes the permissions and the resource server. `--yes` deletes without asking; a no is `shell.cancelled`, and where nothing may be asked (`--no-input`, `WSO2_NO_INPUT`, no terminal) the shell refuses with `shell.non_interactive`, naming `--yes`, before anything is read. |
 
 The module manages ThunderID, not Identity Server or Asgardeo. Create a context
 that logs in through it with
-`wso2 context create <name> --login-product iam --url <url> --use`.
+`ws context create <name> --login-product iam --url <url> --use`.
 
 ## What to change first
 

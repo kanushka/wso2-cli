@@ -155,7 +155,7 @@ func TestARefusalSaysWhetherSigningInAgainHelps(t *testing.T) {
 		{"granted, still refused", scopedToken("openid ap:project:read"),
 			[]string{"ap:project:read", "Signing in again will not help", "administrator"}, "group"},
 		{"permission left out", scopedToken("openid ap:project:create"),
-			[]string{"ap:project:read", "wso2 login", "administrator"}, "group"},
+			[]string{"ap:project:read", "ws login", "administrator"}, "group"},
 		{"exchanged, no scopes", "control-plane-token",
 			[]string{"map this user's group to a role"}, ""},
 	} {
@@ -207,7 +207,7 @@ func TestStatusSuggestsOnlyWhatTheSessionMayRun(t *testing.T) {
 				t.Errorf("access requests = %d, want one", len(outcome.AccessRequests))
 			}
 			got := fieldValue(outcome, NextField)
-			if listing := strings.Contains(got, "wso2 apim api list --project demo"); listing != testCase.listing {
+			if listing := strings.Contains(got, "ws apim api list --project demo"); listing != testCase.listing {
 				t.Errorf("next = %q, want the API listing: %v", got, testCase.listing)
 			}
 			if !testCase.listing && !strings.Contains(got, scopeAPIRead) {

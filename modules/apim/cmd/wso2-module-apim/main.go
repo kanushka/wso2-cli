@@ -125,30 +125,30 @@ func commands() *cobratree.Tree {
 	root := &cobra.Command{
 		Use:     Namespace,
 		Short:   "Work with WSO2 API Platform: projects, APIs, and gateways.",
-		Example: "  wso2 apim project list",
+		Example: "  ws apim project list",
 	}
 	statusCommand := &cobra.Command{
 		Use:     "status",
 		Short:   "Report this module's own status and what to run first.",
-		Example: "  wso2 apim status",
+		Example: "  ws apim status",
 	}
 	projectsCommand := &cobra.Command{
 		Use:   "project",
 		Short: "Read, create and delete the projects this organization holds.",
-		Example: "  wso2 apim project list\n" +
-			"  wso2 apim project create <name>",
+		Example: "  ws apim project list\n" +
+			"  ws apim project create <name>",
 	}
 	projectsListCommand := &cobra.Command{
 		Use:     "list",
 		Short:   "List the projects the control plane records.",
-		Example: "  wso2 apim project list",
+		Example: "  ws apim project list",
 	}
 	projectsCommand.AddCommand(projectsListCommand)
 
 	projectsCreateCommand := &cobra.Command{
 		Use:     "create <name> [--description <text>]",
 		Short:   "Create a project.",
-		Example: "  wso2 apim project create <name> --description <text>",
+		Example: "  ws apim project create <name> --description <text>",
 	}
 	projectsCreateFlagsValue := &projectsCreateFlags{}
 	projectsCreateCommand.Flags().StringVar(&projectsCreateFlagsValue.description, "description", "",
@@ -157,8 +157,8 @@ func commands() *cobratree.Tree {
 
 	projectsDeleteCommand := &cobra.Command{
 		Use:     "delete <project-id> [--yes]",
-		Short:   "Delete a project, asking first; wso2 apim project list shows the ids.",
-		Example: "  wso2 apim project delete <project-id>",
+		Short:   "Delete a project, asking first; ws apim project list shows the ids.",
+		Example: "  ws apim project delete <project-id>",
 	}
 	projectsDeleteFlags := &removalFlags{}
 	projectsDeleteCommand.Flags().BoolVar(&projectsDeleteFlags.yes, "yes", false,
@@ -168,51 +168,51 @@ func commands() *cobratree.Tree {
 	apisCommand := &cobra.Command{
 		Use:   "api",
 		Short: "Read and design the APIs a project holds.",
-		Example: "  wso2 apim api list --project <id>\n" +
-			"  wso2 apim api create -f <file> --project <id>",
+		Example: "  ws apim api list --project <id>\n" +
+			"  ws apim api create -f <file> --project <id>",
 	}
 	apisListCommand := &cobra.Command{
 		Use:     "list [--project <id>]",
 		Short:   "List the APIs of one project, or of every project.",
-		Example: "  wso2 apim api list --project <id>",
+		Example: "  ws apim api list --project <id>",
 	}
 	var project string
 	apisListCommand.Flags().StringVar(&project, "project", "",
-		"The one project whose APIs to list; every project's by default. wso2 apim project list shows the ids.")
+		"The one project whose APIs to list; every project's by default. ws apim project list shows the ids.")
 	apisCommand.AddCommand(apisListCommand)
 
 	apisCreateCommand := &cobra.Command{
 		Use:     "create -f <file> --project <id>",
 		Short:   "Create an API in a project from a gateway RestApi file.",
-		Example: "  wso2 apim api create -f <file> --project <id>",
+		Example: "  ws apim api create -f <file> --project <id>",
 	}
 	createFlags := &apisCreateFlags{}
 	apisCreateCommand.Flags().StringVarP(&createFlags.file, "file", "f", "",
 		"The gateway RestApi document to create the API from.")
 	apisCreateCommand.Flags().StringVar(&createFlags.project, "project", "",
-		"The project to create the API in; wso2 apim project list shows the ids.")
+		"The project to create the API in; ws apim project list shows the ids.")
 	markRequired(apisCreateCommand, "file", "project")
 	apisCommand.AddCommand(apisCreateCommand)
 
 	apisDeployCommand := &cobra.Command{
 		Use:     "deploy <api-id> --gateway-id <gateway-id>",
-		Short:   "Deploy an API to a registered gateway; wso2 apim api list shows the ids.",
-		Example: "  wso2 apim api deploy <api-id> --gateway-id <gateway-id>",
+		Short:   "Deploy an API to a registered gateway; ws apim api list shows the ids.",
+		Example: "  ws apim api deploy <api-id> --gateway-id <gateway-id>",
 	}
 	deployFlags := &apisDeployFlags{}
-	// Named --gateway-id, not --gateway: "wso2 context product add apim
+	// Named --gateway-id, not --gateway: "ws context product add apim
 	// --gateway <url>" already gives --gateway one meaning, the gateway's
 	// URL, and ADR 0015 keeps one word to one meaning across the surface.
 	// This flag names a gateway's handle instead.
 	apisDeployCommand.Flags().StringVar(&deployFlags.gatewayID, "gateway-id", "",
-		"The handle of the gateway to deploy the API to, as wso2 apim gateway register named it.")
+		"The handle of the gateway to deploy the API to, as ws apim gateway register named it.")
 	markRequired(apisDeployCommand, "gateway-id")
 	apisCommand.AddCommand(apisDeployCommand)
 
 	apisUndeployCommand := &cobra.Command{
 		Use:     "undeploy <api-id> [--gateway-id <gateway-id>]",
 		Short:   "Undeploy an API from one gateway, or from every gateway.",
-		Example: "  wso2 apim api undeploy <api-id>",
+		Example: "  ws apim api undeploy <api-id>",
 	}
 	undeployFlags := &apisUndeployFlags{}
 	apisUndeployCommand.Flags().StringVar(&undeployFlags.gatewayID, "gateway-id", "",
@@ -221,8 +221,8 @@ func commands() *cobratree.Tree {
 
 	apisDeleteCommand := &cobra.Command{
 		Use:     "delete <api-id> [--yes]",
-		Short:   "Undeploy an API everywhere and delete it, asking first; wso2 apim api list shows the ids.",
-		Example: "  wso2 apim api delete <api-id>",
+		Short:   "Undeploy an API everywhere and delete it, asking first; ws apim api list shows the ids.",
+		Example: "  ws apim api delete <api-id>",
 	}
 	apisDeleteFlags := &removalFlags{}
 	apisDeleteCommand.Flags().BoolVar(&apisDeleteFlags.yes, "yes", false,
@@ -232,7 +232,7 @@ func commands() *cobratree.Tree {
 	apisInvokeCommand := &cobra.Command{
 		Use:     "invoke <api-id> [path] [-X <method>] [-H <name: value>]... [-d <body>] [--gateway-id <id>] [--no-token]",
 		Short:   "Call a deployed API through its gateway, with a token minted for it.",
-		Example: "  wso2 apim api invoke <api-id> /path -X GET",
+		Example: "  ws apim api invoke <api-id> /path -X GET",
 	}
 	invokeFlags := &apisInvokeFlags{}
 	apisInvokeCommand.Flags().StringVarP(&invokeFlags.method, "method", "X", "", "The HTTP method; GET by default.")
@@ -248,7 +248,7 @@ func commands() *cobratree.Tree {
 	apisTokenCommand := &cobra.Command{
 		Use:     "get-token <api-id>",
 		Short:   "Mint a short-lived token bound to a deployed API, for calling it by hand.",
-		Example: "  wso2 apim api get-token <api-id>",
+		Example: "  ws apim api get-token <api-id>",
 	}
 	tokenFlags := &apisTokenFlags{}
 	apisCommand.AddCommand(apisTokenCommand)
@@ -256,14 +256,14 @@ func commands() *cobratree.Tree {
 	gatewayCommand := &cobra.Command{
 		Use:   "gateway",
 		Short: "Register a gateway and read what it is actually serving.",
-		Example: "  wso2 apim gateway register <handle> --display-name <name> --endpoint <url>\n" +
-			"  wso2 apim gateway api list",
+		Example: "  ws apim gateway register <handle> --display-name <name> --endpoint <url>\n" +
+			"  ws apim gateway api list",
 	}
 	gatewayRegisterCommand := &cobra.Command{
 		Use: "register <handle> --display-name <name> --endpoint <url> " +
 			"[--endpoint <url> ...] [--type regular|ai|event]",
 		Short:   "Register a gateway with the control plane and mint its registration token.",
-		Example: "  wso2 apim gateway register <handle> --display-name <name> --endpoint <url>",
+		Example: "  ws apim gateway register <handle> --display-name <name> --endpoint <url>",
 	}
 	registerFlags := &gatewayRegisterFlags{}
 	gatewayRegisterCommand.Flags().StringVar(&registerFlags.displayName, "display-name", "",
@@ -278,12 +278,12 @@ func commands() *cobratree.Tree {
 	gatewayTokenCommand := &cobra.Command{
 		Use:     "token",
 		Short:   "Mint a gateway's registration token.",
-		Example: "  wso2 apim gateway token create <gateway-id>",
+		Example: "  ws apim gateway token create <gateway-id>",
 	}
 	gatewayTokenCreateCommand := &cobra.Command{
 		Use:     "create <gateway-id>",
 		Short:   "Mint a new registration token for a gateway that is already registered.",
-		Example: "  wso2 apim gateway token create <gateway-id>",
+		Example: "  ws apim gateway token create <gateway-id>",
 	}
 	gatewayTokenCommand.AddCommand(gatewayTokenCreateCommand)
 	gatewayCommand.AddCommand(gatewayTokenCommand)
@@ -291,19 +291,19 @@ func commands() *cobratree.Tree {
 	gatewayApisCommand := &cobra.Command{
 		Use:     "api",
 		Short:   "Read the APIs deployed on the gateway.",
-		Example: "  wso2 apim gateway api list",
+		Example: "  ws apim gateway api list",
 	}
 	gatewayApisListCommand := &cobra.Command{
 		Use:     "list",
 		Short:   "List the APIs the gateway is serving.",
-		Example: "  wso2 apim gateway api list",
+		Example: "  ws apim gateway api list",
 	}
 	gatewayApisCommand.AddCommand(gatewayApisListCommand)
 	gatewayCommand.AddCommand(gatewayApisCommand)
 
 	root.AddCommand(statusCommand, projectsCommand, apisCommand, gatewayCommand)
 
-	// The JSON members each result carries, declared so that wso2 help
+	// The JSON members each result carries, declared so that ws help
 	// --output json can say what a command answers before it is run. A
 	// listing's rows are one member, "rows", holding its columns.
 	cobratree.ResultFields(statusCommand, "namespace", "version", "endpoint", "reachable", "projects", NextField)
@@ -346,7 +346,7 @@ func markRequired(command *cobra.Command, names ...string) {
 	}
 }
 
-// status answers "wso2 apim status".
+// status answers "ws apim status".
 //
 // It works out where this machine stands with the product and names the one
 // command that moves it on: a reachable organization with no project names
@@ -371,17 +371,17 @@ func status(ctx context.Context, request module.Request) (result.Result, error) 
 		With("projects", "Projects", strconv.Itoa(listing.Count))
 	if listing.Count == 0 || len(listing.List) == 0 {
 		return report.With(NextField, "Next",
-			"Run wso2 apim project create <name> to create the first project."), nil
+			"Run ws apim project create <name> to create the first project."), nil
 	}
 	// The listing it would suggest needs a permission the token may not carry.
 	// A token naming no permission was reached by exchange and is authorized
 	// by the user's group, so only one that names some can rule it out.
 	if carried := platform.TokenScopes(client.Token); len(carried) > 0 && !slices.Contains(carried, scopeAPIRead) {
 		return report.With(NextField, "Next",
-			"This session cannot list APIs: it does not carry "+scopeAPIRead+". Run wso2 login so the "+
+			"This session cannot list APIs: it does not carry "+scopeAPIRead+". Run ws login so the "+
 				"sign-in asks for it again, or ask an administrator for a role that carries it."), nil
 	}
 	return report.With(NextField, "Next",
-		"Run wso2 apim api list --project "+listing.List[0].ID+" to see what "+
+		"Run ws apim api list --project "+listing.List[0].ID+" to see what "+
 			listing.List[0].DisplayName+" holds."), nil
 }

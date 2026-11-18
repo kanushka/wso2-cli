@@ -59,7 +59,7 @@ func controlPlane(ctx context.Context, request module.Request, needed ...string)
 		return platform.Client{}, moduleProblem("apim.product_not_recorded",
 			"the selected context records no endpoint for the apim product, so this command has "+
 				"nowhere to call",
-			"Run wso2 context product add apim --url <url> to record it on the selected context, then "+
+			"Run ws context product add apim --url <url> to record it on the selected context, then "+
 				"run this command again.")
 	}
 	access, err := request.Access.Acquire(ctx, module.AccessRequest{Audience: ManagementAudience})
@@ -81,8 +81,8 @@ func gateway(ctx context.Context, request module.Request) (platform.Client, erro
 		return platform.Client{}, moduleProblem("apim.gateway_not_recorded",
 			"the selected context records no gateway for the apim product, so this command has "+
 				"nowhere to call",
-			"Run wso2 context product add apim --url <url> --gateway <gateway-url> --replace, "+
-				"then run wso2 login.")
+			"Run ws context product add apim --url <url> --gateway <gateway-url> --replace, "+
+				"then run ws login.")
 	}
 	access, err := request.Access.Acquire(ctx, module.AccessRequest{
 		Audience: GatewayAudience,
@@ -120,7 +120,7 @@ func notAuthorized(refusal platform.Failure, attempted string) error {
 	if len(refusal.Carried) == 0 {
 		return moduleProblem("apim.not_authorized", message,
 			"Ask an administrator to map this user's group to a role carrying the permissions "+
-				"the operation needs, then run wso2 login again.")
+				"the operation needs, then run ws login again.")
 	}
 	var missing []string
 	for _, scope := range refusal.Asked {
@@ -131,7 +131,7 @@ func notAuthorized(refusal platform.Failure, attempted string) error {
 	if len(missing) > 0 {
 		return moduleProblem("apim.not_authorized",
 			message+"; the access does not carry "+strings.Join(missing, ", "),
-			"Run wso2 login so the sign-in asks for it again. If the sign-in still leaves it out, "+
+			"Run ws login so the sign-in asks for it again. If the sign-in still leaves it out, "+
 				"this user's role in the organization does not carry it: ask an administrator to "+
 				"grant one that does.")
 	}
@@ -143,7 +143,7 @@ func notAuthorized(refusal platform.Failure, attempted string) error {
 			"organization that allows it.")
 }
 
-// createCallFailed refuses "wso2 apim api create"'s own call to POST
+// createCallFailed refuses "ws apim api create"'s own call to POST
 // /rest-apis.
 //
 // A 400 there means the file this command built the request from was what the
@@ -156,7 +156,7 @@ func createCallFailed(err error, endpoint, file string) error {
 	if errors.As(err, &refusal) && refusal.Status == 400 {
 		return moduleProblem("apim.call_failed",
 			"the deployment refused the API built from "+file+": "+refusalMessage(refusal),
-			"Fix "+file+" and run wso2 apim api create again.")
+			"Fix "+file+" and run ws apim api create again.")
 	}
 	return callFailed(err, "create the API", endpoint)
 }

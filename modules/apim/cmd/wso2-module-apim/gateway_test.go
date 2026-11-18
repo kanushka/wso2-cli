@@ -199,7 +199,7 @@ func TestGatewayRegisterLeavesTheGatewayRegisteredAndNamesTokenCreateWhenTheToke
 		t.Fatalf("the problem does not say the gateway is registered without a token: %q",
 			outcome.Problem.Message)
 	}
-	if !strings.Contains(outcome.Problem.Recovery, "wso2 apim gateway token create gw-1") {
+	if !strings.Contains(outcome.Problem.Recovery, "ws apim gateway token create gw-1") {
 		t.Fatalf("the recovery does not name gateway token create: %q", outcome.Problem.Recovery)
 	}
 }
@@ -233,7 +233,7 @@ func TestGatewayRegisterRefusesAnEmptyToken(t *testing.T) {
 	if outcome.Problem == nil {
 		t.Fatalf("an empty token was accepted: %+v", outcome.Result)
 	}
-	if !strings.Contains(outcome.Problem.Recovery, "wso2 apim gateway token create gw-1") {
+	if !strings.Contains(outcome.Problem.Recovery, "ws apim gateway token create gw-1") {
 		t.Fatalf("the recovery does not name gateway token create: %q", outcome.Problem.Recovery)
 	}
 }
@@ -340,7 +340,7 @@ func TestGatewayRegisterCarriesTheMintFailureReasonAndReusesNotAuthorizedOn403(t
 	if outcome.Problem.Code != "apim.not_authorized" {
 		t.Fatalf("problem code = %q, want apim.not_authorized", outcome.Problem.Code)
 	}
-	if !strings.Contains(outcome.Problem.Recovery, "wso2 apim gateway token create gw-1") {
+	if !strings.Contains(outcome.Problem.Recovery, "ws apim gateway token create gw-1") {
 		t.Fatalf("the recovery does not name gateway token create: %q", outcome.Problem.Recovery)
 	}
 }

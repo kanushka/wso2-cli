@@ -102,8 +102,8 @@ type gatewayRecord struct {
 func apisToken(command *cobra.Command, flags *apisTokenFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		apiID, err := exactlyOneArgument(command.Flags().Args(),
-			"wso2 apim api get-token needs the id of the API to mint a token for",
-			"Run wso2 apim api get-token <api-id>. wso2 apim api list --project <id> shows the ids.")
+			"ws apim api get-token needs the id of the API to mint a token for",
+			"Run ws apim api get-token <api-id>. ws apim api list --project <id> shows the ids.")
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -131,7 +131,7 @@ func apisToken(command *cobra.Command, flags *apisTokenFlags) module.Handler {
 			With("expiresAt", "Expires", access.ExpiresAt.UTC().Format(time.RFC3339)).
 			With("token", "Token", access.Token).
 			With(NextField, "Next",
-				"Send it as Authorization: Bearer <token> to the API, or run wso2 apim api invoke "+
+				"Send it as Authorization: Bearer <token> to the API, or run ws apim api invoke "+
 					apiID+" <path> to have this shell do that."), nil
 	}
 }
@@ -178,7 +178,7 @@ func apisInvoke(command *cobra.Command, flags *apisInvokeFlags) module.Handler {
 		call, err := http.NewRequestWithContext(ctx, method, target, strings.NewReader(flags.data))
 		if err != nil {
 			return result.Result{}, usageProblem("the request could not be built: "+err.Error(),
-				"Run wso2 apim api invoke "+apiID+" <path> [-X <method>] [-H <name: value>] [-d <body>].")
+				"Run ws apim api invoke "+apiID+" <path> [-X <method>] [-H <name: value>] [-d <body>].")
 		}
 		for name, value := range headers {
 			call.Header.Set(name, value)
@@ -224,10 +224,10 @@ func readableBody(body []byte) string {
 // invocationArguments reads the API id and the path to call under its
 // context. The path is optional and is normalized to start with a slash.
 func invocationArguments(positional []string) (apiID, path string, err error) {
-	recovery := "Run wso2 apim api invoke <api-id> [path] [-X <method>] [-H <name: value>] [-d <body>]."
+	recovery := "Run ws apim api invoke <api-id> [path] [-X <method>] [-H <name: value>] [-d <body>]."
 	switch len(positional) {
 	case 0:
-		return "", "", usageProblem("wso2 apim api invoke needs the id of the API to call", recovery)
+		return "", "", usageProblem("ws apim api invoke needs the id of the API to call", recovery)
 	case 1:
 		return positional[0], "", nil
 	case 2:
@@ -253,7 +253,7 @@ func invocationHeaders(raw []string) (map[string]string, error) {
 		name = strings.TrimSpace(name)
 		if !found || name == "" {
 			return nil, usageProblem("-H needs a header in the form name: value; got "+strconv.Quote(entry),
-				"Run wso2 apim api invoke <api-id> [path] -H \"Name: value\".")
+				"Run ws apim api invoke <api-id> [path] -H \"Name: value\".")
 		}
 		if strings.EqualFold(name, "Authorization") {
 			return nil, usageProblem("-H cannot set Authorization: the shell presents the API's token itself",
@@ -297,15 +297,15 @@ func deployedEndpoint(ctx context.Context, client platform.Client, endpoint, api
 	case len(serving) == 0 && gatewayID != "":
 		return "", moduleProblem("apim.not_deployed",
 			"the API "+apiID+" is not deployed on the gateway "+gatewayID,
-			"Run wso2 apim api deploy "+apiID+" --gateway-id "+gatewayID+", then retry.")
+			"Run ws apim api deploy "+apiID+" --gateway-id "+gatewayID+", then retry.")
 	case len(serving) == 0:
 		return "", moduleProblem("apim.not_deployed",
 			"the API "+apiID+" is not deployed on any gateway, so there is nothing to call",
-			"Run wso2 apim api deploy "+apiID+" --gateway-id <gateway-id>, then retry.")
+			"Run ws apim api deploy "+apiID+" --gateway-id <gateway-id>, then retry.")
 	case len(serving) > 1:
 		return "", usageProblem(
 			"the API "+apiID+" is deployed on more than one gateway ("+strings.Join(serving, ", ")+")",
-			"Run wso2 apim api invoke "+apiID+" --gateway-id <gateway-id> to say which one to call.")
+			"Run ws apim api invoke "+apiID+" --gateway-id <gateway-id> to say which one to call.")
 	}
 	var gateways struct {
 		List []gatewayRecord `json:"list"`
@@ -320,12 +320,12 @@ func deployedEndpoint(ctx context.Context, client platform.Client, endpoint, api
 	}
 	return "", moduleProblem("apim.gateway_not_recorded",
 		"the gateway "+serving[0]+" the API "+apiID+" is deployed on registers no endpoint to call",
-		"Register the gateway's endpoint with wso2 apim gateway register, then retry.")
+		"Register the gateway's endpoint with ws apim gateway register, then retry.")
 }
 
 func noAudience(apiID string) error {
 	return moduleProblem("apim.no_audience",
 		"the API "+apiID+" declares no jwt-auth audience, so there is no token to mint for it",
 		"Add a jwt-auth policy naming the API's audience to the API, or call it with "+
-			"wso2 apim api invoke "+apiID+" <path>, which sends no token to an API that takes none.")
+			"ws apim api invoke "+apiID+" <path>, which sends no token to an API that takes none.")
 }

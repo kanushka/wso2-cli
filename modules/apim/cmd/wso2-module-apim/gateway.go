@@ -57,7 +57,7 @@ var gatewayFunctionalityTypes = map[string]bool{
 	"event":   true,
 }
 
-// gatewayRegisterFlags are what "wso2 apim gateway register" was asked for.
+// gatewayRegisterFlags are what "ws apim gateway register" was asked for.
 type gatewayRegisterFlags struct {
 	displayName string
 	endpoints   []string
@@ -81,7 +81,7 @@ type gatewayToken struct {
 
 // gatewayRegister answers:
 //
-//	wso2 apim gateway register <handle> --display-name <name> \
+//	ws apim gateway register <handle> --display-name <name> \
 //	    --endpoint <url> [--endpoint <url> ...] [--type regular|ai|event]
 //
 // It registers the gateway and then mints its registration token in the same
@@ -89,20 +89,20 @@ type gatewayToken struct {
 // POST /gateways/{id}/tokens answers. If the token mint fails after the
 // gateway was registered, the gateway is left registered rather than rolled
 // back — the deployment has no transaction to roll back into — and the
-// failure names wso2 apim gateway token create to finish the job, since a
+// failure names ws apim gateway token create to finish the job, since a
 // retry of register itself would meet a gateway handle that already exists.
 func gatewayRegister(command *cobra.Command, flags *gatewayRegisterFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		handle, err := exactlyOneArgument(command.Flags().Args(),
-			"wso2 apim gateway register needs the gateway's handle",
-			"Run wso2 apim gateway register <handle> --display-name <name> --endpoint <url>.")
+			"ws apim gateway register needs the gateway's handle",
+			"Run ws apim gateway register <handle> --display-name <name> --endpoint <url>.")
 		if err != nil {
 			return result.Result{}, err
 		}
 		if flags.displayName == "" || len(flags.endpoints) == 0 {
 			return result.Result{}, usageProblem(
-				"wso2 apim gateway register needs a display name and at least one endpoint",
-				"Run wso2 apim gateway register "+handle+" --display-name <name> --endpoint <url>.")
+				"ws apim gateway register needs a display name and at least one endpoint",
+				"Run ws apim gateway register "+handle+" --display-name <name> --endpoint <url>.")
 		}
 		gwType := flags.gwType
 		if gwType == "" {
@@ -111,7 +111,7 @@ func gatewayRegister(command *cobra.Command, flags *gatewayRegisterFlags) module
 		if !gatewayFunctionalityTypes[gwType] {
 			return result.Result{}, usageProblem(
 				"--type must be one of regular, ai, event; got "+gwType,
-				"Run wso2 apim gateway register "+handle+" --display-name <name> --endpoint <url> "+
+				"Run ws apim gateway register "+handle+" --display-name <name> --endpoint <url> "+
 					"--type regular|ai|event.")
 		}
 
@@ -156,18 +156,18 @@ func gatewayRegister(command *cobra.Command, flags *gatewayRegisterFlags) module
 			With("token", "Token", token.Token).
 			With(NextField, "Next",
 				"Configure the gateway controller with this token, then run "+
-					"wso2 apim gateway api list to see what it is serving."), nil
+					"ws apim gateway api list to see what it is serving."), nil
 	}
 }
 
-// gatewayTokenCreate answers "wso2 apim gateway token create <gateway-id>": it
+// gatewayTokenCreate answers "ws apim gateway token create <gateway-id>": it
 // mints a new registration token for a gateway that already exists, the way
 // out of a gateway left registered without one, or a way to rotate one later.
 func gatewayTokenCreate(command *cobra.Command) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		gatewayID, err := exactlyOneArgument(command.Flags().Args(),
-			"wso2 apim gateway token create needs the gateway's id",
-			"Run wso2 apim gateway token create <gateway-id>.")
+			"ws apim gateway token create needs the gateway's id",
+			"Run ws apim gateway token create <gateway-id>.")
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -211,7 +211,7 @@ func mintGatewayToken(ctx context.Context, client platform.Client, endpoint, gat
 	if token.Token == "" {
 		return gatewayToken{}, moduleProblem("apim.gateway_token_empty",
 			"the deployment minted a token for gateway "+gatewayID+" but it carried no token value",
-			"Run wso2 apim gateway token create "+gatewayID+" to try again."+gatewayTokenLimitNote)
+			"Run ws apim gateway token create "+gatewayID+" to try again."+gatewayTokenLimitNote)
 	}
 	return token, nil
 }
@@ -230,18 +230,18 @@ func withTokenLimitNoteOnGenericFailure(err error) error {
 
 // gatewayRegisteredWithoutToken reports that a gateway was registered but its
 // token could not be minted, carrying the underlying failure's own message so
-// the user knows why, and pointing at wso2 apim gateway token create to finish
+// the user knows why, and pointing at ws apim gateway token create to finish
 // the job. A 403 is reported as apim.not_authorized — the code that already
 // tells an administrator what to fix — rather than masked behind a generic
 // code, since fixing permissions is what a retry actually needs.
 func gatewayRegisteredWithoutToken(gatewayID string, mintErr error) error {
-	recovery := "Run wso2 apim gateway token create " + gatewayID + " to mint one." + gatewayTokenLimitNote
+	recovery := "Run ws apim gateway token create " + gatewayID + " to mint one." + gatewayTokenLimitNote
 	var underlying problem.Problem
 	if errors.As(mintErr, &underlying) && underlying.Code == "apim.not_authorized" {
 		return problem.New(problem.CategoryAuthPolicy, "apim.not_authorized",
 			"gateway "+gatewayID+" is registered, but minting its token was refused: "+underlying.Message).
 			WithRecovery("Ask an administrator to map this user's group to a role carrying the gateway " +
-				"token permissions, then run wso2 apim gateway token create " + gatewayID + ".")
+				"token permissions, then run ws apim gateway token create " + gatewayID + ".")
 	}
 	return moduleProblem("apim.gateway_registered_without_token",
 		"gateway "+gatewayID+" is registered, but no token was minted: "+mintFailureReason(mintErr),

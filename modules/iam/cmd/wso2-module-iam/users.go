@@ -41,7 +41,7 @@ type userListing struct {
 	Users        []user `json:"users"`
 }
 
-// usersList answers "wso2 iam user list".
+// usersList answers "ws iam user list".
 func usersList(ctx context.Context, request module.Request) (result.Result, error) {
 	client, err := clientFor(ctx, request)
 	if err != nil {
@@ -76,5 +76,5 @@ func usersNext(listing userListing) string {
 	if listing.TotalResults == 0 {
 		return "This deployment records no users yet."
 	}
-	return "Run wso2 iam resource-server list to see what those users can be granted."
+	return "Run ws iam resource-server list to see what those users can be granted."
 }

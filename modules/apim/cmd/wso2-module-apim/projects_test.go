@@ -141,7 +141,7 @@ func TestProjectsCreateRefusesA409NamingTheExistingProject(t *testing.T) {
 	if !strings.Contains(outcome.Problem.Message, "Hello Project") {
 		t.Fatalf("the refusal does not name the project: %q", outcome.Problem.Message)
 	}
-	if !strings.Contains(outcome.Problem.Recovery, "wso2 apim project list") {
+	if !strings.Contains(outcome.Problem.Recovery, "ws apim project list") {
 		t.Fatalf("the recovery does not point at the listing: %q", outcome.Problem.Recovery)
 	}
 }

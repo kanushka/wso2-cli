@@ -109,7 +109,7 @@ func TestEveryVisibleCommandDeclaresAnExampleAndCreateMarksItsRequiredFlag(t *te
 			continue
 		}
 		if len(command.Examples()) == 0 {
-			t.Errorf("wso2 iam %s declares no example", strings.Join(command.Path, " "))
+			t.Errorf("ws iam %s declares no example", strings.Join(command.Path, " "))
 		}
 		if strings.Join(command.Path, " ") == "resource-server create" {
 			required := command.RequiredFlags()

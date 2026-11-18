@@ -120,7 +120,7 @@ func TestDeletingAResourceServerAsksFirstAndHonoursEveryAnswer(t *testing.T) {
 		}
 	})
 	t.Run("under --no-input", func(t *testing.T) {
-		refusal := testkit.NonInteractive("wso2 iam resource-server delete rs-2")
+		refusal := testkit.NonInteractive("ws iam resource-server delete rs-2")
 		outcome, calls := deleteResourceServerAnswering(t, &testkit.Confirmation{Refuse: refusal}, "rs-2")
 		if outcome.Problem == nil || *outcome.Problem != *refusal {
 			t.Fatalf("a run that may not ask was reported as %+v, want the shell's refusal unchanged", outcome.Problem)
