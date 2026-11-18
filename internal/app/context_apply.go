@@ -571,7 +571,7 @@ type applyEntry struct {
 // reportApply renders the plan, or what was done.
 func (s Shell) reportApply(mode output.Mode, report applyReport, flags applyFlags) error {
 	if mode == output.ModeJSON {
-		return encodeContextJSON(s.Streams.Out, report)
+		return encodeJSON(s.Streams.Out, report)
 	}
 	w := s.Streams.Out
 	heading := "Applied the context file."
@@ -674,7 +674,7 @@ func (s Shell) contextExport(name string, mode output.Mode) error {
 		return contextNotFound(name)
 	}
 	if mode == output.ModeJSON {
-		return encodeContextJSON(s.Streams.Out, file)
+		return encodeJSON(s.Streams.Out, file)
 	}
 	data, err := json.Marshal(file)
 	if err != nil {

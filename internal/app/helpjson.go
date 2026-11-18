@@ -45,8 +45,8 @@ type helpDocument struct {
 	// with its path after the name.
 	Commands []helpCommand `json:"commands,omitempty"`
 	// Flags are the shell flags every shell command accepts, the persistent
-	// ones. A flag a shell command declares for itself, such as --output on
-	// a listing, is in that command's own flags.
+	// ones. A flag a shell command declares for itself, such as --context, is
+	// in that command's own flags.
 	Flags []helpFlag `json:"flags,omitempty"`
 	// Products are the product namespaces: every one this release knows a
 	// stable version of, marked installed or not, and every installed one

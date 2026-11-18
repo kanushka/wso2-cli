@@ -84,10 +84,9 @@ func (s Shell) contextCommand() *cobra.Command {
 				WithRecovery(contextRecovery)
 		},
 	}
-	// The family renders a machine-readable result. It takes no family-wide
-	// --context: naming a context is what its own arguments do. The product
-	// subcommands are the one exception, and declare their own.
-	declareOutputFlag(command.PersistentFlags())
+	// The family takes no family-wide --context: naming a context is what its
+	// own arguments do. The product subcommands are the one exception, and
+	// declare their own.
 	command.AddCommand(s.contextCreateCommand(), s.contextProductCommand(), s.contextApplyCommand(),
 		s.contextUseCommand(), s.contextListCommand(), s.contextCurrentCommand(), s.contextShowCommand(),
 		s.contextRenameCommand(), s.contextDeleteCommand(), s.contextEditCommand(),
@@ -243,7 +242,7 @@ func (s Shell) contextUse(command *cobra.Command, name string) error {
 		return s.explainWriteRefusal(root, err)
 	}
 	if mode == output.ModeJSON {
-		return encodeContextJSON(s.Streams.Out, contextSelection{Context: name})
+		return encodeJSON(s.Streams.Out, contextSelection{Context: name})
 	}
 	_, err = fmt.Fprintf(s.Streams.Out, "\nCommands now run against the %q context.\n", name)
 	return err
@@ -276,7 +275,7 @@ func (s Shell) contextList(command *cobra.Command) error {
 		})
 	}
 	if mode == output.ModeJSON {
-		return encodeContextJSON(s.Streams.Out, listing)
+		return encodeJSON(s.Streams.Out, listing)
 	}
 	// An unconfigured machine is a state, not a breakage, so it reports what to
 	// run rather than that nothing is there.
@@ -397,7 +396,7 @@ func (s Shell) contextShow(command *cobra.Command) error {
 	report.Notes = append(report.Notes, driftNotes(document, s.installedDescriptors())...)
 
 	if mode == output.ModeJSON {
-		return encodeContextJSON(s.Streams.Out, report)
+		return encodeJSON(s.Streams.Out, report)
 	}
 	return report.renderTable(s.Streams.Out)
 }
@@ -610,7 +609,7 @@ type reportable interface {
 // renderContext writes one result as JSON or as a labelled field table.
 func renderContext(w io.Writer, mode output.Mode, value reportable) error {
 	if mode == output.ModeJSON {
-		return encodeContextJSON(w, value)
+		return encodeJSON(w, value)
 	}
 	if err := output.Fields(w, value.fields()); err != nil {
 		return err
@@ -627,11 +626,11 @@ type nextStepper interface {
 	next() string
 }
 
-// encodeContextJSON writes one result as an indented JSON document.
-func encodeContextJSON(w io.Writer, value any) error {
+// encodeJSON writes one result as an indented JSON document.
+func encodeJSON(w io.Writer, value any) error {
 	encoded, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
-		return fmt.Errorf("app: cannot encode the context result: %w", err)
+		return fmt.Errorf("app: cannot encode the result: %w", err)
 	}
 	_, err = fmt.Fprintf(w, "%s\n", output.RenameJSON(encoded, output.NameOf(w)))
 	return err

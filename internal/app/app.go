@@ -22,6 +22,7 @@
 package app
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -92,6 +93,18 @@ type Shell struct {
 	// sees, and it is safe to use while nil, which is what a Shell built
 	// directly in a test is.
 	log *output.Logger
+
+	// invocation holds what applyShellFlags read from flags every command
+	// shares, for the closures the command tree captured before parsing. It
+	// is a pointer for the reason log is, and nil in a Shell built directly.
+	invocation *invocationState
+}
+
+// invocationState is what one invocation's shared flags asked for.
+type invocationState struct {
+	// noInput is --no-input written anywhere a shell command parses it,
+	// including before the command name.
+	noInput bool
 }
 
 // CommandNames reports the shell's own command names, sorted.
@@ -116,7 +129,25 @@ func CommandNames() []string {
 func (s Shell) Run(args []string) exit.Code {
 	s.Streams.Out = output.Named(s.Streams.Out, s.Name)
 	s.Streams.Err = output.Named(s.Streams.Err, s.Name)
+	// Under --output json, standard output is one JSON document whatever the
+	// command printed, so a command that has only prose is still parseable
+	// (ADR 0023). What it prints is held until it returns.
+	stdout := s.Streams.Out
+	var printed bytes.Buffer
+	asJSON := s.requestedMode(args) == output.ModeJSON
+	if asJSON {
+		s.Streams.Out = output.Named(&printed, output.NameOf(stdout))
+	}
 	err := s.dispatch(args)
+	if asJSON {
+		if err == nil {
+			if writeErr := output.Document(stdout, printed.Bytes()); writeErr != nil {
+				err = writeErr
+			}
+		} else {
+			_, _ = stdout.Write(printed.Bytes())
+		}
+	}
 	if err == nil {
 		return exit.OK
 	}
@@ -129,11 +160,45 @@ func (s Shell) Run(args []string) exit.Code {
 	return exit.ForProblem(typed)
 }
 
+// requestedMode reads the rendering a command line asks for before anything
+// parses it: --output wherever the shell would read it, before a bare "--",
+// or else the "output" preference. A completion request is never JSON, and
+// neither is a completion script, which a shell sources as it is printed.
+func (s Shell) requestedMode(args []string) output.Mode {
+	if len(args) > 0 && isCompletionRequest(args[0]) || printsCompletionScript(args) {
+		return output.ModeTable
+	}
+	if separator := slices.Index(args, "--"); separator >= 0 {
+		args = args[:separator]
+	}
+	if mode, found := argumentOutputMode(args); found {
+		return mode
+	}
+	return s.preferredMode()
+}
+
+// printsCompletionScript reports whether a command line is wso2 completion
+// <shell>, read past any leading flags.
+func printsCompletionScript(args []string) bool {
+	var words []string
+	for index := 0; index < len(args); index++ {
+		switch argument := args[index]; {
+		case argument == "-o" || argument == "--"+outputFlag || argument == "--"+contextFlag:
+			index++
+		case !strings.HasPrefix(argument, "-"):
+			words = append(words, argument)
+		}
+	}
+	return len(words) >= 2 && words[0] == "completion" &&
+		slices.Contains([]string{"bash", "fish", "powershell", "zsh"}, words[1])
+}
+
 func (s Shell) dispatch(args []string) error {
 	// Created before the command tree so that every closure the tree captures
 	// shares this log, and turned on later by --verbose. Until then it writes
 	// nothing, which is what an invocation without the flag must produce.
 	s.log = output.NewLogger()
+	s.invocation = &invocationState{}
 
 	// Trust is widened before anything reaches the network, because the first
 	// request a login makes is the discovery fetch and a self-signed deployment
@@ -178,7 +243,7 @@ func (s Shell) dispatch(args []string) error {
 	if name == "--version" {
 		// --version answers before Cobra parses anything, so no other shell
 		// flag has been read and there is nothing to log about.
-		return s.version(nil)
+		return s.version(nil, s.requestedMode(args))
 	}
 	// A shell-owned command, or any leading flag, is Cobra's to route. Anything
 	// else is a product namespace, and its arguments must reach the module
@@ -231,6 +296,7 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 	if err != nil {
 		return err
 	}
+	noInput = noInput || s.invocation.asksNoInput()
 	if verbose {
 		// The module's own --output governs, because these diagnostics
 		// interleave with the result the module renders under it.

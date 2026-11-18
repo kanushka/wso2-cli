@@ -31,7 +31,7 @@ import (
 // connection, so inventory is safe and works offline. A broken installation
 // becomes a diagnostic on standard error rather than a failed command, so the
 // remaining inventory still reports.
-func (s Shell) version(args []string) error {
+func (s Shell) version(args []string, mode output.Mode) error {
 	if len(args) > 0 {
 		return problem.New(problem.CategoryUsage, "shell.unexpected_argument",
 			fmt.Sprintf("wso2 version takes no arguments, got %q", args[0])).
@@ -39,6 +39,9 @@ func (s Shell) version(args []string) error {
 	}
 
 	info := shellversion.Current()
+	if mode == output.ModeJSON {
+		return s.versionJSON(info)
+	}
 	if err := output.Fields(s.Streams.Out, [][2]string{
 		{"WSO2 CLI", info.Shell},
 		{"Protocol", info.Protocol},
@@ -77,4 +80,39 @@ func (s Shell) version(args []string) error {
 		output.Diagnostic(s.Streams.Err, broken.Problem)
 	}
 	return nil
+}
+
+// versionReport is wso2 version as JSON.
+type versionReport struct {
+	Shell    string          `json:"shell"`
+	Protocol string          `json:"protocol"`
+	Platform string          `json:"platform"`
+	Modules  []versionModule `json:"modules"`
+}
+
+type versionModule struct {
+	Name     string `json:"name"`
+	Version  string `json:"version"`
+	Platform string `json:"platform"`
+}
+
+func (s Shell) versionJSON(info shellversion.Info) error {
+	report := versionReport{Shell: info.Shell, Protocol: info.Protocol, Platform: info.Platform,
+		Modules: []versionModule{}}
+	store, err := s.store()
+	if err != nil {
+		return err
+	}
+	installed, problems, err := store.Inventory()
+	if err != nil {
+		return err
+	}
+	for _, entry := range installed {
+		report.Modules = append(report.Modules, versionModule{Name: entry.Namespace,
+			Version: entry.Version, Platform: entry.Platform.String()})
+	}
+	for _, broken := range problems {
+		output.Diagnostic(s.Streams.Err, broken.Problem)
+	}
+	return encodeJSON(s.Streams.Out, report)
 }

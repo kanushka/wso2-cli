@@ -123,7 +123,6 @@ func (s Shell) completionInstallCommand() *cobra.Command {
 	}
 	command.Flags().StringVar(&profile, "profile", "",
 		"Edit this file instead of the profile your shell reads. For fish, the completion file to write.")
-	declareOutputFlag(command.Flags())
 	return command
 }
 

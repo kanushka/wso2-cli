@@ -454,14 +454,8 @@ func TestAChannelSelectionTakesTheNewestOnThatChannel(t *testing.T) {
 // internal/output's own unit tests: running module install non-interactively
 // (this harness always pipes both streams, so IsTerminal is false for
 // either) with --verbose must add the download's periodic progress lines to
-// stderr and must never change what stdout renders. wso2 product install does
-// not support --output at all — it is refused outright, confirmed by hand
-// (`wso2 product install <product> --output json` exits 64 with
-// shell.unsupported_flag) because the module family in internal/app/module.go
-// "module" case returns nil — so this is the applicable analogue of a
-// "--output json is unaffected" test for this command family: stdout is a
-// fixed, non-JSON message either way, and what matters is that --verbose
-// cannot perturb it.
+// stderr and must never change what stdout renders. Its stdout is a fixed
+// message either way, and what matters is that --verbose cannot perturb it.
 //
 // What this test can and cannot catch, checked by hand: verboseProgress
 // (internal/output/progress.go) writes through the pre-existing Logger, which

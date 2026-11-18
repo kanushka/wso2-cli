@@ -81,7 +81,6 @@ func (s Shell) orgCommand() *cobra.Command {
 	// does: naming one with --context would be a second answer to a question the
 	// family does not ask, since org use writes the selected context's
 	// Organization field, not some other one's.
-	declareOutputFlag(command.PersistentFlags())
 	command.AddCommand(s.orgCurrentCommand(), s.orgUseCommand())
 	return command
 }
@@ -217,7 +216,7 @@ func (s Shell) orgUse(command *cobra.Command, organization string) error {
 	}
 
 	if mode == output.ModeJSON {
-		if err := encodeContextJSON(s.Streams.Out,
+		if err := encodeJSON(s.Streams.Out,
 			orgSelection{Context: edited, Organization: organization}); err != nil {
 			return err
 		}

@@ -343,15 +343,13 @@ func TestAModuleFlagBeginningWithTheOutputShorthandIsNotClaimed(t *testing.T) {
 // TestAShellFlagACommandCannotActOnIsRefused proves a flag is never silently
 // ignored.
 //
-// The shell declares its common flags once on the root, but not every built-in
-// can act on all of them: version renders fixed output and the module lifecycle
-// commands select no context. A value accepted and then dropped is worse than a
-// refusal, because the user believes it took effect.
+// The shell declares --context on the root for product namespaces, but version
+// and the module lifecycle commands select no context. A value accepted and then
+// dropped is worse than a refusal, because the user believes it took effect.
+// --output and --no-input are not refused anywhere: every command honors them.
 func TestAShellFlagACommandCannotActOnIsRefused(t *testing.T) {
 	for _, args := range [][]string{
-		{"--output", "json", "version"},
-		{"version", "--output", "json"},
-		{"--output", "json", "module", "list"},
+		{"--context", "prod", "version"},
 		{"--context", "prod", "module", "list"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
@@ -518,37 +516,24 @@ func TestEveryCommandFamilyRefusesAnUnknownSubcommand(t *testing.T) {
 	}
 }
 
-// TestBothSpellingsOfARefusedFlagAgree pins #154: a shell flag a command does
-// not declare is refused the same way whether it is written long or short.
-//
-// pflag words the two failures differently — "unknown flag: --output" against
-// "unknown shorthand flag: 'o' in -o" — and unknownFlagName read only the
-// first. So the long spelling reached the shell's own refusal and the short one
-// fell through to the verbatim parser message, giving one request two problem
-// codes and leaking pflag's vocabulary into user-facing text. The recovery
-// differed too: the long form named the command's own help, the short form
-// named the whole shell tree.
-func TestBothSpellingsOfARefusedFlagAgree(t *testing.T) {
+// TestBothSpellingsOfOutputAgree pins #154's other half now that every
+// command takes --output: the long and the short spelling render the same.
+func TestBothSpellingsOfOutputAgree(t *testing.T) {
 	for _, command := range [][]string{
 		{"version"},
-		{"login"},
 		{"module", "list"},
-		{"module", "available"},
 	} {
 		t.Run(strings.Join(command, " "), func(t *testing.T) {
-			long := runForStderr(t, append(append([]string{}, command...), "--output", "json"))
-			short := runForStderr(t, append(append([]string{}, command...), "-o", "json"))
-
-			if long != short {
-				t.Errorf("the two spellings of --output are refused differently:\n"+
-					"  --output: %s\n  -o      : %s", long, short)
+			render := func(spelling ...string) string {
+				shell, out, errOut := newShell(t)
+				t.Setenv(catalog.OriginEnvVar, unreachableCatalogOrigin(t))
+				if code := shell.Run(append(append([]string{}, command...), spelling...)); code != exit.OK {
+					t.Fatalf("exit %d: %s", code, errOut)
+				}
+				return out.String()
 			}
-			if !strings.Contains(short, "shell.unsupported_flag") {
-				t.Errorf("-o is not reported as an unsupported shell flag:\n%s", short)
-			}
-			// pflag's own wording must not survive into what the user reads.
-			if strings.Contains(short, "unknown shorthand flag") {
-				t.Errorf("the refusal leaks pflag's wording:\n%s", short)
+			if long, short := render("--output", "json"), render("-o", "json"); long != short {
+				t.Errorf("the two spellings render differently:\n  --output: %s\n  -o      : %s", long, short)
 			}
 		})
 	}
@@ -679,6 +664,7 @@ Other commands
 Flags
       --context string   Use the named context instead of the selected one.
   -h, --help             Show help for a command.
+      --no-input         Refuse rather than prompt, open a browser, or wait for a person.
   -o, --output string    Render results as table or json. (default "table")
       --verbose          Write diagnostics about what the shell attempted to stderr.
 

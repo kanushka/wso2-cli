@@ -77,9 +77,7 @@ func (s Shell) configCommand() *cobra.Command {
 	}
 	// Preferences are machine-local, not context-scoped: a saved output mode or
 	// catalog origin applies to every context on this machine, so --context has
-	// nothing to select here. --output is declared on the family so every
-	// subcommand inherits it.
-	declareOutputFlag(command.PersistentFlags())
+	// nothing to select here.
 	command.AddCommand(s.configListCommand(), s.configGetCommand(), s.configSetCommand(),
 		s.configUnsetCommand())
 	return command

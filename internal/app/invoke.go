@@ -190,7 +190,9 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 	// The module is told that nothing may prompt through the one variable
 	// it already reads, whichever of the flag and the variable asked, so a
 	// module needs no second spelling of the shell's flag.
-	if s.nonInteractiveControl(noInput) != "" {
+	// A standard input that is not a terminal counts too: nobody could answer
+	// whatever the module would have asked.
+	if may, _ := s.mayPrompt(noInput); !may {
 		launcher.Environment = []string{NoInputEnvVar + "=1"}
 	}
 	outcome, invokeErr := launcher.Invoke(context.Background(), rpc.Invocation{

@@ -105,7 +105,6 @@ func (s Shell) whoamiCommand() *cobra.Command {
 	// whoami reports ON a selected context exactly as doctor does (R5, #112),
 	// so naming one with --context is meaningful for the same reason.
 	declareContextFlag(command.Flags())
-	declareOutputFlag(command.Flags())
 	return command
 }
 

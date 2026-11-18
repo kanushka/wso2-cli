@@ -136,7 +136,6 @@ func (s Shell) doctorCommand() *cobra.Command {
 	// doctor reports ON a selected context, so naming one with --context is
 	// meaningful, and its findings are read by scripts as much as by a person.
 	declareContextFlag(command.Flags())
-	declareOutputFlag(command.Flags())
 	return command
 }
 
@@ -347,7 +346,7 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 // renderDoctorReport writes every finding, in table or JSON form.
 func renderDoctorReport(w io.Writer, mode output.Mode, findings []doctorFinding) error {
 	if mode == output.ModeJSON {
-		return encodeContextJSON(w, doctorReport{Checks: findings})
+		return encodeJSON(w, doctorReport{Checks: findings})
 	}
 	// A recovery is a sentence with a command in it; as a column it stretched
 	// every row past the terminal's width, so each is a line after the table.

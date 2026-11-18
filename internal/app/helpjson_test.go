@@ -118,10 +118,9 @@ func TestHelpJSONRendersTheWholeTreeInOneDocument(t *testing.T) {
 		t.Errorf("help itself is not listed")
 	}
 	// The document's own flags are the ones every shell command takes; the
-	// root's --context and --output are not, and a shell command that takes
-	// them lists them itself.
-	if got := flagNames(document.Flags); got != "help,verbose" {
-		t.Errorf("shell flags = %q, want help,verbose", got)
+	// root's --context is not, and a shell command that takes it lists it.
+	if got := flagNames(document.Flags); got != "help,no-input,output,verbose" {
+		t.Errorf("shell flags = %q, want help,no-input,output,verbose", got)
 	}
 	if list, ok := findPath(document.Commands, "context", "list"); !ok || !strings.Contains(flagNames(list.Flags), "output") {
 		t.Errorf("context list does not list the --output it declares: %+v", list)
