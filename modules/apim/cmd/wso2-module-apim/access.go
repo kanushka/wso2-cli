@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/wso2/wso2-cli/modules/apim/internal/platform"
@@ -65,7 +66,7 @@ func controlPlane(ctx context.Context, request module.Request, needed ...string)
 	if err != nil {
 		return platform.Client{}, err
 	}
-	return platform.Client{Endpoint: request.Context.Endpoint, Token: access.Token}, nil
+	return platform.Client{Endpoint: request.Context.Endpoint, Token: access.Token, Scopes: needed}, nil
 }
 
 // gateway asks for access to the product's gateway record and builds the
@@ -103,14 +104,43 @@ func callFailed(err error, attempted, endpoint string) error {
 			"Check that this machine can reach that URL, then retry.")
 	}
 	if refusal.Status == 401 || refusal.Status == 403 {
-		return moduleProblem("apim.not_authorized",
-			"the deployment refused this context's access when asked to "+attempted,
-			"Ask an administrator to map this user's group to a role carrying the permissions "+
-				"the operation needs, then run wso2 login again.")
+		return notAuthorized(refusal, attempted)
 	}
 	return moduleProblem("apim.call_failed",
 		"the deployment would not "+attempted+": "+refusalMessage(refusal),
 		"Check the deployment's own logs for the refusal, then retry.")
+}
+
+// notAuthorized explains a 401 or 403. A token that names permissions, as
+// WSO2 Cloud's do, says which the command needed and whether a new sign-in
+// could change the answer. A token that names none was reached by exchange,
+// and the deployment authorized it from the user's group.
+func notAuthorized(refusal platform.Failure, attempted string) error {
+	message := "the deployment refused this context's access when asked to " + attempted
+	if len(refusal.Carried) == 0 {
+		return moduleProblem("apim.not_authorized", message,
+			"Ask an administrator to map this user's group to a role carrying the permissions "+
+				"the operation needs, then run wso2 login again.")
+	}
+	var missing []string
+	for _, scope := range refusal.Asked {
+		if !slices.Contains(refusal.Carried, scope) {
+			missing = append(missing, scope)
+		}
+	}
+	if len(missing) > 0 {
+		return moduleProblem("apim.not_authorized",
+			message+"; the access does not carry "+strings.Join(missing, ", "),
+			"Run wso2 login so the sign-in asks for it again. If the sign-in still leaves it out, "+
+				"this user's role in the organization does not carry it: ask an administrator to "+
+				"grant one that does.")
+	}
+	if len(refusal.Asked) > 0 {
+		message += ", although the access carries " + strings.Join(refusal.Asked, ", ")
+	}
+	return moduleProblem("apim.not_authorized", message,
+		"Signing in again will not help. Ask an administrator to grant this user a role in this "+
+			"organization that allows it.")
 }
 
 // createCallFailed refuses "wso2 apim api create"'s own call to POST

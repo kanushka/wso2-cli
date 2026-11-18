@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -34,7 +35,7 @@ import (
 // Cloud: the permissions guarding its routes, and none for a route the
 // platform guards by none. Commands send none of them: a product session is
 // one scope set, renewed as a whole, so each asks for the record's full set.
-// The table is what module.json declares.
+// The table is what a refusal names.
 var commandScopes = []struct {
 	command   []string
 	arguments []string
@@ -56,18 +57,20 @@ var commandScopes = []struct {
 	{[]string{"gateway", "token", "create"}, []string{"g"}, nil},
 }
 
-func TestEachCommandAsksForTheRecordedPermissions(t *testing.T) {
-	server := httptest.NewServer(http.NotFoundHandler())
+func TestEachCommandAsksForTheRecordedPermissionsAndNamesItsOwnWhenRefused(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"code":"FORBIDDEN"}`, http.StatusForbidden)
+	}))
 	t.Cleanup(server.Close)
 	run := func(command, arguments []string) testkit.Outcome {
 		return testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
 			Command:   command,
 			Arguments: arguments,
 			Context:   module.Context{Name: "c1", Endpoint: server.URL},
-			Access:    &testkit.Access{Token: "control-plane-token"},
+			Access:    &testkit.Access{Token: scopedToken("openid")},
 		})
 	}
-	check := func(t *testing.T, outcome testkit.Outcome) {
+	check := func(t *testing.T, outcome testkit.Outcome, scopes []string) {
 		t.Helper()
 		if len(outcome.AccessRequests) == 0 {
 			t.Fatalf("the command asked for no access: %+v", outcome)
@@ -75,15 +78,24 @@ func TestEachCommandAsksForTheRecordedPermissions(t *testing.T) {
 		if got := outcome.AccessRequests[0].Scopes; len(got) != 0 {
 			t.Errorf("scopes sent = %v, want none", got)
 		}
+		if outcome.Problem == nil {
+			t.Fatalf("a 403 was not refused: %+v", outcome)
+		}
+		for _, scope := range scopes {
+			if !strings.Contains(outcome.Problem.Message, scope) {
+				t.Errorf("refusal does not name %s: %s", scope, outcome.Problem.Message)
+			}
+		}
 	}
 	for _, testCase := range commandScopes {
 		t.Run(strings.Join(testCase.command, " "), func(t *testing.T) {
-			check(t, run(testCase.command, testCase.arguments))
+			check(t, run(testCase.command, testCase.arguments), testCase.scopes)
 		})
 	}
 	t.Run("api create", func(t *testing.T) {
 		file := writeFixture(t, "hello-api.yaml", helloAPIDocument)
-		check(t, run([]string{"api", "create"}, []string{"-f", file, "--project", "shop"}))
+		check(t, run([]string{"api", "create"}, []string{"-f", file, "--project", "shop"}),
+			[]string{"ap:rest_api:create"})
 	})
 }
 
@@ -121,5 +133,50 @@ func TestTheManifestDeclaresEveryPermissionACommandAsksFor(t *testing.T) {
 		if got := slices.Sorted(slices.Values(scopes)); !slices.Equal(got, wanted) {
 			t.Errorf("module.json %s = %v, want %v", name, got, wanted)
 		}
+	}
+}
+
+// scopedToken is a token shaped as WSO2 Cloud issues one, carrying scopes.
+func scopedToken(scopes string) string {
+	encode := base64.RawURLEncoding.EncodeToString
+	return encode([]byte(`{"alg":"none"}`)) + "." + encode([]byte(`{"scope":"`+scopes+`"}`)) + ".sig"
+}
+
+func TestARefusalSaysWhetherSigningInAgainHelps(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"code":"FORBIDDEN"}`, http.StatusForbidden)
+	}))
+	t.Cleanup(server.Close)
+	for _, testCase := range []struct {
+		name, token string
+		want        []string
+		notWant     string
+	}{
+		{"granted, still refused", scopedToken("openid ap:project:read"),
+			[]string{"ap:project:read", "Signing in again will not help", "administrator"}, "group"},
+		{"permission left out", scopedToken("openid ap:project:create"),
+			[]string{"ap:project:read", "wso2 login", "administrator"}, "group"},
+		{"exchanged, no scopes", "control-plane-token",
+			[]string{"map this user's group to a role"}, ""},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			outcome := testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
+				Command: []string{"project", "list"},
+				Context: module.Context{Name: "c1", Endpoint: server.URL},
+				Access:  &testkit.Access{Token: testCase.token},
+			})
+			if outcome.Problem == nil || outcome.Problem.Code != "apim.not_authorized" {
+				t.Fatalf("problem = %+v, want apim.not_authorized", outcome.Problem)
+			}
+			said := outcome.Problem.Message + "\n" + outcome.Problem.Recovery
+			for _, want := range testCase.want {
+				if !strings.Contains(said, want) {
+					t.Errorf("refusal lacks %q:\n%s", want, said)
+				}
+			}
+			if testCase.notWant != "" && strings.Contains(said, testCase.notWant) {
+				t.Errorf("refusal mentions %q:\n%s", testCase.notWant, said)
+			}
+		})
 	}
 }
