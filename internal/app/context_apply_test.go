@@ -199,7 +199,7 @@ func TestContextExportOfAnUnknownNameIsRefused(t *testing.T) {
 	shell, _, _ := newContextShell(t)
 	installLogin(t, shell, oneContextDocument())
 	code, _, errOut := run(t, shell, "context", "export", "nosuch")
-	if code != exit.Usage {
+	if code != exit.NotFound {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	if !strings.Contains(errOut, "contexts.unknown_context") {

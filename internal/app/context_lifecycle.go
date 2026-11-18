@@ -168,7 +168,7 @@ func (s Shell) contextRename(command *cobra.Command, name, renamed string) error
 
 // contextNotFound refuses a name the document does not declare.
 func contextNotFound(name string) problem.Problem {
-	return problem.New(problem.CategoryUsage, "contexts.unknown_context",
+	return problem.New(problem.CategoryNotFound, "contexts.unknown_context",
 		fmt.Sprintf("no context named %q is configured", name)).
 		WithRecovery("Run wso2 context list to see the configured contexts.")
 }

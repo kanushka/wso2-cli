@@ -318,7 +318,7 @@ func (s Shell) moduleRemove(opts removeOptions) error {
 // Reporting success here would tell a user their module is gone when what is
 // installed is something else under the name they meant.
 func notInstalledProblem(namespace string) problem.Problem {
-	return problem.New(problem.CategoryUsage, "shell.module_not_installed",
+	return problem.New(problem.CategoryNotFound, "shell.module_not_installed",
 		fmt.Sprintf("no %s module is installed", namespace)).
 		WithRecovery("Run wso2 product list to see what is installed.")
 }
@@ -574,7 +574,7 @@ func (s Shell) moduleListOffline(installer install.Installer, unreachable proble
 			return err
 		}
 	}
-	output.Diagnostic(s.Streams.Err, problem.New(problem.CategoryModuleProcess, unreachable.Code,
+	output.Diagnostic(s.Streams.Err, problem.New(unreachable.Category, unreachable.Code,
 		"the module catalog could not be reached, so update availability and the products it offers are unknown").
 		WithRecovery(unreachable.Recovery))
 	return nil

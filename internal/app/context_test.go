@@ -256,7 +256,7 @@ func TestContextCreateRefusals(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			shell, _, _ := newContextShell(t)
 			code, _, errOut := run(t, shell, append([]string{"context", "create", "local"}, testCase.args...)...)
-			if code != exit.Usage && code != exit.AuthPolicy {
+			if code != exit.Usage && code != exit.AuthPolicy && code != exit.NotFound {
 				t.Fatalf("exit %d, want a refusal: %s", code, errOut)
 			}
 			if !strings.Contains(errOut, testCase.code) {
@@ -273,12 +273,13 @@ func TestContextCreateRefusals(t *testing.T) {
 }
 
 func TestContextCreateRefusesATakenNameAndAnIllegalOne(t *testing.T) {
-	for _, name := range []string{"acme", "Acme", "a b", "1acme"} {
+	for name, want := range map[string]exit.Code{"acme": exit.Conflict, "Acme": exit.Usage, "a b": exit.Usage,
+		"1acme": exit.Usage} {
 		t.Run(name, func(t *testing.T) {
 			shell, _, _ := newContextShell(t)
 			installLogin(t, shell, oneContextDocument())
 			code, _, errOut := run(t, shell, "context", "create", name, "--login-product", "iam", "--url", thunderURL)
-			if code != exit.Usage {
+			if code != want {
 				t.Fatalf("exit %d: %s", code, errOut)
 			}
 			if strings.Contains(errOut, "remove it") {
@@ -323,7 +324,7 @@ func TestProductAddRefusesAnExistingProductWithoutReplace(t *testing.T) {
 	shell, _, _ := newContextShell(t)
 	localSetup(t, shell)
 	code, _, errOut := run(t, shell, "context", "product", "add", "api", "--url", apiURL)
-	if code != exit.Usage || !strings.Contains(errOut, "contexts.product_exists") {
+	if code != exit.Conflict || !strings.Contains(errOut, "contexts.product_exists") {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 }
@@ -713,8 +714,8 @@ func TestContextUseIsRefusedForAnUnknownName(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	installLogin(t, shell, oneContextDocument())
 
-	if code := shell.Run([]string{"context", "use", "nosuch"}); code != exit.Usage {
-		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
+	if code := shell.Run([]string{"context", "use", "nosuch"}); code != exit.NotFound {
+		t.Fatalf("exit code = %d, want the not-found class %d; stderr: %s", code, exit.NotFound, errOut)
 	}
 	if !strings.Contains(errOut.String(), "contexts.unknown_context") {
 		t.Errorf("stderr does not carry contexts.unknown_context:\n%s", errOut)

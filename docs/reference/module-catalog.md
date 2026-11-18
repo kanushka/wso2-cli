@@ -217,8 +217,8 @@ thing for a user to do about it:
   digest the entry publishes.
 - `modules.artifact_malformed`, exit 69: the archive is not the shape a module
   archive has.
-- `catalog.origin_unreachable`, exit 70: the catalog origin could not be read.
-- `catalog.unknown_module`, exit 64: the catalog was read and publishes no
+- `catalog.origin_unreachable`, exit 68: the catalog origin could not be read.
+- `catalog.unknown_module`, exit 66: the catalog was read and publishes no
   such module.
 - `catalog.unknown_channel`, exit 64: the requested channel is not a release
   channel, so no module will ever publish on it.

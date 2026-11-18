@@ -253,7 +253,7 @@ func TestUnknownContextFlagIsTypedProblem(t *testing.T) {
 
 	_, err := shell.selection("ghost")
 
-	if code := usageProblemCode(t, err); code != "contexts.unknown_context" {
+	if code := problemCode(t, err, problem.CategoryNotFound); code != "contexts.unknown_context" {
 		t.Errorf("problem code is %q, want %q", code, "contexts.unknown_context")
 	}
 }
@@ -264,7 +264,7 @@ func TestUnknownContextEnvIsTypedProblem(t *testing.T) {
 
 	_, err := shell.selection("")
 
-	if code := usageProblemCode(t, err); code != "contexts.unknown_context" {
+	if code := problemCode(t, err, problem.CategoryNotFound); code != "contexts.unknown_context" {
 		t.Errorf("problem code is %q, want %q", code, "contexts.unknown_context")
 	}
 }
@@ -273,6 +273,11 @@ func TestUnknownContextEnvIsTypedProblem(t *testing.T) {
 // the error is not one.
 func usageProblemCode(t *testing.T, err error) string {
 	t.Helper()
+	return problemCode(t, err, problem.CategoryUsage)
+}
+
+func problemCode(t *testing.T, err error, category problem.Category) string {
+	t.Helper()
 	if err == nil {
 		t.Fatal("parsing reported no failure")
 	}
@@ -280,8 +285,8 @@ func usageProblemCode(t *testing.T, err error) string {
 	if !errors.As(err, &typed) {
 		t.Fatalf("parsing failed with an untyped error: %v", err)
 	}
-	if typed.Category != problem.CategoryUsage {
-		t.Errorf("problem category is %q, want %q", typed.Category, problem.CategoryUsage)
+	if typed.Category != category {
+		t.Errorf("problem category is %q, want %q", typed.Category, category)
 	}
 	return typed.Code
 }

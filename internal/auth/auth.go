@@ -451,10 +451,14 @@ func SessionRequired(record, product string) Denial {
 }
 
 // denial reports a broker refusal the module and the user can both be told in
-// full. Every refusal is in the authentication class, so automation can tell an
+// full. A refusal is in the authentication class, so automation can tell an
 // access failure from a product failure by exit code alone.
 func denial(code, message, recovery string) Denial {
-	return Denial{
-		Problem: problem.New(problem.CategoryAuthPolicy, code, message).WithRecovery(recovery),
-	}
+	return categorizedDenial(problem.CategoryAuthPolicy, code, message, recovery)
+}
+
+// categorizedDenial is a denial whose cause is not access policy: an issuer
+// that gave no answer is unreachable, not refused (ADR 0023).
+func categorizedDenial(category problem.Category, code, message, recovery string) Denial {
+	return Denial{Problem: problem.New(category, code, message).WithRecovery(recovery)}
 }

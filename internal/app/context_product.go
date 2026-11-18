@@ -220,7 +220,7 @@ func (s Shell) contextProductAdd(command *cobra.Command, namespace string, flags
 	change := func(document contexts.Document) (contexts.Document, error) {
 		target, found := document.Find(name)
 		if !found {
-			return document, problem.New(problem.CategoryUsage, "contexts.unknown_context",
+			return document, problem.New(problem.CategoryNotFound, "contexts.unknown_context",
 				fmt.Sprintf("no context named %q is configured", name)).WithRecovery(contextListUsage)
 		}
 		_, replaced = target.Products[namespace]
@@ -396,7 +396,7 @@ func (s Shell) productNext(root string, context contexts.Context, namespace stri
 
 // productExists refuses a second record of one product without --replace.
 func productExists(context, namespace string) problem.Problem {
-	return problem.New(problem.CategoryUsage, "contexts.product_exists",
+	return problem.New(problem.CategoryConflict, "contexts.product_exists",
 		fmt.Sprintf("the context %q already records the %q product", context, namespace)).
 		WithRecovery("Run wso2 context show to see what it records. Pass --replace to overwrite the " +
 			"record, which replaces the whole of it and ends the sessions it no longer matches.")
@@ -425,7 +425,7 @@ func (s Shell) contextProductRemove(command *cobra.Command, key string, dryRun b
 	change := func(document contexts.Document) (contexts.Document, error) {
 		target, found := document.Find(name)
 		if !found {
-			return document, problem.New(problem.CategoryUsage, "contexts.unknown_context",
+			return document, problem.New(problem.CategoryNotFound, "contexts.unknown_context",
 				fmt.Sprintf("no context named %q is configured", name)).WithRecovery(contextListUsage)
 		}
 		target = target.Freeze()
@@ -507,7 +507,7 @@ func recordNotHeld(context, key string, recorded []string) problem.Problem {
 	if len(recorded) > 0 {
 		holds = "It records " + strings.Join(recorded, ", ") + "."
 	}
-	return problem.New(problem.CategoryUsage, "contexts.unknown_product",
+	return problem.New(problem.CategoryNotFound, "contexts.unknown_product",
 		fmt.Sprintf("the context %q records nothing under %q", context, key)).
 		WithRecovery(holds + " Run wso2 context show to see what each context reaches.")
 }

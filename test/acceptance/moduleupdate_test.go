@@ -462,7 +462,7 @@ func TestUpdatingAModuleThatIsNotInstalledIsRefused(t *testing.T) {
 
 	stdout, stderr, err := moduleCommandFrom(shell, stateRoot, origin.server.URL, "update", catalogNamespace)
 
-	requireProblem(t, stdout, stderr, err, 64, "modules.not_installed")
+	requireProblem(t, stdout, stderr, err, 66, "modules.not_installed")
 }
 
 // An update run over several modules is partway when one of them fails: the

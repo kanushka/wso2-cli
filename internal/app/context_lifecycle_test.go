@@ -30,7 +30,7 @@ func TestContextDeleteOfAnUnknownNameIsRefused(t *testing.T) {
 	shell, _, _ := newContextShell(t)
 	localSetup(t, shell)
 	code, _, errOut := run(t, shell, "context", "delete", "nosuch")
-	if code != exit.Usage {
+	if code != exit.NotFound {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	if !strings.Contains(errOut, "contexts.unknown_context") || !strings.Contains(errOut, "wso2 context list") {
@@ -47,7 +47,7 @@ func TestContextRenameOfAnUnknownNameIsRefused(t *testing.T) {
 	shell, _, _ := newContextShell(t)
 	localSetup(t, shell)
 	code, _, errOut := run(t, shell, "context", "rename", "nosuch", "renamed")
-	if code != exit.Usage {
+	if code != exit.NotFound {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	if !strings.Contains(errOut, "contexts.unknown_context") {
@@ -61,7 +61,7 @@ func TestContextRenameRefusesATakenName(t *testing.T) {
 	shell, _, _ := newContextShell(t)
 	installLogin(t, shell, twoContextDocument())
 	code, _, errOut := run(t, shell, "context", "rename", "acme", "beta")
-	if code != exit.Usage {
+	if code != exit.Conflict {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	if !strings.Contains(errOut, "contexts.name_exists") && !strings.Contains(errOut, "exists") {

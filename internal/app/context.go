@@ -670,7 +670,7 @@ func declaresContext(document contexts.Document, name string) bool {
 
 // contextExists refuses to replace a context that is already there.
 func contextExists(name string) problem.Problem {
-	return problem.New(problem.CategoryUsage, "contexts.context_exists",
+	return problem.New(problem.CategoryConflict, "contexts.context_exists",
 		fmt.Sprintf("a context named %q is already configured", name)).
 		WithRecovery("Choose another name, or run wso2 context list to see what is configured. " +
 			"Creating a context never replaces one; wso2 context apply -f <file> replaces a context " +

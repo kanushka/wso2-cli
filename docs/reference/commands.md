@@ -102,14 +102,19 @@ parsing any output.
 | Status | Class | What produces it |
 | --- | --- | --- |
 | `0` | Success | The command completed. |
-| `64` | Usage | Invalid arguments, flags, or configuration, including a malformed context document. |
+| `64` | Usage | Invalid arguments, flags, or configuration, including a malformed context document and a command or flag that does not exist. |
+| `66` | Not found | A named thing that does not exist: a context, a product record, a module or module version, or a product's resource. |
+| `68` | Unreachable | A service that gave no answer: the module catalog origin (including `ws doctor --online`'s catalog check), or an identity provider no network path reaches. |
 | `69` | Module trust | A module integrity, signature, platform, or compatibility failure. |
-| `70` | Module process | A protocol violation, a module process that failed to launch or crashed, or an unreachable module catalog origin (including `ws doctor --online`'s catalog check). |
+| `70` | Module process | A protocol violation, or a module process that failed to launch or crashed. |
+| `73` | Conflict | A thing that already exists, such as a context or product record of that name, or a resource in a state that refuses the change. |
 | `75` | Product service | A failure the product service itself reported. |
 | `77` | Authentication policy | An authentication or broker policy failure, including no context selected, and a missing or expired session. |
 
 An unrecognized problem category is reported as a module process failure, `70`,
-rather than as success.
+rather than as success. Statuses 66, 68, and 73 were added in ADR 0023; a
+module built before them reports a missing or conflicting resource with the
+class its author chose then.
 
 One command opts out of the `77` class on purpose: `ws example status`
 reports a broker refusal as fields of its result and exits `0`, because

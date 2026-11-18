@@ -533,7 +533,7 @@ func writeFishCompletion(path, executable string) (bool, error) {
 	case err == nil && string(current) == want:
 		return false, nil
 	case err == nil && !strings.Contains(string(current), profileBlockBegin):
-		return false, problem.New(problem.CategoryUsage, "shell.completion_file_exists",
+		return false, problem.New(problem.CategoryConflict, "shell.completion_file_exists",
 			fmt.Sprintf("%s already exists and was not written by wso2 completion install", path)).
 			WithRecovery(fmt.Sprintf("Remove %s, or name another file with --profile, then try again.", path))
 	case err != nil && !errors.Is(err, fs.ErrNotExist):

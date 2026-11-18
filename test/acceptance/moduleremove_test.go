@@ -206,7 +206,7 @@ func TestRemovingAModuleThatIsNotInstalledIsRefused(t *testing.T) {
 	stateRoot := isolatedStateRoot(t)
 
 	stdout, stderr, err := removeModule(shell, stateRoot, catalogNamespace)
-	requireProblem(t, stdout, stderr, err, int(exit.Usage), "shell.module_not_installed")
+	requireProblem(t, stdout, stderr, err, int(exit.NotFound), "shell.module_not_installed")
 
 	// The refusal has to leave the user somewhere to go next, and what is
 	// installed is the thing they need to see.

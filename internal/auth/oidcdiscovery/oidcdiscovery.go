@@ -24,6 +24,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 
 	oidc "github.com/coreos/go-oidc/v3/oidc"
 
@@ -69,6 +70,8 @@ func Discover(ctx context.Context, issuer, issuerID string) (*oidc.Provider, err
 			return nil, issuertrust.Problem(issuer)
 		case errors.As(err, &mismatch):
 			return nil, mismatchProblem(mismatch.Discovered)
+		case unanswered(err):
+			return nil, Unreachable()
 		}
 		return nil, Unreadable()
 	}
@@ -91,20 +94,39 @@ func Discover(ctx context.Context, issuer, issuerID string) (*oidc.Provider, err
 	return provider, nil
 }
 
-// Failed is a discovery refusal: the provider answered, or did not, in a way
-// the shell will not log in through. Every one keeps the code
+// Failed is a discovery refusal: the provider answered in a way the shell
+// will not log in through. Every one keeps the code
 // auth.discovery_failed, because the stable code list is closed; the message
 // and recovery say which way and what to change.
 func Failed(message, recovery string) problem.Problem {
 	return problem.New(problem.CategoryAuthPolicy, "auth.discovery_failed", message).WithRecovery(recovery)
 }
 
-// Unreadable reports a provider the shell could not read a usable
-// configuration from, whether it answered badly or not at all. The recovery
-// is the same in either case.
+// discoveryRecovery is what to do about a configuration that could not be
+// read, whether the provider answered badly or not at all.
+const discoveryRecovery = "Check the issuer of the selected context and that this machine can reach it, then retry."
+
+// Unreadable reports a provider that answered without a usable
+// configuration.
 func Unreadable() problem.Problem {
-	return Failed("the shell could not read the identity provider's OpenID configuration",
-		"Check the issuer of the selected context and that this machine can reach it, then retry.")
+	return Failed("the shell could not read the identity provider's OpenID configuration", discoveryRecovery)
+}
+
+// Unreachable reports a provider that gave no answer at all. It keeps the
+// discovery failure's code and recovery, and is told apart by its category,
+// which exits 68 rather than 77 (ADR 0023).
+func Unreachable() problem.Problem {
+	return problem.New(problem.CategoryUnreachable, "auth.discovery_failed",
+		"the shell could not reach the identity provider to read its OpenID configuration").
+		WithRecovery(discoveryRecovery)
+}
+
+// unanswered reports a request that failed in the transport, before any HTTP
+// response arrived. go-oidc returns a response it could not use as a plain
+// error, so a *url.Error here means the request itself never completed.
+func unanswered(err error) bool {
+	var transport *url.Error
+	return errors.As(err, &transport)
 }
 
 // mismatchProblem is the refusal for a provider whose configuration names

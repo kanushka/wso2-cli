@@ -274,11 +274,11 @@ func TestAnUnreachableOriginIsDistinguishableFromAnUnknownModule(t *testing.T) {
 
 	unreachableStdout, unreachableStderr, unreachableErr :=
 		installModuleFrom(shell, stateRoot, unreachableOrigin(t), catalogNamespace)
-	requireProblem(t, unreachableStdout, unreachableStderr, unreachableErr, 70, "catalog.origin_unreachable")
+	requireProblem(t, unreachableStdout, unreachableStderr, unreachableErr, 68, "catalog.origin_unreachable")
 
 	unknownStdout, unknownStderr, unknownErr :=
 		installModuleFrom(shell, stateRoot, origin.server.URL, "nosuchproduct")
-	requireProblem(t, unknownStdout, unknownStderr, unknownErr, 64, "catalog.unknown_module")
+	requireProblem(t, unknownStdout, unknownStderr, unknownErr, 66, "catalog.unknown_module")
 
 	// The two are told apart by both halves of the reporting idiom, so neither
 	// automation reading the exit class nor a person reading the code has to

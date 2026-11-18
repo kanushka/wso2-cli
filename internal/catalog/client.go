@@ -155,7 +155,7 @@ func (i Index) Module(namespace string) (IndexModule, error) {
 			return entry, nil
 		}
 	}
-	return IndexModule{}, problem.New(problem.CategoryUsage, "catalog.unknown_module",
+	return IndexModule{}, problem.New(problem.CategoryNotFound, "catalog.unknown_module",
 		fmt.Sprintf("no module named %q is published in the module catalog", namespace)).
 		WithRecovery("Check the module name. This is not a network failure: the catalog was read and names no such module.")
 }
@@ -353,7 +353,7 @@ type refusal func(target, detail string) problem.Problem
 // at wso2 config would send them to a knob that cannot turn this (review on
 // #161).
 func (c Client) artifactUnreachable(target, detail string) problem.Problem {
-	return problem.New(problem.CategoryModuleProcess, "catalog.artifact_unreachable",
+	return problem.New(problem.CategoryUnreachable, "catalog.artifact_unreachable",
 		fmt.Sprintf("the module artifact at %s could not be downloaded: %s", target, detail)).
 		WithRecovery("Check network access to the artifact's host and try again. " +
 			"The catalog itself answered; only this download failed.")
@@ -373,7 +373,7 @@ func (c Client) originUnreachable(target, detail string) problem.Problem {
 			"run wso2 config unset catalog-origin to restore the default, or " +
 			"wso2 config set catalog-origin <url> to change it."
 	}
-	return problem.New(problem.CategoryModuleProcess, "catalog.origin_unreachable",
+	return problem.New(problem.CategoryUnreachable, "catalog.origin_unreachable",
 		fmt.Sprintf("the module catalog at %s could not be read: %s", target, detail)).
 		WithRecovery(recovery)
 }
