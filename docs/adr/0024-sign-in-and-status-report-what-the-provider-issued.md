@@ -36,7 +36,9 @@ every session signed in to the previous one, and runs the login. The handle,
 name or id of the organization the stored session was issued in resolves to
 its id; any other value is taken as an id. Under `--no-input` or
 `WSO2_NO_INPUT` it records the organization, ends the sessions, and names
-`ws login` as the step that finishes the switch. On any other ThunderID or
+`ws login` as the step that finishes the switch. A sign-in that fails after the switch is
+recorded leaves the context naming the new organization and signed in to
+none, and its refusal says so and names both `ws login` and `ws org use`. On any other ThunderID or
 Identity Server context it is still refused with
 `auth.organization_switch_unsupported`.
 
@@ -66,7 +68,10 @@ or `sibling`):
   with `auth.product_not_configured`, now naming the scope and the sign-in
   that asks for it once it is recorded: there, signing in again does help.
 
-A session stored before `granted` existed is renewed and proved as before.
+A session stored before `granted` existed, or one whose record has asked for
+other scopes since the sign-in, is renewed and proved as before. A response
+whose `scope` is stated and empty is recorded as granting none; one that
+states nothing records nothing.
 `ws login` lists the ready products, marking each with the scopes it went
 without, and ends with a `Next` line.
 
