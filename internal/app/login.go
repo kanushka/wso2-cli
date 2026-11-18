@@ -145,7 +145,10 @@ func (s Shell) login(flags loginFlags) error {
 	if err != nil {
 		return err
 	}
-	return s.reportLogin(selected, outcome)
+	if err := s.reportLogin(selected, outcome); err != nil {
+		return err
+	}
+	return s.reportLoginNext(selected, outcome)
 }
 
 // loginOutcome is what one wso2 login established: the first authorization's
@@ -157,6 +160,13 @@ func (s Shell) login(flags loginFlags) error {
 type loginOutcome struct {
 	first       oauthflow.Result
 	established []contexts.ProductAccess
+	// withheld are the scopes each established session asked for and was not
+	// granted, by session reference.
+	withheld map[string][]string
+	// exchanged says whether the context's exchanged records count as ready
+	// once the login session is: they run no authorization of their own, and
+	// a login narrowed with --only or --no-products did not ask about them.
+	exchanged bool
 }
 
 // establishAndStore runs every authorization this login is asked for and
@@ -205,7 +215,7 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 	// One tab serves every authorization this login opens in the browser.
 	tab := oauthflow.NewTab()
 	defer tab.Close()
-	var outcome loginOutcome
+	outcome := loginOutcome{withheld: map[string][]string{}, exchanged: flags.only == "" && !flags.noProducts}
 	for index, access := range accesses {
 		result, err := s.establishProduct(selected, access, tab)
 		if err != nil {
@@ -223,6 +233,7 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 			outcome.first = result
 		}
 		outcome.established = append(outcome.established, access)
+		outcome.withheld[access.SessionRef] = withheldScopes(access, result)
 	}
 	return outcome, nil
 }
@@ -234,20 +245,7 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 // product may serve commands that need only the rest. An issuer that states
 // no scopes at all says nothing either way, so nothing is reported.
 func (s Shell) reportWithheldScopes(access contexts.ProductAccess, result oauthflow.Result) {
-	if result.Token == nil {
-		return
-	}
-	responseScope, _ := result.Token.Extra("scope").(string)
-	granted := auth.GrantedScopes(responseScope, result.Token.AccessToken)
-	if len(granted) == 0 {
-		return
-	}
-	var withheld []string
-	for _, scope := range access.Scopes {
-		if !slices.Contains(granted, scope) {
-			withheld = append(withheld, scope)
-		}
-	}
+	withheld := withheldScopes(access, result)
 	if len(withheld) == 0 {
 		return
 	}
@@ -255,6 +253,26 @@ func (s Shell) reportWithheldScopes(access contexts.ProductAccess, result oauthf
 	_, _ = fmt.Fprintf(s.Streams.Err, "The identity provider left out %s from %s, usually because "+
 		"this user's role does not carry them; commands that need them will be refused.\n",
 		strings.Join(withheld, ", "), withheldLabel(access))
+}
+
+// withheldScopes are the scopes access asked for that the authorization did
+// not grant, or nil when it granted them all or stated nothing.
+func withheldScopes(access contexts.ProductAccess, result oauthflow.Result) []string {
+	if result.Token == nil {
+		return nil
+	}
+	responseScope, _ := result.Token.Extra("scope").(string)
+	granted := auth.GrantedScopes(responseScope, result.Token.AccessToken)
+	if len(granted) == 0 {
+		return nil
+	}
+	var withheld []string
+	for _, scope := range access.Scopes {
+		if !slices.Contains(granted, scope) {
+			withheld = append(withheld, scope)
+		}
+	}
+	return withheld
 }
 
 func withheldLabel(access contexts.ProductAccess) string {
@@ -572,21 +590,111 @@ func (s Shell) establishSession(selected contexts.Selection, access contexts.Pro
 }
 
 // reportLogin states which context the login was for, who it proved you are,
-// and that you are now logged in. What each product was reached by is wso2
-// whoami -o json's to say; the login keeps to the three facts a person asks.
+// the organization it was issued in, which products are ready, and that you
+// are now logged in. What each product was reached by is wso2 whoami -o
+// json's to say.
 //
-// Every value here came out of a verified identity token or the context
-// document. None of it is token material, and there is deliberately nothing in
-// the report a caller could authenticate with.
+// Every value here came out of a verified identity token, the token response
+// or the context document. None of it is token material.
 func (s Shell) reportLogin(selected contexts.Selection, outcome loginOutcome) error {
 	if _, err := fmt.Fprintln(s.Streams.Out); err != nil {
 		return err
 	}
-	return output.Fields(s.Streams.Out, [][2]string{
+	fields := [][2]string{
 		{"Context", selected.Context.Name},
 		{"Email", signedInAs(outcome.first.Email, outcome.first.Name, outcome.first.Subject)},
-		{"Status", "logged in"},
-	})
+	}
+	accessToken := ""
+	if outcome.first.Token != nil {
+		accessToken = outcome.first.Token.AccessToken
+	}
+	if organization := auth.TokenOrganization(outcome.first.IDToken, accessToken); !organization.IsZero() {
+		fields = append(fields, [2]string{"Organization", organization.Label()})
+	}
+	products := "none"
+	if ready := readyProducts(selected.Identity, outcome); len(ready) > 0 {
+		labels := make([]string, len(ready))
+		for i, product := range ready {
+			labels[i] = product.label()
+		}
+		products = strings.Join(labels, ", ")
+	}
+	fields = append(fields, [2]string{"Products", products}, [2]string{"Status", "logged in"})
+	return output.Fields(s.Streams.Out, fields)
+}
+
+// reportLoginNext names the command that moves a person on from the login:
+// the first ready product's status, or how to add a product when none is.
+func (s Shell) reportLoginNext(selected contexts.Selection, outcome loginOutcome) error {
+	return output.NextStep(s.Streams.Out, loginNext(selected, outcome))
+}
+
+func loginNext(selected contexts.Selection, outcome loginOutcome) string {
+	if ready := readyProducts(selected.Identity, outcome); len(ready) > 0 {
+		return "Run wso2 " + ready[0].namespace + " status to see what to run first."
+	}
+	if len(selected.Identity.Products) > 0 {
+		return "Run wso2 login to authorize the products the context records."
+	}
+	if onWSO2Cloud(selected.Context) {
+		return "Run wso2 product install <product>, then wso2 login to record it on this context."
+	}
+	return "Run wso2 context product add <product> --url <url> to record where a product runs."
+}
+
+// readyProduct is one product a login left ready, with the scopes it asked
+// for and was not granted.
+type readyProduct struct {
+	namespace string
+	withheld  []string
+}
+
+func (p readyProduct) label() string {
+	if len(p.withheld) == 0 {
+		return p.namespace
+	}
+	return p.namespace + " (without " + strings.Join(p.withheld, ", ") + ")"
+}
+
+// readyProducts are the products the context records whose session this login
+// established, or which are reached through the login session it established,
+// in the order the context records them. A gateway record counts toward its
+// product.
+func readyProducts(identity contexts.Account, outcome loginOutcome) []readyProduct {
+	established := map[string]bool{}
+	for _, access := range outcome.established {
+		established[access.SessionRef] = true
+	}
+	loginReady := established[identity.LoginAccess().SessionRef]
+	var ready []readyProduct
+	index := map[string]int{}
+	for _, key := range identity.RecordKeys() {
+		access, ok := identity.Access(key)
+		if !ok {
+			continue
+		}
+		reached := established[access.SessionRef] ||
+			(access.Strategy == contexts.StrategyExchanged && loginReady && outcome.exchanged)
+		if !reached {
+			continue
+		}
+		namespace := key
+		if product, gateway := contexts.SplitGatewayKey(key); gateway {
+			namespace = product
+		}
+		at, seen := index[namespace]
+		if !seen {
+			at = len(ready)
+			index[namespace] = at
+			ready = append(ready, readyProduct{namespace: namespace})
+		}
+		for _, scope := range outcome.withheld[access.SessionRef] {
+			if !slices.Contains(ready[at].withheld, scope) {
+				ready[at].withheld = append(ready[at].withheld, scope)
+			}
+		}
+	}
+	return ready
 }
 
 // signedInAs names the signed-in person in one value: the email when the

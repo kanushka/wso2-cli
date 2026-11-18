@@ -138,7 +138,14 @@ func (s Shell) loginCreating(flags loginFlags) error {
 	if err := s.reportLogin(selected, result); err != nil {
 		return err
 	}
-	return s.reportLoginWrite(written, selected.Identity)
+	if err := s.reportLoginWrite(written, selected.Identity); err != nil {
+		return err
+	}
+	if len(selected.Identity.Products) == 0 {
+		// reportLoginWrite has just named the command that records one.
+		return nil
+	}
+	return s.reportLoginNext(selected, result)
 }
 
 // explainUnboundLogin words the way out of a creating login an issuer refused
