@@ -571,7 +571,7 @@ type applyEntry struct {
 // reportApply renders the plan, or what was done.
 func (s Shell) reportApply(mode output.Mode, report applyReport, flags applyFlags) error {
 	if mode == output.ModeJSON {
-		return encodeJSON(s.Streams.Out, report)
+		return encodeJSONWithNext(s.Streams.Out, report, applyNext(report, flags))
 	}
 	w := s.Streams.Out
 	heading := "Applied the context file."
@@ -623,19 +623,22 @@ func (s Shell) reportApply(mode output.Mode, report applyReport, flags applyFlag
 			return err
 		}
 	}
-	var next string
+	return output.NextStep(w, applyNext(report, flags))
+}
+
+// applyNext is what to run after wso2 context apply.
+func applyNext(report applyReport, flags applyFlags) string {
 	switch {
 	case report.DryRun:
-		next = "Run the command without --dry-run to apply it."
+		return "Run the command without --dry-run to apply it."
 	case report.Selected == "":
-		next = "No context is selected. Run wso2 context use <name>, then wso2 login."
+		return "No context is selected. Run wso2 context use <name>, then wso2 login."
 	case flags.use != "":
-		next = "Run wso2 login."
+		return "Run wso2 login."
 	default:
-		next = fmt.Sprintf("Run wso2 login --context <name> for a context the file set up; %q stays "+
+		return fmt.Sprintf("Run wso2 login --context <name> for a context the file set up; %q stays "+
 			"selected.", report.Selected)
 	}
-	return output.NextStep(w, next)
 }
 
 // contextExport prints contexts in the input-file form: complete records, so

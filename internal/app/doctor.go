@@ -346,7 +346,11 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 // renderDoctorReport writes every finding, in table or JSON form.
 func renderDoctorReport(w io.Writer, mode output.Mode, findings []doctorFinding) error {
 	if mode == output.ModeJSON {
-		return encodeJSON(w, doctorReport{Checks: findings})
+		var recoveries []string
+		for _, finding := range findings {
+			recoveries = append(recoveries, finding.Recovery)
+		}
+		return encodeJSONWithNext(w, doctorReport{Checks: findings}, strings.Join(recoveries, " "))
 	}
 	// A recovery is a sentence with a command in it; as a column it stretched
 	// every row past the terminal's width, so each is a line after the table.

@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"strings"
 
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
@@ -38,12 +39,45 @@ func Document(w io.Writer, printed []byte) error {
 	if len(trimmed) > 0 {
 		document["message"] = string(trimmed)
 	}
+	if next := proseNext(w, string(trimmed)); len(next) > 0 {
+		document["next"] = next
+	}
 	encoded, err := marshalIndentPlain(document)
 	if err != nil {
 		return err
 	}
 	_, err = w.Write(append(encoded, '\n'))
 	return err
+}
+
+// proseNext reads the commands a prose report's trailing Next line names, the
+// line output.NextStep writes.
+func proseNext(w io.Writer, prose string) []string {
+	for _, line := range strings.Split(prose, "\n") {
+		if rest, found := strings.CutPrefix(line, "Next  "); found {
+			return NextCommands(w, strings.ReplaceAll(rest, "`", ""))
+		}
+	}
+	return nil
+}
+
+// WithNext adds a next member, the commands next names, to a JSON object
+// rendered by an indenting encoder. A next step that names no command adds
+// nothing, so a result keeps its shape when there is nothing to run.
+func WithNext(w io.Writer, document []byte, next string) ([]byte, error) {
+	commands := NextCommands(w, next)
+	if len(commands) == 0 {
+		return document, nil
+	}
+	trimmed := bytes.TrimSpace(document)
+	if len(trimmed) < 2 || trimmed[0] != '{' {
+		return document, nil
+	}
+	joined, err := withMember(trimmed, "next", commands)
+	if err != nil {
+		return nil, err
+	}
+	return append(joined, '\n'), nil
 }
 
 // marshalIndentPlain encodes a value indented, without escaping HTML

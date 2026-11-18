@@ -140,3 +140,21 @@ func TestFailureDocumentKeepsProseAsTheMessage(t *testing.T) {
 		t.Errorf("got %s", w.String())
 	}
 }
+
+func TestDocumentCarriesAProseNextLineAsCommands(t *testing.T) {
+	var w bytes.Buffer
+	printed := "Logged in.\n\nNext  `wso2 apim api list --project p-1`\n"
+	if err := output.Document(&w, []byte(printed)); err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Message string   `json:"message"`
+		Next    []string `json:"next"`
+	}
+	if err := json.Unmarshal(w.Bytes(), &document); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, w.String())
+	}
+	if len(document.Next) != 1 || document.Next[0] != "wso2 apim api list --project p-1" {
+		t.Errorf("next = %q", document.Next)
+	}
+}

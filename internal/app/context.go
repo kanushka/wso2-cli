@@ -609,6 +609,9 @@ type reportable interface {
 // renderContext writes one result as JSON or as a labelled field table.
 func renderContext(w io.Writer, mode output.Mode, value reportable) error {
 	if mode == output.ModeJSON {
+		if stepper, ok := value.(nextStepper); ok {
+			return encodeJSONWithNext(w, value, stepper.next())
+		}
 		return encodeJSON(w, value)
 	}
 	if err := output.Fields(w, value.fields()); err != nil {
@@ -628,11 +631,21 @@ type nextStepper interface {
 
 // encodeJSON writes one result as an indented JSON document.
 func encodeJSON(w io.Writer, value any) error {
+	return encodeJSONWithNext(w, value, "")
+}
+
+// encodeJSONWithNext writes one result as an indented JSON document, with the
+// commands its next step names as a next member when it names any (ADR 0023).
+func encodeJSONWithNext(w io.Writer, value any, next string) error {
 	encoded, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return fmt.Errorf("app: cannot encode the result: %w", err)
 	}
-	_, err = fmt.Fprintf(w, "%s\n", output.RenameJSON(encoded, output.NameOf(w)))
+	document, err := output.WithNext(w, append(output.RenameJSON(encoded, output.NameOf(w)), '\n'), next)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(document)
 	return err
 }
 

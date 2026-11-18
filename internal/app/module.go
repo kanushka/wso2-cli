@@ -519,7 +519,8 @@ func (s Shell) moduleList(mode output.Mode) error {
 	}
 
 	if mode == output.ModeJSON {
-		return encodeJSON(s.Streams.Out, productListing(statuses, true))
+		return encodeJSONWithNext(s.Streams.Out, productListing(statuses, true),
+			strings.Join(listSummary(statuses), " "))
 	}
 	if len(statuses) == 0 {
 		_, err := fmt.Fprintln(s.Streams.Out, "No products are installed, and the catalog publishes none.")

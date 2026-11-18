@@ -243,3 +243,49 @@ func TestATableFailureLeavesStandardOutputEmpty(t *testing.T) {
 		t.Errorf("a table-mode failure wrote to standard output:\n%s", out)
 	}
 }
+
+func TestWhoamiJSONCarriesTheNextStepAsCommands(t *testing.T) {
+	shell, _, _ := newShell(t)
+	installLogin(t, shell, whoamiSeededDocument())
+	code, out, errOut := run(t, shell, "whoami", "-o", "json")
+	if code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	var document struct {
+		Recovery string   `json:"recovery"`
+		Next     []string `json:"next"`
+	}
+	if err := json.Unmarshal([]byte(out), &document); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if !slices.Contains(document.Next, "wso2 login") {
+		t.Errorf("next = %q, want wso2 login; recovery %q", document.Next, document.Recovery)
+	}
+}
+
+func TestContextCreateJSONCarriesTheNextStepWithItsNameFilledIn(t *testing.T) {
+	shell, _, _ := newContextShell(t)
+	installLogin(t, shell, oneContextDocument())
+	code, out, errOut := run(t, shell, "context", "create", "second", "--login-product", "iam",
+		"--url", thunderURL, "-o", "json")
+	if code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	var document struct {
+		Next []string `json:"next"`
+	}
+	if err := json.Unmarshal([]byte(out), &document); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if !slices.Contains(document.Next, "wso2 context use second") {
+		t.Errorf("next = %q, want wso2 context use second", document.Next)
+	}
+}
+
+func TestAJSONResultWithNoNextStepHasNoNextMember(t *testing.T) {
+	shell, _, _ := newShell(t)
+	_, out, _ := run(t, shell, "context", "list", "-o", "json")
+	if strings.Contains(out, `"next"`) {
+		t.Errorf("a result with no next step carries one:\n%s", out)
+	}
+}

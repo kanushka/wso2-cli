@@ -101,9 +101,13 @@ exception is `ws completion <shell>`, which prints the script a shell sources
 as it is.
 
 On success the object is the command's own result, its members at the top
-level. A command whose report is only prose, such as `ws login` or
-`ws product install`, writes it as `message`. A command that printed nothing
-writes `{}`.
+level. When the table form ends with a `Next` line, the object carries `next`:
+the commands that line names, as runnable lines with the real names and ids
+filled in, at most three. A placeholder such as `<url>` stays only where the
+shell cannot know the value. A result with no next step has no `next`. A
+command whose report is only prose, such as `ws login` or
+`ws product install`, writes it as `message`, with `next` read from its `Next`
+line. A command that printed nothing writes `{}`.
 
 On failure the object has an `error` member, and the exit status is the
 problem's class, as below:
