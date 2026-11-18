@@ -18,6 +18,7 @@ package app_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -31,6 +32,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/contexts/fixture"
 	"github.com/wso2/wso2-cli/internal/exit"
+	"github.com/wso2/wso2-cli/internal/output"
 )
 
 // credentialRef is the secure-store entry the login fixtures store under.
@@ -498,6 +500,44 @@ func TestLoginCompletesFromThePrintedURL(t *testing.T) {
 	}
 	if _, err := (session.Store{StateRoot: shell.StateRoot}).Load(credentialRef); err != nil {
 		t.Fatalf("session not stored: %v", err)
+	}
+}
+
+// TestALoginWithNoTerminalStillWaitsOnTheBrowser proves a missing terminal is
+// not --no-input for a login: an agent runs the shell without one, prints the
+// authorization URL it finds on standard error for a person to open, and the
+// login completes. Only an explicit --no-input refuses it (TestLoginRefusals).
+func TestALoginWithNoTerminalStillWaitsOnTheBrowser(t *testing.T) {
+	if output.StdinIsTerminal() {
+		t.Skip("standard input is a terminal; this test needs one that is not")
+	}
+	keyring.MockInit()
+	issuer := fakeissuer.New(t, fakeissuer.Options{Audience: "reference-status"})
+	shell, out, _ := newLoginShell(t)
+	installLogin(t, shell, browserDoc(issuer.URL))
+	printed := &syncBuilder{}
+	shell.Streams.Err = printed
+	shell.OpenBrowser = func(string) error {
+		return errNoBrowser
+	}
+
+	codes := make(chan exit.Code, 1)
+	go func() { codes <- shell.Run([]string{"login", "--output", "json"}) }()
+
+	response, err := http.Get(waitForURL(t, printed))
+	if err != nil {
+		t.Fatalf("follow the printed URL: %v", err)
+	}
+	_ = response.Body.Close()
+
+	if code := <-codes; code != exit.OK {
+		t.Fatalf("a login with no terminal failed: exit %d, stderr %s", code, printed)
+	}
+	if !strings.Contains(printed.String(), issuer.URL+"/authorize") {
+		t.Errorf("the authorization URL is not on standard error:\n%s", printed)
+	}
+	if strings.Contains(out.String(), "/authorize") || !json.Valid(out.Bytes()) {
+		t.Errorf("standard output is not one JSON document free of the URL:\n%s", out)
 	}
 }
 
