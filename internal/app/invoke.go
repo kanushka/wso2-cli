@@ -101,7 +101,8 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 	// for a usage error.
 	if declared.Declared() && (line.help || !line.declared.Runnable) {
 		if line.mode == output.ModeJSON {
-			return s.renderHelpJSON(s.productHelpDocument(namespace, declared, line.declared))
+			return s.renderHelpJSON(s.productHelpDocument(namespace, declared, line.declared,
+				resolved.Receipt.Capabilities.Product))
 		}
 		return s.renderProductHelp(namespace, declared, line.declared, resolved.Receipt.Capabilities.Product)
 	}

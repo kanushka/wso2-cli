@@ -514,7 +514,8 @@ func (s Shell) helpTopic(help *cobra.Command, args []string) error {
 		return unknownProductCommand(namespace, routed, declared)
 	}
 	if asJSON {
-		return s.renderHelpJSON(s.productHelpDocument(namespace, declared, routed.Command))
+		return s.renderHelpJSON(s.productHelpDocument(namespace, declared, routed.Command,
+			resolved.Receipt.Capabilities.Product))
 	}
 	return s.renderProductHelp(namespace, declared, routed.Command, resolved.Receipt.Capabilities.Product)
 }

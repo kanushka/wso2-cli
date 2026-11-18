@@ -24,6 +24,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/internal/parsetree"
 	"github.com/wso2/wso2-cli/sdk/commandtree"
@@ -55,6 +56,9 @@ type helpDocument struct {
 	// Warnings say what the document could not read and so does not show,
 	// in the words the table form uses. Absent when it is complete.
 	Warnings []string `json:"warnings,omitempty"`
+	// Next is the commands a product's own page names in its Next line.
+	// Absent on every other page, as the line is.
+	Next []string `json:"next,omitempty"`
 }
 
 // helpProductDocument is one product namespace in the document.
@@ -150,7 +154,8 @@ func (s Shell) shellCommandHelpDocument(command *cobra.Command) helpDocument {
 
 // productHelpDocument is one product, with the commands beneath the one asked
 // about: the whole declared tree when that is the namespace itself.
-func (s Shell) productHelpDocument(namespace string, declared parsetree.Tree, found commandtree.Command) helpDocument {
+func (s Shell) productHelpDocument(namespace string, declared parsetree.Tree, found commandtree.Command,
+	descriptor *modules.ProductDescriptor) helpDocument {
 	name := output.NameOf(s.Streams.Out)
 	entry := helpProductDocument{Namespace: namespace, Installed: true,
 		Commands: productCommandSubtree(namespace, declared, found, name),
@@ -161,7 +166,13 @@ func (s Shell) productHelpDocument(namespace string, declared parsetree.Tree, fo
 			entry.Description = product.summary
 		}
 	}
-	return helpDocument{Name: name, Products: []helpProductDocument{entry}}
+	document := helpDocument{Name: name, Products: []helpProductDocument{entry}}
+	if len(found.Path) == 0 {
+		if next := s.productNextStep(namespace, found, descriptor); next != "" {
+			document.Next = output.NextCommands(s.Streams.Out, next)
+		}
+	}
+	return document
 }
 
 // installedTrees reports the declared tree of every installed product whose

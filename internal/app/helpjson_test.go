@@ -291,3 +291,36 @@ func TestHelpTableFormIsUnchangedAndABadModeIsRefused(t *testing.T) {
 		t.Errorf("a bad mode was not refused as one:\n%s", errOut)
 	}
 }
+
+// TestHelpJSONForAProductCarriesItsNextStep proves the namespace page's Next
+// line reaches the JSON form as next, and a command's page, which has no Next
+// line, carries none.
+func TestHelpJSONForAProductCarriesItsNextStep(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	t.Setenv("WSO2_CONTEXT", "")
+	installFixture(t, shell, fixture.Module{Namespace: "widget", Version: "0.1.0", CommandTree: guidedTree()})
+
+	for _, line := range [][]string{{"help", "widget", "-o", "json"}, {"widget", "--help", "-o", "json"}} {
+		out.Reset()
+		if code := shell.Run(line); code != exit.OK {
+			t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+		}
+		var document struct {
+			Next []string `json:"next"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &document); err != nil {
+			t.Fatalf("not JSON: %v\n%s", err, out)
+		}
+		if strings.Join(document.Next, "|") != "wso2 context product add widget --url <url>" {
+			t.Errorf("%v: next = %q", line, document.Next)
+		}
+	}
+
+	out.Reset()
+	if code := shell.Run([]string{"help", "widget", "project", "-o", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if strings.Contains(out.String(), `"next"`) {
+		t.Errorf("a command's page carries a next step:\n%s", out)
+	}
+}
