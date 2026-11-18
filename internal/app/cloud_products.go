@@ -155,3 +155,26 @@ func (s Shell) recordCloudProducts(root, env string, target contexts.Context, lo
 	_, err = s.writeChange(root, plan)
 	return err
 }
+
+// installCloudProducts installs each WSO2 Cloud product that is not installed,
+// one at a time, so one the catalog cannot supply leaves the others and the
+// sign-in standing. A product left out is not recorded, and a later login
+// records it once its module is installed.
+func (s Shell) installCloudProducts() error {
+	var wanted []installNeed
+	for _, namespace := range slices.Sorted(maps.Keys(cloudProducts)) {
+		wanted = append(wanted, installNeed{Namespace: namespace})
+	}
+	plan, err := s.planInstalls(wanted)
+	if err != nil {
+		return err
+	}
+	for _, need := range plan.Missing {
+		if err := s.install([]installNeed{need}); err != nil {
+			if _, werr := fmt.Fprintf(s.Streams.Err, "Skipped %s: %v\n", need.Namespace, err); werr != nil {
+				return werr
+			}
+		}
+	}
+	return nil
+}

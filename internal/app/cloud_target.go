@@ -87,13 +87,16 @@ func (s Shell) loginCloud(flags loginFlags, root string, document contexts.Docum
 	}
 	name := cloudContextName(env)
 	flags.contextName = name
-	lookup := s.installedDescriptors()
 	var written *contexts.Context
 	if !declaresContext(document, name) {
 		environment, err := readCloudEnvironment(root, env)
 		if err != nil {
 			return flags, err
 		}
+		if err := s.installCloudProducts(); err != nil {
+			return flags, err
+		}
+		lookup := s.installedDescriptors()
 		context, err := environment.context(name)
 		if err != nil {
 			return flags, err
@@ -105,7 +108,7 @@ func (s Shell) loginCloud(flags loginFlags, root string, document contexts.Docum
 		written = &context
 	} else {
 		existing, _ := document.Find(name)
-		if err := s.recordCloudProducts(root, env, existing, lookup); err != nil {
+		if err := s.recordCloudProducts(root, env, existing, s.installedDescriptors()); err != nil {
 			return flags, err
 		}
 		if document.DefaultContext == name {

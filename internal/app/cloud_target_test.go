@@ -17,6 +17,8 @@
 package app_test
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,8 +29,13 @@ import (
 	"github.com/wso2/wso2-cli/internal/exit"
 )
 
+// writeCloudEnvironment also points the catalog at a server that has
+// nothing, since a first Cloud login installs the Cloud products it can.
 func writeCloudEnvironment(t *testing.T, root, env, body string) {
 	t.Helper()
+	catalog := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(catalog.Close)
+	t.Setenv("WSO2_CLI_CATALOG_ORIGIN", catalog.URL)
 	dir := filepath.Join(root, "cloud")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)

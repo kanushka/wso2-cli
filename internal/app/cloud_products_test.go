@@ -346,3 +346,23 @@ func TestACloudContextKeepsAStatedGrant(t *testing.T) {
 		t.Errorf("apim = %+v, want the stated exchange grant under the Cloud resource server", apim)
 	}
 }
+
+func TestAFirstCloudLoginSkipsAProductTheCatalogCannotSupply(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudAPIM(t, login.shell)
+
+	login.run(t, "login")
+
+	for _, namespace := range []string{"am", "iam", "intg"} {
+		if !strings.Contains(login.errOut.String(), "Skipped "+namespace+":") {
+			t.Errorf("stderr does not say %s was skipped:\n%s", namespace, login.errOut)
+		}
+	}
+	if strings.Contains(login.errOut.String(), "Skipped apim") {
+		t.Error("an installed product was installed again")
+	}
+	recorded := cloudContext(t, login.shell).Products
+	if _, found := recorded["apim"]; !found || len(recorded) != 1 {
+		t.Errorf("products = %v, want apim alone", slices.Sorted(maps.Keys(recorded)))
+	}
+}
