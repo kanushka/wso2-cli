@@ -92,6 +92,43 @@ Every refusal `ws login` and a brokered command make carries a typed code.
 | `auth.session_required` | Nothing is stored for a product and `--no-input`/`WSO2_NO_INPUT` forbids the browser that would authorize it. | `ws login --only <namespace>` where a browser can open. |
 | `auth.reauthorization_required` | A session for the product is stored, but the deployment would not renew it to the permissions the module needs. | Log in again where a browser can open; if it still refuses, an administrator has to grant the role. |
 
+## JSON output
+
+Every command accepts `--output json` (`-o json`), before or after the command
+name, and so does the `output` preference. Standard output is then exactly one
+JSON object, whether the command succeeds or fails (ADR 0023). The one
+exception is `ws completion <shell>`, which prints the script a shell sources
+as it is.
+
+On success the object is the command's own result, its members at the top
+level. A command whose report is only prose, such as `ws login` or
+`ws product install`, writes it as `message`. A command that printed nothing
+writes `{}`.
+
+On failure the object has an `error` member, and the exit status is the
+problem's class, as below:
+
+```json
+{
+  "error": {
+    "code": "contexts.unknown_context",
+    "category": "not_found",
+    "message": "no context named \"staging\" is configured",
+    "recovery": "Run ws context list to see the configured contexts, then ws context use <name> to select one.",
+    "next": ["ws context list", "ws context use <name>"],
+    "exit": 66
+  }
+}
+```
+
+`recovery` is left out when the problem has none; it says why each command is
+suggested. `next` is always present, and lists the commands the recovery names
+in the shape a result's `next` has. A command that
+rendered a JSON report before it failed, such as `ws doctor`, keeps its members
+and gains `error`; one that printed prose keeps it as `message`. The same
+problem is still written to standard error as prose. A product module's problem
+is reported the same way.
+
 ## Exit classes
 
 The shell alone decides the process exit status: a module returns a typed

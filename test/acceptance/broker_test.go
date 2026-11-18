@@ -17,6 +17,7 @@
 package acceptance_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -484,6 +485,37 @@ func TestExpiredAccessIsRefusedByTheService(t *testing.T) {
 			assertNoCredentialDisclosure(t, stdout, stderr)
 		})
 	}
+}
+
+func TestAModuleProblemUnderOutputJSONIsAnErrorDocumentOnStandardOutput(t *testing.T) {
+	shell := buildShell(t)
+	faulty := deployAs(t, installation{kind: bothCredentialKinds[0], service: statusservice.Options{Fault: true}})
+
+	stdout, stderr, err := faulty.try(shell, "example", "call", "--output", "json")
+
+	if exitCode(t, err) != exitProductService {
+		t.Fatalf("exit status = %v, want the product-service class %d\nstderr:\n%s",
+			err, exitProductService, stderr)
+	}
+	var document struct {
+		Error struct {
+			Code     string            `json:"code"`
+			Category string            `json:"category"`
+			Next     []json.RawMessage `json:"next"`
+			Exit     int               `json:"exit"`
+		} `json:"error"`
+	}
+	if decodeErr := json.Unmarshal([]byte(stdout), &document); decodeErr != nil {
+		t.Fatalf("standard output is not one JSON document: %v\n%s", decodeErr, stdout)
+	}
+	if document.Error.Code != "example.status_unavailable" || document.Error.Category != "product_service" ||
+		document.Error.Exit != exitProductService || document.Error.Next == nil {
+		t.Errorf("error document = %s", stdout)
+	}
+	if !strings.Contains(stderr, "example.status_unavailable") {
+		t.Errorf("standard error no longer reports the failure:\n%s", stderr)
+	}
+	assertNoCredentialDisclosure(t, stdout, stderr)
 }
 
 func TestAFailingServiceAndADeniedRequestEndInDifferentExitClasses(t *testing.T) {

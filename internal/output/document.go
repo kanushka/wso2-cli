@@ -20,6 +20,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+
+	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
 // Document writes what a command printed under --output json as exactly one
@@ -55,4 +57,77 @@ func marshalIndentPlain(value any) ([]byte, error) {
 		return nil, err
 	}
 	return bytes.TrimRight(encoded.Bytes(), "\n"), nil
+}
+
+// failure is the error member of a failure document.
+type failure struct {
+	Code     string   `json:"code"`
+	Category string   `json:"category"`
+	Message  string   `json:"message"`
+	Recovery string   `json:"recovery,omitempty"`
+	Next     []string `json:"next"`
+	Exit     int      `json:"exit"`
+}
+
+// FailureDocument writes a failed command's one JSON document: what the
+// command printed before failing, with an error member carrying the problem.
+// A JSON object the command rendered keeps its members and gains error, a
+// report such as wso2 doctor's being the answer even when it fails. Prose is
+// carried as the message. next lists the commands the recovery names, in the
+// shape a result's next has, and recovery says why each one is suggested. See
+// docs/adr/0023-exit-codes-by-cause-and-one-json-document-per-command.md.
+func FailureDocument(w io.Writer, printed []byte, p problem.Problem, status int) error {
+	name := NameOf(w)
+	reported := failure{
+		Code:     p.Code,
+		Category: string(p.Category),
+		Message:  Rename(p.Message, name),
+		Recovery: Rename(p.Recovery, name),
+		Next:     NextCommands(w, p.Recovery),
+		Exit:     status,
+	}
+	trimmed := bytes.TrimSpace(printed)
+	document := []byte("{}")
+	switch {
+	case len(trimmed) > 1 && trimmed[0] == '{' && json.Valid(trimmed):
+		document = trimmed
+	case len(trimmed) > 0:
+		var err error
+		if document, err = withMember(document, "message", string(trimmed)); err != nil {
+			return err
+		}
+	}
+	document, err := withMember(document, "error", reported)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(append(document, '\n'))
+	return err
+}
+
+// withMember adds one member to the end of a JSON object, indented the way
+// the shell indents every document, so a member is added without reordering
+// the ones the command wrote.
+func withMember(object []byte, name string, value any) ([]byte, error) {
+	key, err := marshalIndentPlain(name)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := marshalIndentPlain(value)
+	if err != nil {
+		return nil, err
+	}
+	trimmed := bytes.TrimSpace(object)
+	body := bytes.TrimSpace(trimmed[:len(trimmed)-1])
+	var joined bytes.Buffer
+	joined.Write(body)
+	if len(body) > 1 {
+		joined.WriteString(",")
+	}
+	joined.WriteString("\n  ")
+	joined.Write(key)
+	joined.WriteString(": ")
+	joined.Write(bytes.ReplaceAll(encoded, []byte("\n"), []byte("\n  ")))
+	joined.WriteString("\n}")
+	return joined.Bytes(), nil
 }

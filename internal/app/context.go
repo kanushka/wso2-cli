@@ -672,8 +672,8 @@ func contextExists(name string) problem.Problem {
 	return problem.New(problem.CategoryConflict, "contexts.context_exists",
 		fmt.Sprintf("a context named %q is already configured", name)).
 		WithRecovery("Choose another name, or run wso2 context list to see what is configured. " +
-			"Creating a context never replaces one; wso2 context apply -f <file> replaces a context " +
-			"by name.")
+			"Creating a context never replaces one; to replace one by name, run " +
+			"wso2 context apply -f <file>.")
 }
 
 // selectionMark marks the row a command would run against.

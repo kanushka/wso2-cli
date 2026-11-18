@@ -139,14 +139,8 @@ func (s Shell) Run(args []string) exit.Code {
 		s.Streams.Out = output.Named(&printed, output.NameOf(stdout))
 	}
 	err := s.dispatch(args)
-	if asJSON {
-		if err == nil {
-			if writeErr := output.Document(stdout, printed.Bytes()); writeErr != nil {
-				err = writeErr
-			}
-		} else {
-			_, _ = stdout.Write(printed.Bytes())
-		}
+	if asJSON && err == nil {
+		err = output.Document(stdout, printed.Bytes())
 	}
 	if err == nil {
 		return exit.OK
@@ -156,8 +150,14 @@ func (s Shell) Run(args []string) exit.Code {
 	if !errors.As(err, &typed) {
 		typed = problem.New(problem.CategoryModuleProcess, "shell.unexpected_failure", err.Error())
 	}
+	// The prose stays on standard error under --output json too: a person
+	// reads a CI log there, and a script that already did keeps working.
 	output.Problem(s.Streams.Err, typed)
-	return exit.ForProblem(typed)
+	status := exit.ForProblem(typed)
+	if asJSON {
+		_ = output.FailureDocument(stdout, printed.Bytes(), typed, int(status))
+	}
+	return status
 }
 
 // requestedMode reads the rendering a command line asks for before anything

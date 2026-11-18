@@ -188,3 +188,58 @@ func TestVersionFlagRendersJSON(t *testing.T) {
 		t.Errorf("--version -o json is not the version document:\n%s", out)
 	}
 }
+
+func TestAFailureUnderOutputJSONIsAnErrorDocumentOnStandardOutput(t *testing.T) {
+	for _, line := range [][]string{
+		{"context", "use", "nosuch", "-o", "json"},
+		{"--output", "json", "context", "use", "nosuch"},
+	} {
+		shell, _, _ := newShell(t)
+		installLogin(t, shell, oneContextDocument())
+		code, out, errOut := run(t, shell, line...)
+		if code != exit.NotFound {
+			t.Fatalf("ws %s: exit %d: %s", strings.Join(line, " "), code, errOut)
+		}
+		var document struct {
+			Error struct {
+				Code     string   `json:"code"`
+				Category string   `json:"category"`
+				Message  string   `json:"message"`
+				Next     []string `json:"next"`
+				Exit     int      `json:"exit"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(out), &document); err != nil {
+			t.Fatalf("standard output is not one JSON document: %v\n%s", err, out)
+		}
+		got := document.Error
+		if got.Code != "contexts.unknown_context" || got.Category != "not_found" || got.Exit != int(exit.NotFound) {
+			t.Errorf("error = %+v", got)
+		}
+		if len(got.Next) == 0 || got.Next[0] != "wso2 context list" {
+			t.Errorf("next = %+v", got.Next)
+		}
+		if !strings.Contains(errOut, "contexts.unknown_context") {
+			t.Errorf("standard error no longer reports the failure:\n%s", errOut)
+		}
+	}
+}
+
+func TestAFlagParseFailureUnderOutputJSONIsAnErrorDocument(t *testing.T) {
+	shell, _, _ := newShell(t)
+	code, out, errOut := run(t, shell, "whoami", "--bogus", "-o", "json")
+	if code != exit.Usage {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if !strings.Contains(out, `"code": "shell.unknown_flag"`) {
+		t.Errorf("standard output does not carry the refusal:\n%s", out)
+	}
+}
+
+func TestATableFailureLeavesStandardOutputEmpty(t *testing.T) {
+	shell, _, _ := newShell(t)
+	installLogin(t, shell, oneContextDocument())
+	if _, out, _ := run(t, shell, "context", "use", "nosuch"); out != "" {
+		t.Errorf("a table-mode failure wrote to standard output:\n%s", out)
+	}
+}

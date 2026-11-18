@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
 func TestDocumentPassesJSONThrough(t *testing.T) {
@@ -58,5 +59,84 @@ func TestDocumentOfNothingIsAnEmptyObject(t *testing.T) {
 	}
 	if w.String() != "{}\n" {
 		t.Errorf("got %q, want an empty object", w.String())
+	}
+}
+
+func TestFailureDocumentCarriesTheProblem(t *testing.T) {
+	var w bytes.Buffer
+	failure := problem.New(problem.CategoryNotFound, "contexts.unknown_context", "no context named \"x\" is configured").
+		WithRecovery("Run wso2 context list to see the configured contexts.")
+	if err := output.FailureDocument(&w, nil, failure, 66); err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Error struct {
+			Code     string   `json:"code"`
+			Category string   `json:"category"`
+			Message  string   `json:"message"`
+			Recovery string   `json:"recovery"`
+			Next     []string `json:"next"`
+			Exit     int      `json:"exit"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(w.Bytes(), &document); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, w.String())
+	}
+	got := document.Error
+	if got.Code != "contexts.unknown_context" || got.Category != "not_found" || got.Exit != 66 ||
+		got.Message != `no context named "x" is configured` || got.Recovery == "" {
+		t.Errorf("error = %+v", got)
+	}
+	if len(got.Next) != 1 || got.Next[0] != "wso2 context list" {
+		t.Errorf("next = %+v", got.Next)
+	}
+}
+
+func TestFailureDocumentAlwaysHasANextList(t *testing.T) {
+	var w bytes.Buffer
+	if err := output.FailureDocument(&w, nil, problem.New(problem.CategoryUsage, "x.y", "it failed"), 64); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(w.Bytes(), []byte(`"next": []`)) {
+		t.Errorf("next is not an empty list:\n%s", w.String())
+	}
+	if bytes.Contains(w.Bytes(), []byte(`"recovery"`)) {
+		t.Errorf("an empty recovery is present:\n%s", w.String())
+	}
+}
+
+func TestFailureDocumentJoinsAReportTheCommandAlreadyRendered(t *testing.T) {
+	var w bytes.Buffer
+	failure := problem.New(problem.CategoryAuthPolicy, "auth.login_required", "log in")
+	if err := output.FailureDocument(&w, []byte("{\n  \"checks\": []\n}\n"), failure, 77); err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(w.Bytes(), &document); err != nil {
+		t.Fatalf("not one JSON document: %v\n%s", err, w.String())
+	}
+	if _, ok := document["checks"]; !ok {
+		t.Errorf("the report was dropped:\n%s", w.String())
+	}
+	if _, ok := document["error"]; !ok {
+		t.Errorf("the error was not added:\n%s", w.String())
+	}
+}
+
+func TestFailureDocumentKeepsProseAsTheMessage(t *testing.T) {
+	var w bytes.Buffer
+	failure := problem.New(problem.CategoryModuleProcess, "modules.install_failed", "it failed")
+	if err := output.FailureDocument(&w, []byte("Installing apim\n"), failure, 70); err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Message string          `json:"message"`
+		Error   json.RawMessage `json:"error"`
+	}
+	if err := json.Unmarshal(w.Bytes(), &document); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, w.String())
+	}
+	if document.Message != "Installing apim" || document.Error == nil {
+		t.Errorf("got %s", w.String())
 	}
 }

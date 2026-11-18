@@ -379,8 +379,11 @@ func TestAModuleRunWithoutALoginIsRefusedWithTheCommandThatFixesIt(t *testing.T)
 	if len(deployment.service.presented()) != 0 {
 		t.Error("a refused command still reached the product service")
 	}
-	if deployment.out.String() != "" {
-		t.Errorf("a refused command wrote to standard output:\n%s", deployment.out)
+	// Under --output json the refusal is also the one document on standard
+	// output, naming the same command.
+	if out := deployment.out.String(); !strings.Contains(out, `"code": "auth.login_required"`) ||
+		!strings.Contains(out, `"wso2 login"`) {
+		t.Errorf("standard output does not carry the refusal as JSON:\n%s", out)
 	}
 }
 
