@@ -174,3 +174,11 @@ public client the shell registers there.
   outlive a login session replaced by the next sign-in, and need its own
   deletion at logout; kept with the login session, every path that ends that
   session ends the secret too.
+
+## Amendment (ADR 0023)
+
+A WSO2 Cloud context's `organization` names the ThunderID organization unit
+its sessions are signed in to, and every authorization for it goes to that
+organization's own endpoint. A session records the scopes the provider
+granted, and the broker serves those rather than refusing for the ones the
+provider left out.
