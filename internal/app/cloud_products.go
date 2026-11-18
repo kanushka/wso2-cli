@@ -75,9 +75,7 @@ func (p cloudProduct) spec(e cloudEnvironment) productSpec {
 // permission scopes, so a product descriptor's grant is set aside and the
 // product is authorized on its own at the login issuer, for its own resource
 // and scopes.
-func onWSO2Cloud(c contexts.Context) bool {
-	return c.Type == contexts.TypeCloud && signsInAtThunderID(c.Account())
-}
+func onWSO2Cloud(c contexts.Context) bool { return c.WSO2Cloud() }
 
 // signsInAtThunderID reports whether an account's login provider is ThunderID,
 // which is what WSO2 Cloud and the device secret both depend on.

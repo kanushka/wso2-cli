@@ -21,6 +21,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/wso2/wso2-cli/internal/auth"
+	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/sdk/problem"
@@ -28,6 +30,7 @@ import (
 
 // The way back from each subcommand's usage refusals.
 const (
+	orgListUsage    = "Run wso2 org list."
 	orgUseUsage     = "Run wso2 org use <organization>."
 	orgCurrentUsage = "Run wso2 org current [--output table|json]."
 )
@@ -45,16 +48,9 @@ const noContextRecovery = contextSetupHint
 
 // orgCommand builds the wso2 org tree.
 //
-// wso2 org list is deferred (#112 R11): no control-plane endpoint for
-// enumerating organizations exists anywhere in this repository, and listing
-// would need an access token before an organization is chosen, which the auth
-// broker is written to refuse (internal/auth/source.go's checkHomeTenant and
-// developmentSource both require Context.Organization already). Building it
-// would make an architecture decision — the first shell-side consumer of a
-// token, which ADR 0004 governs — as a side effect of a command. So this
-// family declares only current and use, and anything else typed under it,
-// including list, is refused by this family's own RunE as the unknown
-// subcommand it is.
+// wso2 org list is refused by name (ADR 0023): nothing lists the organizations
+// a user belongs to, so the command exists only to say so and to point at
+// the sign-in, where an organization is chosen.
 func (s Shell) orgCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:                   "org <subcommand>",
@@ -81,8 +77,22 @@ func (s Shell) orgCommand() *cobra.Command {
 	// does: naming one with --context would be a second answer to a question the
 	// family does not ask, since org use writes the selected context's
 	// Organization field, not some other one's.
-	command.AddCommand(s.orgCurrentCommand(), s.orgUseCommand())
+	command.AddCommand(s.orgListCommand(), s.orgCurrentCommand(), s.orgUseCommand())
 	return command
+}
+
+func (s Shell) orgListCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List the organizations this user belongs to (not available yet).",
+		Args:  noArguments(orgListUsage),
+		RunE: func(*cobra.Command, []string) error {
+			return problem.New(problem.CategoryUsage, "shell.organization_list_unavailable",
+				"the organizations this user belongs to cannot be listed: no endpoint lists them yet").
+				WithRecovery("Choose the organization in the browser when you sign in with wso2 login, see it " +
+					"with wso2 org current, and switch with wso2 org use <organization-id>.")
+		},
+	}
 }
 
 func (s Shell) orgCurrentCommand() *cobra.Command {
@@ -182,6 +192,9 @@ func (s Shell) orgUse(command *cobra.Command, organization string) error {
 	root, err := s.stateRoot()
 	if err != nil {
 		return err
+	}
+	if selected, err := s.selection(""); err == nil && onWSO2Cloud(selected.Context) {
+		return s.orgUseCloud(mode, root, selected, organization)
 	}
 	s.log.Debug("setting the selected context's organization",
 		"organization", organization, "document", contexts.Path(root))
@@ -331,4 +344,88 @@ func refuseOrganizationSwitch(identity contexts.Account, organization string) er
 			identity.Name, identity.Auth.Provider)).
 		WithRecovery("Leave the context's organization unset; commands run against the deployment " +
 			"the context logs in to. Organization switch is for a multi-tenant provider such as Asgardeo.")
+}
+
+// orgUseCloud switches a WSO2 Cloud context to another organization. A
+// ThunderID token is issued in one organization, chosen in the browser at
+// sign-in, so switching is signing in again at that organization's own
+// authorization endpoint: the context records the organization's id, the
+// sessions signed in to the previous one are ended, and every product is
+// authorized again. Without a browser it records the organization, ends the
+// sessions and names the login that finishes the switch.
+//
+// The organization is named by id. The handle or name of the organization the
+// stored session was issued in resolves to its id; no other can be resolved,
+// since nothing lists a user's organizations.
+func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Selection, organization string) error {
+	current := auth.Organization{}
+	if stored := loginSessionOf(root, selected); stored != nil {
+		current = auth.TokenOrganization(stored.IDToken, stored.AccessToken)
+	}
+	id := organization
+	if organization != "" && !current.IsZero() &&
+		(organization == current.ID || organization == current.Handle || organization == current.Name) {
+		id = current.ID
+	}
+	name := selected.Context.Name
+	err := contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
+		for i := range document.Contexts {
+			if document.Contexts[i].Name == name {
+				document.Contexts[i].Organization = id
+			}
+		}
+		return document, nil
+	})
+	if err != nil {
+		return s.explainWriteRefusal(root, err)
+	}
+	if id == "" || id == current.ID {
+		return s.reportOrgUse(mode, name, id, "")
+	}
+
+	store := session.Store{StateRoot: root}
+	for _, access := range selected.Identity.Accesses() {
+		if _, err := s.endSession(store, access); err != nil {
+			return err
+		}
+	}
+	reselected, err := s.selection(name)
+	if err != nil {
+		return err
+	}
+	if control := s.nonInteractiveControl(false); control != "" {
+		return s.reportOrgUse(mode, name, id, fmt.Sprintf("Run wso2 login to sign in to it; %s asked "+
+			"that no browser open, and the sessions signed in to the previous organization have ended.", control))
+	}
+	outcome, err := s.establishAndStore(reselected, loginFlags{contextName: name})
+	if err != nil {
+		return err
+	}
+	if mode == output.ModeJSON {
+		return s.reportOrgUse(mode, name, id, "")
+	}
+	if _, err := fmt.Fprintf(s.Streams.Out, "\nSigned the %q context in to the %q organization.\n", name, id); err != nil {
+		return err
+	}
+	if err := s.reportLogin(reselected, outcome); err != nil {
+		return err
+	}
+	return s.reportLoginNext(reselected, outcome)
+}
+
+// reportOrgUse reports the organization a context now names, with the step
+// that remains, if any.
+func (s Shell) reportOrgUse(mode output.Mode, name, organization, next string) error {
+	if mode == output.ModeJSON {
+		return encodeJSON(s.Streams.Out, orgSelection{Context: name, Organization: organization})
+	}
+	sentence := fmt.Sprintf("\nSet the %q context's organization to %q.\n", name, organization)
+	if organization == "" {
+		sentence = fmt.Sprintf("\nCleared the %q context's organization; the next sign-in chooses one in "+
+			"the browser.\n", name)
+	}
+	if _, err := fmt.Fprint(s.Streams.Out, sentence); err != nil {
+		return err
+	}
+	return output.NextStep(s.Streams.Out, next)
 }

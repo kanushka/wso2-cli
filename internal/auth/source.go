@@ -337,6 +337,11 @@ func (b *Broker) checkHomeTenant() error {
 	if organization == "" || organization == b.Selection.Identity.Auth.Tenant {
 		return nil
 	}
+	if b.Selection.Context.WSO2Cloud() {
+		// The organization is the one the sessions were signed in to, which
+		// the login proved against the token it stored.
+		return nil
+	}
 	return denial("auth.organization_switch_unsupported",
 		fmt.Sprintf("the %q context targets the %q organization, and this release cannot switch its "+
 			"session out of its home tenant",

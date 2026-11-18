@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -55,12 +56,15 @@ var (
 // against an issuer that binds every authorization to one resource server,
 // counting the times it opens the browser.
 type cloudLogin struct {
-	shell  app.Shell
-	out    *bytes.Buffer
-	errOut *bytes.Buffer
-	issuer *fakeissuer.Issuer
-	mutex  sync.Mutex
-	opened int
+	shell     app.Shell
+	out       *bytes.Buffer
+	errOut    *bytes.Buffer
+	issuer    *fakeissuer.Issuer
+	mutex     sync.Mutex
+	opened    int
+	authorize []url.Values
+	// paths are the paths of the authorization URLs, in the order opened.
+	paths []string
 }
 
 func newCloudLogin(t *testing.T) *cloudLogin {
@@ -80,6 +84,12 @@ func newCloudLoginWith(t *testing.T, opts fakeissuer.Options) *cloudLogin {
 		login.mutex.Lock()
 		login.opened++
 		login.mutex.Unlock()
+		if parsed, err := url.Parse(authURL); err == nil {
+			login.mutex.Lock()
+			login.authorize = append(login.authorize, parsed.Query())
+			login.paths = append(login.paths, parsed.Path)
+			login.mutex.Unlock()
+		}
 		go func() {
 			if response, err := http.Get(authURL); err == nil {
 				_ = response.Body.Close()

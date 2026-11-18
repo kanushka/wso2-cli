@@ -489,6 +489,9 @@ func (s Shell) establishThroughBrowser(selected contexts.Selection, access conte
 				"then run wso2 login again.")
 	}
 
+	if err := checkIssuedIn(selected.Context, result); err != nil {
+		return oauthflow.Result{}, err
+	}
 	// The token itself is never logged, here or anywhere: what a reader needs
 	// is that the issuer answered and when the access it granted runs out.
 	s.log.Debug("the login completed",
@@ -586,16 +589,17 @@ func (s Shell) establishSession(selected contexts.Selection, access contexts.Pro
 	ctx, cancel := context.WithTimeout(context.Background(), loginDeadline)
 	defer cancel()
 	return oauthflow.Login{
-		Issuer:      access.Issuer,
-		IssuerID:    access.IssuerID,
-		ClientID:    access.ClientID,
-		Scopes:      access.Scopes,
-		Resource:    access.Resource,
-		Label:       access.Namespace,
-		DeviceSSO:   asksForDeviceSecret(selected.Identity, access),
-		Tab:         tab,
-		OpenBrowser: s.OpenBrowser,
-		Out:         s.Streams.Err,
+		Issuer:       access.Issuer,
+		IssuerID:     access.IssuerID,
+		ClientID:     access.ClientID,
+		Scopes:       access.Scopes,
+		Resource:     access.Resource,
+		Label:        access.Namespace,
+		DeviceSSO:    asksForDeviceSecret(selected.Identity, access),
+		Organization: cloudOrganization(selected.Context),
+		Tab:          tab,
+		OpenBrowser:  s.OpenBrowser,
+		Out:          s.Streams.Err,
 	}.Run(ctx)
 }
 

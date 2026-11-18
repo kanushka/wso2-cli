@@ -39,6 +39,7 @@ const theResource = "https://deployment.example.test/reference-status"
 func resourceBoundDoc(issuerURL string) contexts.Document {
 	document := browserDoc(issuerURL)
 	document.Contexts[0].Login.Provider = contexts.ProviderThunder
+	document.Contexts[0].Organization = ""
 	product := document.Contexts[0].Products["reference"]
 	product.Audience = theResource
 	document.Contexts[0].Products["reference"] = product

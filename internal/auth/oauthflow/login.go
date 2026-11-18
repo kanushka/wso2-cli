@@ -48,6 +48,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -144,6 +145,23 @@ type Login struct {
 	// discovery document lists the device_sso scope. The secret describes the
 	// sign-on the sign-in started, and is issued only when one was.
 	DeviceSSO bool
+	// Organization is the ThunderID organization unit the sign-in is for,
+	// by id. The authorization is then sent to that organization's own
+	// endpoint, the discovered one with /ou/<id> ahead of its path, which
+	// issues the session in it whichever organization the browser session
+	// is in.
+	Organization string
+}
+
+// organizationEndpoint is the authorization endpoint of one organization unit.
+func organizationEndpoint(authorization, organization string) string {
+	parsed, err := url.Parse(authorization)
+	if err != nil {
+		return authorization
+	}
+	parsed.Path = "/ou/" + url.PathEscape(organization) + parsed.Path
+	parsed.RawPath = ""
+	return parsed.String()
 }
 
 // scopeDeviceSSO asks ThunderID for a device secret.
@@ -262,6 +280,9 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	// credentials this shell does not have.
 	endpoint := provider.Endpoint()
 	endpoint.AuthStyle = oauth2.AuthStyleInParams
+	if l.Organization != "" {
+		endpoint.AuthURL = organizationEndpoint(endpoint.AuthURL, l.Organization)
+	}
 	config := oauth2.Config{
 		ClientID:    l.ClientID,
 		Endpoint:    endpoint,

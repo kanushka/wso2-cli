@@ -1,0 +1,30 @@
+// Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package oauthflow
+
+import "testing"
+
+func TestOrganizationEndpointPrefixesTheAuthorizationPath(t *testing.T) {
+	for authorization, want := range map[string]string{
+		"https://id.example/oauth2/authorize":   "https://id.example/ou/ou-1/oauth2/authorize",
+		"https://id.example:8090/authorize?x=1": "https://id.example:8090/ou/ou-1/authorize?x=1",
+	} {
+		if got := organizationEndpoint(authorization, "ou-1"); got != want {
+			t.Errorf("organizationEndpoint(%q) = %q, want %q", authorization, got, want)
+		}
+	}
+}

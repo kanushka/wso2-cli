@@ -199,11 +199,10 @@ func TestOrgUseWriteSurvivesAConcurrentWriterTheWayContextUseDoes(t *testing.T) 
 	}
 }
 
-// TestOrgListRefusesAsAnUnknownSubcommand proves R11 was not half-built: org
-// list is deferred, and typing it must refuse in the ordinary way rather than
-// silently print help and exit 0, which is what a non-Runnable parent command
-// with unmatched args does by default in Cobra.
-func TestOrgListRefusesAsAnUnknownSubcommand(t *testing.T) {
+// TestOrgListRefusesForWantOfASource: no endpoint lists the organizations a
+// user belongs to, so org list refuses by name and points at the way an
+// organization is chosen, rather than printing help and exiting 0.
+func TestOrgListRefusesForWantOfASource(t *testing.T) {
 	shell, out, errOut := newShell(t)
 	installLogin(t, shell, identityOnlyDocument())
 
@@ -211,8 +210,8 @@ func TestOrgListRefusesAsAnUnknownSubcommand(t *testing.T) {
 		t.Fatalf("exit code = %d, want the usage class %d; stdout: %s stderr: %s",
 			code, exit.Usage, out, errOut)
 	}
-	if !strings.Contains(errOut.String(), "shell.unknown_command") {
-		t.Errorf("stderr does not carry shell.unknown_command:\n%s", errOut)
+	if !strings.Contains(errOut.String(), "shell.organization_list_unavailable") {
+		t.Errorf("stderr does not carry shell.organization_list_unavailable:\n%s", errOut)
 	}
 	if !strings.Contains(errOut.String(), "org current") || !strings.Contains(errOut.String(), "org use") {
 		t.Errorf("the refusal does not name what wso2 org does support:\n%s", errOut)
@@ -331,6 +330,9 @@ func TestOrgUseIsRefusedOnAProviderWithoutOrganizationSwitch(t *testing.T) {
 			seeded := identityOnlyDocument()
 			seeded.Contexts = []contexts.Context{acmeCloud("acme")}
 			seeded.Contexts[0].Login.Provider = provider
+			// A self-hosted one: a WSO2 Cloud context on ThunderID switches by
+			// signing in again (org_cloud_test.go).
+			seeded.Contexts[0].Type = contexts.TypeOnprem
 			if provider == contexts.ProviderThunder {
 				seeded.Contexts[0].Products = map[string]contexts.Product{"iam": {
 					Endpoint: "http://localhost:8492", Audience: "https://localhost:8090/mcp", Scopes: []string{"system"}}}
@@ -367,6 +369,9 @@ func TestOrgUseClearsTheOrganizationOnAProviderWithoutOrganizationSwitch(t *test
 			seeded := identityOnlyDocument()
 			seeded.Contexts = []contexts.Context{acmeCloud("acme", "stuck-org")}
 			seeded.Contexts[0].Login.Provider = provider
+			// A self-hosted one: a WSO2 Cloud context on ThunderID switches by
+			// signing in again (org_cloud_test.go).
+			seeded.Contexts[0].Type = contexts.TypeOnprem
 			if provider == contexts.ProviderThunder {
 				seeded.Contexts[0].Products = map[string]contexts.Product{"iam": {
 					Endpoint: "http://localhost:8492", Audience: "https://localhost:8090/mcp", Scopes: []string{"system"}}}

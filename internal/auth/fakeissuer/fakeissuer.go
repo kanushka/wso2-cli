@@ -674,7 +674,12 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		refusal := url.Values{"error": {i.opts.SilentRefusal}, "state": {query.Get("state")}}
 		http.Redirect(w, r, redirectURI+"?"+refusal.Encode(), http.StatusFound)
 	case r.PathValue("ou") != "" && i.organizationUnit(r.PathValue("ou")) == nil:
-		http.Error(w, "unknown organization unit", http.StatusNotFound)
+		refusal := url.Values{
+			"error":             {"invalid_request"},
+			"error_description": {"The user does not belong to the organization unit"},
+			"state":             {query.Get("state")},
+		}
+		http.Redirect(w, r, redirectURI+"?"+refusal.Encode(), http.StatusFound)
 	default:
 		code := randomToken("code")
 		ou := i.homeOrganizationUnit()

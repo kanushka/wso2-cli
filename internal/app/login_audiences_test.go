@@ -43,6 +43,7 @@ const (
 func twoAudienceDoc(issuerURL string) contexts.Document {
 	document := browserDoc(issuerURL)
 	document.Contexts[0].Login.Provider = contexts.ProviderThunder
+	document.Contexts[0].Organization = ""
 	document.Contexts[0].Products = map[string]contexts.Product{
 		"first":  {Endpoint: "https://first.example", Audience: firstAudience, Scopes: []string{"first:read"}},
 		"second": {Endpoint: "https://second.example", Audience: secondAudience, Scopes: []string{"second:read", "second:write"}},

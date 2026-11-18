@@ -17,9 +17,13 @@
 package app
 
 import (
+	"fmt"
+
 	"github.com/wso2/wso2-cli/internal/auth"
+	"github.com/wso2/wso2-cli/internal/auth/oauthflow"
 	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
+	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
 // reportedOrganization is the organization a context acts in, as whoami and
@@ -63,4 +67,39 @@ func loginSessionOf(root string, selected contexts.Selection) *session.Session {
 		return nil
 	}
 	return &stored
+}
+
+// cloudOrganization is the ThunderID organization unit a WSO2 Cloud context
+// signs in to, by id, or empty when it leaves the choice to the browser.
+func cloudOrganization(c contexts.Context) string {
+	if !c.WSO2Cloud() {
+		return ""
+	}
+	return c.Organization
+}
+
+// issuedIn reports the organization a token response was issued in.
+func issuedIn(result oauthflow.Result) auth.Organization {
+	accessToken := ""
+	if result.Token != nil {
+		accessToken = result.Token.AccessToken
+	}
+	return auth.TokenOrganization(result.IDToken, accessToken)
+}
+
+// checkIssuedIn refuses a session issued in another organization than the
+// one a WSO2 Cloud context names, before it is stored: commands would
+// otherwise act in an organization nobody chose. A token naming none is let
+// through, since nothing in it says otherwise.
+func checkIssuedIn(c contexts.Context, result oauthflow.Result) error {
+	want := cloudOrganization(c)
+	got := issuedIn(result)
+	if want == "" || got.ID == "" || got.ID == want {
+		return nil
+	}
+	return problem.New(problem.CategoryAuthPolicy, "auth.organization_mismatch",
+		fmt.Sprintf("the identity provider issued the session in the %q organization, not in %q, which "+
+			"the %q context names", got.Label(), want, c.Name)).
+		WithRecovery("Run wso2 org use <organization-id> with an organization this user belongs " +
+			"to, or wso2 org use \"\" and wso2 login to choose one in the browser.")
 }
