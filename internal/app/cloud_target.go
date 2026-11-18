@@ -107,6 +107,9 @@ func (s Shell) loginCloud(flags loginFlags, root string, document contexts.Docum
 		}
 		written = &context
 	} else {
+		if err := s.installCloudProducts(); err != nil {
+			return flags, err
+		}
 		existing, _ := document.Find(name)
 		if err := s.recordCloudProducts(root, env, existing, s.installedDescriptors()); err != nil {
 			return flags, err

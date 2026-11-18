@@ -366,3 +366,17 @@ func TestAFirstCloudLoginSkipsAProductTheCatalogCannotSupply(t *testing.T) {
 		t.Errorf("products = %v, want apim alone", slices.Sorted(maps.Keys(recorded)))
 	}
 }
+
+func TestEveryCloudLoginInstallsTheCloudProductsItLacks(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudAPIM(t, login.shell)
+	login.run(t, "login")
+
+	login.run(t, "login")
+
+	for _, namespace := range []string{"am", "iam", "intg"} {
+		if !strings.Contains(login.errOut.String(), "Skipped "+namespace+":") {
+			t.Errorf("a later login did not try to install %s:\n%s", namespace, login.errOut)
+		}
+	}
+}

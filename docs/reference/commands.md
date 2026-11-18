@@ -108,11 +108,12 @@ scopes from the installed module.
 | `am` | `https://<environment>-wso2cloud.gateway.<baseDomain>/agent-manager-service-agent-manager-api/api/v1` | `urn:wso2:cloud` |
 | `iam` | `https://api-<environment>.gateway.<baseDomain>/iam/v1` | the URL itself |
 
-The first login to an environment, the one that writes its context, first
-installs each of these products that is not installed yet, one at a time. A
+Every login to an environment first installs each of these products that is
+not installed yet, one at a time, without asking, under `--no-input` too. A
 product the catalog cannot supply is reported on standard error as
-`Skipped <product>: <reason>` and left out; the sign-in goes on with the rest.
-A product installed after the first login is recorded on the next one. A
+`Skipped <product>: <reason>` and left out; the sign-in goes on with the rest,
+and the next login tries it again. A product installed any other way is
+recorded on the next login too. A
 record already on the context is never changed, whether the login wrote it or
 a person did; to take the derived values again, remove the record with
 `ws context product remove <product>` and log in. A removal is not remembered:

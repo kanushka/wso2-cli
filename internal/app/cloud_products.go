@@ -157,9 +157,9 @@ func (s Shell) recordCloudProducts(root, env string, target contexts.Context, lo
 }
 
 // installCloudProducts installs each WSO2 Cloud product that is not installed,
-// one at a time, so one the catalog cannot supply leaves the others and the
-// sign-in standing. A product left out is not recorded, and a later login
-// records it once its module is installed.
+// on every login to a Cloud context, one at a time, so one the catalog cannot
+// supply leaves the others and the sign-in standing. A product left out is not
+// recorded; the next login tries it again.
 func (s Shell) installCloudProducts() error {
 	var wanted []installNeed
 	for _, namespace := range slices.Sorted(maps.Keys(cloudProducts)) {
