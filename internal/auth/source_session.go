@@ -157,7 +157,10 @@ func (s sessionSource) withinGrant(request Request) (Request, error) {
 		return request, nil
 	}
 	stored, err := s.sessions.Load(s.ref)
-	if err != nil || stored.Granted == nil {
+	if err != nil || stored.Granted == nil || !scopeSetsEqual(stored.Scopes, s.scopes) {
+		// A record changed since the sign-in is authorized afresh by renew,
+		// which asks for its new scopes; what this sign-in was granted says
+		// nothing about those.
 		return request, nil
 	}
 	if request.recordScopes {
@@ -183,13 +186,19 @@ func (s sessionSource) withinGrant(request Request) (Request, error) {
 	return request, nil
 }
 
-// reestablish is the command that authorizes this session afresh: the
-// product's own login, or for the login session a logout and a login.
+// reestablish is the command that authorizes this session afresh.
 func (s sessionSource) reestablish() string {
-	if s.strategy == contexts.StrategyDirect {
-		return fmt.Sprintf("wso2 logout --context %s and wso2 login --context %s", s.contextName, s.contextName)
+	return reestablishCommand(s.strategy, s.contextName, s.product)
+}
+
+// reestablishCommand is the command that authorizes a product's session
+// afresh: the product's own login, or, for the session the login product
+// shares with the login, a logout and a login.
+func reestablishCommand(strategy, contextName, product string) string {
+	if strategy == contexts.StrategyDirect {
+		return fmt.Sprintf("wso2 logout --context %s and wso2 login --context %s", contextName, contextName)
 	}
-	return "wso2 login --only " + s.product
+	return "wso2 login --only " + product
 }
 
 // scopesOutside are the scopes in requested that held does not carry.

@@ -17,6 +17,7 @@
 package auth_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -99,5 +100,39 @@ func TestARequestForAScopeTheContextNeverAskedForSaysToSignInAgainAfterRecording
 	}
 	if !strings.Contains(reported.Recovery, "wso2 login") || !strings.Contains(reported.Recovery, writeScope) {
 		t.Errorf("recovery = %q, want signing in again once the scope is recorded", reported.Recovery)
+	}
+}
+
+func TestAScopeAddedToTheRecordAfterTheSignInIsNotCalledWithheld(t *testing.T) {
+	_, broker := withheldDeployment(t)
+	store := session.Store{StateRoot: broker.StateRoot}
+	stored, _ := store.Load(sessionRef)
+	stored.Scopes = []string{readScope}
+	if err := store.Save(sessionRef, stored); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := broker.Acquire(auth.Request{Audience: audience, Scopes: []string{writeScope}})
+
+	var refused auth.Denial
+	if errors.As(err, &refused) && refused.Problem.Code == "auth.scope_not_granted" {
+		t.Fatalf("a scope the sign-in never asked for was reported as withheld: %v", err)
+	}
+}
+
+func TestASignInThatStatedNoProductScopeRefusesEachByName(t *testing.T) {
+	_, broker := withheldDeployment(t)
+	store := session.Store{StateRoot: broker.StateRoot}
+	stored, _ := store.Load(sessionRef)
+	stored.Granted = []string{}
+	if err := store.Save(sessionRef, stored); err != nil {
+		t.Fatal(err)
+	}
+
+	refusal := denied(t, broker, auth.Request{Audience: audience})
+
+	if reported := refusal.Reported(); reported.Code != "auth.scope_not_granted" ||
+		!strings.Contains(reported.Message, readScope) || !strings.Contains(reported.Message, writeScope) {
+		t.Fatalf("refusal = %+v, want both scopes named as not granted", reported)
 	}
 }

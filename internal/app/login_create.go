@@ -23,6 +23,7 @@ import (
 
 	"github.com/wso2/wso2-cli/internal/auth/oauthflow"
 	"github.com/wso2/wso2-cli/internal/contexts"
+	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/internal/wizard"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
@@ -145,7 +146,7 @@ func (s Shell) loginCreating(flags loginFlags) error {
 		// reportLoginWrite has just named the command that records one.
 		return nil
 	}
-	return s.reportLoginNext(selected, result)
+	return output.NextStep(s.Streams.Out, loginNext(selected, result))
 }
 
 // explainUnboundLogin words the way out of a creating login an issuer refused

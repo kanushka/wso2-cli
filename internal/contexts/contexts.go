@@ -282,8 +282,11 @@ func FromAccount(name string, account Account) Context {
 func (c Context) Synthetic() bool { return c.synthetic }
 
 // WSO2Cloud reports whether the context signs in to WSO2 Cloud, whose
-// identity provider is ThunderID. Its organization, when it records one, is
-// the ThunderID organization unit its sessions are signed in to.
+// identity provider is ThunderID. There a token exchange carries no
+// permission scopes, so a product descriptor's grant is set aside and each
+// product is authorized on its own at the login issuer (ADR 0022). Its
+// organization, when it records one, is the ThunderID organization unit its
+// sessions are signed in to (ADR 0024).
 func (c Context) WSO2Cloud() bool { return c.Type == TypeCloud && c.Login.Provider == ProviderThunder }
 
 // CredentialVariable is the environment variable a v1 context reads its

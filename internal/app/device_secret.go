@@ -99,7 +99,10 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 	if err != nil {
 		return oauthflow.Result{}, false, err
 	}
-	extra := map[string]any{"scope": strings.Join(granted.Granted, " ")}
+	extra := map[string]any{}
+	if granted.Granted != nil {
+		extra["scope"] = strings.Join(granted.Granted, " ")
+	}
 	if granted.RefreshTokenExpiresIn > 0 {
 		extra["refresh_token_expires_in"] = float64(granted.RefreshTokenExpiresIn)
 	}

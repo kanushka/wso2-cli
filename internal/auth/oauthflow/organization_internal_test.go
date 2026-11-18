@@ -23,8 +23,11 @@ func TestOrganizationEndpointPrefixesTheAuthorizationPath(t *testing.T) {
 		"https://id.example/oauth2/authorize":   "https://id.example/ou/ou-1/oauth2/authorize",
 		"https://id.example:8090/authorize?x=1": "https://id.example:8090/ou/ou-1/authorize?x=1",
 	} {
-		if got := organizationEndpoint(authorization, "ou-1"); got != want {
+		if got, ok := organizationEndpoint(authorization, "ou-1"); !ok || got != want {
 			t.Errorf("organizationEndpoint(%q) = %q, want %q", authorization, got, want)
 		}
+	}
+	if _, ok := organizationEndpoint("/oauth2/authorize", "ou-1"); ok {
+		t.Error("a relative endpoint yielded an organization endpoint")
 	}
 }

@@ -238,20 +238,15 @@ func (b *Broker) checkProduct(request Request) error {
 // product record does not carry: record it, then, for a context that signs
 // in, sign in again so the authorization asks for it.
 func (b *Broker) unrecordedScopeRecovery(scope string) string {
-	record := fmt.Sprintf("Add %s to the %s product's scopes (wso2 context edit, or the context file and "+
-		"wso2 context apply)", scope, b.namespace())
+	record := fmt.Sprintf("Run wso2 context edit and add %s to the %s product's scopes", scope, b.namespace())
 	switch b.Selection.Identity.Auth.Kind {
 	case contexts.KindOAuthBrowser, contexts.KindOAuthDevice:
 	default:
 		return record + ", then retry the command."
 	}
 	access, _ := b.Selection.Identity.Access(b.Namespace)
-	if access.Strategy == contexts.StrategyDirect {
-		name := b.Selection.Context.Name
-		return fmt.Sprintf("%s, then run wso2 logout --context %s and wso2 login --context %s so the "+
-			"sign-in asks for it.", record, name, name)
-	}
-	return fmt.Sprintf("%s, then run wso2 login --only %s so the sign-in asks for it.", record, b.namespace())
+	return fmt.Sprintf("%s, then run %s so the sign-in asks for it.", record,
+		reestablishCommand(access.Strategy, b.Selection.Context.Name, b.namespace()))
 }
 
 // checkInvocable refuses the api record where nothing can answer it: the

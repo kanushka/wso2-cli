@@ -112,7 +112,7 @@ type Session struct {
 	// issuer such as ThunderID leaves out a scope the user's roles do not
 	// carry and still answers 200. Nil for a session stored before the field
 	// existed, or from an issuer that stated nothing.
-	Granted []string `json:"granted,omitempty"`
+	Granted []string `json:"granted,omitzero"`
 	// DeviceSecret is the ThunderID device secret the login's sign-in
 	// returned, kept on the login session alone so that ending the login
 	// session ends it too. Each further product session is obtained from it

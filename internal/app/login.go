@@ -148,7 +148,7 @@ func (s Shell) login(flags loginFlags) error {
 	if err := s.reportLogin(selected, outcome); err != nil {
 		return err
 	}
-	return s.reportLoginNext(selected, outcome)
+	return output.NextStep(s.Streams.Out, loginNext(selected, outcome))
 }
 
 // loginOutcome is what one wso2 login established: the first authorization's
@@ -261,18 +261,23 @@ func grantedScopes(result oauthflow.Result) []string {
 	if result.Token == nil {
 		return nil
 	}
-	responseScope, _ := result.Token.Extra("scope").(string)
-	return auth.GrantedScopes(responseScope, result.Token.AccessToken)
+	responseScope, stated := result.Token.Extra("scope").(string)
+	if granted := auth.GrantedScopes(responseScope, result.Token.AccessToken); granted != nil {
+		return granted
+	}
+	if stated {
+		// A response that states an empty scope granted none of them, which is
+		// not the same as one that says nothing.
+		return []string{}
+	}
+	return nil
 }
 
 // withheldScopes are the scopes access asked for that the authorization did
 // not grant, or nil when it granted them all or stated nothing.
 func withheldScopes(access contexts.ProductAccess, result oauthflow.Result) []string {
-	if result.Token == nil {
-		return nil
-	}
 	granted := grantedScopes(result)
-	if len(granted) == 0 {
+	if granted == nil {
 		return nil
 	}
 	var withheld []string
@@ -618,11 +623,7 @@ func (s Shell) reportLogin(selected contexts.Selection, outcome loginOutcome) er
 		{"Context", selected.Context.Name},
 		{"Email", signedInAs(outcome.first.Email, outcome.first.Name, outcome.first.Subject)},
 	}
-	accessToken := ""
-	if outcome.first.Token != nil {
-		accessToken = outcome.first.Token.AccessToken
-	}
-	if organization := auth.TokenOrganization(outcome.first.IDToken, accessToken); !organization.IsZero() {
+	if organization := issuedIn(outcome.first); !organization.IsZero() {
 		fields = append(fields, [2]string{"Organization", organization.Label()})
 	}
 	products := "none"
@@ -637,12 +638,8 @@ func (s Shell) reportLogin(selected contexts.Selection, outcome loginOutcome) er
 	return output.Fields(s.Streams.Out, fields)
 }
 
-// reportLoginNext names the command that moves a person on from the login:
-// the first ready product's status, or how to add a product when none is.
-func (s Shell) reportLoginNext(selected contexts.Selection, outcome loginOutcome) error {
-	return output.NextStep(s.Streams.Out, loginNext(selected, outcome))
-}
-
+// loginNext names the command that moves a person on from the login: the
+// first ready product's status, or how to add a product when none is.
 func loginNext(selected contexts.Selection, outcome loginOutcome) string {
 	if ready := readyProducts(selected.Identity, outcome); len(ready) > 0 {
 		return "Run wso2 " + ready[0].namespace + " status to see what to run first."
@@ -650,7 +647,7 @@ func loginNext(selected contexts.Selection, outcome loginOutcome) string {
 	if len(selected.Identity.Products) > 0 {
 		return "Run wso2 login to authorize the products the context records."
 	}
-	if onWSO2Cloud(selected.Context) {
+	if selected.Context.WSO2Cloud() {
 		return "Run wso2 product install <product>, then wso2 login to record it on this context."
 	}
 	return "Run wso2 context product add <product> --url <url> to record where a product runs."

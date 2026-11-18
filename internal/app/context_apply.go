@@ -691,7 +691,7 @@ func (s Shell) contextExport(name string, mode output.Mode) error {
 	return err
 }
 
-// productDrift is one record whose frozen values differ from what its
+// recordDrift is one record whose frozen values differ from what its
 // installed product's descriptor would produce now: the fact, and the command
 // that adopts the new values.
 type recordDrift struct {
@@ -745,7 +745,7 @@ func recordDrifts(document contexts.Document, lookup descriptorLookup) []recordD
 // drift.
 func productDrift(namespace string, descriptor modules.ProductDescriptor, context contexts.Context) []string {
 	product := context.Products[namespace]
-	cloud := onWSO2Cloud(context)
+	cloud := context.WSO2Cloud()
 	if known := cloudProducts[namespace].scopes; cloud && known != nil {
 		descriptor.Scopes = known
 	}

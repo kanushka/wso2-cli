@@ -17,6 +17,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -89,8 +90,8 @@ func (s Shell) orgListCommand() *cobra.Command {
 		RunE: func(*cobra.Command, []string) error {
 			return problem.New(problem.CategoryUsage, "shell.organization_list_unavailable",
 				"the organizations this user belongs to cannot be listed: no endpoint lists them yet").
-				WithRecovery("Choose the organization in the browser when you sign in with wso2 login, see it " +
-					"with wso2 org current, and switch with wso2 org use <organization-id>.")
+				WithRecovery("Run wso2 login to choose an organization in the browser, wso2 org current to " +
+					"show it, or wso2 org use <organization-id> to switch to one by id.")
 		},
 	}
 }
@@ -193,7 +194,7 @@ func (s Shell) orgUse(command *cobra.Command, organization string) error {
 	if err != nil {
 		return err
 	}
-	if selected, err := s.selection(""); err == nil && onWSO2Cloud(selected.Context) {
+	if selected, err := s.selection(""); err == nil && selected.Context.WSO2Cloud() {
 		return s.orgUseCloud(mode, root, selected, organization)
 	}
 	s.log.Debug("setting the selected context's organization",
@@ -363,12 +364,19 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 		current = auth.TokenOrganization(stored.IDToken, stored.AccessToken)
 	}
 	id := organization
-	if organization != "" && !current.IsZero() &&
+	if organization != "" && current.ID != "" &&
 		(organization == current.ID || organization == current.Handle || organization == current.Name) {
 		id = current.ID
 	}
 	name := selected.Context.Name
 	err := contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
+		// Selected again under the lock, as orgUse does, so the context this
+		// writes is the one the sessions below are ended for.
+		if still, err := document.Select(""); err != nil || still.Context.Name != name {
+			return document, problem.New(problem.CategoryUsage, "contexts.document_busy",
+				"the selected context changed while the organization was being set").
+				WithRecovery("Run the same wso2 org use again.")
+		}
 		for i := range document.Contexts {
 			if document.Contexts[i].Name == name {
 				document.Contexts[i].Organization = id
@@ -395,11 +403,12 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 	}
 	if control := s.nonInteractiveControl(false); control != "" {
 		return s.reportOrgUse(mode, name, id, fmt.Sprintf("Run wso2 login to sign in to it; %s asked "+
-			"that no browser open, and the sessions signed in to the previous organization have ended.", control))
+			"that no browser open, and the login and product sessions of the previous organization "+
+			"have ended.", control))
 	}
 	outcome, err := s.establishAndStore(reselected, loginFlags{contextName: name})
 	if err != nil {
-		return err
+		return orgUseUnfinished(err, name, id)
 	}
 	if mode == output.ModeJSON {
 		return s.reportOrgUse(mode, name, id, "")
@@ -410,7 +419,22 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 	if err := s.reportLogin(reselected, outcome); err != nil {
 		return err
 	}
-	return s.reportLoginNext(reselected, outcome)
+	return output.NextStep(s.Streams.Out, loginNext(reselected, outcome))
+}
+
+// orgUseUnfinished says, on a sign-in that failed after the switch was
+// recorded, where the context now stands and the two ways out.
+func orgUseUnfinished(err error, name, organization string) error {
+	var reported problem.Problem
+	if !errors.As(err, &reported) {
+		return err
+	}
+	note := fmt.Sprintf("The %q context now names the %q organization and is signed in to none: run "+
+		"wso2 login to finish the switch, or wso2 org use <organization-id> to name another.", name, organization)
+	if reported.Recovery != "" {
+		note = reported.Recovery + " " + note
+	}
+	return reported.WithRecovery(note)
 }
 
 // reportOrgUse reports the organization a context now names, with the step

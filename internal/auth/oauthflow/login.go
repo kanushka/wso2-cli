@@ -154,14 +154,14 @@ type Login struct {
 }
 
 // organizationEndpoint is an endpoint of one organization unit.
-func organizationEndpoint(authorization, organization string) string {
-	parsed, err := url.Parse(authorization)
-	if err != nil {
-		return authorization
+func organizationEndpoint(endpoint, organization string) (string, bool) {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Host == "" {
+		return "", false
 	}
 	parsed.Path = "/ou/" + url.PathEscape(organization) + parsed.Path
 	parsed.RawPath = ""
-	return parsed.String()
+	return parsed.String(), true
 }
 
 // scopeDeviceSSO asks ThunderID for a device secret.
@@ -281,8 +281,17 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	endpoint := provider.Endpoint()
 	endpoint.AuthStyle = oauth2.AuthStyleInParams
 	if l.Organization != "" {
-		endpoint.AuthURL = organizationEndpoint(endpoint.AuthURL, l.Organization)
-		endpoint.TokenURL = organizationEndpoint(endpoint.TokenURL, l.Organization)
+		authURL, authOK := organizationEndpoint(endpoint.AuthURL, l.Organization)
+		tokenURL, tokenOK := organizationEndpoint(endpoint.TokenURL, l.Organization)
+		if !authOK || !tokenOK {
+			// The root endpoints would issue the session in whichever
+			// organization the browser session is in.
+			return Result{}, oidcdiscovery.Failed(
+				"the identity provider's authorization or token endpoint is not an absolute URL, so the "+
+					"organization's own endpoints cannot be derived from it",
+				"Check the provider's OpenID configuration, then retry.")
+		}
+		endpoint.AuthURL, endpoint.TokenURL = authURL, tokenURL
 	}
 	config := oauth2.Config{
 		ClientID:    l.ClientID,

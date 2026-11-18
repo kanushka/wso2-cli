@@ -144,7 +144,7 @@ func (s Shell) prepareCloudLogin(flags loginFlags) error {
 		return nil
 	}
 	selected, err := s.selection(flags.contextName)
-	if err != nil || !onWSO2Cloud(selected.Context) {
+	if err != nil || !selected.Context.WSO2Cloud() {
 		return nil
 	}
 	env := selected.Context.CloudEnvironment

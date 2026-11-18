@@ -16,11 +16,7 @@
 
 package auth
 
-import (
-	"encoding/base64"
-	"encoding/json"
-	"strings"
-)
+import "encoding/json"
 
 // Organization is the organization a token was issued in, as ThunderID names
 // it: the organization unit's id, display name and handle.
@@ -53,11 +49,7 @@ func (o Organization) Label() string {
 // only describes them to the person who signed in.
 func TokenOrganization(tokens ...string) Organization {
 	for _, token := range tokens {
-		parts := strings.Split(token, ".")
-		if len(parts) != 3 {
-			continue
-		}
-		payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+		payload, err := jwtPayload(token)
 		if err != nil {
 			continue
 		}
