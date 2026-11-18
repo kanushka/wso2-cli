@@ -134,6 +134,12 @@ type Options struct {
 	// server has to accept, binding the token to an organization through the
 	// issuer it trusts rather than through a claim.
 	OrganizationClaim string
+	// OrganizationUnits are the ThunderID organizations this user belongs
+	// to. The first is the one the browser session is in; an authorization
+	// at /ou/{id}/authorize is issued in the one it names, as WSO2 Cloud was
+	// measured doing. Each token carries its organization's ouId, ouName and
+	// ouHandle claims. Empty, no token carries them.
+	OrganizationUnits []OrganizationUnit
 	// Name, GivenName, and FamilyName are the OIDC standard name claims minted
 	// into the identity token when set, modeling the claims ThunderID's
 	// identity token carries alongside email. All three are empty by default:
@@ -304,6 +310,11 @@ type Options struct {
 	BearerScopeMode string
 }
 
+// OrganizationUnit is one ThunderID organization.
+type OrganizationUnit struct {
+	ID, Name, Handle string
+}
+
 // Issuer is one running fake issuer. Its URL doubles as the issuer identifier
 // unless Options.IssuerIdentifier names another.
 type Issuer struct {
@@ -350,6 +361,7 @@ type codeGrant struct {
 	nonce       string
 	clientID    string
 	resource    string
+	ou          *OrganizationUnit
 }
 
 // refreshRecord is what a refresh token may renew: the permissions it was
@@ -362,6 +374,7 @@ type codeGrant struct {
 type refreshRecord struct {
 	scopes   []string
 	resource string
+	ou       *OrganizationUnit
 }
 
 // deviceGrant is one device authorization awaiting approval.
@@ -418,6 +431,7 @@ func New(t *testing.T, opts Options) *Issuer {
 	mux.HandleFunc("GET /.well-known/openid-configuration", issuer.handleDiscovery)
 	mux.HandleFunc("GET /jwks", issuer.handleJWKS)
 	mux.HandleFunc("GET /authorize", issuer.handleAuthorize)
+	mux.HandleFunc("GET /ou/{ou}/authorize", issuer.handleAuthorize)
 	mux.HandleFunc("POST /token", issuer.handleToken)
 	mux.HandleFunc("POST /introspect", issuer.handleIntrospect)
 	mux.HandleFunc("POST /revoke", issuer.handleRevoke)
@@ -659,10 +673,17 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	case i.opts.SilentRefusal != "" && query.Get("prompt") == "none":
 		refusal := url.Values{"error": {i.opts.SilentRefusal}, "state": {query.Get("state")}}
 		http.Redirect(w, r, redirectURI+"?"+refusal.Encode(), http.StatusFound)
+	case r.PathValue("ou") != "" && i.organizationUnit(r.PathValue("ou")) == nil:
+		http.Error(w, "unknown organization unit", http.StatusNotFound)
 	default:
 		code := randomToken("code")
+		ou := i.homeOrganizationUnit()
+		if r.PathValue("ou") != "" {
+			ou = i.organizationUnit(r.PathValue("ou"))
+		}
 		i.mutex.Lock()
 		i.codes[code] = codeGrant{
+			ou:          ou,
 			challenge:   query.Get("code_challenge"),
 			scopes:      i.withoutWithheld(splitScopes(query.Get("scope"))),
 			redirectURI: redirectURI,
@@ -853,16 +874,16 @@ func (i *Issuer) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := map[string]any{
-		"access_token": i.mintAccessTokenFor("user-1", grant.scopes, grant.resource),
+		"access_token": i.mintAccessTokenIn(grant.ou, "user-1", grant.scopes, grant.resource),
 		"token_type":   "Bearer",
 		"expires_in":   300,
-		"id_token":     i.mintIDToken(grant.clientID, grant.nonce, grant.scopes),
+		"id_token":     i.mintIDTokenIn(grant.ou, grant.clientID, grant.nonce, grant.scopes),
 		"scope":        strings.Join(grant.scopes, " "),
 	}
 	if !i.opts.OmitRefreshToken {
 		refreshToken := randomToken("rt")
 		i.mutex.Lock()
-		i.refreshTokens[refreshToken] = refreshRecord{scopes: grant.scopes, resource: grant.resource}
+		i.refreshTokens[refreshToken] = refreshRecord{scopes: grant.scopes, resource: grant.resource, ou: grant.ou}
 		i.mutex.Unlock()
 		response["refresh_token"] = refreshToken
 		if value, stated := i.refreshTokenExpiresInValue(); stated {
@@ -1024,7 +1045,7 @@ func (i *Issuer) refreshGrant(w http.ResponseWriter, r *http.Request) {
 	// The renewal carries the binding the authorization established, which is
 	// what makes a resource indicator unnecessary on this grant.
 	response := map[string]any{
-		"access_token": i.mintAccessTokenFor("user-1", issued, record.resource),
+		"access_token": i.mintAccessTokenIn(record.ou, "user-1", issued, record.resource),
 		"token_type":   "Bearer",
 		"expires_in":   300,
 	}
@@ -1037,7 +1058,7 @@ func (i *Issuer) refreshGrant(w http.ResponseWriter, r *http.Request) {
 	// A renewal under openid carries a fresh identity token, as OpenID Connect
 	// Core section 12 permits, for the client that presented the refresh token.
 	if slices.Contains(issued, "openid") {
-		response["id_token"] = i.mintIDToken(presentedClientID(r), "", issued)
+		response["id_token"] = i.mintIDTokenIn(record.ou, presentedClientID(r), "", issued)
 	}
 	if !i.opts.OmitRefreshScopeField {
 		response["scope"] = strings.Join(issued, " ")
@@ -1463,6 +1484,35 @@ func (i *Issuer) handleIntrospect(w http.ResponseWriter, r *http.Request) {
 // takes a resource indicator binds the token to it and to nothing else, which
 // is the whole reason the indicator is worth sending.
 func (i *Issuer) mintAccessTokenFor(subject string, scopes []string, resource string) string {
+	return i.mintAccessTokenIn(i.homeOrganizationUnit(), subject, scopes, resource)
+}
+
+// homeOrganizationUnit is the organization the browser session is in.
+func (i *Issuer) homeOrganizationUnit() *OrganizationUnit {
+	if len(i.opts.OrganizationUnits) == 0 {
+		return nil
+	}
+	return &i.opts.OrganizationUnits[0]
+}
+
+// organizationUnit is the user's organization with the given id.
+func (i *Issuer) organizationUnit(id string) *OrganizationUnit {
+	for index := range i.opts.OrganizationUnits {
+		if i.opts.OrganizationUnits[index].ID == id {
+			return &i.opts.OrganizationUnits[index]
+		}
+	}
+	return nil
+}
+
+func withOrganizationUnit(claims map[string]any, ou *OrganizationUnit) {
+	if ou == nil {
+		return
+	}
+	claims["ouId"], claims["ouName"], claims["ouHandle"] = ou.ID, ou.Name, ou.Handle
+}
+
+func (i *Issuer) mintAccessTokenIn(ou *OrganizationUnit, subject string, scopes []string, resource string) string {
 	audience := i.opts.Audience
 	if resource != "" {
 		audience = resource
@@ -1479,6 +1529,7 @@ func (i *Issuer) mintAccessTokenFor(subject string, scopes []string, resource st
 	if i.opts.OrganizationClaim != "" {
 		claims["org_id"] = i.opts.OrganizationClaim
 	}
+	withOrganizationUnit(claims, ou)
 	token := i.sign(claims)
 	i.mutex.Lock()
 	i.accessTokens[token] = tokenRecord{
@@ -1491,6 +1542,10 @@ func (i *Issuer) mintAccessTokenFor(subject string, scopes []string, resource st
 }
 
 func (i *Issuer) mintIDToken(clientID, nonce string, scopes []string) string {
+	return i.mintIDTokenIn(i.homeOrganizationUnit(), clientID, nonce, scopes)
+}
+
+func (i *Issuer) mintIDTokenIn(ou *OrganizationUnit, clientID, nonce string, scopes []string) string {
 	now := time.Now()
 	issuer := i.Identifier()
 	if i.opts.IDTokenIssuer != "" {
@@ -1523,6 +1578,7 @@ func (i *Issuer) mintIDToken(clientID, nonce string, scopes []string) string {
 	if i.opts.OmitNonce {
 		delete(claims, "nonce")
 	}
+	withOrganizationUnit(claims, ou)
 	token := i.sign(claims)
 	i.mutex.Lock()
 	i.idTokens[token] = clientID

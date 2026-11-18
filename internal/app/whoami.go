@@ -158,7 +158,7 @@ func (s Shell) whoami(command *cobra.Command) error {
 		report.Configured = true
 		report.Context = selected.Context.Name
 		report.Issuer = selected.Context.Login.Issuer
-		report.Organization = selected.Context.Organization
+		report.reportedOrganization = organizationOf(nil, selected.Context.Organization)
 
 		store := session.Store{StateRoot: root}
 		if selected.Identity.Auth.Kind == contexts.KindClientCredentials {
@@ -184,6 +184,7 @@ func (s Shell) whoami(command *cobra.Command) error {
 				report.Name = stored.Name
 				report.Email = stored.Email
 				report.Session, report.SessionExpiry, report.Recovery = sessionExpiryState(stored, time.Now())
+				report.reportedOrganization = organizationOf(&stored, selected.Context.Organization)
 			}
 		}
 
@@ -290,10 +291,10 @@ type whoamiReport struct {
 	// contextCurrent's own field does: a caller cannot read the difference
 	// between "nothing is configured" and every other field's zero value out
 	// of empty strings.
-	Configured   bool   `json:"configured"`
-	Context      string `json:"context"`
-	Issuer       string `json:"issuer"`
-	Organization string `json:"organization"`
+	Configured bool   `json:"configured"`
+	Context    string `json:"context"`
+	Issuer     string `json:"issuer"`
+	reportedOrganization
 	// Subject is unknownSubject for a pre-R6 session, and empty when there is
 	// no session at all — see whoamiSessionNone.
 	Subject string `json:"subject"`
@@ -354,11 +355,14 @@ type whoamiProduct struct {
 // rendering, for a script or a reader diagnosing a sign-in, rather than making
 // the one question most people ask answer in eight rows.
 func (w whoamiReport) fields() [][2]string {
-	return [][2]string{
+	fields := [][2]string{
 		{"Context", w.Context},
 		{"Email", signedInAs(w.Email, w.Name, w.Subject)},
-		{"Status", w.status()},
 	}
+	if w.label != "" {
+		fields = append(fields, [2]string{"Organization", w.label})
+	}
+	return append(fields, [2]string{"Status", w.status()})
 }
 
 // status says in words whether the context is logged in.

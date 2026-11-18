@@ -65,8 +65,15 @@ type cloudLogin struct {
 
 func newCloudLogin(t *testing.T) *cloudLogin {
 	t.Helper()
+	return newCloudLoginWith(t, fakeissuer.Options{})
+}
+
+// newCloudLoginWith is newCloudLogin against an issuer with further options.
+func newCloudLoginWith(t *testing.T, opts fakeissuer.Options) *cloudLogin {
+	t.Helper()
 	keyring.MockInit()
-	issuer := fakeissuer.New(t, fakeissuer.Options{Host: "localhost", RequireResource: true})
+	opts.Host, opts.RequireResource = "localhost", true
+	issuer := fakeissuer.New(t, opts)
 	shell, out, errOut := newLoginShell(t)
 	login := &cloudLogin{shell: shell, out: out, errOut: errOut, issuer: issuer}
 	login.shell.OpenBrowser = func(authURL string) error {

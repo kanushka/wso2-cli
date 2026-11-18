@@ -136,9 +136,10 @@ func (s Shell) orgCurrent(command *cobra.Command) error {
 			return err
 		}
 		report = orgCurrentReport{
-			Configured:   true,
-			Context:      selected.Context.Name,
-			Organization: selected.Context.Organization,
+			Configured: true,
+			Context:    selected.Context.Name,
+			reportedOrganization: organizationOf(loginSessionOf(root, selected),
+				selected.Context.Organization),
 		}
 	}
 
@@ -283,9 +284,9 @@ type (
 		// Configured says whether any context exists to report on. See the
 		// identical field on contextCurrent (context.go) for why this is a
 		// field rather than an absence.
-		Configured   bool   `json:"configured"`
-		Context      string `json:"context"`
-		Organization string `json:"organization"`
+		Configured bool   `json:"configured"`
+		Context    string `json:"context"`
+		reportedOrganization
 	}
 
 	// orgSelection is what wso2 org use reports.
@@ -298,7 +299,7 @@ type (
 func (o orgCurrentReport) fields() [][2]string {
 	return [][2]string{
 		{"Context", o.Context},
-		{"Organization", o.Organization},
+		{"Organization", o.label},
 	}
 }
 
