@@ -57,7 +57,10 @@ or `sibling`):
 
 - A module request naming no scope asks for whatever the record allows, and
   is narrowed to what was granted rather than refused for the scopes that
-  were not.
+  were not: each refresh asks for the granted set and is proved against it.
+  Before this, a user whose role lacked one recorded scope had every refresh
+  refused with `auth.narrowing_unavailable`, so no command of the product ran,
+  since modules send an empty request.
 - A request naming a scope the sign-in asked for and was not granted is
   refused with `auth.scope_not_granted`, naming the scope and an
   administrator who can give the user a role carrying it. The broker does not
