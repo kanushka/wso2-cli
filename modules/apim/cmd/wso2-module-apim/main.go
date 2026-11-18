@@ -92,12 +92,14 @@ func main() {
 // request access for, and module.json declares the same values: the shell
 // intersects a runtime request with what the module declared at installation,
 // so an audience declared in only one place is refused rather than granted.
-// No scope is declared, because every request names an audience alone.
+// AuthScopes are the WSO2 Cloud permissions the commands ask for, which
+// module.json also states as the product's scopes.
 func moduleOptions() module.Options {
 	return module.Options{
 		Namespace:     Namespace,
 		Version:       moduleVersion,
 		AuthAudiences: []string{ManagementAudience, GatewayAudience, InvocationAudience},
+		AuthScopes:    declaredScopes,
 	}
 }
 
@@ -363,7 +365,7 @@ func status(ctx context.Context, request module.Request) (result.Result, error) 
 			With(NextField, "Next",
 				"Record where this product runs on the selected context: wso2 context product add apim --url <url>."), nil
 	}
-	client, err := controlPlane(ctx, request)
+	client, err := controlPlane(ctx, request, scopeProjectRead)
 	if err != nil {
 		return report.With("reachable", "Reachable", "no").
 			With(NextField, "Next", statusRecovery(err,

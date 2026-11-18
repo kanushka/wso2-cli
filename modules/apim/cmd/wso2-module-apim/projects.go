@@ -52,7 +52,7 @@ func projectsCreate(command *cobra.Command, flags *projectsCreateFlags) module.H
 			return result.Result{}, err
 		}
 
-		client, err := controlPlane(ctx, request)
+		client, err := controlPlane(ctx, request, scopeProjectCreate)
 		if err != nil {
 			return result.Result{}, err
 		}

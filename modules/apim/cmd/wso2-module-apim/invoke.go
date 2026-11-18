@@ -107,7 +107,7 @@ func apisToken(command *cobra.Command, flags *apisTokenFlags) module.Handler {
 		if err != nil {
 			return result.Result{}, err
 		}
-		client, err := controlPlane(ctx, request)
+		client, err := controlPlane(ctx, request, scopeAPIRead)
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -146,7 +146,7 @@ func apisInvoke(command *cobra.Command, flags *apisInvokeFlags) module.Handler {
 		if err != nil {
 			return result.Result{}, err
 		}
-		client, err := controlPlane(ctx, request)
+		client, err := controlPlane(ctx, request, scopeAPIRead, scopeAPIDeploymentRead, scopeGatewayRead)
 		if err != nil {
 			return result.Result{}, err
 		}

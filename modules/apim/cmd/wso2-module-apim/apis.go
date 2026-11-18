@@ -123,7 +123,7 @@ func apisCreate(command *cobra.Command, flags *apisCreateFlags) module.Handler {
 			return result.Result{}, err
 		}
 
-		client, err := controlPlane(ctx, request)
+		client, err := controlPlane(ctx, request, scopeAPICreate)
 		if err != nil {
 			return result.Result{}, err
 		}

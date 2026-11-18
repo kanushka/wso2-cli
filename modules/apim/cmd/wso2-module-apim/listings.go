@@ -64,7 +64,7 @@ type page[T any] struct {
 
 // projectsList answers "wso2 apim project list".
 func projectsList(ctx context.Context, request module.Request) (result.Result, error) {
-	client, err := controlPlane(ctx, request)
+	client, err := controlPlane(ctx, request, scopeProjectRead)
 	if err != nil {
 		return result.Result{}, err
 	}
@@ -96,7 +96,7 @@ func projectsList(ctx context.Context, request module.Request) (result.Result, e
 func apisList(command *cobra.Command, projectID *string) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		_ = command
-		client, err := controlPlane(ctx, request)
+		client, err := controlPlane(ctx, request, scopeProjectRead, scopeAPIRead)
 		if err != nil {
 			return result.Result{}, err
 		}

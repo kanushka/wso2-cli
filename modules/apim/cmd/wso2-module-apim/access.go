@@ -27,17 +27,33 @@ import (
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
+// The WSO2 Cloud permissions guarding the control-plane routes this module
+// calls. Every one is declared, so the sign-in asks for all of them.
+const (
+	scopeProjectRead       = "ap:project:read"
+	scopeProjectCreate     = "ap:project:create"
+	scopeProjectDelete     = "ap:project:delete"
+	scopeAPIRead           = "ap:rest_api:read"
+	scopeAPICreate         = "ap:rest_api:create"
+	scopeAPIDelete         = "ap:rest_api:delete"
+	scopeAPIDeploymentRead = "ap:rest_api:deployment:read"
+	scopeGatewayRead       = "ap:gateway:read"
+)
+
+// declaredScopes is every permission a command asks for, as module.json
+// declares them.
+var declaredScopes = []string{
+	scopeProjectRead, scopeProjectCreate, scopeProjectDelete,
+	scopeAPIRead, scopeAPICreate, scopeAPIDelete, scopeAPIDeploymentRead, scopeGatewayRead,
+}
+
 // controlPlane asks the shell for access to the product's own record and
-// builds the client for the control plane.
-//
-// No scopes are named. On this product the shell's access is obtained by
-// exchanging the login session for one bound to the product's audience, and an
-// exchanged token carries no resource-server permissions: the deployment
-// authorizes the call from the group the token carries, mapped to a role at
-// the product. Naming scopes here would ask the shell to prove a narrowing
-// this deployment never performs. Leaving them empty asks for exactly what the
-// context's product record consents to, which is the honest request.
-func controlPlane(ctx context.Context, request module.Request) (platform.Client, error) {
+// builds the client for the control plane. It names no scope, so the shell
+// grants the record's full set: a product session is one scope set, renewed
+// as a whole, and narrowing it per command would end it for the next one.
+// needed are the permissions the command's calls require, kept only to
+// explain a refusal.
+func controlPlane(ctx context.Context, request module.Request, needed ...string) (platform.Client, error) {
 	if request.Context.Endpoint == "" {
 		return platform.Client{}, moduleProblem("apim.product_not_recorded",
 			"the selected context records no endpoint for the apim product, so this command has "+

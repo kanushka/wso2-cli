@@ -8,10 +8,10 @@
   },
   "capabilities": {
     "authAudiences": ["api-management", "api-gateway", "api-invocation"],
-    "authScopes": [],
+    "authScopes": ["ap:gateway:read", "ap:project:create", "ap:project:delete", "ap:project:read", "ap:rest_api:create", "ap:rest_api:delete", "ap:rest_api:deployment:read", "ap:rest_api:read"],
     "product": {
       "audience": "resource",
-      "scopes": [],
+      "scopes": ["ap:gateway:read", "ap:project:create", "ap:project:delete", "ap:project:read", "ap:rest_api:create", "ap:rest_api:delete", "ap:rest_api:deployment:read", "ap:rest_api:read"],
       "grant": "exchange",
       "gateway": {
         "audience": "resource"

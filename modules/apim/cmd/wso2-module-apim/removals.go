@@ -112,7 +112,7 @@ func apisUndeploy(command *cobra.Command, flags *apisUndeployFlags) module.Handl
 		if err != nil {
 			return result.Result{}, err
 		}
-		client, err := controlPlane(ctx, request)
+		client, err := controlPlane(ctx, request, scopeAPIDeploymentRead)
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -151,7 +151,7 @@ func apisDelete(command *cobra.Command, flags *removalFlags) module.Handler {
 		if err := flags.confirmed(ctx, request, "the API "+apiID+" and every deployment of it"); err != nil {
 			return result.Result{}, err
 		}
-		client, err := controlPlane(ctx, request)
+		client, err := controlPlane(ctx, request, scopeAPIDeploymentRead, scopeAPIDelete)
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -182,7 +182,7 @@ func projectsDelete(command *cobra.Command, flags *removalFlags) module.Handler 
 		if err := flags.confirmed(ctx, request, "the project "+projectID); err != nil {
 			return result.Result{}, err
 		}
-		client, err := controlPlane(ctx, request)
+		client, err := controlPlane(ctx, request, scopeProjectDelete)
 		if err != nil {
 			return result.Result{}, err
 		}
