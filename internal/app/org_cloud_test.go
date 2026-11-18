@@ -101,20 +101,44 @@ func TestOrgUseOnCloudTakesTheSignedInOrganizationsHandle(t *testing.T) {
 	}
 }
 
-func TestOrgUseOnCloudWithoutInputRecordsTheOrganizationAndNamesTheLogin(t *testing.T) {
+func TestOrgUseOnCloudWithoutInputRefusesAndChangesNothing(t *testing.T) {
 	login := newSignedInCloudOrgs(t)
-
 	t.Setenv(app.NoInputEnvVar, "1")
-	login.run(t, "org", "use", betaUnit.ID)
+	login.errOut.Reset()
 
-	if got := cloudContext(t, login.shell).Organization; got != betaUnit.ID {
-		t.Errorf("context organization = %q, want %q", got, betaUnit.ID)
+	if code := login.shell.Run([]string{"org", "use", betaUnit.ID}); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
 	}
-	if _, err := (session.Store{StateRoot: login.shell.StateRoot}).Load(cloudContext(t, login.shell).CredentialRef); err == nil {
-		t.Error("the session signed in to the previous organization was kept")
+	if got := cloudContext(t, login.shell).Organization; got != "" {
+		t.Errorf("context organization = %q, want it unchanged", got)
 	}
-	if !strings.Contains(login.out.String()+login.errOut.String(), "wso2 login") {
-		t.Errorf("org use does not name the login that finishes it:\n%s\n%s", login.out, login.errOut)
+	if _, err := (session.Store{StateRoot: login.shell.StateRoot}).Load(cloudContext(t, login.shell).CredentialRef); err != nil {
+		t.Errorf("the session was ended by a switch that did not run: %v", err)
+	}
+	if !strings.Contains(login.errOut.String(), "auth.non_interactive") {
+		t.Errorf("refusal:\n%s", login.errOut)
+	}
+}
+
+func TestOrgUseOnCloudWhoseSignInFailsKeepsThePreviousOrganization(t *testing.T) {
+	login := newSignedInCloudOrgs(t)
+	login.errOut.Reset()
+
+	if code := login.shell.Run([]string{"org", "use", "ou-this-user-is-not-in"}); code == exit.OK {
+		t.Fatal("a switch to an organization the provider refused succeeded")
+	}
+	if got := cloudContext(t, login.shell).Organization; got != "" {
+		t.Errorf("context organization = %q, want the previous one kept", got)
+	}
+	store := session.Store{StateRoot: login.shell.StateRoot}
+	context := cloudContext(t, login.shell)
+	for _, ref := range []string{context.CredentialRef, contexts.ProductSessionRef(context.CredentialRef, "iam")} {
+		if _, err := store.Load(ref); err == nil {
+			t.Errorf("session %s survived a failed switch", ref)
+		}
+	}
+	if refusal := login.errOut.String(); !strings.Contains(refusal, "wso2 login") || !strings.Contains(refusal, "ended") {
+		t.Errorf("the refusal does not say the sessions ended and wso2 login restores them:\n%s", refusal)
 	}
 }
 

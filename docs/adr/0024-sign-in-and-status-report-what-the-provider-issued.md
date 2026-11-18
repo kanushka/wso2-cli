@@ -31,14 +31,15 @@ stored, and a session from the device secret that answers in another
 organization is not stored, and the product is authorized in the browser
 instead. The broker's home-tenant check, written for Asgardeo, does not apply.
 
-`ws org use <organization>` on such a context records the organization, ends
-every session signed in to the previous one, and runs the login. The handle,
-name or id of the organization the stored session was issued in resolves to
-its id; any other value is taken as an id. Under `--no-input` or
-`WSO2_NO_INPUT` it records the organization, ends the sessions, and names
-`ws login` as the step that finishes the switch. A sign-in that fails after the switch is
-recorded leaves the context naming the new organization and signed in to
-none, and its refusal says so and names both `ws login` and `ws org use`. On any other ThunderID or
+`ws org use <organization>` on such a context ends every session signed in to
+the previous organization, signs in again in the new one, and records the
+organization only once that sign-in has succeeded. The handle, name or id of
+the organization the stored session was issued in resolves to its id; any
+other value is taken as an id. A sign-in that fails keeps the previous
+organization recorded, ends whatever it had established, and says that the
+sessions ended and that `ws login` restores them. Under `--no-input` or
+`WSO2_NO_INPUT` a switch is refused with `auth.non_interactive` before
+anything changes, since it needs the browser. On any other ThunderID or
 Identity Server context it is still refused with
 `auth.organization_switch_unsupported`.
 

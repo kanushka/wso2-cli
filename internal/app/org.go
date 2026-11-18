@@ -350,10 +350,10 @@ func refuseOrganizationSwitch(identity contexts.Account, organization string) er
 // orgUseCloud switches a WSO2 Cloud context to another organization. A
 // ThunderID token is issued in one organization, chosen in the browser at
 // sign-in, so switching is signing in again at that organization's own
-// authorization endpoint: the context records the organization's id, the
-// sessions signed in to the previous one are ended, and every product is
-// authorized again. Without a browser it records the organization, ends the
-// sessions and names the login that finishes the switch.
+// endpoints. The sessions of the previous organization are ended, every
+// product is authorized in the new one, and only then is the organization's
+// id recorded on the context. A sign-in that fails leaves the previous
+// organization recorded and the context signed in to none.
 //
 // The organization is named by id. The handle or name of the organization the
 // stored session was issued in resolves to its id; no other can be resolved,
@@ -369,46 +369,44 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 		id = current.ID
 	}
 	name := selected.Context.Name
-	err := contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
-		// Selected again under the lock, as orgUse does, so the context this
-		// writes is the one the sessions below are ended for.
-		if still, err := document.Select(""); err != nil || still.Context.Name != name {
-			return document, problem.New(problem.CategoryUsage, "contexts.document_busy",
-				"the selected context changed while the organization was being set").
-				WithRecovery("Run the same wso2 org use again.")
-		}
-		for i := range document.Contexts {
-			if document.Contexts[i].Name == name {
-				document.Contexts[i].Organization = id
-			}
-		}
-		return document, nil
-	})
-	if err != nil {
-		return s.explainWriteRefusal(root, err)
-	}
 	if id == "" || id == current.ID {
+		if err := s.recordOrganization(root, name, id); err != nil {
+			return err
+		}
 		return s.reportOrgUse(mode, name, id, "")
+	}
+	if control := s.nonInteractiveControl(false); control != "" {
+		return problem.New(problem.CategoryAuthPolicy, "auth.non_interactive",
+			fmt.Sprintf("switching the %q context to another organization signs in again in the browser, "+
+				"which %s asked not to open", name, control)).
+			WithRecovery(fmt.Sprintf("Run wso2 org use %s where a browser can open.", organization))
 	}
 
 	store := session.Store{StateRoot: root}
-	for _, access := range selected.Identity.Accesses() {
-		if _, err := s.endSession(store, access); err != nil {
-			return err
+	endAll := func() error {
+		for _, access := range selected.Identity.Accesses() {
+			if _, err := s.endSession(store, access); err != nil {
+				return err
+			}
 		}
+		return nil
 	}
-	reselected, err := s.selection(name)
-	if err != nil {
+	if err := endAll(); err != nil {
 		return err
 	}
-	if control := s.nonInteractiveControl(false); control != "" {
-		return s.reportOrgUse(mode, name, id, fmt.Sprintf("Run wso2 login to sign in to it; %s asked "+
-			"that no browser open, and the login and product sessions of the previous organization "+
-			"have ended.", control))
-	}
-	outcome, err := s.establishAndStore(reselected, loginFlags{contextName: name})
+	switching := selected
+	switching.Context.Organization = id
+	outcome, err := s.establishAndStore(switching, loginFlags{contextName: name})
 	if err != nil {
-		return orgUseUnfinished(err, name, id)
+		// Whatever this sign-in established is in the organization the
+		// context does not record, so it goes too.
+		if endErr := endAll(); endErr != nil {
+			return endErr
+		}
+		return orgUseUnfinished(err, name, selected.Context.Organization)
+	}
+	if err := s.recordOrganization(root, name, id); err != nil {
+		return err
 	}
 	if mode == output.ModeJSON {
 		return s.reportOrgUse(mode, name, id, "")
@@ -416,21 +414,49 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 	if _, err := fmt.Fprintf(s.Streams.Out, "\nSigned the %q context in to the %q organization.\n", name, id); err != nil {
 		return err
 	}
-	if err := s.reportLogin(reselected, outcome); err != nil {
+	if err := s.reportLogin(switching, outcome); err != nil {
 		return err
 	}
-	return output.NextStep(s.Streams.Out, loginNext(reselected, outcome))
+	return output.NextStep(s.Streams.Out, loginNext(switching, outcome))
 }
 
-// orgUseUnfinished says, on a sign-in that failed after the switch was
-// recorded, where the context now stands and the two ways out.
-func orgUseUnfinished(err error, name, organization string) error {
+// recordOrganization writes a context's organization, selecting the context
+// again under the document lock, as orgUse does, so the write lands on the
+// context the sessions were established for.
+func (s Shell) recordOrganization(root, name, organization string) error {
+	err := contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
+		if still, err := document.Select(""); err != nil || still.Context.Name != name {
+			return document, problem.New(problem.CategoryUsage, "contexts.document_busy",
+				"the selected context changed while the organization was being set").
+				WithRecovery("Run the same wso2 org use again.")
+		}
+		for i := range document.Contexts {
+			if document.Contexts[i].Name == name {
+				document.Contexts[i].Organization = organization
+			}
+		}
+		return document, nil
+	})
+	if err != nil {
+		return s.explainWriteRefusal(root, err)
+	}
+	return nil
+}
+
+// orgUseUnfinished says, on a switch whose sign-in failed, where the context
+// stands: the previous organization still recorded, its sessions ended, and
+// the login that restores them.
+func orgUseUnfinished(err error, name, previous string) error {
 	var reported problem.Problem
 	if !errors.As(err, &reported) {
 		return err
 	}
-	note := fmt.Sprintf("The %q context now names the %q organization and is signed in to none: run "+
-		"wso2 login to finish the switch, or wso2 org use <organization-id> to name another.", name, organization)
+	recorded := fmt.Sprintf("still names the %q organization", previous)
+	if previous == "" {
+		recorded = "still names no organization"
+	}
+	note := fmt.Sprintf("The %q context %s; its login and product sessions have ended, and wso2 login "+
+		"restores them.", name, recorded)
 	if reported.Recovery != "" {
 		note = reported.Recovery + " " + note
 	}
