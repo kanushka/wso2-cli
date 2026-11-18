@@ -25,8 +25,8 @@ import (
 )
 
 var (
-	acmeUnit  = fakeissuer.OrganizationUnit{ID: "0d5e8b1c-acme", Name: "Acme Corp", Handle: "acme"}
-	betaUnit  = fakeissuer.OrganizationUnit{ID: "7f21c4aa-beta", Name: "Beta Labs", Handle: "beta"}
+	acmeUnit  = fakeissuer.OrganizationUnit{ID: "0d5e8b1c-3f4a-4c2e-9a1b-ac0e00000001", Name: "Acme Corp", Handle: "acme"}
+	betaUnit  = fakeissuer.OrganizationUnit{ID: "7f21c4aa-9b2d-4e8f-8c3a-be7a00000002", Name: "Beta Labs", Handle: "beta"}
 	cloudOrgs = []fakeissuer.OrganizationUnit{acmeUnit, betaUnit}
 )
 

@@ -19,6 +19,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"regexp"
 
 	"github.com/spf13/cobra"
 
@@ -46,6 +47,9 @@ const orgRecovery = "Run wso2 org current to show the organization the selected 
 // because it is the same fact and the shell must not invent a second sentence
 // for it.
 const noContextRecovery = contextSetupHint
+
+// organizationUnitID is the shape of a ThunderID organization unit id.
+var organizationUnitID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // orgCommand builds the wso2 org tree.
 //
@@ -180,11 +184,13 @@ func (s Shell) orgCurrent(command *cobra.Command) error {
 // a concurrent writer cannot lose it (internal/contexts/save.go's Update holds
 // the document lock across the whole read-modify-write).
 //
-// Selecting the context is done here, not by a second lookup: document.Select
-// is what every other command resolves the selected context through, and
-// resolving it inside the same Update closure that writes the change is what
-// makes the read and the write agree on which context that is, even if the
-// document's default changes between an earlier read and this one.
+// Selecting the context is done inside the Update closure that writes the
+// change: document.Select is what every other command resolves the selected
+// context through, and resolving it under the same lock is what makes the
+// read and the write agree on which context that is. A WSO2 Cloud context is
+// recognised by an earlier lookup, since switching it signs in before
+// anything is written; its write selects again under the lock
+// (recordOrganization).
 func (s Shell) orgUse(command *cobra.Command, organization string) error {
 	mode, err := s.shellOutputMode(command)
 	if err != nil {
@@ -373,13 +379,32 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 		if err := s.recordOrganization(root, name, id); err != nil {
 			return err
 		}
-		return s.reportOrgUse(mode, name, id, "")
+		return s.reportOrgUse(mode, name, id)
+	}
+	if !organizationUnitID.MatchString(id) {
+		// Refused before anything ends: only the organization logged in to
+		// can be named by handle or name, and any other value is sent to the
+		// provider as an id.
+		return problem.New(problem.CategoryUsage, "shell.invalid_argument",
+			fmt.Sprintf("%q is not an organization id, and not the handle or name of the organization the %q "+
+				"context is logged in to", organization, name)).
+			WithRecovery("Run wso2 org use <organization-id>; wso2 whoami -o json shows the id of the " +
+				"organization a login was issued in.")
 	}
 	if control := s.nonInteractiveControl(false); control != "" {
 		return problem.New(problem.CategoryAuthPolicy, "auth.non_interactive",
-			fmt.Sprintf("switching the %q context to another organization signs in again in the browser, "+
+			fmt.Sprintf("switching the %q context to another organization logs in again in the browser, "+
 				"which %s asked not to open", name, control)).
 			WithRecovery(fmt.Sprintf("Run wso2 org use %s where a browser can open.", organization))
+	}
+	// The products a login of the context installs and records, as wso2
+	// login does, so the switch authorizes the same ones.
+	if err := s.prepareCloudLogin(loginFlags{contextName: name}); err != nil {
+		return err
+	}
+	selected, err := s.selection(name)
+	if err != nil {
+		return err
 	}
 
 	store := session.Store{StateRoot: root}
@@ -397,21 +422,20 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 	switching := selected
 	switching.Context.Organization = id
 	outcome, err := s.establishAndStore(switching, loginFlags{contextName: name})
+	if err == nil {
+		err = s.recordOrganization(root, name, id)
+	}
 	if err != nil {
-		// Whatever this sign-in established is in the organization the
-		// context does not record, so it goes too.
-		if endErr := endAll(); endErr != nil {
-			return endErr
-		}
+		// Whatever this login established is in an organization the context
+		// does not record, so it goes too. Failing to end it changes nothing
+		// about the refusal the person needs.
+		_ = endAll()
 		return orgUseUnfinished(err, name, selected.Context.Organization)
 	}
-	if err := s.recordOrganization(root, name, id); err != nil {
-		return err
-	}
 	if mode == output.ModeJSON {
-		return s.reportOrgUse(mode, name, id, "")
+		return s.reportOrgUse(mode, name, id)
 	}
-	if _, err := fmt.Fprintf(s.Streams.Out, "\nSigned the %q context in to the %q organization.\n", name, id); err != nil {
+	if _, err := fmt.Fprintf(s.Streams.Out, "\nLogged the %q context in to the %q organization.\n", name, id); err != nil {
 		return err
 	}
 	if err := s.reportLogin(switching, outcome); err != nil {
@@ -443,7 +467,7 @@ func (s Shell) recordOrganization(root, name, organization string) error {
 	return nil
 }
 
-// orgUseUnfinished says, on a switch whose sign-in failed, where the context
+// orgUseUnfinished says, on a switch whose login failed, where the context
 // stands: the previous organization still recorded, its sessions ended, and
 // the login that restores them.
 func orgUseUnfinished(err error, name, previous string) error {
@@ -463,19 +487,16 @@ func orgUseUnfinished(err error, name, previous string) error {
 	return reported.WithRecovery(note)
 }
 
-// reportOrgUse reports the organization a context now names, with the step
-// that remains, if any.
-func (s Shell) reportOrgUse(mode output.Mode, name, organization, next string) error {
+// reportOrgUse reports the organization a context now names.
+func (s Shell) reportOrgUse(mode output.Mode, name, organization string) error {
 	if mode == output.ModeJSON {
 		return encodeJSON(s.Streams.Out, orgSelection{Context: name, Organization: organization})
 	}
 	sentence := fmt.Sprintf("\nSet the %q context's organization to %q.\n", name, organization)
 	if organization == "" {
-		sentence = fmt.Sprintf("\nCleared the %q context's organization; the next sign-in chooses one in "+
+		sentence = fmt.Sprintf("\nCleared the %q context's organization; the next login chooses one in "+
 			"the browser.\n", name)
 	}
-	if _, err := fmt.Fprint(s.Streams.Out, sentence); err != nil {
-		return err
-	}
-	return output.NextStep(s.Streams.Out, next)
+	_, err := fmt.Fprint(s.Streams.Out, sentence)
+	return err
 }

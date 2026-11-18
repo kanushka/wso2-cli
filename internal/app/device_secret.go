@@ -111,10 +111,12 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 	}).WithExtra(extra)
 	result := oauthflow.Result{Token: token, Subject: login.Subject, Name: login.Name, Email: login.Email}
 	if checkIssuedIn(selected.Context, result) != nil {
-		// The browser session the secret describes is in another organization;
-		// the browser authorization names the one the context does.
+		// The sign-on the secret describes is in another organization, and
+		// so will every later exchange be; the browser authorization names
+		// the one the context does.
 		s.log.Debug("the device secret answers in another organization", "credential_ref", loginRef)
-		return oauthflow.Result{}, false, nil
+		s.revokeUnused(access, result)
+		return oauthflow.Result{}, false, discardDeviceSecret(store, loginRef)
 	}
 	if err := s.storeSession(access, result, session.EstablishedByDeviceSecret); err != nil {
 		return oauthflow.Result{}, false, err

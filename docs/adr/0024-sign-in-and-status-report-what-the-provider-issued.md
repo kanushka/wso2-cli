@@ -27,15 +27,22 @@ its sessions are signed in to, by id. Every authorization for the context is
 then sent to that organization's own endpoints: the discovered authorization
 and token endpoints with `/ou/<id>` ahead of their paths. A session whose token names
 another organization is refused with `auth.organization_mismatch` before it is
-stored, and a session from the device secret that answers in another
-organization is not stored, and the product is authorized in the browser
-instead. The broker's home-tenant check, written for Asgardeo, does not apply.
+stored, and its refresh token revoked. A device secret that answers in another
+organization is discarded, with the session it yielded, and the product is
+authorized in the browser instead. In place of the broker's home-tenant check,
+written for Asgardeo, a product command is refused with
+`auth.organization_mismatch` when the login session's token names another
+organization than the context records, as after the context is edited by
+hand.
 
 `ws org use <organization>` on such a context ends every session signed in to
 the previous organization, signs in again in the new one, and records the
 organization only once that sign-in has succeeded. The handle, name or id of
 the organization the stored session was issued in resolves to its id; any
-other value is taken as an id. A sign-in that fails keeps the previous
+other value must be an organization unit id, a UUID, and is refused with
+`shell.invalid_argument` before anything ends. The products a login of the
+context would install and record are installed and recorded first, as
+`ws login` does. A sign-in that fails keeps the previous
 organization recorded, ends whatever it had established, and says that the
 sessions ended and that `ws login` restores them. Under `--no-input` or
 `WSO2_NO_INPUT` a switch is refused with `auth.non_interactive` before

@@ -17,6 +17,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/wso2/wso2-cli/internal/auth"
@@ -69,6 +70,19 @@ func loginSessionOf(root string, selected contexts.Selection) *session.Session {
 	return &stored
 }
 
+// revokeUnused revokes the refresh token of an authorization that is not
+// stored, best effort as at logout (ADR 0010), so nothing outlives it at the
+// provider.
+func (s Shell) revokeUnused(access contexts.ProductAccess, result oauthflow.Result) {
+	if result.Token == nil || result.Token.RefreshToken == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), revokeDeadline)
+	defer cancel()
+	oauthflow.Revoke{Issuer: access.Issuer, IssuerID: access.IssuerID, ClientID: access.ClientID,
+		RefreshToken: result.Token.RefreshToken}.Run(ctx)
+}
+
 // cloudOrganization is the ThunderID organization unit a WSO2 Cloud context
 // signs in to, by id, or empty when it leaves the choice to the browser.
 func cloudOrganization(c contexts.Context) string {
@@ -98,7 +112,7 @@ func checkIssuedIn(c contexts.Context, result oauthflow.Result) error {
 		return nil
 	}
 	return problem.New(problem.CategoryAuthPolicy, "auth.organization_mismatch",
-		fmt.Sprintf("the identity provider issued the session in the %q organization, not in %q, which "+
+		fmt.Sprintf("the identity provider issued this login in the %q organization, not in %q, which "+
 			"the %q context names", got.Label(), want, c.Name)).
 		WithRecovery("Run wso2 org use <organization-id> with an organization this user belongs " +
 			"to, or wso2 org use \"\" and wso2 login to choose one in the browser.")

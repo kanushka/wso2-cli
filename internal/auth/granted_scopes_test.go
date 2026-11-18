@@ -136,3 +136,19 @@ func TestASignInThatStatedNoProductScopeRefusesEachByName(t *testing.T) {
 		t.Fatalf("refusal = %+v, want both scopes named as not granted", reported)
 	}
 }
+
+func TestAnUnrecordedScopeOnAnExchangedProductSaysToRetryNotToLogIn(t *testing.T) {
+	broker := productionBroker(t, contexts.KindOAuthBrowser)
+	broker.Capabilities.AuthScopes = []string{readScope, writeScope}
+	withProduct(broker, contexts.Product{
+		Endpoint: "https://reference.example.test", Audience: audience, Scopes: []string{readScope},
+		Grant: &contexts.Grant{Kind: contexts.GrantExchange},
+	})
+
+	recovery := denied(t, broker, auth.Request{Audience: audience, Scopes: []string{writeScope}}).Reported().Recovery
+
+	if !strings.Contains(recovery, "--scopes "+readScope+","+writeScope) || !strings.Contains(recovery, "retry the command") ||
+		strings.Contains(recovery, "login --only") {
+		t.Errorf("recovery = %q, want the record command and a retry: an exchanged product has no login of its own", recovery)
+	}
+}

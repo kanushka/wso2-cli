@@ -17,6 +17,7 @@
 package app_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -124,7 +125,7 @@ func TestOrgUseOnCloudWhoseSignInFailsKeepsThePreviousOrganization(t *testing.T)
 	login := newSignedInCloudOrgs(t)
 	login.errOut.Reset()
 
-	if code := login.shell.Run([]string{"org", "use", "ou-this-user-is-not-in"}); code == exit.OK {
+	if code := login.shell.Run([]string{"org", "use", "11111111-2222-4333-8444-555555555555"}); code == exit.OK {
 		t.Fatal("a switch to an organization the provider refused succeeded")
 	}
 	if got := cloudContext(t, login.shell).Organization; got != "" {
@@ -151,5 +152,38 @@ func TestOrgListRefusesNamingWhyAndTheWayToChoose(t *testing.T) {
 	refusal := login.errOut.String()
 	if !strings.Contains(refusal, "shell.organization_list_unavailable") || !strings.Contains(refusal, "wso2 org use") {
 		t.Errorf("org list refusal:\n%s", refusal)
+	}
+}
+
+func TestOrgUseOnCloudRefusesAHandleItCannotResolveBeforeEndingAnything(t *testing.T) {
+	login := newSignedInCloudOrgs(t)
+	login.errOut.Reset()
+
+	if code := login.shell.Run([]string{"org", "use", "beta"}); code != exit.Usage {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.Usage, login.errOut)
+	}
+	if !strings.Contains(login.errOut.String(), "shell.invalid_argument") {
+		t.Errorf("refusal:\n%s", login.errOut)
+	}
+	if _, err := (session.Store{StateRoot: login.shell.StateRoot}).Load(cloudContext(t, login.shell).CredentialRef); err != nil {
+		t.Errorf("the session was ended by a switch that did not run: %v", err)
+	}
+}
+
+func TestACloudContextEditedToAnotherOrganizationIsRefusedAtTheBroker(t *testing.T) {
+	login := newSignedInCloudOrgs(t)
+	document := loadDocument(t, login.shell)
+	context := cloudContext(t, login.shell)
+	context.Organization = betaUnit.ID
+	if err := contexts.Save(login.shell.StateRoot, document.Put(context)); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := productBroker(t, login.shell, login.issuer, "apim").Acquire(auth.Request{Audience: cloudShared})
+
+	var refused auth.Denial
+	if !errors.As(err, &refused) || refused.Problem.Code != "auth.organization_mismatch" ||
+		!strings.Contains(refused.Problem.Recovery, "org use "+betaUnit.ID) {
+		t.Fatalf("Acquire = %v, want auth.organization_mismatch naming org use", err)
 	}
 }

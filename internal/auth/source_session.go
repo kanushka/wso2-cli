@@ -177,10 +177,10 @@ func (s sessionSource) withinGrant(request Request) (Request, error) {
 	}
 	if withheld := scopesOutside(request.Scopes, stored.Granted); len(withheld) > 0 {
 		return request, denial("auth.scope_not_granted",
-			fmt.Sprintf("the %q module needs %s, which the sign-in asked for and the identity provider did "+
+			fmt.Sprintf("the %q module needs %s, which the login asked for and the identity provider did "+
 				"not grant, because this user's roles do not carry it", s.namespace, scopeList(withheld)),
 			fmt.Sprintf("Ask an administrator of %s to give this user a role that carries %s on %q. "+
-				"Signing in again will not add it until then; afterwards, %s.",
+				"Logging in again will not add it until then; afterwards, %s.",
 				s.issuer, scopeList(withheld), s.audience, s.reestablish()))
 	}
 	return request, nil
@@ -196,9 +196,9 @@ func (s sessionSource) reestablish() string {
 // shares with the login, a logout and a login.
 func reestablishCommand(strategy, contextName, product string) string {
 	if strategy == contexts.StrategyDirect {
-		return fmt.Sprintf("wso2 logout --context %s and wso2 login --context %s", contextName, contextName)
+		return fmt.Sprintf("run wso2 logout --context %s and wso2 login --context %s", contextName, contextName)
 	}
-	return "wso2 login --only " + product
+	return "run wso2 login --only " + product
 }
 
 // scopesOutside are the scopes in requested that held does not carry.

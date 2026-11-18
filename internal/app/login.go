@@ -495,6 +495,7 @@ func (s Shell) establishThroughBrowser(selected contexts.Selection, access conte
 	}
 
 	if err := checkIssuedIn(selected.Context, result); err != nil {
+		s.revokeUnused(access, result)
 		return oauthflow.Result{}, err
 	}
 	// The token itself is never logged, here or anywhere: what a reader needs

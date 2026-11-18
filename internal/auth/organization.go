@@ -45,8 +45,9 @@ func (o Organization) Label() string {
 
 // TokenOrganization reads the organization from the first of tokens whose
 // claims name one. The payload is read without verifying the signature: the
-// tokens came from the issuer in answer to this shell, and what is read here
-// only describes them to the person who signed in.
+// tokens came from the issuer in answer to this shell over its own TLS
+// connection, as bearerClaims reasons, and the organization they name is
+// checked only against what this shell itself asked for.
 func TokenOrganization(tokens ...string) Organization {
 	for _, token := range tokens {
 		payload, err := jwtPayload(token)
