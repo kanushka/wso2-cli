@@ -433,6 +433,7 @@ func New(t *testing.T, opts Options) *Issuer {
 	mux.HandleFunc("GET /authorize", issuer.handleAuthorize)
 	mux.HandleFunc("GET /ou/{ou}/authorize", issuer.handleAuthorize)
 	mux.HandleFunc("POST /token", issuer.handleToken)
+	mux.HandleFunc("POST /ou/{ou}/token", issuer.handleToken)
 	mux.HandleFunc("POST /introspect", issuer.handleIntrospect)
 	mux.HandleFunc("POST /revoke", issuer.handleRevoke)
 	mux.HandleFunc("GET /logout", issuer.handleLogout)
@@ -872,6 +873,9 @@ func (i *Issuer) exchangeCode(w http.ResponseWriter, r *http.Request) {
 	i.mutex.Unlock()
 	sum := sha256.Sum256([]byte(r.PostForm.Get("code_verifier")))
 	proof := base64.RawURLEncoding.EncodeToString(sum[:])
+	if ou := r.PathValue("ou"); ou != "" && (grant.ou == nil || grant.ou.ID != ou) {
+		found = false
+	}
 	if !found || grant.clientID != presentedClientID(r) ||
 		grant.redirectURI != r.PostForm.Get("redirect_uri") ||
 		subtle.ConstantTimeCompare([]byte(proof), []byte(grant.challenge)) != 1 {

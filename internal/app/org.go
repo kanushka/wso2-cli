@@ -48,7 +48,7 @@ const noContextRecovery = contextSetupHint
 
 // orgCommand builds the wso2 org tree.
 //
-// wso2 org list is refused by name (ADR 0023): nothing lists the organizations
+// wso2 org list is refused by name (ADR 0024): nothing lists the organizations
 // a user belongs to, so the command exists only to say so and to point at
 // the sign-in, where an organization is chosen.
 func (s Shell) orgCommand() *cobra.Command {

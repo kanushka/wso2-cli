@@ -146,14 +146,14 @@ type Login struct {
 	// sign-on the sign-in started, and is issued only when one was.
 	DeviceSSO bool
 	// Organization is the ThunderID organization unit the sign-in is for,
-	// by id. The authorization is then sent to that organization's own
-	// endpoint, the discovered one with /ou/<id> ahead of its path, which
-	// issues the session in it whichever organization the browser session
-	// is in.
+	// by id. The authorization and the code exchange then go to that
+	// organization's own endpoints, the discovered ones with /ou/<id> ahead
+	// of their paths, which issue the session in it whichever organization
+	// the browser session is in.
 	Organization string
 }
 
-// organizationEndpoint is the authorization endpoint of one organization unit.
+// organizationEndpoint is an endpoint of one organization unit.
 func organizationEndpoint(authorization, organization string) string {
 	parsed, err := url.Parse(authorization)
 	if err != nil {
@@ -282,6 +282,7 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	endpoint.AuthStyle = oauth2.AuthStyleInParams
 	if l.Organization != "" {
 		endpoint.AuthURL = organizationEndpoint(endpoint.AuthURL, l.Organization)
+		endpoint.TokenURL = organizationEndpoint(endpoint.TokenURL, l.Organization)
 	}
 	config := oauth2.Config{
 		ClientID:    l.ClientID,
