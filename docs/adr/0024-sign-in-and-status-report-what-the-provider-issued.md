@@ -1,4 +1,4 @@
-# ADR 0023: Sign-In and Status Report What the Provider Issued
+# ADR 0024: Sign-In and Status Report What the Provider Issued
 
 **Status:** Accepted
 
@@ -24,8 +24,8 @@ handle (else the id), beside `organizationId` and `organizationName`.
 
 On a WSO2 Cloud context, `organization` names the ThunderID organization unit
 its sessions are signed in to, by id. Every authorization for the context is
-then sent to that organization's own endpoint: the discovered authorization
-endpoint with `/ou/<id>` ahead of its path. A session whose token names
+then sent to that organization's own endpoints: the discovered authorization
+and token endpoints with `/ou/<id>` ahead of their paths. A session whose token names
 another organization is refused with `auth.organization_mismatch` before it is
 stored, and a session from the device secret that answers in another
 organization is not stored, and the product is authorized in the browser
