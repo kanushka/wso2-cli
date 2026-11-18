@@ -137,14 +137,16 @@ as stated, as on any other context. A context is a WSO2 Cloud context when its
 An identity provider may answer an authorization with fewer scopes than it
 asked for, leaving out the ones the user's role does not carry. `ws login`
 still succeeds, and prints one line per session on standard error naming the
-scopes left out; a command that needs them is refused when it runs.
+scopes left out; a command that needs them is refused when it runs. The
+session still records the scopes its product record asks for, because that
+scope set is what binds a stored session to its record.
 
 ### Device secret
 
 On a context whose provider is `thunder`, when the provider's discovery
 document lists `device_sso` in `scopes_supported`, the login authorization
 also asks for `device_sso`. ThunderID answers it with a device secret
-describing the browser session the sign-in started, but only when the sign-in
+describing the sign-on the sign-in started, but only when the sign-in
 started one: a person already signed in to the provider in their browser gets
 none, and nothing changes for them. The secret is kept in the OS secure store
 with the login session; it is never written to the context file, printed,
@@ -157,7 +159,7 @@ a command needs a product that has no session, which then needs no browser and
 works under `--no-input`. Such a session is stored, renewed and checked like
 any other, and `ws whoami -o json` reports it with `"establishedBy":
 "device-secret"`. A secret that has expired, or that the provider no longer
-accepts because the browser session ended, is discarded and the product is
+accepts because the sign-on ended, is discarded and the product is
 authorized through the browser as before; any other refusal of the exchange is
 reported with `auth.exchange_unavailable` or `auth.exchange_unusable`.
 

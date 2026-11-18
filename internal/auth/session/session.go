@@ -110,7 +110,7 @@ type Session struct {
 	// DeviceSecret is the ThunderID device secret the login's sign-in
 	// returned, kept on the login session alone so that ending the login
 	// session ends it too. Each further product session is obtained from it
-	// without a browser while the browser session it describes lasts.
+	// without a browser while the sign-on it describes lasts.
 	// DeviceSecretExpiresAt is its exp claim, zero when it states none.
 	DeviceSecret          string    `json:"deviceSecret,omitempty"`
 	DeviceSecretExpiresAt time.Time `json:"deviceSecretExpiresAt,omitempty"`

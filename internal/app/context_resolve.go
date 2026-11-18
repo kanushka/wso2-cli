@@ -365,6 +365,15 @@ func resolveCloudProduct(namespace string, descriptor *modules.ProductDescriptor
 		(spec.ClientSecretVariable != "" || spec.ClientIDVariable != "") {
 		return contexts.Product{}, browserProductCredential(target)
 	}
+	if target.Login.Kind == contexts.KindClientCredentials && descriptor != nil {
+		asked := modules.MachineInline
+		if spec.ClientSecretVariable != "" {
+			asked = modules.MachineCredential
+		}
+		if !descriptor.AllowsMachine(asked) {
+			return contexts.Product{}, machineNotAccepted(namespace, target.Name, *descriptor, asked)
+		}
+	}
 	if descriptor != nil && spec.Scopes == nil {
 		product.Scopes = descriptor.Scopes
 	}

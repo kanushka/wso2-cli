@@ -17,6 +17,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -61,12 +62,7 @@ var cloudProducts = map[string]cloudProduct{
 }
 
 func (p cloudProduct) spec(e cloudEnvironment) productSpec {
-	url := p.host(e) + p.path
-	audience := p.audience
-	if audience == "" {
-		audience = url
-	}
-	return productSpec{URL: url, Audience: audience}
+	return productSpec{URL: p.host(e) + p.path}
 }
 
 // onWSO2Cloud reports whether a context signs in to WSO2 Cloud, whose
@@ -157,23 +153,37 @@ func (s Shell) recordCloudProducts(root, env string, target contexts.Context, lo
 }
 
 // installCloudProducts installs each WSO2 Cloud product that is not installed,
-// on every login to a Cloud context, one at a time, so one the catalog cannot
-// supply leaves the others and the sign-in standing. A product left out is not
-// recorded; the next login tries it again.
+// on every login to a Cloud context, one at a time, so one that cannot be
+// installed leaves the others and the sign-in standing. Each product left out
+// gets one line saying why; it is not recorded, and the next login tries it
+// again.
 func (s Shell) installCloudProducts() error {
 	var wanted []installNeed
 	for _, namespace := range slices.Sorted(maps.Keys(cloudProducts)) {
 		wanted = append(wanted, installNeed{Namespace: namespace})
 	}
 	plan, err := s.planInstalls(wanted)
+	if err != nil || len(plan.Missing) == 0 {
+		return err
+	}
+	installer, err := s.installer()
 	if err != nil {
 		return err
 	}
 	for _, need := range plan.Missing {
-		if err := s.install([]installNeed{need}); err != nil {
-			if _, werr := fmt.Fprintf(s.Streams.Err, "Skipped %s: %v\n", need.Namespace, err); werr != nil {
-				return werr
-			}
+		ctx, cancel := context.WithTimeout(context.Background(), catalogTimeout)
+		installed, err := installer.Run(ctx, installRequest(need))
+		cancel()
+		line := fmt.Sprintf("Installed %s v%s.", installed.Namespace, installed.Version)
+		var refused problem.Problem
+		switch {
+		case errors.As(err, &refused) && refused.Code == "catalog.unknown_module":
+			line = fmt.Sprintf("Skipped %s: it is not published in the module catalog.", need.Namespace)
+		case err != nil:
+			line = fmt.Sprintf("Skipped %s: %v. The next login tries again.", need.Namespace, err)
+		}
+		if _, err := fmt.Fprintln(s.Streams.Err, line); err != nil {
+			return err
 		}
 	}
 	return nil

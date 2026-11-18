@@ -47,7 +47,7 @@ indicator. That refusal still happens there, and the shell still reports it.
 
 ## A product session comes from the device secret when the sign-on issued one
 
-ThunderID can describe the browser session a sign-in started with a device
+ThunderID can describe the sign-on a sign-in started with a device
 secret: a signed token the provider issues beside the login's tokens when the
 authorization request asks for the `device_sso` scope. Presented in a token
 exchange, with the secret as the subject token, one resource indicator and a
@@ -74,7 +74,7 @@ A missing or expired secret, or one the provider refuses as no longer usable
 (`interaction_required`, `invalid_grant` or `invalid_request`), is discarded,
 and the product is authorized in the browser as before, which `--no-input`
 refuses as before. Any other refusal is reported. ThunderID issues a secret
-only when the sign-in started a new browser session, so a person already
+only when the sign-in started a new sign-on, so a person already
 signed in to the provider in their browser gets none, and their login opens
 one authorization per product, as it did before this decision.
 
@@ -95,7 +95,7 @@ public client the shell registers there.
   scope set.
 - A separate authorization per product, each naming its own resource and
   scopes, passed with `prompt=none` and no password for four products, one of
-  them under a different audience. With no browser session, `prompt=none`
+  them under a different audience. With no sign-on, `prompt=none`
   answers `login_required`. Each authorization gets its own refresh token;
   they all refresh side by side, and replaying a rotated refresh token ends
   only that authorization's token family.
@@ -107,7 +107,7 @@ public client the shell registers there.
 - With `device_sso` asked for, the authorization-code response carries
   `device_secret`, a provider-signed token typed `sso-session+jwt` whose
   audience is the issuer and which expires after 24 hours. It is issued only
-  when the sign-in started a new browser session; with one already present
+  when the sign-in started a new sign-on; with one already present
   the response has none, even with `prompt=login` or `max_age=0`. The
   discovery document lists `device_sso` in `scopes_supported`.
 - Exchanging the secret with `subject_token_type`
@@ -117,7 +117,7 @@ public client the shell registers there.
   `resource` the token is bound to the default resource server with no
   scopes; the exchange's `audience` parameter is ignored. Several exchanges
   live side by side, each with its own token family.
-- Once the browser session has ended, by sign-out or timeout, the exchange
+- Once the sign-on has ended, by sign-out or timeout, the exchange
   answers `interaction_required`; a secret from another user answers
   `invalid_grant`. Sign-out ends the secret at once but revokes only the
   client's latest grant.
@@ -134,7 +134,7 @@ public client the shell registers there.
   every module a token carrying every product's scopes, which ADR 0014
   rejects.
 - **A browser authorization per product only, with no device secret.** It
-  works everywhere and is what a reused browser session falls back to, but it
+  works everywhere and is what a reused sign-on falls back to, but it
   opens one tab per product on a fresh sign-in and cannot serve a product's
   first use under `--no-input`.
 - **Keeping the device secret in its own secure-store entry.** It would

@@ -87,16 +87,24 @@ func (s Shell) loginCloud(flags loginFlags, root string, document contexts.Docum
 	}
 	name := cloudContextName(env)
 	flags.contextName = name
-	var written *contexts.Context
-	if !declaresContext(document, name) {
-		environment, err := readCloudEnvironment(root, env)
-		if err != nil {
+	existing, declared := document.Find(name)
+	var environment cloudEnvironment
+	if !declared {
+		if environment, err = readCloudEnvironment(root, env); err != nil {
 			return flags, err
 		}
+	}
+	// A context of that name that a person made for something else is
+	// selected and logged in to as it is, with nothing installed or recorded.
+	if !declared || onWSO2Cloud(existing) {
 		if err := s.installCloudProducts(); err != nil {
 			return flags, err
 		}
-		lookup := s.installedDescriptors()
+	}
+	lookup := s.installedDescriptors()
+	var written *contexts.Context
+	switch {
+	case !declared:
 		context, err := environment.context(name)
 		if err != nil {
 			return flags, err
@@ -106,17 +114,13 @@ func (s Shell) loginCloud(flags loginFlags, root string, document contexts.Docum
 			return flags, err
 		}
 		written = &context
-	} else {
-		if err := s.installCloudProducts(); err != nil {
+	case onWSO2Cloud(existing):
+		if err := s.recordCloudProducts(root, env, existing, lookup); err != nil {
 			return flags, err
 		}
-		existing, _ := document.Find(name)
-		if err := s.recordCloudProducts(root, env, existing, s.installedDescriptors()); err != nil {
-			return flags, err
-		}
-		if document.DefaultContext == name {
-			return flags, nil
-		}
+	}
+	if written == nil && document.DefaultContext == name {
+		return flags, nil
 	}
 	if err := contexts.Writable(root); err != nil {
 		return flags, s.explainWriteRefusal(root, err)
@@ -159,11 +163,12 @@ func readCloudEnvironment(root, env string) (cloudEnvironment, error) {
 	if err := decoder.Decode(&environment); err != nil {
 		return cloudEnvironment{}, malformed("does not have the shape of an environment file: " + err.Error())
 	}
-	for member, value := range map[string]string{
-		"issuer": environment.Issuer, "baseDomain": environment.BaseDomain, "environment": environment.Environment,
+	for _, member := range []struct{ name, value string }{
+		{"issuer", environment.Issuer}, {"baseDomain", environment.BaseDomain},
+		{"environment", environment.Environment},
 	} {
-		if value == "" {
-			return cloudEnvironment{}, malformed("states no " + member)
+		if member.value == "" {
+			return cloudEnvironment{}, malformed("states no " + member.name)
 		}
 	}
 	// Both become part of every product's host name.

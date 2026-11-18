@@ -35,9 +35,13 @@ import (
 // no longer presented, so an exchange is not sent with one about to lapse.
 const deviceSecretMargin = time.Minute
 
+// deviceSecretDeadline bounds one exchange. Nobody is waiting at a browser,
+// so it is a request's deadline, not a login's.
+const deviceSecretDeadline = 30 * time.Second
+
 // asksForDeviceSecret reports whether an authorization asks ThunderID for a
 // device secret: only the login session's, since the secret describes the
-// browser session that sign-in started and every later product is obtained
+// sign-on that sign-in started and every later product is obtained
 // from it.
 func asksForDeviceSecret(identity contexts.Account, access contexts.ProductAccess) bool {
 	return identity.Auth.Provider == contexts.ProviderThunder && access.SessionRef == identity.LoginAccess().SessionRef
@@ -67,8 +71,11 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 	store := session.Store{StateRoot: root}
 	loginRef := identity.LoginAccess().SessionRef
 	login, err := store.Load(loginRef)
-	if err != nil || login.DeviceSecret == "" {
+	if isNoSession(err) {
 		return oauthflow.Result{}, false, nil
+	}
+	if err != nil || login.DeviceSecret == "" {
+		return oauthflow.Result{}, false, err
 	}
 	now := time.Now()
 	if !login.DeviceSecretExpiresAt.IsZero() && !login.DeviceSecretExpiresAt.After(now.Add(deviceSecretMargin)) {
@@ -82,7 +89,7 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 		"client_id", access.ClientID,
 		"scopes", strings.Join(access.Scopes, " "),
 		"resource", access.Resource)
-	ctx, cancel := context.WithTimeout(context.Background(), loginDeadline)
+	ctx, cancel := context.WithTimeout(context.Background(), deviceSecretDeadline)
 	defer cancel()
 	granted, err := auth.ExchangeDeviceSecret(ctx, nil, access, login.DeviceSecret, now)
 	if errors.Is(err, auth.ErrDeviceSecretSpent) {
@@ -114,8 +121,11 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 func discardDeviceSecret(store session.Store, loginRef string) error {
 	return store.WithLock(loginRef, func() error {
 		stored, err := store.Load(loginRef)
-		if err != nil {
+		if isNoSession(err) {
 			return nil
+		}
+		if err != nil {
+			return err
 		}
 		stored.DeviceSecret, stored.DeviceSecretExpiresAt = "", time.Time{}
 		return store.Save(loginRef, stored)

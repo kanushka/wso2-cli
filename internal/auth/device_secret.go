@@ -33,7 +33,7 @@ import (
 const jwtTokenType = "urn:ietf:params:oauth:token-type:jwt"
 
 // ErrDeviceSecretSpent is a device secret the provider no longer answers: the
-// browser session it describes has ended, it belongs to another user, or the
+// sign-on it describes has ended, it belongs to another user, or the
 // provider cannot read it. The secret is discarded and the product is
 // authorized through the browser instead.
 var ErrDeviceSecretSpent = errors.New("auth: the identity provider no longer accepts the device secret")

@@ -138,7 +138,7 @@ type Login struct {
 	Ports []int
 	// DeviceSSO asks for ThunderID's device secret, when the provider's
 	// discovery document lists the device_sso scope. The secret describes the
-	// browser session the sign-in started, and is issued only when one was.
+	// sign-on the sign-in started, and is issued only when one was.
 	DeviceSSO bool
 }
 
@@ -187,7 +187,7 @@ type Result struct {
 	// one invented for it. See displayName.
 	Name string
 	// DeviceSecret is the device secret the token response carried, empty
-	// when none was asked for or the sign-in reused a browser session. It is a
+	// when none was asked for or the sign-in reused a sign-on. It is a
 	// credential: it is stored and never printed or logged.
 	DeviceSecret string
 }
