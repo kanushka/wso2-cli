@@ -240,7 +240,10 @@ func (s Shell) sessionEstablisher(selection contexts.Selection, namespace string
 	return func(access contexts.ProductAccess) error {
 		// A device secret needs no browser, so it is tried before the gate
 		// that refuses one.
-		if _, established, err := s.establishFromDeviceSecret(selection, access); err != nil || established {
+		if result, established, err := s.establishFromDeviceSecret(selection, access); err != nil || established {
+			if err == nil {
+				s.reportWithheldScopes(access, result)
+			}
 			return err
 		}
 		if control := s.nonInteractiveControl(noInput); control != "" {
@@ -253,7 +256,10 @@ func (s Shell) sessionEstablisher(selection contexts.Selection, namespace string
 			access.Namespace, access.Issuer); err != nil {
 			return err
 		}
-		_, err := s.establishThroughBrowser(selection, access, nil)
+		result, err := s.establishThroughBrowser(selection, access, nil)
+		if err == nil {
+			s.reportWithheldScopes(access, result)
+		}
 		return err
 	}
 }

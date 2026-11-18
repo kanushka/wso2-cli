@@ -218,8 +218,11 @@ func TestAWithheldScopeIsNamedForASessionFromTheDeviceSecret(t *testing.T) {
 
 	login.run(t, "login")
 
-	if !strings.Contains(login.errOut.String(), `left out second:write from the "second" product's session`) {
-		t.Errorf("stderr does not name the withheld scope:\n%s", login.errOut)
+	if !strings.Contains(login.out.String(), "second (without second:write)") {
+		t.Errorf("the login report does not name the withheld scope:\n%s", login.out)
+	}
+	if strings.Contains(login.errOut.String(), "left out") {
+		t.Errorf("the withheld scope is named twice, on stderr as well:\n%s", login.errOut)
 	}
 }
 

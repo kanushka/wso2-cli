@@ -51,7 +51,10 @@ Identity Server context it is still refused with
 `auth.organization_switch_unsupported`.
 
 `ws org list` is refused with `shell.organization_list_unavailable`: nothing
-lists the organizations a user belongs to. Whether the provider supports the
+lists the organizations a user belongs to. It is kept out of help and the root
+listing until something does, against the guide's rule that help lists only
+commands that work, so that typing it still gets a refusal that says how to
+choose an organization. Whether the provider supports the
 organization endpoint, and whether it will publish such a list, are open
 questions to the platform team; the refusal goes when a list exists.
 
@@ -84,7 +87,9 @@ other scopes since the sign-in, is renewed and proved as before. A response
 whose `scope` is stated and empty is recorded as granting none; one that
 states nothing records nothing.
 `ws login` lists the ready products, marking each with the scopes it went
-without, and ends with a `Next` line.
+without, and ends with a `Next` line; that marker is the only place a login
+names them. A session a command establishes, outside a login, names them on
+standard error.
 
 ## Doctor fails when nothing can run
 

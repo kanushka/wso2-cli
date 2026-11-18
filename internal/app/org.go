@@ -89,8 +89,11 @@ func (s Shell) orgCommand() *cobra.Command {
 func (s Shell) orgListCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List the organizations this user belongs to (not available yet).",
-		Args:  noArguments(orgListUsage),
+		Short: "List the organizations this user belongs to.",
+		// Kept out of help until something lists organizations; typing it
+		// still gets the refusal that says how to choose one.
+		Hidden: true,
+		Args:   noArguments(orgListUsage),
 		RunE: func(*cobra.Command, []string) error {
 			return problem.New(problem.CategoryUsage, "shell.organization_list_unavailable",
 				"the organizations this user belongs to cannot be listed: no endpoint lists them yet").

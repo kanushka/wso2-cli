@@ -218,6 +218,16 @@ func TestOrgListRefusesForWantOfASource(t *testing.T) {
 	}
 }
 
+func TestOrgListIsKeptOutOfHelp(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	if code := shell.Run([]string{"org", "--help"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if strings.Contains(out.String(), "list") {
+		t.Errorf("org help lists a command that always refuses:\n%s", out)
+	}
+}
+
 // TestEveryOrgSubcommandRendersJSON proves both renderings agree and neither
 // publishes a schema discriminator, exactly as the context family's own test
 // proves it for its subcommands.

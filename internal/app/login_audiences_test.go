@@ -142,23 +142,18 @@ func TestAWithheldScopeSurfacesAtTheCommandNotTheLogin(t *testing.T) {
 	issuer := fakeissuer.New(t, fakeissuer.Options{
 		RequireResource: true, WithheldScopes: []string{"second:write"},
 	})
-	shell, _, errOut := newLoginShell(t)
+	shell, out, errOut := newLoginShell(t)
 	installLogin(t, shell, twoAudienceDoc(issuer.URL))
 	followBrowser(&shell)
 
 	if code := shell.Run([]string{"login"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
-	lines := strings.Split(strings.TrimSpace(errOut.String()), "\n")
-	var warned []string
-	for _, line := range lines {
-		if strings.Contains(line, "left out") {
-			warned = append(warned, line)
-		}
+	if !strings.Contains(out.String(), "second (without second:write)") || strings.Contains(out.String(), "second:read") {
+		t.Errorf("the Products line does not name second:write alone for the second product:\n%s", out)
 	}
-	if len(warned) != 1 || !strings.Contains(warned[0], "second:write") || !strings.Contains(warned[0], `"second"`) ||
-		strings.Contains(warned[0], "second:read") {
-		t.Errorf("want one line naming the second product and second:write alone, got %q in:\n%s", warned, errOut)
+	if strings.Contains(errOut.String(), "left out") {
+		t.Errorf("the withheld scope is named twice, on stderr as well:\n%s", errOut)
 	}
 	stored, err := session.Store{StateRoot: shell.StateRoot}.Load(contexts.ProductSessionRef(credentialRef, "second"))
 	if err != nil {

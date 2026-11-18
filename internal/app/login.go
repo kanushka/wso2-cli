@@ -239,7 +239,8 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 }
 
 // reportWithheldScopes says, on the diagnostic stream, which of the scopes an
-// authorization asked for it was not granted. A provider such as ThunderID
+// authorization a command ran was not granted; a login names them on its
+// Products line instead. A provider such as ThunderID
 // answers a scope the user holds no role for by leaving it out of an
 // otherwise successful grant, and the login is not refused for it: the
 // product may serve commands that need only the rest. An issuer that states
@@ -508,7 +509,7 @@ func (s Shell) establishThroughBrowser(selected contexts.Selection, access conte
 }
 
 // storeSession stores what one authorization produced as access's session,
-// and says which of the scopes it asked for it was not granted.
+// with the scopes it was granted.
 func (s Shell) storeSession(access contexts.ProductAccess, result oauthflow.Result, establishedBy string) error {
 	root, err := s.stateRoot()
 	if err != nil {
@@ -551,11 +552,7 @@ func (s Shell) storeSession(access contexts.ProductAccess, result oauthflow.Resu
 			EstablishedBy:         establishedBy,
 		})
 	})
-	if err != nil {
-		return err
-	}
-	s.reportWithheldScopes(access, result)
-	return nil
+	return err
 }
 
 // establishSession runs the login mode the selected account's kind names, for
