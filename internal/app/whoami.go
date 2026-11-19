@@ -205,6 +205,7 @@ func (s Shell) whoami(command *cobra.Command) error {
 			} else if stored, err := store.Load(access.SessionRef); err == nil {
 				if sessionServes(stored, access.Issuer) {
 					entry.Session, entry.SessionExpiry, _ = sessionExpiryState(stored, time.Now())
+					entry.EstablishedBy = stored.EstablishedBy
 				}
 			} else if !isNoSession(err) {
 				return err
@@ -343,6 +344,9 @@ type whoamiProduct struct {
 	// SessionExpiry mirrors whoamiReport.SessionExpiry's own rules, for this
 	// product's own session.
 	SessionExpiry string `json:"sessionExpiry"`
+	// EstablishedBy says how the session was obtained when not by a browser
+	// authorization, as session.EstablishedBy records it.
+	EstablishedBy string `json:"establishedBy,omitempty"`
 }
 
 // fields is the table rendering: which context, who, and whether they are

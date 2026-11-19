@@ -20,9 +20,9 @@ and how each refusal is reported.
 | `ws version` | Shows the shell, protocol, and installed module versions. `-o json` carries `shell`, `protocol`, `platform`, and `modules`, each with `name`, `version` and `platform`. |
 | `ws completion install [<shell>]` | Sets up tab completion for `bash`, `zsh`, `fish` or `powershell`, or for the shell `$SHELL` names (PowerShell on Windows when it is unset). zsh and bash get a line that loads the script inside the `# >>> wso2 cli >>>` block of `~/.zshrc` or `~/.bashrc` (`~/.bash_profile` when that is the one there, or on macOS when neither is), the block added when there is none; zsh also gets a `compinit` that runs only when nothing has run one. fish gets `~/.config/fish/completions/<name>.fish` (under `$XDG_CONFIG_HOME` when set), and PowerShell a line in the block of `$PROFILE`, refused with `shell.completion_profile_blocked` under a `Restricted` or `AllSigned` execution policy. `--profile <file>` edits that file instead. The lines name the command as it was invoked. A second run changes nothing and says so. Refusals: an unsupported shell (`shell.completion_shell_unsupported`), no `$SHELL` (`shell.completion_shell_unknown`), a profile that cannot be written (`shell.completion_profile_unwritable`), a block with no end marker (`shell.completion_profile_unreadable`), and a fish file it did not write (`shell.completion_file_exists`). `--output json` reports `shell`, `file` and `changed`. |
 | `ws completion <shell>` | Writes the tab-completion script for `bash`, `zsh`, `fish` or `powershell` to standard output when it is piped or redirected, exactly as Cobra generates it. At a terminal it prints how to set completion up instead, naming `ws completion install`; `--print` writes the script anyway. |
-| `ws login` | Establishes the login session, then one session per further product the context records, each through the same browser sign-on. `--only <namespace>` authorizes just that product — both of its records when it holds a gateway record, or one record alone as `--only <namespace>/gateway` — refused with `shell.invalid_argument` when the context records no such namespace; `--no-products` authorizes the login session alone, leaving product and gateway sessions unestablished; the two together are refused with `shell.conflicting_arguments`. The report is three rows: `Context`, the context logged in to; `Email`, the signed-in person as the identity token named them (the email, else the display name, else the subject, else `-` when a device login verified none); and `Status`, `logged in`. Each browser sign-on prints its authorization URL on standard error, `If the browser does not open, visit: <url>`, whether or not a browser opened. What reached each product is `ws whoami -o json`'s to say. When a later product fails after earlier ones already succeeded, the failure names what was established and points at `ws login --only <namespace>` (or `--only <namespace>/gateway`) to retry only the one that was not, keeping the sessions already stored. Without `--context` and `--url`, in a terminal, login asks `Log in to:` an existing context (listed, the selected one as the default) or a new one; a new one runs the `ws context create` wizard (below), without its closing offer to log in, and then logs in to the context it wrote; a client-credentials context ends there, reporting that it needs no login. With no contexts it goes straight to a new one. A `--context` naming no context runs the same wizard, taking that name, in a terminal and is refused with `shell.missing_required_flag` otherwise, naming `--url` and `--client-id`. Under `--no-input`, `WSO2_NO_INPUT`, `WSO2_CONTEXT`, or a standard input that is not a terminal, nothing is asked and the selected context is used. |
+| `ws login` | Establishes the login session, then one session per further product the context records, each through the same browser sign-on, or, on a ThunderID context whose sign-in returned a device secret, from that secret with no further browser authorization (see [Device secret](#device-secret)). `--only <namespace>` authorizes just that product — both of its records when it holds a gateway record, or one record alone as `--only <namespace>/gateway` — refused with `shell.invalid_argument` when the context records no such namespace; `--no-products` authorizes the login session alone, leaving product and gateway sessions unestablished; the two together are refused with `shell.conflicting_arguments`. The report is three rows: `Context`, the context logged in to; `Email`, the signed-in person as the identity token named them (the email, else the display name, else the subject, else `-` when a device login verified none); and `Status`, `logged in`. The browser is normally opened once, and each further browser authorization runs in the same tab: the callback for one redirects the tab to the next, asking with `prompt=none` so a provider that already signed the person in shows nothing, and asking once more with a prompt in that tab when the provider refuses that for any reason but `invalid_target` (usually `login_required`, `interaction_required`, `consent_required` or `account_selection_required`). Only the last callback shows the signed-in page, naming every product whose authorization completed. When the tab was closed, or no authorization followed for a minute, the next authorization opens the browser again. Each of these switches is said in one plain line on standard error, such as `The browser needs you to sign in for "iam"; continuing in the same tab.` or `The previous browser tab is no longer waiting; opening a new one for "iam".`; the detail is under `--verbose`. The opened authorization's URL is printed on standard error, `If the browser does not open, visit: <url>`, whether or not a browser opened; each one that continues in the tab prints `Authorizing the "<namespace>" product in the same browser tab.` What reached each product is `ws whoami -o json`'s to say. When a later product fails after earlier ones already succeeded, the failure names what was established and points at `ws login --only <namespace>` (or `--only <namespace>/gateway`) to retry only the one that was not, keeping the sessions already stored. Without `--context` and `--url`, in a terminal, login asks `Log in to:` an existing context (listed, the selected one as the default) or a new one; a new one runs the `ws context create` wizard (below), without its closing offer to log in, and then logs in to the context it wrote; a client-credentials context ends there, reporting that it needs no login. With no contexts it goes straight to a new one. A `--context` naming no context runs the same wizard, taking that name, in a terminal and is refused with `shell.missing_required_flag` otherwise, naming `--url` and `--client-id`. Under `--no-input`, `WSO2_NO_INPUT`, `WSO2_CONTEXT`, or a standard input that is not a terminal, nothing is asked and the selected context is used. |
 | `ws login --url <issuer> --client-id <id>` | Logs in against a named issuer and creates the context it authenticated, reporting its name. `--context <name>` names it. Without it, a context that already logs in against that issuer with that client ID is reused; otherwise login asks `Context name [context-1]:`, offering the next free `context-N`, where Enter accepts the default and a name that is not legal or is already taken is asked again. When standard input is not a terminal the default is taken without asking, and the report says the name was assigned, naming `--context <name>` and `ws context rename`. A context named by `--context` whose issuer and client ID both match is reused; one that differs in either is refused with `contexts.context_exists` and never replaced. The first context created becomes the selected one. Nothing is written unless the login succeeded. Omitting `--client-id` prompts in an interactive terminal and is refused with `shell.missing_required_flag` under `--no-input`. A ThunderID issuer binds every login to a product, so there a login that creates its context is refused with `auth.product_not_configured`, naming `ws context create <name> --login-product iam --url <url>`. |
-| `ws logout` | Ends every session the selected context holds — the login session and each product's own — asking the identity provider to revoke each refresh token and removing each shell-owned entry. A context's sessions are its own (ADR 0016), so no other context is affected. `Product sessions` in the report names what happened to each session beyond the login one, `<namespace> ended` or `<namespace> none`. A client-credentials context holds no session to end and reports that plainly, exiting 0. Ending the shell's sessions leaves each identity provider's own browser session in place, and a later login would then be silent; so logout also opens each provider's end-session page, once per provider and client, naming the client and the identity token the session recorded, and reports `Browser session` as `sign-out opened`, `sign-out printed` (no browser could be opened; the URLs are on standard error), `kept` (`--keep-browser-session`, `--no-input` or `WSO2_NO_INPUT`), or `unaffected` (nothing was stored). Ending the browser session is best effort like revocation, and some providers end the user's other refresh tokens with it; the report says so rather than claiming either way. |
+| `ws logout` | Ends every session the selected context holds — the login session and each product's own — asking the identity provider to revoke each refresh token and removing each shell-owned entry, the login session's device secret with it. A context's sessions are its own (ADR 0016), so no other context is affected. `Product sessions` in the report names what happened to each session beyond the login one, `<namespace> ended` or `<namespace> none`. A client-credentials context holds no session to end and reports that plainly, exiting 0. Ending the shell's sessions leaves each identity provider's own browser session in place, and a later login would then be silent; so logout also opens each provider's end-session page, once per provider and client, naming the client and the identity token the session recorded, and reports `Browser session` as `sign-out opened`, `sign-out printed` (no browser could be opened; the URLs are on standard error), `kept` (`--keep-browser-session`, `--no-input` or `WSO2_NO_INPUT`), or `unaffected` (nothing was stored). Ending the browser session is best effort like revocation, and some providers end the user's other refresh tokens with it; the report says so rather than claiming either way. |
 | `ws whoami` | Shows the selected context, who is signed in to it, and whether they are logged in, all read from local state with no network call. The table is three rows: `Context`; `Email`, named as `ws login` names it; and `Status`, which is `logged in`, `session expired`, `machine credentials, no login needed` for a client-credentials context, or `not logged in`. When there is a way back it follows as the next step: `ws login` for a context with no stored session, a session whose disclosed lifetime has passed, or one established against another issuer; `ws context use <name>` when contexts exist but none is selected. With no context configured it says so and exits 0. `-o json` carries the rest: `issuer`, `organization`, `subject` (`unknown` for a session stored before the field existed), `email` and `name` when the session recorded them, `session` (`none`, `present`, `expired`, or `inline`), and `sessionExpiry`, the issuer's disclosed refresh-token lifetime or `not stated by the issuer`, never the shorter-lived access token's own expiry. Its `products` lists every record the context holds, each with the `strategy` that reaches it (`direct`, `sibling`, `derived`, `federated`, `exchanged`, or `inline`) and its own `session`, a product's gateway record under its key, such as `apim/gateway`. An exchanged record holds no session of its own and reports `exchanged` as its session, since whoami makes no call and cannot tell whether the issuer will grant the exchange; an inline one reports `inline`. |
 | `ws org` | With no subcommand, prints this family's help on standard output and exits 0: naming a family without a subcommand is an incomplete command, not a failed one, and every subcommand it names works. The help names `current` and `use`. A subcommand the family does not have is a different case and is still refused with `shell.unknown_command` and the usage exit class (#133), so a typo is never reported to a script as success. |
 | `ws org list` | Deferred (#112): no control-plane endpoint for enumerating organizations exists yet, and listing would need an access token before an organization is chosen, which the auth broker refuses. Typing it is refused as an unknown `ws org` subcommand, naming `current` and `use` as what the family supports. |
@@ -68,6 +68,108 @@ modules.
 `rollback`, installing a module from an offline `.wso2module` file, and the
 offline bundle family (`create`, `inspect`, `install`) for air-gapped
 machines.
+
+## WSO2 Cloud environments
+
+`WSO2_CLOUD_ENV` names a WSO2 Cloud environment for `ws login` to sign in to
+when neither `--context`, `--url` nor `WSO2_CONTEXT` names a target. The
+names are `dev`, `stage`, `prod-us` (also `prod`) and `prod-eu`. Login writes
+a context named `cloud-<environment>` when the machine has none, selects it,
+and signs in through the browser, asking nothing.
+
+An environment's values are read from `cloud/<environment>.yaml` under the
+state directory:
+
+| Member | Meaning |
+| --- | --- |
+| `issuer` | The environment's identity provider URL. |
+| `baseDomain` | The domain the environment's product APIs are served under. |
+| `environment` | The environment's name inside that domain. |
+| `clientId` | The OAuth client the shell presents itself as. Optional; `WSO2_CLI` when absent. |
+
+A name that is not lowercase letters, digits and hyphens is refused with
+`shell.invalid_argument`, a missing file with
+`shell.cloud_environment_unknown` (exit 66), and a file missing a member or carrying an
+unknown one with `shell.input_malformed`, as is a `baseDomain` that is not a
+lowercase domain name or an `environment` that is not one host name label.
+
+### Products on a WSO2 Cloud context
+
+Each login to the environment records, on its context, every installed WSO2
+Cloud product the context does not record yet, and then signs in to each
+product it records. Nothing has to be typed: the product's URL and the
+resource server its access is bound to come from the environment file, and its
+scopes from the installed module, except that `iam` records `iam:system`, the
+one Identity permission WSO2 Cloud knows.
+
+| Product | URL | Resource server |
+| --- | --- | --- |
+| `apim` | `https://<environment>-wso2cloud.gateway.<baseDomain>/apip-platform-api-apip-platform-api-endpoint` | `urn:wso2:cloud` |
+| `intg` | `https://<environment>-wso2cloud.gateway.<baseDomain>/ipaas-service-ipaas-api-endpoint` | `urn:wso2:cloud` |
+| `am` | `https://<environment>-wso2cloud.gateway.<baseDomain>/agent-manager-service-agent-manager-api/api/v1` | `urn:wso2:cloud` |
+| `iam` | `https://api-<environment>.gateway.<baseDomain>/iam/v1` | the URL itself |
+
+The context records the environment it was written for, as
+`cloudEnvironment`, and every login of it, however the context is named
+(`WSO2_CLOUD_ENV`, `--context`, `WSO2_CONTEXT` or the selection), first
+installs each of these products that is not installed yet, one at a time,
+without asking, under `--no-input` too. A Cloud context written before it
+recorded an environment does this only when `WSO2_CLOUD_ENV` names it. A
+product the module catalog does not publish is left out silently, and named
+only under `--verbose`. A product that fails to install for any other reason
+is reported on standard error as `Skipped <product>: <reason>` and left out.
+Either way the sign-in goes on with the rest, and the next login tries it
+again. A product installed any other way is
+recorded on the next login too. A
+record already on the context is never changed, whether the login wrote it or
+a person did; to take the derived values again, remove the record with
+`ws context product remove <product>` and log in. A removal is not remembered:
+while the product's module is installed, the next login records it again. When
+the environment file is
+gone, the login still signs in to what is recorded and names the products it
+could not record and where the file belongs. A module whose namespace is not in
+the table is never recorded by a login.
+
+On a WSO2 Cloud context a product's descriptor grant is set aside: a token
+exchange there would carry no permissions, so every product is reached by its
+own authorization at the context's identity provider, naming its own resource
+server and exactly its own scopes, and the provider's sign-on answers each one
+without a second password. This holds for a product recorded with
+`ws context product add` or `ws context apply` too, where an `apim`, `intg` or
+`am` record that states no audience takes the resource server in the table
+above and any other takes its URL. A grant stated in an input file is recorded
+as stated, as on any other context. A context is a WSO2 Cloud context when its
+`type` is `cloud` and it signs in with the `thunder` provider.
+
+An identity provider may answer an authorization with fewer scopes than it
+asked for, leaving out the ones the user's role does not carry. `ws login`
+still succeeds, and prints one line per session on standard error naming the
+scopes left out; a command that needs them is refused when it runs. The
+session still records the scopes its product record asks for, because that
+scope set is what binds a stored session to its record.
+
+### Device secret
+
+On a context whose provider is `thunder`, when the provider's discovery
+document lists `device_sso` in `scopes_supported`, the login authorization
+also asks for `device_sso`. ThunderID answers it with a device secret
+describing the sign-on the sign-in started, but only when the sign-in
+started one: a person already signed in to the provider in their browser gets
+none, and nothing changes for them. The secret is kept in the OS secure store
+with the login session; it is never written to the context file, printed,
+logged, or given to a module.
+
+While it lasts, every further product session at the login issuer is obtained
+by exchanging it rather than through the browser: during `ws login`, which then
+runs one browser authorization instead of one per product, and the first time
+a command needs a product that has no session, which then needs no browser and
+works under `--no-input`. Such a session is stored, renewed and checked like
+any other, and `ws whoami -o json` reports it with `"establishedBy":
+"device-secret"`. A secret that has expired, or that the provider no longer
+accepts because the sign-on ended, is discarded and the product is
+authorized through the browser as before, which standard error says in one line,
+`Your earlier sign-in has ended; the "<namespace>" product needs the browser.`; any other refusal of the exchange is
+reported with `auth.exchange_unavailable` or `auth.exchange_unusable`.
 
 ## Login errors
 

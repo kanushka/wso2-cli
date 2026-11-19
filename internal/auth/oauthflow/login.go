@@ -131,21 +131,59 @@ type Login struct {
 	Resource string
 	// Label names the product this login establishes a session for — the
 	// product namespace, or empty for a login that is not for one. It reaches
-	// nothing but the accepted callback page, where it tells a person which of
-	// the tabs one wso2 login opens they are looking at.
+	// nothing but the signed-in page, where it tells a person which products
+	// the tab authorized, and the progress lines.
 	Label string
 	// Ports overrides LoopbackPorts. Tests bind an ephemeral port with []int{0}.
 	Ports []int
+	// Tab is the browser tab this login shares with the logins around it, so
+	// one run of them opens the browser once. Nil gives the login a tab of
+	// its own.
+	Tab *Tab
+	// DeviceSSO asks for ThunderID's device secret, when the provider's
+	// discovery document lists the device_sso scope. The secret describes the
+	// sign-on the sign-in started, and is issued only when one was.
+	DeviceSSO bool
 }
 
+// scopeDeviceSSO asks ThunderID for a device secret.
+const scopeDeviceSSO = "device_sso"
+
 // openedLine is the line printed when the opener reported success, above the
-// fallback line carrying the authorization URL. A login that is for a product names it, since one wso2
-// login may open one tab per product.
+// fallback line carrying the authorization URL. A login that is for a
+// product names it, since one wso2 login authorizes several.
 func (l Login) openedLine() string {
 	if l.Label == "" {
 		return "Opened the browser to log in."
 	}
 	return fmt.Sprintf("Opened the browser to authorize the %q product.", l.Label)
+}
+
+// continuedLine is printed when the authorization goes on in the tab the
+// previous one ended in, rather than in a browser opened for it.
+func (l Login) continuedLine() string {
+	if l.Label == "" {
+		return "Logging in in the same browser tab."
+	}
+	return fmt.Sprintf("Authorizing the %q product in the same browser tab.", l.Label)
+}
+
+// retriedLine is printed when the provider would not authorize without the
+// person, so the authorization is asked again in the same tab.
+func (l Login) retriedLine() string {
+	if l.Label == "" {
+		return "The browser needs you to sign in; continuing in the same tab."
+	}
+	return fmt.Sprintf("The browser needs you to sign in for %q; continuing in the same tab.", l.Label)
+}
+
+// reopenedLine is printed when the tab the previous authorization ended in
+// is no longer waiting, so the browser is opened again.
+func (l Login) reopenedLine() string {
+	if l.Label == "" {
+		return "The previous browser tab is no longer waiting; opening a new one."
+	}
+	return fmt.Sprintf("The previous browser tab is no longer waiting; opening a new one for %q.", l.Label)
 }
 
 // prompt is the line printed above the authorization URL, when the browser
@@ -179,6 +217,10 @@ type Result struct {
 	// the four is disclosed — an issuer that names nobody is not asked to have
 	// one invented for it. See displayName.
 	Name string
+	// DeviceSecret is the device secret the token response carried, empty
+	// when none was asked for or the sign-in reused a sign-on. It is a
+	// credential: it is stored and never printed or logged.
+	DeviceSecret string
 }
 
 // Run performs the login and returns the issued token with the verified
@@ -195,6 +237,7 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	}
 	var capabilities struct {
 		CodeChallengeMethods []string `json:"code_challenge_methods_supported"`
+		ScopesSupported      []string `json:"scopes_supported"`
 	}
 	if err := provider.Claims(&capabilities); err != nil ||
 		!slices.Contains(capabilities.CodeChallengeMethods, challengeMethodS256) {
@@ -204,26 +247,14 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 				"issuer supports it. This shell is a public client and does not log in without it.")
 	}
 
-	// The one-time values are drawn before anything is bound or opened, so a
-	// failure to generate them cannot leave a listener behind.
-	verifier := oauth2.GenerateVerifier()
-	state, err := randomValue()
-	if err != nil {
-		return Result{}, notCompleted("the shell could not generate the values that bind this login to this terminal",
-			"Retry the command. Report the failure if it persists.")
+	tab := l.Tab
+	if tab == nil {
+		tab = NewTab()
+		defer tab.Close()
 	}
-	nonce, err := randomValue()
-	if err != nil {
-		return Result{}, notCompleted("the shell could not generate the values that bind this login to this terminal",
-			"Retry the command. Report the failure if it persists.")
-	}
-
-	listener, err := bindLoopback(l.ports())
-	if err != nil {
+	if err := tab.bind(l.ports()); err != nil {
 		return Result{}, err
 	}
-	callback := serveCallback(listener, state, l.Label, l.Resource)
-	defer callback.close()
 
 	// A public client has no secret to present, so it identifies itself in the
 	// request body, as RFC 6749 requires of one. Saying so explicitly also
@@ -234,44 +265,33 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	config := oauth2.Config{
 		ClientID:    l.ClientID,
 		Endpoint:    endpoint,
-		RedirectURL: redirectURL(listener),
-		Scopes:      l.scopes(),
+		RedirectURL: tab.redirectURL(),
+		Scopes:      l.scopes(l.DeviceSSO && slices.Contains(capabilities.ScopesSupported, scopeDeviceSSO)),
 	}
-	authOptions := []oauth2.AuthCodeOption{
-		oauth2.S256ChallengeOption(verifier),
-		oidc.Nonce(nonce),
+	// A tab already holding a sign-in is sent on without a prompt. A provider
+	// that refuses that, for whatever reason short of the resource itself, is
+	// asked once more with a prompt in the same tab.
+	var grant authorization
+	for attempt := 0; ; attempt++ {
+		page := tab.take()
+		var progress string
+		switch {
+		case page != nil && attempt > 0:
+			progress = l.retriedLine()
+		case page != nil:
+			progress = l.continuedLine()
+		case tab.used():
+			progress = l.reopenedLine()
+		}
+		grant, err = l.authorize(ctx, tab, config, page, page != nil && attempt == 0, progress)
+		if err != nil {
+			return Result{}, err
+		}
+		if !grant.interactive {
+			break
+		}
 	}
-	// The indicator is sent on both legs. The authorization request is what
-	// binds the session, and the exchange repeats it because a deployment is
-	// entitled to check that the code it is redeeming was asked for on the same
-	// terms it was issued under.
-	if l.Resource != "" {
-		authOptions = append(authOptions, oauth2.SetAuthURLParam("resource", l.Resource))
-	}
-	authURL := config.AuthCodeURL(state, authOptions...)
-	// The URL is printed whether or not the opener reports success. An opener
-	// only reports whether it could be started: over SSH or on a headless
-	// machine xdg-open, open or $BROWSER exits cleanly and shows nothing, and
-	// WSO2_NO_BROWSER skips it outright. A login whose URL went unprinted there
-	// is a login nobody can complete. A browser that did open gets the URL as
-	// a subtle fallback line; one that could not be opened gets it as the
-	// instruction.
-	var printed string
-	if openErr := l.openBrowser(authURL); openErr == nil {
-		printed = fmt.Sprintf("%s\nIf the browser does not open, visit: %s\n",
-			l.openedLine(), output.Subtle(l.out(), authURL))
-	} else {
-		printed = fmt.Sprintf("%s\n%s\n", l.prompt(), output.Subtle(l.out(), authURL))
-	}
-	if _, err := io.WriteString(l.out(), printed); err != nil {
-		return Result{}, notCompleted("the shell could not print the authorization URL this login needs",
-			"Run wso2 login with standard output attached to your terminal.")
-	}
-
-	code, err := callback.wait(ctx)
-	if err != nil {
-		return Result{}, err
-	}
+	code, verifier, nonce := grant.code, grant.verifier, grant.nonce
 	exchangeOptions := []oauth2.AuthCodeOption{oauth2.VerifierOption(verifier)}
 	if l.Resource != "" {
 		exchangeOptions = append(exchangeOptions, oauth2.SetAuthURLParam("resource", l.Resource))
@@ -306,13 +326,106 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	// An issuer that discloses no email is a legal issuer; the login reports
 	// what it verified rather than refusing over a claim it did not need.
 	_ = idToken.Claims(&claims)
+	tab.authorized(l.Label)
+	deviceSecret, _ := token.Extra("device_secret").(string)
 	return Result{
-		Token:   token,
-		Subject: idToken.Subject,
-		IDToken: rawIDToken,
-		Email:   claims.Email,
-		Name:    displayName(claims.Name, claims.GivenName, claims.FamilyName, claims.Email),
+		Token:        token,
+		Subject:      idToken.Subject,
+		IDToken:      rawIDToken,
+		Email:        claims.Email,
+		Name:         displayName(claims.Name, claims.GivenName, claims.FamilyName, claims.Email),
+		DeviceSecret: deviceSecret,
 	}, nil
+}
+
+// authorization is what one authorization request came back with, and the
+// one-time values the exchange that follows must present.
+type authorization struct {
+	code, verifier, nonce string
+	interactive           bool
+}
+
+// authorize sends the browser to one authorization: by page, the tab held
+// from the previous one, when there is one, by opening the browser otherwise.
+// A page it does not send on is ended on the signed-in page.
+func (l Login) authorize(ctx context.Context, tab *Tab, config oauth2.Config, page *heldPage,
+	silent bool, progress string) (authorization, error) {
+	defer func() {
+		if page != nil {
+			page.next <- ""
+		}
+	}()
+	// The one-time values are drawn before anything is opened, so a failure
+	// to generate them cannot leave a tab waiting.
+	verifier := oauth2.GenerateVerifier()
+	state, err := randomValue()
+	if err != nil {
+		return authorization{}, notCompleted("the shell could not generate the values that bind this login to this terminal",
+			"Retry the command. Report the failure if it persists.")
+	}
+	nonce, err := randomValue()
+	if err != nil {
+		return authorization{}, notCompleted("the shell could not generate the values that bind this login to this terminal",
+			"Retry the command. Report the failure if it persists.")
+	}
+	authOptions := []oauth2.AuthCodeOption{
+		oauth2.S256ChallengeOption(verifier),
+		oidc.Nonce(nonce),
+	}
+	// The indicator is sent on both legs. The authorization request is what
+	// binds the session, and the exchange repeats it because a deployment is
+	// entitled to check that the code it is redeeming was asked for on the same
+	// terms it was issued under.
+	if l.Resource != "" {
+		authOptions = append(authOptions, oauth2.SetAuthURLParam("resource", l.Resource))
+	}
+	if silent {
+		authOptions = append(authOptions, oauth2.SetAuthURLParam("prompt", "none"))
+	}
+	waiting := tab.expect(state, l.Resource, silent)
+	defer tab.forget(waiting)
+	authURL := config.AuthCodeURL(state, authOptions...)
+	if progress != "" {
+		if _, err := io.WriteString(l.out(), progress+"\n"); err != nil {
+			return authorization{}, notCompleted("the shell could not print the progress this login needs",
+				"Run wso2 login with standard output attached to your terminal.")
+		}
+	}
+	if page != nil {
+		page.next <- authURL
+		page = nil
+	} else if err := l.open(authURL); err != nil {
+		return authorization{}, err
+	}
+	result, err := waiting.wait(ctx)
+	if err != nil {
+		return authorization{}, err
+	}
+	return authorization{code: result.code, verifier: verifier, nonce: nonce, interactive: result.interactive}, nil
+}
+
+// open opens the browser at authURL and prints the URL.
+//
+// The URL is printed whether or not the opener reports success. An opener
+// only reports whether it could be started: over SSH or on a headless
+// machine xdg-open, open or $BROWSER exits cleanly and shows nothing, and
+// WSO2_NO_BROWSER skips it outright. A login whose URL went unprinted there
+// is a login nobody can complete. A browser that did open gets the URL as
+// a subtle fallback line; one that could not be opened gets it as the
+// instruction.
+func (l Login) open(authURL string) error {
+	var printed string
+	if openErr := l.openBrowser(authURL); openErr == nil {
+		printed = fmt.Sprintf("%s\nIf the browser does not open, visit: %s\n",
+			l.openedLine(), output.Subtle(l.out(), authURL))
+	} else {
+		printed = fmt.Sprintf("%s\n%s\n", l.prompt(), output.Subtle(l.out(), authURL))
+	}
+	if _, err := io.WriteString(l.out(), printed); err != nil {
+		return notCompleted("the shell could not print the authorization URL this login needs",
+			"Run wso2 login with standard output attached to your terminal.")
+	}
+	return nil
 }
 
 // displayName resolves the login's one human-readable label for the signed-in
@@ -340,8 +453,11 @@ func displayName(name, givenName, familyName, email string) string {
 // about what a product may do. That keeps them out of the scope set a session
 // is recorded against, so a session stored before this change is not read as
 // one authorized for a different product.
-func (l Login) scopes() []string {
+func (l Login) scopes(deviceSSO bool) []string {
 	requested := []string{oidc.ScopeOpenID, scopeOfflineAccess, scopeProfile, scopeEmail}
+	if deviceSSO {
+		requested = append(requested, scopeDeviceSSO)
+	}
 	for _, scope := range l.Scopes {
 		if !slices.Contains(requested, scope) {
 			requested = append(requested, scope)
@@ -517,78 +633,36 @@ func identityNotVerified(err error) problem.Problem {
 	}
 }
 
-// callback is the loopback listener one login waits on.
+// callback is one authorization a tab waits to be called back for.
 type callback struct {
-	server  *http.Server
+	// state is the value that proves a callback belongs to this
+	// authorization. It is captured here rather than checked by the caller so
+	// that no path through this package can accept a code without it.
+	state string
+	// resource is the indicator the authorization request carried, empty when
+	// it carried none, and words a refusal of it.
+	resource string
+	// silent marks an authorization asked for without a prompt, which a
+	// provider that wants the person answers by asking again with one.
+	silent  bool
 	results chan callbackResult
 }
 
-// callbackResult is the single answer a login's callback produces.
+// callbackResult is the single answer an authorization's callback produces.
 type callbackResult struct {
 	code string
-	err  error
+	// interactive says a silent authorization needs the person.
+	interactive bool
+	err         error
 }
 
 // callbackReadHeaderTimeout bounds how long a connection may hold the listener
 // without stating what it wants.
 const callbackReadHeaderTimeout = 10 * time.Second
 
-// serveCallback starts serving the loopback callback for one login.
-//
-// The state is captured here rather than checked by the caller so that no path
-// through this package can accept a code without it. The label names the
-// product this login is for, and appears on the accepted page alone. The
-// resource is the indicator the authorization request carried, empty when it
-// carried none, and words a refusal of it.
-func serveCallback(listener net.Listener, state, label, resource string) *callback {
-	waiting := &callback{results: make(chan callbackResult, 1)}
-	mux := http.NewServeMux()
-	mux.HandleFunc(callbackPath, func(w http.ResponseWriter, r *http.Request) {
-		query := r.URL.Query()
-		// A callback carrying another login's state is not this login's. It is
-		// answered and discarded while the listener keeps waiting, which is what
-		// makes a stray or forged browser tab pointed at this port harmless.
-		//
-		// The page it is answered with names no product: a tab this login did
-		// not start is told only that it belongs to nothing here.
-		if subtle.ConstantTimeCompare([]byte(query.Get("state")), []byte(state)) != 1 {
-			respond(w, pageStrayTab, "")
-			return
-		}
-		if query.Get("error") == "invalid_target" {
-			respond(w, pageRefused, "")
-			waiting.finish(callbackResult{err: targetRejected(resource)})
-			return
-		}
-		if query.Get("error") != "" {
-			// The provider's error code is not echoed to the terminal; what the
-			// user must do is the same whichever of these refusals it was.
-			respond(w, pageRefused, "")
-			waiting.finish(callbackResult{err: notCompleted(
-				"the identity provider refused this login",
-				"Retry wso2 login and complete the sign-in the browser asks for.")})
-			return
-		}
-		code := query.Get("code")
-		if code == "" {
-			respond(w, pageNoCode, "")
-			return
-		}
-		// Only the accepted callback names the product, because it is the only
-		// one where something was authorized to name. One wso2 login opens this
-		// page once per product session, so without the label the second and
-		// third tabs would be indistinguishable from the first.
-		respond(w, pageSignedIn, label)
-		waiting.finish(callbackResult{code: code})
-	})
-	waiting.server = &http.Server{Handler: mux, ReadHeaderTimeout: callbackReadHeaderTimeout}
-	go func() { _ = waiting.server.Serve(listener) }()
-	return waiting
-}
-
-// finish delivers the first outcome and drops every later one: a login has
-// exactly one answer, and a second callback must not block the browser that
-// sent it.
+// finish delivers the first outcome and drops every later one: an
+// authorization has exactly one answer, and a second callback must not block
+// the browser that sent it.
 func (c *callback) finish(result callbackResult) {
 	select {
 	case c.results <- result:
@@ -596,28 +670,13 @@ func (c *callback) finish(result callbackResult) {
 	}
 }
 
-// wait blocks until the browser comes back or the caller gives up.
-func (c *callback) wait(ctx context.Context) (string, error) {
-	select {
-	case result := <-c.results:
-		return result.code, result.err
-	case <-ctx.Done():
-		return "", notCompleted("the browser login did not complete",
-			"Run wso2 login again and finish the sign-in in the browser, or open the printed URL yourself.")
-	}
-}
-
-// close stops the listener. It runs even on the paths that already have a code,
-// so no login leaves a port bound behind it.
-func (c *callback) close() { _ = c.server.Close() }
-
 // respond writes one of the pages the user ever sees from the shell's own
 // listener. It is flushed before the code is delivered, so shutting the
 // listener down cannot truncate the page in the browser.
-func respond(w http.ResponseWriter, page callbackPage, product string) {
+func respond(w http.ResponseWriter, page callbackPage, products ...string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(page.status)
-	_, _ = io.WriteString(w, page.render(product))
+	_, _ = io.WriteString(w, page.render(products...))
 	if flusher, ok := w.(http.Flusher); ok {
 		flusher.Flush()
 	}

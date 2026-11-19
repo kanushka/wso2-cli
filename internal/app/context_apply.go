@@ -704,8 +704,7 @@ func driftNotes(document contexts.Document, lookup descriptorLookup) []string {
 			if descriptor == nil {
 				continue
 			}
-			for _, drift := range productDrift(namespace, *descriptor, context.Products[namespace],
-				namespace == context.Login.Product) {
+			for _, drift := range productDrift(namespace, *descriptor, context) {
 				notes = append(notes, fmt.Sprintf("The %q product on the %q context records %s. If that was "+
 					"not set deliberately, adopt the new value with wso2 context product add %s --url %s "+
 					"--replace --context %s, or by applying the context file again.",
@@ -716,12 +715,19 @@ func driftNotes(document contexts.Document, lookup descriptorLookup) []string {
 	return notes
 }
 
-// productDrift describes how a record differs from its descriptor's defaults,
-// in the members the descriptor alone decides.
-func productDrift(namespace string, descriptor modules.ProductDescriptor, product contexts.Product,
-	login bool) []string {
+// productDrift describes how a context's record of a product differs from
+// what its descriptor would write there now, in the members the descriptor
+// alone decides. On WSO2 Cloud the descriptor's grant is set aside and the
+// Cloud product table's scopes, where it states any, stand in for the
+// descriptor's.
+func productDrift(namespace string, descriptor modules.ProductDescriptor, context contexts.Context) []string {
+	product := context.Products[namespace]
+	cloud := onWSO2Cloud(context)
+	if known := cloudProducts[namespace].scopes; cloud && known != nil {
+		descriptor.Scopes = known
+	}
 	var drifts []string
-	if !login && descriptor.Grant != "" {
+	if namespace != context.Login.Product && !cloud && descriptor.Grant != "" {
 		recorded := ""
 		if product.Grant != nil {
 			recorded = product.Grant.Kind

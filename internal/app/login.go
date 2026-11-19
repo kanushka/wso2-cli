@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -75,6 +76,11 @@ type loginFlags struct {
 	// shell cannot invent one.
 	clientID string
 	noInput  bool
+	// cloudEnv is the WSO2 Cloud environment WSO2_CLOUD_ENV named, for a
+	// context that was already there; cloudPrepared says the login that wrote
+	// the context already installed and recorded its products.
+	cloudEnv      string
+	cloudPrepared bool
 	// only is --only <namespace>: authorize this one product's access instead
 	// of every access the identity records.
 	only string
@@ -127,6 +133,9 @@ func (s Shell) login(flags loginFlags) error {
 		return problem.New(problem.CategoryUsage, "shell.missing_required_flag",
 			"wso2 login takes --client-id only with --url, which names the issuer the client is registered with").
 			WithRecovery(loginUsageRecovery)
+	}
+	if err := s.prepareCloudLogin(flags); err != nil {
+		return err
 	}
 	selected, err := s.selection(flags.contextName)
 	if err != nil {
@@ -193,9 +202,12 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 	if err != nil {
 		return loginOutcome{}, err
 	}
+	// One tab serves every authorization this login opens in the browser.
+	tab := oauthflow.NewTab()
+	defer tab.Close()
 	var outcome loginOutcome
 	for index, access := range accesses {
-		result, err := s.establishProduct(selected, access)
+		result, err := s.establishProduct(selected, access, tab)
 		if err != nil {
 			// The first access failing leaves nothing established yet, so
 			// there is nothing to report beside the error itself. A later
@@ -213,6 +225,43 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 		outcome.established = append(outcome.established, access)
 	}
 	return outcome, nil
+}
+
+// reportWithheldScopes says, on the diagnostic stream, which of the scopes an
+// authorization asked for it was not granted. A provider such as ThunderID
+// answers a scope the user holds no role for by leaving it out of an
+// otherwise successful grant, and the login is not refused for it: the
+// product may serve commands that need only the rest. An issuer that states
+// no scopes at all says nothing either way, so nothing is reported.
+func (s Shell) reportWithheldScopes(access contexts.ProductAccess, result oauthflow.Result) {
+	if result.Token == nil {
+		return
+	}
+	responseScope, _ := result.Token.Extra("scope").(string)
+	granted := auth.GrantedScopes(responseScope, result.Token.AccessToken)
+	if len(granted) == 0 {
+		return
+	}
+	var withheld []string
+	for _, scope := range access.Scopes {
+		if !slices.Contains(granted, scope) {
+			withheld = append(withheld, scope)
+		}
+	}
+	if len(withheld) == 0 {
+		return
+	}
+	// Best effort, as reportPartialLogin: the login itself succeeded.
+	_, _ = fmt.Fprintf(s.Streams.Err, "The identity provider left out %s from %s, usually because "+
+		"this user's role does not carry them; commands that need them will be refused.\n",
+		strings.Join(withheld, ", "), withheldLabel(access))
+}
+
+func withheldLabel(access contexts.ProductAccess) string {
+	if access.Namespace == "" {
+		return "the login session"
+	}
+	return fmt.Sprintf("the %q product's session", access.Namespace)
 }
 
 // establishedLabel names one authorized access for a user-facing message: its
@@ -368,12 +417,20 @@ func checkDerivedResource(identity contexts.Account, access contexts.ProductAcce
 // It is what Accesses' every entry runs through, whether that entry is the
 // login session or a further product: each is one authorization and one
 // stored session, and nothing here needs to know which.
-func (s Shell) establishProduct(selected contexts.Selection, access contexts.ProductAccess) (oauthflow.Result, error) {
-	if err := checkDerivedResource(selected.Identity, access); err != nil {
-		return oauthflow.Result{}, err
+func (s Shell) establishProduct(selected contexts.Selection, access contexts.ProductAccess,
+	tab *oauthflow.Tab) (oauthflow.Result, error) {
+	result, established, err := s.establishFromDeviceSecret(selected, access)
+	if err != nil || established {
+		return result, err
 	}
-	root, err := s.stateRoot()
-	if err != nil {
+	return s.establishThroughBrowser(selected, access, tab)
+}
+
+// establishThroughBrowser runs one authorization in the browser and stores
+// the session it produced.
+func (s Shell) establishThroughBrowser(selected contexts.Selection, access contexts.ProductAccess,
+	tab *oauthflow.Tab) (oauthflow.Result, error) {
+	if err := checkDerivedResource(selected.Identity, access); err != nil {
 		return oauthflow.Result{}, err
 	}
 	// Recorded before the flow starts, because the commonest login failure is a
@@ -391,7 +448,7 @@ func (s Shell) establishProduct(selected contexts.Selection, access contexts.Pro
 		"client_id", access.ClientID,
 		"scopes", strings.Join(access.Scopes, " "),
 		"resource", access.Resource)
-	result, err := s.establishSession(selected, access)
+	result, err := s.establishSession(selected, access, tab)
 	if err != nil {
 		return oauthflow.Result{}, err
 	}
@@ -411,7 +468,16 @@ func (s Shell) establishProduct(selected contexts.Selection, access contexts.Pro
 		"subject", result.Subject,
 		"access_expires_at", result.Token.Expiry.UTC().Format(time.RFC3339),
 		"credential_ref", access.SessionRef)
+	return result, s.storeSession(access, result, "")
+}
 
+// storeSession stores what one authorization produced as access's session,
+// and says which of the scopes it asked for it was not granted.
+func (s Shell) storeSession(access contexts.ProductAccess, result oauthflow.Result, establishedBy string) error {
+	root, err := s.stateRoot()
+	if err != nil {
+		return err
+	}
 	store := session.Store{StateRoot: root}
 	// The refresh token's own lifetime, when the token response discloses one
 	// as refresh_token_expires_in, read through the same rule
@@ -441,12 +507,18 @@ func (s Shell) establishProduct(selected contexts.Selection, access contexts.Pro
 			Resource:         access.Resource,
 			Audience:         access.Audience,
 			Bound:            true,
+			DeviceSecret:     result.DeviceSecret,
+			// The secret is stored as returned and its expiry read without
+			// verifying it: only the provider that signed it ever checks it.
+			DeviceSecretExpiresAt: auth.DeviceSecretExpiry(result.DeviceSecret),
+			EstablishedBy:         establishedBy,
 		})
 	})
 	if err != nil {
-		return oauthflow.Result{}, err
+		return err
 	}
-	return result, nil
+	s.reportWithheldScopes(access, result)
+	return nil
 }
 
 // establishSession runs the login mode the selected account's kind names, for
@@ -458,7 +530,8 @@ func (s Shell) establishProduct(selected contexts.Selection, access contexts.Pro
 // result, so a user who redirects standard output still sees the URL or the
 // code the login cannot finish without, and the result stream carries only the
 // report.
-func (s Shell) establishSession(selected contexts.Selection, access contexts.ProductAccess) (oauthflow.Result, error) {
+func (s Shell) establishSession(selected contexts.Selection, access contexts.ProductAccess,
+	tab *oauthflow.Tab) (oauthflow.Result, error) {
 	if selected.Identity.Auth.Kind == contexts.KindOAuthDevice {
 		// A longer deadline than the browser login's, because a longer errand:
 		// the person has to reach another device, open a browser on it, and
@@ -491,6 +564,8 @@ func (s Shell) establishSession(selected contexts.Selection, access contexts.Pro
 		Scopes:      access.Scopes,
 		Resource:    access.Resource,
 		Label:       access.Namespace,
+		DeviceSSO:   asksForDeviceSecret(selected.Identity, access),
+		Tab:         tab,
 		OpenBrowser: s.OpenBrowser,
 		Out:         s.Streams.Err,
 	}.Run(ctx)

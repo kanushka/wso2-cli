@@ -142,6 +142,10 @@ type Context struct {
 	// Products are the product services reachable from this context, keyed by
 	// product namespace.
 	Products map[string]Product `json:"products,omitempty"`
+	// CloudEnvironment names the WSO2 Cloud environment a Cloud context was
+	// written for, such as dev. Every login of the context reads that
+	// environment's file to record the Cloud products it has installed.
+	CloudEnvironment string `json:"cloudEnvironment,omitempty"`
 
 	// synthetic marks a context manufactured by the v1 compatibility read. It
 	// is never encodable.
@@ -658,9 +662,16 @@ func (d Document) validate() error {
 }
 
 // validate proves one context is complete and consistent.
+var cloudEnvironmentName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
+
 func (c Context) validate() error {
 	if err := c.Account().validate(); err != nil {
 		return err
+	}
+	if c.CloudEnvironment != "" && !cloudEnvironmentName.MatchString(c.CloudEnvironment) {
+		return contextProblem("contexts.document_malformed",
+			fmt.Sprintf("the context %q names a cloudEnvironment that is not an environment name", c.Name),
+			"Set cloudEnvironment to a lowercase name such as dev or prod-us, or remove it.")
 	}
 	// Frozen defaults (ADR 0016): an interactive context that reaches a direct
 	// product names the one its login runs for. Without it the login would

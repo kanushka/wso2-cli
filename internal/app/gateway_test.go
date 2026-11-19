@@ -130,12 +130,6 @@ func TestLoginEstablishesTheGatewaySessionBesideTheOthers(t *testing.T) {
 	shell, out, errOut := newLoginShell(t)
 	installLogin(t, shell, gatewayDoc(login.URL, product.URL))
 	followBrowser(&shell)
-	var opened []string
-	follow := shell.OpenBrowser
-	shell.OpenBrowser = func(authURL string) error {
-		opened = append(opened, authURL)
-		return follow(authURL)
-	}
 	if code := shell.Run([]string{"login"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
@@ -151,13 +145,13 @@ func TestLoginEstablishesTheGatewaySessionBesideTheOthers(t *testing.T) {
 	if !hasField(out.String(), "Status", "logged in") {
 		t.Fatalf("the report does not say the login succeeded:\n%s", out)
 	}
-	if got := strings.Count(errOut.String(), "Opened the browser"); got != 3 {
-		t.Fatalf("opened the browser %d times, want 3:\n%s", got, errOut)
+	if got := strings.Count(errOut.String(), "Opened the browser"); got != 1 {
+		t.Fatalf("opened the browser %d times, want once for all three authorizations:\n%s", got, errOut)
 	}
-	if !slices.ContainsFunc(opened, func(authURL string) bool {
-		return strings.Contains(authURL, "resource="+url.QueryEscape(gatewayAudience))
+	if !slices.ContainsFunc(login.Authorizations(), func(query url.Values) bool {
+		return query.Get("resource") == gatewayAudience
 	}) {
-		t.Fatalf("the gateway authorization carried no resource indicator:\n%s", strings.Join(opened, "\n"))
+		t.Fatalf("the gateway authorization carried no resource indicator: %v", login.Authorizations())
 	}
 }
 

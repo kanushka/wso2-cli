@@ -87,6 +87,9 @@ func Discover(ctx context.Context, issuer, issuerID string) (*oidc.Provider, err
 		if provider.Claims(&named) != nil {
 			return nil, Unreadable()
 		}
+		if named.Issuer == issuer {
+			return nil, staleIssuerIDProblem()
+		}
 		if named.Issuer != issuerID {
 			return nil, mismatchProblem(named.Issuer)
 		}
@@ -96,6 +99,15 @@ func Discover(ctx context.Context, issuer, issuerID string) (*oidc.Provider, err
 		return nil, issuertrust.PlaintextProblem()
 	}
 	return provider, nil
+}
+
+// staleIssuerIDProblem is the refusal for a provider that names its own URL
+// while the context declares an issuer identifier. The document refuses an
+// issuerId equal to the issuer, so the mismatch advice would lead nowhere.
+func staleIssuerIDProblem() problem.Problem {
+	return Failed("the identity provider names its own URL as its issuer, and the selected context "+
+		"declares a different issuer identifier",
+		"Remove login.issuerId from the selected context (wso2 context edit), then retry.")
 }
 
 // Failed is a discovery refusal: the provider answered in a way the shell

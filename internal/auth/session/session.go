@@ -107,7 +107,21 @@ type Session struct {
 	Resource string `json:"resource,omitempty"`
 	Audience string `json:"audience,omitempty"`
 	Bound    bool   `json:"bound,omitempty"`
+	// DeviceSecret is the ThunderID device secret the login's sign-in
+	// returned, kept on the login session alone so that ending the login
+	// session ends it too. Each further product session is obtained from it
+	// without a browser while the sign-on it describes lasts.
+	// DeviceSecretExpiresAt is its exp claim, zero when it states none.
+	DeviceSecret          string    `json:"deviceSecret,omitempty"`
+	DeviceSecretExpiresAt time.Time `json:"deviceSecretExpiresAt,omitempty"`
+	// EstablishedBy is how a product session was obtained when it was not a
+	// browser authorization: EstablishedByDeviceSecret, or empty.
+	EstablishedBy string `json:"establishedBy,omitempty"`
 }
+
+// EstablishedByDeviceSecret marks a session obtained by exchanging the login
+// session's device secret.
+const EstablishedByDeviceSecret = "device-secret"
 
 // Store reads and writes sessions in the OS secure store.
 type Store struct {

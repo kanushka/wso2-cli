@@ -158,6 +158,24 @@ type Options struct {
 	// resource server that was never registered — the same OAuth error as a
 	// request that named none, arriving for the opposite reason.
 	RegisteredResource string
+	// WithheldScopes are permissions this user holds no role for. An
+	// authorization asking for one answers 200 with it left out of the issued
+	// token, as ThunderID was measured doing on 2026-11-13.
+	WithheldScopes []string
+	// DeviceSSO models ThunderID's device secret, as measured on 2026-11-13:
+	// discovery lists the device_sso scope, an authorization that asks for it
+	// is answered with a device_secret describing the browser session it
+	// started, and a token exchange presenting that secret is answered as a
+	// fresh authorization bound to the resource it names.
+	DeviceSSO bool
+	// ReusedBrowserSession models a sign-in that found a browser session
+	// already there: ThunderID then issues no device secret, whatever was
+	// asked for.
+	ReusedBrowserSession bool
+	// SilentRefusal is the error an authorization asking for prompt=none is
+	// answered with, as a provider with no sign-on to reuse answers
+	// login_required. Empty approves a silent authorization like any other.
+	SilentRefusal string
 	// RotateRefreshTokens issues a new refresh token on every refresh,
 	// invalidating the one presented.
 	RotateRefreshTokens bool
@@ -318,6 +336,11 @@ type Issuer struct {
 	refuseExchange bool
 	// onRevoke runs once, the first time the revocation endpoint is reached.
 	onRevoke func()
+	// deviceSecrets are the device secrets issued, each live until the
+	// browser session it describes ends.
+	deviceSecrets map[string]bool
+	// authorizations records every authorization request's query, in order.
+	authorizations []url.Values
 }
 
 type codeGrant struct {
@@ -383,6 +406,7 @@ func New(t *testing.T, opts Options) *Issuer {
 		keyID:         randomToken("key"),
 		codes:         map[string]codeGrant{},
 		refreshTokens: map[string]refreshRecord{},
+		deviceSecrets: map[string]bool{},
 		accessTokens:  map[string]tokenRecord{},
 		idTokens:      map[string]string{},
 		deviceGrants:  map[string]*deviceGrant{},
@@ -501,6 +525,9 @@ func (i *Issuer) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
 	if i.opts.OmitS256 {
 		delete(document, "code_challenge_methods_supported")
 	}
+	if i.opts.DeviceSSO {
+		document["scopes_supported"] = []string{"openid", "offline_access", "profile", "email", deviceSSOScope}
+	}
 	if i.opts.OmitRevocationEndpoint {
 		delete(document, "revocation_endpoint")
 	}
@@ -599,6 +626,9 @@ func negativeSerialCertificate(t *testing.T, key *rsa.PrivateKey) []byte {
 // login is one redirect-following request chain.
 func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
+	i.mutex.Lock()
+	i.authorizations = append(i.authorizations, query)
+	i.mutex.Unlock()
 	redirectURI := query.Get("redirect_uri")
 	switch {
 	case query.Get("client_id") == "":
@@ -626,12 +656,15 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 			"state":             {query.Get("state")},
 		}
 		http.Redirect(w, r, redirectURI+"?"+refusal.Encode(), http.StatusFound)
+	case i.opts.SilentRefusal != "" && query.Get("prompt") == "none":
+		refusal := url.Values{"error": {i.opts.SilentRefusal}, "state": {query.Get("state")}}
+		http.Redirect(w, r, redirectURI+"?"+refusal.Encode(), http.StatusFound)
 	default:
 		code := randomToken("code")
 		i.mutex.Lock()
 		i.codes[code] = codeGrant{
 			challenge:   query.Get("code_challenge"),
-			scopes:      splitScopes(query.Get("scope")),
+			scopes:      i.withoutWithheld(splitScopes(query.Get("scope"))),
 			redirectURI: redirectURI,
 			nonce:       query.Get("nonce"),
 			clientID:    query.Get("client_id"),
@@ -641,6 +674,14 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		callback := url.Values{"code": {code}, "state": {query.Get("state")}}
 		http.Redirect(w, r, redirectURI+"?"+callback.Encode(), http.StatusFound)
 	}
+}
+
+// Authorizations is every authorization request's query, in the order they
+// arrived.
+func (i *Issuer) Authorizations() []url.Values {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	return slices.Clone(i.authorizations)
 }
 
 // acceptsRedirect reports whether the callback URL is one this issuer is
@@ -718,6 +759,10 @@ func (i *Issuer) RefuseExchange() {
 // OIDC scopes and nothing more, which is why an exchanged product is
 // authorized by the claims it carries rather than by a scope set.
 func (i *Issuer) exchangeGrant(w http.ResponseWriter, r *http.Request) {
+	if i.opts.DeviceSSO && r.PostForm.Get("subject_token_type") == jwtTokenType {
+		i.deviceSecretGrant(w, r)
+		return
+	}
 	i.mutex.Lock()
 	refusing, registered := i.refuseExchange, i.opts.ExchangeGrant
 	subject, minted := i.accessTokens[r.PostForm.Get("subject_token")]
@@ -824,7 +869,72 @@ func (i *Issuer) exchangeCode(w http.ResponseWriter, r *http.Request) {
 			response["refresh_token_expires_in"] = value
 		}
 	}
+	if i.opts.DeviceSSO && !i.opts.ReusedBrowserSession && slices.Contains(grant.scopes, deviceSSOScope) {
+		response["device_secret"] = i.mintDeviceSecret()
+	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+const (
+	deviceSSOScope = "device_sso"
+	jwtTokenType   = "urn:ietf:params:oauth:token-type:jwt"
+)
+
+func (i *Issuer) mintDeviceSecret() string {
+	now := time.Now()
+	secret := i.sign(map[string]any{
+		"iss": i.Identifier(), "aud": i.Identifier(), "sub": "user-1", "sid": randomToken("sid"),
+		"iat": now.Unix(), "exp": now.Add(24 * time.Hour).Unix(),
+	})
+	i.mutex.Lock()
+	i.deviceSecrets[secret] = true
+	i.mutex.Unlock()
+	return secret
+}
+
+// EndBrowserSession ends the browser session every device secret describes,
+// as a sign-out or a session timeout at the provider does.
+func (i *Issuer) EndBrowserSession() {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	for secret := range i.deviceSecrets {
+		i.deviceSecrets[secret] = false
+	}
+}
+
+// deviceSecretGrant answers a token exchange presenting a device secret the
+// way ThunderID does: a fresh authorization, with a refresh token of its own,
+// bound to the one resource named and carrying the requested scopes the user
+// holds, or interaction_required once the browser session has ended.
+func (i *Issuer) deviceSecretGrant(w http.ResponseWriter, r *http.Request) {
+	i.mutex.Lock()
+	live, issued := i.deviceSecrets[r.PostForm.Get("subject_token")]
+	i.mutex.Unlock()
+	switch {
+	case presentedClientID(r) == "":
+		oauthError(w, http.StatusUnauthorized, "invalid_client")
+		return
+	case !issued:
+		oauthError(w, http.StatusBadRequest, "invalid_grant")
+		return
+	case !live:
+		oauthError(w, http.StatusBadRequest, "interaction_required")
+		return
+	}
+	resource := r.PostForm.Get("resource")
+	scopes := i.withoutWithheld(splitScopes(r.PostForm.Get("scope")))
+	refreshToken := randomToken("rt")
+	i.mutex.Lock()
+	i.refreshTokens[refreshToken] = refreshRecord{scopes: scopes, resource: resource}
+	i.mutex.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"access_token":      i.mintAccessTokenFor("user-1", scopes, resource),
+		"refresh_token":     refreshToken,
+		"issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+		"token_type":        "Bearer",
+		"expires_in":        300,
+		"scope":             strings.Join(scopes, " "),
+	})
 }
 
 // refreshTokenExpiresInValue reports the refresh_token_expires_in value this
@@ -1448,6 +1558,12 @@ func randomToken(prefix string) string {
 		panic(fmt.Sprintf("fakeissuer: random token: %v", err))
 	}
 	return prefix + "-" + hex.EncodeToString(raw)
+}
+
+func (i *Issuer) withoutWithheld(scopes []string) []string {
+	return slices.DeleteFunc(scopes, func(scope string) bool {
+		return slices.Contains(i.opts.WithheldScopes, scope)
+	})
 }
 
 func splitScopes(value string) []string {

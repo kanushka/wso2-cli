@@ -134,6 +134,27 @@ func TestDoctorOnlineAcceptsAProviderNamingTheDeclaredIssuerID(t *testing.T) {
 	}
 }
 
+// A provider that stops naming a bare identifier and names its own URL leaves
+// a declared issuerId stale. Setting issuerId to that URL is refused by the
+// document, so the remedy is to remove it.
+func TestLoginTellsAStaleIssuerIDToBeRemoved(t *testing.T) {
+	issuer := fakeissuer.New(t, fakeissuer.Options{})
+	shell, _, errOut := newLoginShell(t)
+	installLogin(t, shell, issuerIDDoc(issuer.URL, cloudIssuerID))
+
+	if code := shell.Run([]string{"login"}); code != exit.AuthPolicy {
+		t.Fatalf("exit code = %d, want %d (auth policy); stderr: %s", code, exit.AuthPolicy, errOut)
+	}
+	rendered := errOut.String()
+	requireRefusal(t, rendered, "auth.discovery_failed")
+	if !strings.Contains(rendered, "Remove login.issuerId") || strings.Contains(rendered, "set login.issuerId") {
+		t.Fatalf("the refusal does not say to remove login.issuerId:\n%s", rendered)
+	}
+	if strings.Contains(rendered, issuer.URL) || strings.Contains(rendered, cloudIssuerID) {
+		t.Fatalf("the refusal echoes the context's issuer or issuer identifier:\n%s", rendered)
+	}
+}
+
 // requireIssuerMismatch asserts the refusal for a provider naming another
 // issuer: the discovery code, the identifier the provider names, the remedy,
 // and never the context's own issuer URL.

@@ -238,6 +238,11 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 // states it; auth.BrowserUnavailable carries the one fact only the shell has.
 func (s Shell) sessionEstablisher(selection contexts.Selection, namespace string, noInput bool) func(contexts.ProductAccess) error {
 	return func(access contexts.ProductAccess) error {
+		// A device secret needs no browser, so it is tried before the gate
+		// that refuses one.
+		if _, established, err := s.establishFromDeviceSecret(selection, access); err != nil || established {
+			return err
+		}
 		if control := s.nonInteractiveControl(noInput); control != "" {
 			return auth.BrowserUnavailable{Control: control}
 		}
@@ -248,7 +253,7 @@ func (s Shell) sessionEstablisher(selection contexts.Selection, namespace string
 			access.Namespace, access.Issuer); err != nil {
 			return err
 		}
-		_, err := s.establishProduct(selection, access)
+		_, err := s.establishThroughBrowser(selection, access, nil)
 		return err
 	}
 }
