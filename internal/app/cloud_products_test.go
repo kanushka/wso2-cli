@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -379,8 +380,9 @@ func TestEveryCloudLoginInstallsTheCloudProductsItLacks(t *testing.T) {
 func assertTriedToInstall(t *testing.T, stderr string, namespaces ...string) {
 	t.Helper()
 	for _, namespace := range namespaces {
-		if !strings.Contains(stderr, "not published in the module catalog") ||
-			!strings.Contains(stderr, "namespace="+namespace) {
+		line := regexp.MustCompile(`(?m)^.*not published in the module catalog.*namespace=` +
+			regexp.QuoteMeta(namespace) + `( |$)`)
+		if !line.MatchString(stderr) {
 			t.Errorf("the login did not try to install %s:\n%s", namespace, stderr)
 		}
 	}
