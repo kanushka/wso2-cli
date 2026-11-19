@@ -33,6 +33,9 @@ type bearerFacts struct {
 	Scopes []string
 	// ExpiresAt is when it stops being accepted.
 	ExpiresAt time.Time
+	// OrganizationUnit is the ouId claim ThunderID stamps on a token for the
+	// organization unit it was issued in, empty when the token names none.
+	OrganizationUnit string
 }
 
 // errNotABearerToken reports material the shell cannot read facts out of.
@@ -56,11 +59,12 @@ func bearerClaims(token string) (bearerFacts, error) {
 		Audience any     `json:"aud"`
 		Scope    *string `json:"scope"`
 		Expires  int64   `json:"exp"`
+		OUID     string  `json:"ouId"`
 	}
 	if json.Unmarshal(payload, &claims) != nil {
 		return bearerFacts{}, errNotABearerToken
 	}
-	facts := bearerFacts{Audiences: audienceList(claims.Audience)}
+	facts := bearerFacts{Audiences: audienceList(claims.Audience), OrganizationUnit: claims.OUID}
 	if claims.Scope != nil {
 		facts.Scopes = strings.Fields(*claims.Scope)
 	}

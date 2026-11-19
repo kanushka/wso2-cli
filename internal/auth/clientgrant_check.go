@@ -18,14 +18,10 @@ package auth
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"slices"
-	"strings"
 
 	"github.com/wso2/wso2-cli/internal/contexts"
 )
@@ -65,22 +61,13 @@ func CheckClientGrant(ctx context.Context, client *http.Client, selection contex
 		clientID:       access.ClientID,
 		resource:       access.Resource,
 		audience:       access.Audience,
+		secret:         secret,
 		secretVariable: selection.Identity.Auth.ClientSecretVariable,
+		client:         client,
 	}
-	endpoint, err := tokenEndpoint(ctx, client, source.issuer, source.issuerID)
+	issued, err := source.grant(ctx, access.Scopes)
 	if err != nil {
 		return ClientGrantCheck{}, reported(err)
-	}
-	form := url.Values{
-		"grant_type": {"client_credentials"},
-		"scope":      {strings.Join(access.Scopes, " ")},
-	}
-	if access.Resource != "" {
-		form.Set("resource", access.Resource)
-	}
-	issued, err := requestToken(ctx, client, endpoint, form, clientAuth{id: source.clientID, secret: secret})
-	if err != nil {
-		return ClientGrantCheck{}, reported(source.refusedGrant(err, access.Resource))
 	}
 	check := ClientGrantCheck{Namespace: namespace, Granted: GrantedScopes(issued.Scope, issued.AccessToken)}
 	for _, scope := range access.Scopes {
@@ -97,33 +84,16 @@ func CheckClientGrant(ctx context.Context, client *http.Client, selection contex
 	if slices.ContainsFunc(check.Granted, func(scope string) bool { return !slices.Contains(access.Scopes, scope) }) {
 		request.Scopes = access.Scopes
 	}
-	if _, err := issued.verify(request, namespace, access.Audience); err != nil {
+	facts, err := issued.verify(request, namespace, access.Audience)
+	if err != nil {
 		return ClientGrantCheck{}, reported(err)
 	}
-	check.Organization = organizationUnit(issued.AccessToken)
+	check.Organization = facts.OrganizationUnit
 	return check, nil
 }
 
-// organizationUnit is the ouId claim ThunderID stamps on a token for the
-// organization unit it was issued in, empty when the token names none.
-func organizationUnit(token string) string {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return ""
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return ""
-	}
-	var claims struct {
-		OUID string `json:"ouId"`
-	}
-	if json.Unmarshal(payload, &claims) != nil {
-		return ""
-	}
-	return claims.OUID
-}
-
+// reported is a refusal as the shell shows it to the person, with the
+// guidance a module never sees.
 func reported(err error) error {
 	var refused Denial
 	if errors.As(err, &refused) {

@@ -79,18 +79,31 @@ type clientCredentialsSource struct {
 func (s clientCredentialsSource) mint(request Request, now time.Time) (Grant, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), grantDeadline)
 	defer cancel()
-	endpoint, err := tokenEndpoint(ctx, s.client, s.issuer, s.issuerID)
-	if err != nil {
-		return Grant{}, err
-	}
-
 	// The scopes carried are the module's own request. A CI client is commonly
 	// registered for every permission the deployment will ever need from
 	// automation, and asking for that whole set would hand one module the
 	// authority of all of them.
+	issued, err := s.grant(ctx, request.Scopes)
+	if err != nil {
+		return Grant{}, err
+	}
+	facts, err := issued.verify(request, s.namespace, s.audience)
+	if err != nil {
+		return Grant{}, err
+	}
+	return Grant{Token: issued.AccessToken, ExpiresAt: issued.expiry(facts, now)}, nil
+}
+
+// grant presents the client credential at the issuer's token endpoint for
+// scopes, refusing in the shell's terms when the issuer does.
+func (s clientCredentialsSource) grant(ctx context.Context, scopes []string) (tokenResponse, error) {
+	endpoint, err := tokenEndpoint(ctx, s.client, s.issuer, s.issuerID)
+	if err != nil {
+		return tokenResponse{}, err
+	}
 	form := url.Values{
 		"grant_type": {"client_credentials"},
-		"scope":      {strings.Join(request.Scopes, " ")},
+		"scope":      {strings.Join(scopes, " ")},
 	}
 	// The access plan has already decided whether a resource indicator is
 	// owed and, when it is, which resource it names — the product's own
@@ -100,26 +113,13 @@ func (s clientCredentialsSource) mint(request Request, now time.Time) (Grant, er
 	if s.resource != "" {
 		form.Set("resource", s.resource)
 	}
-	issued, err := requestToken(ctx, s.client, endpoint, form,
-		clientAuth{id: s.clientID, secret: s.secret})
+	issued, err := requestToken(ctx, s.client, endpoint, form, clientAuth{id: s.clientID, secret: s.secret})
 	if err != nil {
-		return Grant{}, s.refusedGrant(err, form.Get("resource"))
+		return tokenResponse{}, s.refusedGrant(err, s.resource)
 	}
-	facts, err := issued.verify(request, s.namespace, s.audience)
-	if err != nil {
-		return Grant{}, err
-	}
-	return Grant{Token: issued.AccessToken, ExpiresAt: issued.expiry(facts, now)}, nil
+	return issued, nil
 }
 
-// refusedGrant reads why the deployment refused, and says so in the shell's own
-// terms.
-//
-// Three answers are worth telling apart, because they send the user to three
-// different places: a registration the deployment owns, a secret the job owns,
-// and an issuer this shell cannot speak for.
-// sent is the resource indicator this request carried, empty when it carried
-// none. It is what tells the two halves of invalid_target apart.
 func (s clientCredentialsSource) refusedGrant(err error, sent string) error {
 	var refusal issuerRefusal
 	switch {
