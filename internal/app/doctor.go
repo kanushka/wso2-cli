@@ -567,20 +567,29 @@ func (s Shell) lastRunFinding(root string) (doctorFinding, bool) {
 // silent about it, so a read-only home is not noisy; this is where it is said
 // once. It never decides doctor's exit status.
 func (s Shell) runLogFinding(root string) (doctorFinding, bool) {
-	if s.invocation == nil || s.invocation.runLogErr == nil {
+	if s.invocation == nil {
 		return doctorFinding{}, false
 	}
-	reason := s.invocation.runLogErr.Error()
-	var pathErr *fs.PathError
-	if errors.As(s.invocation.runLogErr, &pathErr) {
-		reason = pathErr.Err.Error()
+	err := s.invocation.runLogErr
+	if err == nil && s.invocation.runLog != nil {
+		err = s.invocation.runLog.Err()
 	}
-	directory := filepath.Dir(runlog.Path(root))
+	if err == nil {
+		return doctorFinding{}, false
+	}
+	reason, target := err.Error(), filepath.Dir(runlog.Path(root))
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		reason, target = pathErr.Err.Error(), pathErr.Path
+	}
+	recovery := fmt.Sprintf("Make %s a directory you can write to, or set WSO2_HOME to a state root you own.", target)
+	if strings.HasPrefix(filepath.Base(target), filepath.Base(runlog.Path(root))) {
+		recovery = fmt.Sprintf("Make %s writable by you, or remove it; the next run creates it again.", target)
+	}
 	return doctorFinding{
-		Check:  checkRunLog,
-		Status: statusNotice,
-		Detail: fmt.Sprintf("runs are not recorded, because %s cannot be written (%s)", directory, reason),
-		Recovery: fmt.Sprintf("Make %s a directory you can write to, or set WSO2_HOME to a state root you own.",
-			directory),
+		Check:    checkRunLog,
+		Status:   statusNotice,
+		Detail:   fmt.Sprintf("runs are not recorded, because %s cannot be written (%s)", target, reason),
+		Recovery: recovery,
 	}, true
 }

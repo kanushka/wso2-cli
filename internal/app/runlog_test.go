@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -255,6 +256,28 @@ func TestDoctorPointsAtTheRunLogAfterAFailedRun(t *testing.T) {
 	shell.Run([]string{"doctor", "--output", "json"})
 	if report := decodeDoctorReport(t, out.Bytes()); hasFinding(report, "last-run") {
 		t.Fatalf("doctor still reports a failure a later run superseded:\n%s", out)
+	}
+}
+
+func TestDoctorNamesAnUnwritableRunLogFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file modes are not enforced on Windows")
+	}
+	shell, out, errOut := newRunLogShell(t)
+	logFile := runlog.Path(shell.StateRoot)
+	if err := os.MkdirAll(filepath.Dir(logFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logFile, nil, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	shell.Run([]string{"doctor", "--output", "json"})
+	finding := decodeDoctorReport(t, out.Bytes()).findingFor(t, "run-log")
+	if !strings.Contains(finding.Detail, logFile) {
+		t.Errorf("run-log detail = %q, want it to name %s; stderr %s", finding.Detail, logFile, errOut)
+	}
+	if !strings.Contains(finding.Recovery, "Make "+logFile+" writable") {
+		t.Errorf("run-log recovery = %q, want the file's own recovery", finding.Recovery)
 	}
 }
 

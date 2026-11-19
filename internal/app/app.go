@@ -119,6 +119,9 @@ type invocationState struct {
 	// runLogErr is why this run's log could not be opened. The run itself
 	// stays silent about it; ws doctor reports it.
 	runLogErr error
+	// runLog is this run's open log, which remembers a write that failed
+	// after it opened.
+	runLog *runlog.File
 	// commandPath is the command this run resolved to, in declared words
 	// only: "wso2 context use", "wso2 apim api list". An argument never
 	// becomes part of it, because the run log keeps it on every run.
@@ -207,6 +210,7 @@ func (s Shell) openRunLog(args []string) func() {
 		return func() {}
 	}
 	s.invocation.runID = runID
+	s.invocation.runLog = file
 	s.log.AttachFile(file, runlog.KeyInvocation, runID, "pid", os.Getpid())
 	return func() { _ = file.Close() }
 }

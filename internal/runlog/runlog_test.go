@@ -193,3 +193,48 @@ func assertMode(t *testing.T, path string, want os.FileMode) {
 		t.Errorf("%s has mode %v, want %v", path, got, want)
 	}
 }
+
+func endedAt(at, invocation, command string, code int) string {
+	return fmt.Sprintf(`{"time":%q,"level":"INFO","msg":%q,"invocation":%q,"command":%q,"exit_code":%d}`,
+		at, EndedMessage, invocation, command, code)
+}
+
+func TestLastFinishedReadsEveryRetainedFile(t *testing.T) {
+	root := t.TempDir()
+	writeLog(t, Path(root)+".2", endedAt("2026-11-19T09:00:00Z", "a", "wso2 login", 77))
+	writeLog(t, Path(root)+".1", endedAt("2026-11-19T09:10:00Z", "b", "wso2 doctor", 0))
+	writeLog(t, Path(root), endedAt("2026-11-19T09:20:00Z", "c", "wso2 doctor", 0))
+	run, found := LastFinished(root, func(run Run) bool { return run.Command == "wso2 doctor" })
+	if !found || run.Invocation != "a" {
+		t.Fatalf("LastFinished = %+v, %v; want the run kept only in .2", run, found)
+	}
+}
+
+// A long run keeps appending to the file it opened after another run rotates
+// it, so a later finish can sit in an older file.
+func TestLastFinishedTakesTheNewestFinishAcrossFiles(t *testing.T) {
+	root := t.TempDir()
+	writeLog(t, Path(root)+".1", endedAt("2026-11-19T09:30:00Z", "long", "wso2 apim api list", 75))
+	writeLog(t, Path(root), endedAt("2026-11-19T09:20:00Z", "short", "wso2 version", 0))
+	run, found := LastFinished(root, nil)
+	if !found || run.Invocation != "long" {
+		t.Fatalf("LastFinished = %+v, %v; want the later finish from .1", run, found)
+	}
+}
+
+func TestAFailedWriteIsKept(t *testing.T) {
+	file, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file.Err() != nil {
+		t.Fatalf("a fresh file reports %v", file.Err())
+	}
+	_ = file.Close()
+	if _, err := file.Write([]byte("{}\n")); err == nil {
+		t.Fatal("a write after close succeeded")
+	}
+	if file.Err() == nil {
+		t.Fatal("the failed write was not kept")
+	}
+}

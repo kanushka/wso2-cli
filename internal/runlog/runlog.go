@@ -70,6 +70,9 @@ type File struct {
 	path  string
 	file  *os.File
 	size  int64
+	// err is the first write that failed. slog drops a handler's error, so
+	// this is the only place a log that stopped being written is remembered.
+	err error
 }
 
 // Open opens the state root's log file for appending, creating it and its
@@ -115,6 +118,14 @@ func (f *File) open() error {
 func (f *File) Write(record []byte) (int, error) {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
+	written, err := f.write(record)
+	if err != nil && f.err == nil {
+		f.err = err
+	}
+	return written, err
+}
+
+func (f *File) write(record []byte) (int, error) {
 	if f.file == nil {
 		return 0, os.ErrClosed
 	}
@@ -126,6 +137,13 @@ func (f *File) Write(record []byte) (int, error) {
 	written, err := f.file.Write(record)
 	f.size += int64(written)
 	return written, err
+}
+
+// Err reports the first write that failed, or nil.
+func (f *File) Err() error {
+	f.mutex.Lock()
+	defer f.mutex.Unlock()
+	return f.err
 }
 
 func (f *File) rotate() error {
@@ -164,20 +182,29 @@ type Run struct {
 	Problem    string
 }
 
-// LastFinished reports the newest run with an end record that skip does not
-// pass over; a nil skip passes over nothing. The current file is read first
-// and the newest rotated one after it, because a rotation can leave the
-// current file holding nothing but the asking run's start.
+// LastFinished reports the run with the latest end record that skip does not
+// pass over, across the current file and every rotated one; a nil skip passes
+// over nothing. Every file is read because a run that opened the log before
+// another rotated it goes on appending to the older file, so the newest finish
+// is not always in the current one.
 func LastFinished(root string, skip func(Run) bool) (Run, bool) {
 	if skip == nil {
 		skip = func(Run) bool { return false }
 	}
-	for _, path := range []string{Path(root), Path(root) + ".1"} {
-		if run, found := lastFinishedIn(path, skip); found {
-			return run, true
+	var (
+		latest Run
+		found  bool
+	)
+	for index := 0; index <= Kept; index++ {
+		path := Path(root)
+		if index > 0 {
+			path += "." + strconv.Itoa(index)
+		}
+		if run, ok := lastFinishedIn(path, skip); ok && (!found || run.Time.After(latest.Time)) {
+			latest, found = run, true
 		}
 	}
-	return Run{}, false
+	return latest, found
 }
 
 func lastFinishedIn(path string, skip func(Run) bool) (Run, bool) {
