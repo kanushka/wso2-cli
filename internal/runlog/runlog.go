@@ -133,9 +133,9 @@ func (f *File) rotate() error {
 	for index := Kept - 1; index >= 1; index-- {
 		_ = os.Rename(f.path+"."+strconv.Itoa(index), f.path+"."+strconv.Itoa(index+1))
 	}
-	if err := os.Rename(f.path, f.path+".1"); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("runlog: cannot rotate %s: %w", f.path, err)
-	}
+	// A rename can fail where another process holds the file open; the run
+	// goes on appending to it rather than losing its records.
+	_ = os.Rename(f.path, f.path+".1")
 	return f.open()
 }
 
