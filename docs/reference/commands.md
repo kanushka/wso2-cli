@@ -115,9 +115,11 @@ The context records the environment it was written for, as
 installs each of these products that is not installed yet, one at a time,
 without asking, under `--no-input` too. A Cloud context written before it
 recorded an environment does this only when `WSO2_CLOUD_ENV` names it. A
-product the catalog cannot supply is reported on standard error as
-`Skipped <product>: <reason>` and left out; the sign-in goes on with the rest,
-and the next login tries it again. A product installed any other way is
+product the module catalog does not publish is left out silently, and named
+only under `--verbose`. A product that fails to install for any other reason
+is reported on standard error as `Skipped <product>: <reason>` and left out.
+Either way the sign-in goes on with the rest, and the next login tries it
+again. A product installed any other way is
 recorded on the next login too. A
 record already on the context is never changed, whether the login wrote it or
 a person did; to take the derived values again, remove the record with

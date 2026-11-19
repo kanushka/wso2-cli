@@ -17,8 +17,6 @@
 package app_test
 
 import (
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,9 +31,7 @@ import (
 // nothing, since a first Cloud login installs the Cloud products it can.
 func writeCloudEnvironment(t *testing.T, root, env, body string) {
 	t.Helper()
-	catalog := httptest.NewServer(http.NotFoundHandler())
-	t.Cleanup(catalog.Close)
-	t.Setenv("WSO2_CLI_CATALOG_ORIGIN", catalog.URL)
+	catalogServing(t, emptyCatalog)
 	dir := filepath.Join(root, "cloud")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)

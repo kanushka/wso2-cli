@@ -165,9 +165,9 @@ func (s Shell) recordCloudProducts(root, env string, target contexts.Context, lo
 
 // installCloudProducts installs each WSO2 Cloud product that is not installed,
 // on every login to a Cloud context, one at a time, so one that cannot be
-// installed leaves the others and the sign-in standing. Each product left out
-// gets one line saying why; it is not recorded, and the next login tries it
-// again.
+// installed leaves the others and the sign-in standing. A product that failed
+// to install gets one line saying why; it is not recorded, and the next login
+// tries it again.
 func (s Shell) installCloudProducts() error {
 	var wanted []installNeed
 	for _, namespace := range slices.Sorted(maps.Keys(cloudProducts)) {
@@ -189,7 +189,10 @@ func (s Shell) installCloudProducts() error {
 		var refused problem.Problem
 		switch {
 		case errors.As(err, &refused) && refused.Code == "catalog.unknown_module":
-			line = fmt.Sprintf("Skipped %s: it is not published in the module catalog.", need.Namespace)
+			// Nothing the user can do about it, so it is said only under --verbose.
+			s.log.Debug("skipped a Cloud product: it is not published in the module catalog",
+				"namespace", need.Namespace)
+			continue
 		case err != nil:
 			line = fmt.Sprintf("Skipped %s: %v. The next login tries again.", need.Namespace, err)
 		}

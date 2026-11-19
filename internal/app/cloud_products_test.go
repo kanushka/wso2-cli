@@ -354,13 +354,8 @@ func TestAFirstCloudLoginSkipsAProductTheCatalogCannotSupply(t *testing.T) {
 
 	login.run(t, "login")
 
-	for _, namespace := range []string{"am", "iam", "intg"} {
-		if !strings.Contains(login.errOut.String(), "Skipped "+namespace+":") {
-			t.Errorf("stderr does not say %s was skipped:\n%s", namespace, login.errOut)
-		}
-	}
-	if strings.Contains(login.errOut.String(), "Skipped apim") {
-		t.Error("an installed product was installed again")
+	if strings.Contains(login.errOut.String(), "Skipped") || strings.Contains(login.errOut.String(), "catalog") {
+		t.Errorf("an unpublished product was reported without --verbose:\n%s", login.errOut)
 	}
 	recorded := cloudContext(t, login.shell).Products
 	if _, found := recorded["apim"]; !found || len(recorded) != 1 {
@@ -373,11 +368,22 @@ func TestEveryCloudLoginInstallsTheCloudProductsItLacks(t *testing.T) {
 	installCloudAPIM(t, login.shell)
 	login.run(t, "login")
 
-	login.run(t, "login")
+	login.run(t, "login", "--verbose")
 
-	for _, namespace := range []string{"am", "iam", "intg"} {
-		if !strings.Contains(login.errOut.String(), "Skipped "+namespace+":") {
-			t.Errorf("a later login did not try to install %s:\n%s", namespace, login.errOut)
+	assertTriedToInstall(t, login.errOut.String(), "am", "iam", "intg")
+	if strings.Contains(login.errOut.String(), "namespace=apim") {
+		t.Error("an installed product was installed again")
+	}
+}
+
+// assertTriedToInstall checks a --verbose login's diagnostics name each
+// namespace as one the catalog does not publish.
+func assertTriedToInstall(t *testing.T, stderr string, namespaces ...string) {
+	t.Helper()
+	for _, namespace := range namespaces {
+		if !strings.Contains(stderr, "not published in the module catalog") ||
+			!strings.Contains(stderr, "namespace="+namespace) {
+			t.Errorf("the login did not try to install %s:\n%s", namespace, stderr)
 		}
 	}
 }
@@ -406,7 +412,7 @@ func TestAnyLoginOfACloudContextRecordsItsProducts(t *testing.T) {
 			login.run(t, "login")
 			t.Setenv(app.CloudEnvVar, "")
 			t.Setenv("WSO2_CONTEXT", testCase.environment)
-			args := testCase.args
+			args := append(testCase.args, "--verbose")
 			installCloudIAM(t, login.shell)
 
 			login.run(t, args...)
@@ -414,9 +420,7 @@ func TestAnyLoginOfACloudContextRecordsItsProducts(t *testing.T) {
 			if _, found := cloudContext(t, login.shell).Products["iam"]; !found {
 				t.Error("iam, installed after the first login, was not recorded")
 			}
-			if !strings.Contains(login.errOut.String(), "Skipped am:") {
-				t.Errorf("the login did not install the products it lacks:\n%s", login.errOut)
-			}
+			assertTriedToInstall(t, login.errOut.String(), "am")
 		})
 	}
 }
@@ -435,12 +439,12 @@ func TestACloudContextWithNoStoredEnvironmentIsLoggedInToAsBefore(t *testing.T) 
 	t.Setenv(app.CloudEnvVar, "")
 	installCloudIAM(t, login.shell)
 
-	login.run(t, "login", "--context", "cloud-dev")
+	login.run(t, "login", "--context", "cloud-dev", "--verbose")
 
 	if _, found := cloudContext(t, login.shell).Products["iam"]; found {
 		t.Error("a Cloud context with no stored environment recorded a product")
 	}
-	if strings.Contains(login.errOut.String(), "Skipped") || strings.Contains(login.errOut.String(), "Not recorded") {
+	if strings.Contains(login.errOut.String(), "module catalog") || strings.Contains(login.errOut.String(), "Not recorded") {
 		t.Errorf("the login said something about products:\n%s", login.errOut)
 	}
 }
