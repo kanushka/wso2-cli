@@ -19,7 +19,9 @@ package auth_test
 import (
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	keyring "github.com/zalando/go-keyring"
 
@@ -226,5 +228,48 @@ func TestAMachineIdentityMintsTheGatewayInlineFromItsOwnClient(t *testing.T) {
 	var denial auth.Denial
 	if !errors.As(err, &denial) || denial.Problem.Code != "auth.product_not_configured" {
 		t.Fatalf("got %v, want auth.product_not_configured", err)
+	}
+}
+
+// A session another invocation is saving under the rotation lock is waited
+// for, not established again: the store can answer that it has none while the
+// save is in flight.
+func TestASessionBeingSavedUnderTheLockIsNotEstablishedAgain(t *testing.T) {
+	deployment := seedBrowserSession(t, fakeissuer.Options{RequireResource: true})
+	broker := gatewayBroker(t, deployment)
+	var established atomic.Int32
+	broker.EstablishSession = func(contexts.ProductAccess) error {
+		established.Add(1)
+		return errors.New("established again")
+	}
+	ref := contexts.ProductSessionRef(sessionRef, contexts.GatewayKey(gatewayNamespace))
+	store := session.Store{StateRoot: deployment.stateRoot}
+	locked, release := make(chan struct{}), make(chan struct{})
+	saving := make(chan error, 1)
+	go func() {
+		saving <- store.WithLock(ref, func() error {
+			close(locked)
+			<-release
+			seedGatewaySession(t, deployment)
+			return nil
+		})
+	}()
+	<-locked
+	acquired := make(chan error, 1)
+	go func() {
+		_, err := broker.Acquire(gatewayRequest())
+		acquired <- err
+	}()
+	time.Sleep(100 * time.Millisecond)
+	close(release)
+
+	if err := <-saving; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-acquired; err != nil {
+		t.Errorf("acquire: %v", err)
+	}
+	if got := established.Load(); got != 0 {
+		t.Errorf("the session being saved was established again %d times", got)
 	}
 }

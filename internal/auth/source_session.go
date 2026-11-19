@@ -322,14 +322,29 @@ func (s sessionSource) mintUnderLock(request Request, now time.Time) (Grant, err
 }
 
 // ensureSession establishes the product's own session when it is absent,
-// before the rotation lock is taken: a browser round trip must not hold the
-// lock other invocations wait on.
+// outside the rotation lock: a browser round trip must not hold the lock other
+// invocations wait on.
 func (s sessionSource) ensureSession() error {
 	if s.establish == nil {
 		return nil
 	}
 	_, err := s.sessions.Load(s.ref)
 	if err == nil || !isLoginRequired(err) {
+		return err
+	}
+	// Another invocation may be saving the session under the lock, and a
+	// read in the middle of that save finds none. It is read again once the
+	// lock is free, and established only when it is still missing.
+	missing := false
+	err = s.sessions.WithLock(s.ref, func() error {
+		_, err := s.sessions.Load(s.ref)
+		missing = isLoginRequired(err)
+		if missing {
+			return nil
+		}
+		return err
+	})
+	if err != nil || !missing {
 		return err
 	}
 	return s.orSessionRequired(s.establish())
