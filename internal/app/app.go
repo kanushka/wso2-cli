@@ -116,6 +116,9 @@ type invocationState struct {
 	noInput bool
 	// runID ties this run's records in the run log together.
 	runID string
+	// runLogErr is why this run's log could not be opened. The run itself
+	// stays silent about it; ws doctor reports it.
+	runLogErr error
 	// commandPath is the command this run resolved to, in declared words
 	// only: "wso2 context use", "wso2 apim api list". An argument never
 	// becomes part of it, because the run log keeps it on every run.
@@ -199,6 +202,7 @@ func (s Shell) openRunLog(args []string) func() {
 	}
 	file, err := runlog.Open(root)
 	if err != nil {
+		s.invocation.runLogErr = err
 		s.log.FileUnavailable(err)
 		return func() {}
 	}

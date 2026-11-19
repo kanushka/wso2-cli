@@ -21,8 +21,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -55,6 +57,7 @@ const (
 	checkIssuer      = "issuer"
 	checkCatalog     = "catalog"
 	checkLastRun     = "last-run"
+	checkRunLog      = "run-log"
 )
 
 // The outcomes a check reports.
@@ -372,6 +375,9 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 	if finding, failed := s.lastRunFinding(root); failed {
 		findings = append(findings, finding)
 	}
+	if finding, unwritable := s.runLogFinding(root); unwritable {
+		findings = append(findings, finding)
+	}
 
 	if writeErr := renderDoctorReport(s.Streams.Out, mode, findings); writeErr != nil {
 		return writeErr
@@ -554,5 +560,27 @@ func (s Shell) lastRunFinding(root string) (doctorFinding, bool) {
 		Detail: detail,
 		Recovery: fmt.Sprintf("Run it again with WSO2_DEBUG=1 to record its diagnostics, then read %s.",
 			runlog.Path(root)),
+	}, true
+}
+
+// runLogFinding reports a run log this run could not open. Every run is
+// silent about it, so a read-only home is not noisy; this is where it is said
+// once. It never decides doctor's exit status.
+func (s Shell) runLogFinding(root string) (doctorFinding, bool) {
+	if s.invocation == nil || s.invocation.runLogErr == nil {
+		return doctorFinding{}, false
+	}
+	reason := s.invocation.runLogErr.Error()
+	var pathErr *fs.PathError
+	if errors.As(s.invocation.runLogErr, &pathErr) {
+		reason = pathErr.Err.Error()
+	}
+	directory := filepath.Dir(runlog.Path(root))
+	return doctorFinding{
+		Check:  checkRunLog,
+		Status: statusNotice,
+		Detail: fmt.Sprintf("runs are not recorded, because %s cannot be written (%s)", directory, reason),
+		Recovery: fmt.Sprintf("Make %s a directory you can write to, or set WSO2_HOME to a state root you own.",
+			directory),
 	}, true
 }

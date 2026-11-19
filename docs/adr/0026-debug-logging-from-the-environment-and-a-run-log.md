@@ -78,14 +78,16 @@ The always-on records cost a few hundred bytes a run and hold less than shell
 history does, and they let `ws doctor` say "the last run failed" after the
 fact, without asking the user to reproduce it first. The detail that makes a log
 a privacy surface (issuer URLs, context names, request paths) is written only
-when someone asked for it. A diagnostic may name an argument the user gave a
-built-in command, a context name for instance, because that is the detail
-diagnostics exist to show; a product command's arguments are never logged by
+when someone asked for it. Debug output is opt-in, so a
+diagnostic may name an argument the user gave a built-in command, a context
+name for instance, while the always-on records never carry an argument; a product command's arguments are never logged by
 the shell, since they belong to the module.
 
 A completion request, which runs on every Tab, writes nothing. A log that cannot
-be opened never fails a command; under diagnostics, the reason is the first
-thing written. Rotation takes no lock: two runs crossing the cap at once may
+be opened never fails a command and prints nothing, so a read-only home is not
+noisy on every run; under diagnostics the reason is the first thing written,
+and `ws doctor` reports it once as a `run-log` finding (status `notice`) with
+the reason in plain words and a recovery naming the directory. Rotation takes no lock: two runs crossing the cap at once may
 shift a few lines out early, which a diagnostic log can afford and a lock taken
 on every run cannot.
 

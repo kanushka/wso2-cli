@@ -286,3 +286,35 @@ func TestACompletionRequestWritesNothingUnderWSO2Debug(t *testing.T) {
 		t.Fatalf("a completion request wrote diagnostics:\n%s", errOut)
 	}
 }
+
+// A run stays silent when its log cannot be written; doctor is where the user
+// is told, once, in plain words.
+func TestDoctorSaysWhenTheRunLogCannotBeWritten(t *testing.T) {
+	healthy, healthyOut, _ := newRunLogShell(t)
+	want := healthy.Run([]string{"doctor", "--output", "json"})
+
+	shell, out, errOut := newRunLogShell(t)
+	if err := os.MkdirAll(shell.StateRoot+"/cli", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(shell.StateRoot+"/cli/logs", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := shell.Run([]string{"doctor", "--output", "json"}); code != want {
+		t.Fatalf("an unwritable run log changed doctor's exit from %d to %d; stderr %s", want, code, errOut)
+	}
+	finding := decodeDoctorReport(t, out.Bytes()).findingFor(t, "run-log")
+	if finding.Status != "notice" {
+		t.Errorf("run-log status = %q, want notice", finding.Status)
+	}
+	if !strings.Contains(finding.Detail, "not recorded") || strings.Contains(finding.Detail, "runlog:") {
+		t.Errorf("run-log detail = %q, want a plain reason", finding.Detail)
+	}
+	if !strings.Contains(finding.Recovery, shell.StateRoot+"/cli/logs") {
+		t.Errorf("run-log recovery = %q, want it to name the directory", finding.Recovery)
+	}
+
+	if hasFinding(decodeDoctorReport(t, healthyOut.Bytes()), "run-log") {
+		t.Fatal("doctor reported a run log problem on a writable state root")
+	}
+}
