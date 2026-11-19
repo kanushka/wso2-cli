@@ -234,8 +234,33 @@ func TestAFlagParseFailureUnderOutputJSONIsAnErrorDocument(t *testing.T) {
 	if code != exit.Usage {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !strings.Contains(out, `"code": "shell.unknown_flag"`) {
-		t.Errorf("standard output does not carry the refusal:\n%s", out)
+	var document struct {
+		Error struct {
+			Code string `json:"code"`
+			Exit int    `json:"exit"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(out), &document); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if document.Error.Code != "shell.unknown_flag" || document.Error.Exit != int(exit.Usage) {
+		t.Errorf("error = %+v, want shell.unknown_flag exiting %d", document.Error, exit.Usage)
+	}
+}
+
+func TestAParentFlagParseFailureIsAUsageError(t *testing.T) {
+	shell, _, _ := newShell(t)
+	code, out, errOut := run(t, shell, "--no-input=maybe", "whoami", "-o", "json")
+	if code != exit.Usage {
+		t.Fatalf("exit %d, want %d: %s", code, exit.Usage, errOut)
+	}
+	var document struct {
+		Error struct {
+			Category string `json:"category"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(out), &document); err != nil || document.Error.Category != "usage" {
+		t.Errorf("standard output is not a usage error document (%v):\n%s", err, out)
 	}
 }
 
@@ -289,8 +314,18 @@ func TestContextCreateJSONCarriesTheNextStepWithItsNameFilledIn(t *testing.T) {
 
 func TestAJSONResultWithNoNextStepHasNoNextMember(t *testing.T) {
 	shell, _, _ := newShell(t)
-	_, out, _ := run(t, shell, "context", "list", "-o", "json")
-	if strings.Contains(out, `"next"`) {
+	code, out, errOut := run(t, shell, "context", "list", "-o", "json")
+	if code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(out), &document); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if _, found := document["contexts"]; !found {
+		t.Fatalf("no contexts member:\n%s", out)
+	}
+	if _, found := document["next"]; found {
 		t.Errorf("a result with no next step carries one:\n%s", out)
 	}
 }
@@ -347,5 +382,15 @@ func TestTheVersionFlagRefusesAnUnknownOutputMode(t *testing.T) {
 	code, _, errOut := run(t, shell, "--version", "--output", "xml")
 	if code != exit.Usage || !strings.Contains(errOut, "shell.unknown_output_mode") {
 		t.Errorf("exit %d, want the refusal ws version gives:\n%s", code, errOut)
+	}
+}
+
+func TestTheVersionFlagRefusesAnOutputFlagWithNoValue(t *testing.T) {
+	for _, flag := range []string{"--output", "-o"} {
+		shell, _, _ := newShell(t)
+		code, _, errOut := run(t, shell, "--version", flag)
+		if code != exit.Usage || !strings.Contains(errOut, "shell.flag_needs_value") {
+			t.Errorf("--version %s: exit %d, want the refusal ws version gives:\n%s", flag, code, errOut)
+		}
 	}
 }

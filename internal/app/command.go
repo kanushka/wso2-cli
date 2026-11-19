@@ -288,7 +288,9 @@ func refuseUnknownOutputMode(args []string) error {
 	)
 	for index, argument := range args {
 		switch {
-		case (argument == "--"+outputFlag || argument == "-o") && index+1 < len(args):
+		case (argument == "--"+outputFlag || argument == "-o") && index+1 == len(args):
+			return usageProblem(fmt.Errorf("flag needs an argument: %s", argument))
+		case argument == "--"+outputFlag || argument == "-o":
 			value, written = args[index+1], true
 		case attachedOutput(argument):
 			value, written = outputFlagValue(argument)

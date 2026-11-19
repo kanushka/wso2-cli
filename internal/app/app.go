@@ -31,6 +31,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/wso2/wso2-cli/internal/catalog"
 	"github.com/wso2/wso2-cli/internal/contexts"
@@ -265,11 +266,28 @@ func (s Shell) dispatch(args []string) error {
 		root.SetArgs(args)
 		// Execute runs the command bodies too, so its error is returned as it
 		// is. A flag-parsing failure has already been turned into a usage
-		// problem by the flag-error hook; anything else is classified by Run.
-		return root.Execute()
+		// problem by the flag-error hook, except one in a parent's flags:
+		// Cobra parses those while it finds the command, before any hook.
+		// Anything else is classified by Run.
+		err := root.Execute()
+		if parentFlagFailure(err) {
+			return flagProblem(root, err)
+		}
+		return err
 	}
 
 	return s.dispatchNamespace(root, name, args[1:])
+}
+
+func parentFlagFailure(err error) bool {
+	var (
+		notExist  *pflag.NotExistError
+		required  *pflag.ValueRequiredError
+		invalid   *pflag.InvalidValueError
+		malformed *pflag.InvalidSyntaxError
+	)
+	return errors.As(err, &notExist) || errors.As(err, &required) ||
+		errors.As(err, &invalid) || errors.As(err, &malformed)
 }
 
 // isShellCommand reports whether a name is a command the shell owns. A built-in
