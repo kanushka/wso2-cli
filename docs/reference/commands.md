@@ -97,7 +97,7 @@ lowercase domain name or an `environment` that is not one host name label.
 
 CI and other automation sign in to WSO2 Cloud as a service account, a
 client-credentials application created in the WSO2 Cloud console, with
-`ws login --service-account` (ADR 0025). It reads three variables:
+`ws login --service-account` (ADR 0027). It reads three variables:
 `WSO2_CLOUD_ENV`, the environment; `WSO2_CLIENT_ID`, the service account's
 client id; and `WSO2_CLIENT_SECRET`, its secret. `--client-id-variable` and
 `--client-secret-variable` name other variables; without `--service-account`

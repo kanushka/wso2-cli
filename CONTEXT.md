@@ -140,7 +140,7 @@ A client-credentials application created in the WSO2 Cloud console, holding
 roles of its own, that automation signs in to WSO2 Cloud as with
 `ws login --service-account`. It is not the account record ADR 0016 retired:
 a context still holds the login, and the service account is only whose
-credential that login presents (ADR 0025).
+credential that login presents (ADR 0027).
 _Avoid_: Machine user, bot account, robot
 
 **Product session**:

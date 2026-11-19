@@ -1,4 +1,4 @@
-# ADR 0025: A WSO2 Cloud Service Account Signs In Only When Named
+# ADR 0027: A WSO2 Cloud Service Account Signs In Only When Named
 
 **Status:** Accepted
 

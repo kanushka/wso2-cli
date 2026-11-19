@@ -883,7 +883,7 @@ var accountTermHolders = []string{
 
 // protectedAccountTerms are uses of the word that do not name the retired
 // record: English that names no concept, and WSO2 Cloud's service account, a
-// client-credentials application created in its console (ADR 0025).
+// client-credentials application created in its console (ADR 0027).
 var protectedAccountTerms = []string{"accounts for", "account of", "into account", "runtime account",
 	"module account", "service account", "service-account"}
 
