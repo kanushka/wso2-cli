@@ -236,28 +236,29 @@ func TestContextCreateWithAURLAloneLogsInThroughTheLoginProduct(t *testing.T) {
 
 func TestContextCreateRefusals(t *testing.T) {
 	cases := map[string]struct {
-		args []string
-		code string
+		args   []string
+		code   string
+		status exit.Code
 	}{
-		"a login product alone": {[]string{"--login-product", "iam"}, "shell.missing_required_flag"},
-		"neither form":          {nil, "shell.missing_required_flag"},
+		"a login product alone": {[]string{"--login-product", "iam"}, "shell.missing_required_flag", exit.Usage},
+		"neither form":          {nil, "shell.missing_required_flag", exit.Usage},
 		"both forms": {[]string{"--login-product", "iam", "--url", thunderURL, "--issuer", thunderURL,
-			"--client-id", "x"}, "shell.conflicting_arguments"},
-		"an issuer without a client":    {[]string{"--issuer", thunderURL}, "shell.missing_required_flag"},
-		"thunder through an issuer":     {[]string{"--issuer", thunderURL, "--client-id", "x", "--provider", "thunder"}, "shell.conflicting_arguments"},
-		"a product that is no provider": {[]string{"--login-product", "api", "--url", apiURL}, "shell.invalid_argument"},
-		"an unknown provider":           {[]string{"--issuer", thunderURL, "--client-id", "x", "--provider", "okta"}, "shell.invalid_argument"},
+			"--client-id", "x"}, "shell.conflicting_arguments", exit.Usage},
+		"an issuer without a client":    {[]string{"--issuer", thunderURL}, "shell.missing_required_flag", exit.Usage},
+		"thunder through an issuer":     {[]string{"--issuer", thunderURL, "--client-id", "x", "--provider", "thunder"}, "shell.conflicting_arguments", exit.Usage},
+		"a product that is no provider": {[]string{"--login-product", "api", "--url", apiURL}, "shell.invalid_argument", exit.Usage},
+		"an unknown provider":           {[]string{"--issuer", thunderURL, "--client-id", "x", "--provider", "okta"}, "shell.invalid_argument", exit.Usage},
 		"a secret where a name belongs": {[]string{"--login-product", "iam", "--url", thunderURL,
-			"--client-secret-variable", "s3cr3t-value"}, "shell.invalid_argument"},
+			"--client-secret-variable", "s3cr3t-value"}, "shell.invalid_argument", exit.Usage},
 		"a missing product under --no-install": {[]string{"--login-product", "nosuch", "--url", thunderURL,
-			"--no-install"}, "shell.product_not_installed"},
+			"--no-install"}, "shell.product_not_installed", exit.NotFound},
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
 			shell, _, _ := newContextShell(t)
 			code, _, errOut := run(t, shell, append([]string{"context", "create", "local"}, testCase.args...)...)
-			if code != exit.Usage && code != exit.AuthPolicy && code != exit.NotFound {
-				t.Fatalf("exit %d, want a refusal: %s", code, errOut)
+			if code != testCase.status {
+				t.Fatalf("exit %d, want %d: %s", code, testCase.status, errOut)
 			}
 			if !strings.Contains(errOut, testCase.code) {
 				t.Errorf("stderr does not carry %s:\n%s", testCase.code, errOut)

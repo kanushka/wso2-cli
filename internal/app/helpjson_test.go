@@ -323,7 +323,11 @@ func TestHelpJSONForAProductCarriesItsNextStep(t *testing.T) {
 	if code := shell.Run([]string{"help", "widget", "project", "-o", "json"}); code != exit.OK {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
 	}
-	if strings.Contains(out.String(), `"next"`) {
+	var page map[string]json.RawMessage
+	if err := json.Unmarshal(out.Bytes(), &page); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if _, found := page["next"]; found {
 		t.Errorf("a command's page carries a next step:\n%s", out)
 	}
 }
