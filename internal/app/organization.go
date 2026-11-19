@@ -115,5 +115,5 @@ func checkIssuedIn(c contexts.Context, result oauthflow.Result) error {
 		fmt.Sprintf("the identity provider issued this login in the %q organization, not in %q, which "+
 			"the %q context names", got.Label(), want, c.Name)).
 		WithRecovery("Run wso2 org use <organization-id> with an organization this user belongs " +
-			"to, or wso2 org use \"\" and wso2 login to choose one in the browser.")
+			"to, or wso2 org use with no argument to choose one in the browser.")
 }

@@ -46,7 +46,21 @@ context would install and record are installed and recorded first, as
 organization recorded, ends whatever it had established, and says that the
 sessions ended and that `ws login` restores them. Under `--no-input` or
 `WSO2_NO_INPUT` a switch is refused with `auth.non_interactive` before
-anything changes, since it needs the browser. On any other ThunderID or
+anything changes, since it needs the browser.
+
+`ws org use` with no argument lets the person choose. ThunderID shows its
+organization picker only on a full sign-in, to a user in more than one
+organization, and answers an authorization from its own browser session
+otherwise, in the organization that session last used; WSO2 Cloud's console
+and the shell's client run the same flow and send no organization parameter.
+So the switch ends the sessions as above and asks for the first
+authorization at the discovered endpoint with `prompt=login`, which ThunderID
+takes as a forced sign-in. The products after it chain in the same tab with
+`prompt=none` at the organization that sign-in was issued in, and that
+organization is recorded once every product has signed in. The cost is
+choosing the sign-in provider again. A picker without a fresh sign-in would
+need ThunderID to offer one (it refuses `prompt=select_account`), so `ws login`
+itself keeps reusing the browser session and adds no flag for this. On any other ThunderID or
 Identity Server context it is still refused with
 `auth.organization_switch_unsupported`.
 
@@ -54,7 +68,7 @@ Identity Server context it is still refused with
 lists the organizations a user belongs to. It is kept out of help and the root
 listing until something does, against the guide's rule that help lists only
 commands that work, so that typing it still gets a refusal that says how to
-choose an organization. Whether the provider supports the
+choose an organization: `ws org use` with no argument. Whether the provider supports the
 organization endpoint, and whether it will publish such a list, are open
 questions to the platform team; the refusal goes when a list exists.
 

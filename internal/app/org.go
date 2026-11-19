@@ -34,7 +34,7 @@ import (
 // The way back from each subcommand's usage refusals.
 const (
 	orgListUsage    = "Run wso2 org list."
-	orgUseUsage     = "Run wso2 org use <organization>."
+	orgUseUsage     = "Run wso2 org use <organization>, or on WSO2 Cloud wso2 org use with no argument to choose one in the browser."
 	orgCurrentUsage = "Run wso2 org current [--output table|json]."
 )
 
@@ -98,8 +98,9 @@ func (s Shell) orgListCommand() *cobra.Command {
 		RunE: func(*cobra.Command, []string) error {
 			return problem.New(problem.CategoryUsage, "shell.organization_list_unavailable",
 				"the organizations this user belongs to cannot be listed: no endpoint lists them yet").
-				WithRecovery("Run wso2 login to choose an organization in the browser, wso2 org current to " +
-					"show it, or wso2 org use <organization-id> to switch to one by id.")
+				WithRecovery("Run wso2 org use with no argument to choose an organization in the browser, " +
+					"wso2 org current to show the one in use, or wso2 org use <organization-id> to switch " +
+					"to one by id.")
 		},
 	}
 }
@@ -117,10 +118,17 @@ func (s Shell) orgCurrentCommand() *cobra.Command {
 
 func (s Shell) orgUseCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "use <organization>",
+		Use:   "use [<organization>]",
 		Short: "Set the organization the selected context runs within.",
-		Args:  exactlyOneArgument("the name of an organization", orgUseUsage),
+		Long: "Set the organization the selected context runs within.\n\n" +
+			"On WSO2 Cloud, switching signs in again in the browser. With no argument the sign-in shows " +
+			"the organization picker and the context records the organization chosen there; an " +
+			"organization id signs in to that organization directly.",
+		Args: atMostOneArgument(orgUseUsage),
 		RunE: func(command *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return s.orgChoose(command, args)
+			}
 			return s.orgUse(command, args[0])
 		},
 	}
@@ -357,6 +365,25 @@ func refuseOrganizationSwitch(identity contexts.Account, organization string) er
 			"the context logs in to. Organization switch is for a multi-tenant provider such as Asgardeo.")
 }
 
+// orgChoose is wso2 org use with no argument: on WSO2 Cloud, a sign-in that
+// lets the person choose the organization; elsewhere, the refusal for a
+// missing organization.
+func (s Shell) orgChoose(command *cobra.Command, args []string) error {
+	selected, err := s.selection("")
+	if err != nil || !selected.Context.WSO2Cloud() {
+		return exactlyOneArgument("the name of an organization", orgUseUsage)(command, args)
+	}
+	mode, err := s.shellOutputMode(command)
+	if err != nil {
+		return err
+	}
+	root, err := s.stateRoot()
+	if err != nil {
+		return err
+	}
+	return s.orgUseCloud(mode, root, selected, "")
+}
+
 // orgUseCloud switches a WSO2 Cloud context to another organization. A
 // ThunderID token is issued in one organization, chosen in the browser at
 // sign-in, so switching is signing in again at that organization's own
@@ -367,7 +394,9 @@ func refuseOrganizationSwitch(identity contexts.Account, organization string) er
 //
 // The organization is named by id. The handle or name of the organization the
 // stored session was issued in resolves to its id; no other can be resolved,
-// since nothing lists a user's organizations.
+// since nothing lists a user's organizations. Named by none, the sign-in asks
+// the person to sign in again, where ThunderID shows its organization picker,
+// and the organization it was issued in is the one recorded.
 func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Selection, organization string) error {
 	current := auth.Organization{}
 	if stored := loginSessionOf(root, selected); stored != nil {
@@ -379,13 +408,13 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 		id = current.ID
 	}
 	name := selected.Context.Name
-	if id == "" || id == current.ID {
+	if id != "" && id == current.ID {
 		if err := s.recordOrganization(root, name, id); err != nil {
 			return err
 		}
 		return s.reportOrgUse(mode, name, id)
 	}
-	if !organizationUnitID.MatchString(id) {
+	if id != "" && !organizationUnitID.MatchString(id) {
 		// Refused before anything ends: only the organization logged in to
 		// can be named by handle or name, and any other value is sent to the
 		// provider as an id.
@@ -396,10 +425,14 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 				"organization a login was issued in.")
 	}
 	if control := s.nonInteractiveControl(false); control != "" {
+		again := "wso2 org use"
+		if organization != "" {
+			again += " " + organization
+		}
 		return problem.New(problem.CategoryAuthPolicy, "auth.non_interactive",
 			fmt.Sprintf("switching the %q context to another organization logs in again in the browser, "+
 				"which %s asked not to open", name, control)).
-			WithRecovery(fmt.Sprintf("Run wso2 org use %s where a browser can open.", organization))
+			WithRecovery(fmt.Sprintf("Run %s where a browser can open.", again))
 	}
 	// The products a login of the context installs and records, as wso2
 	// login does, so the switch authorizes the same ones.
@@ -425,7 +458,11 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 	}
 	switching := selected
 	switching.Context.Organization = id
-	outcome, err := s.establishAndStore(switching, loginFlags{contextName: name})
+	outcome, err := s.establishAndStore(switching, loginFlags{contextName: name, chooseOrganization: id == ""})
+	if err == nil && id == "" {
+		id = issuedIn(outcome.first).ID
+		switching.Context.Organization = id
+	}
 	if err == nil {
 		err = s.recordOrganization(root, name, id)
 	}

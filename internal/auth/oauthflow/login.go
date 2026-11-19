@@ -412,6 +412,8 @@ func (l Login) authorize(ctx context.Context, tab *Tab, config oauth2.Config, pa
 	}
 	if silent {
 		authOptions = append(authOptions, oauth2.SetAuthURLParam("prompt", "none"))
+	} else if tab.takeSignIn() {
+		authOptions = append(authOptions, oauth2.SetAuthURLParam("prompt", "login"))
 	}
 	waiting := tab.expect(state, l.Resource, silent)
 	defer tab.forget(waiting)

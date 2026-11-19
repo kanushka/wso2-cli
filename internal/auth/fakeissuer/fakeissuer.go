@@ -140,6 +140,11 @@ type Options struct {
 	// measured doing. Each token carries its organization's ouId, ouName and
 	// ouHandle claims. Empty, no token carries them.
 	OrganizationUnits []OrganizationUnit
+	// ChosenOrganizationUnit is the id of the organization the person picks
+	// when an authorization at the root endpoint asks them to sign in again
+	// with prompt=login, as ThunderID's organization picker lets them.
+	// Empty, the sign-in stays in the browser session's organization.
+	ChosenOrganizationUnit string
 	// Name, GivenName, and FamilyName are the OIDC standard name claims minted
 	// into the identity token when set, modeling the claims ThunderID's
 	// identity token carries alongside email. All three are empty by default:
@@ -687,8 +692,11 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	default:
 		code := randomToken("code")
 		ou := i.homeOrganizationUnit()
-		if r.PathValue("ou") != "" {
+		switch {
+		case r.PathValue("ou") != "":
 			ou = i.organizationUnit(r.PathValue("ou"))
+		case query.Get("prompt") == "login" && i.opts.ChosenOrganizationUnit != "":
+			ou = i.organizationUnit(i.opts.ChosenOrganizationUnit)
 		}
 		i.mutex.Lock()
 		i.codes[code] = codeGrant{

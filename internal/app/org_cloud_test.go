@@ -31,7 +31,13 @@ import (
 
 func newSignedInCloudOrgs(t *testing.T) *cloudLogin {
 	t.Helper()
-	login := newCloudLoginWith(t, fakeissuer.Options{OrganizationUnits: cloudOrgs, RefreshScopeMode: "honor"})
+	return newSignedInCloudOrgsWith(t, fakeissuer.Options{})
+}
+
+func newSignedInCloudOrgsWith(t *testing.T, options fakeissuer.Options) *cloudLogin {
+	t.Helper()
+	options.OrganizationUnits, options.RefreshScopeMode = cloudOrgs, "honor"
+	login := newCloudLoginWith(t, options)
 	installCloudAPIM(t, login.shell)
 	installCloudIAM(t, login.shell)
 	login.run(t, "login")
@@ -171,7 +177,7 @@ func TestOrgListRefusesNamingWhyAndTheWayToChoose(t *testing.T) {
 		t.Fatal("org list succeeded with no source of organizations")
 	}
 	refusal := login.errOut.String()
-	if !strings.Contains(refusal, "shell.organization_list_unavailable") || !strings.Contains(refusal, "wso2 org use") {
+	if !strings.Contains(refusal, "shell.organization_list_unavailable") || !strings.Contains(refusal, "`wso2 org use` with no argument") {
 		t.Errorf("org list refusal:\n%s", refusal)
 	}
 }
@@ -206,5 +212,76 @@ func TestACloudContextEditedToAnotherOrganizationIsRefusedAtTheBroker(t *testing
 	if !errors.As(err, &refused) || refused.Problem.Code != "auth.organization_mismatch" ||
 		!strings.Contains(refused.Problem.Recovery, "org use "+betaUnit.ID) {
 		t.Fatalf("Acquire = %v, want auth.organization_mismatch naming org use", err)
+	}
+}
+
+// With no organization named, org use asks the person to sign in again, which
+// is where ThunderID shows its organization picker, and records the
+// organization the sign-in came back in. The other products follow in the
+// same tab at that organization's endpoint, without a prompt.
+func TestOrgUseOnCloudWithNoArgumentLetsThePersonChooseInTheBrowser(t *testing.T) {
+	login := newSignedInCloudOrgsWith(t, fakeissuer.Options{ChosenOrganizationUnit: betaUnit.ID})
+	before := len(login.issuer.AuthorizationPaths())
+
+	login.run(t, "org", "use")
+
+	if got := cloudContext(t, login.shell).Organization; got != betaUnit.ID {
+		t.Errorf("context organization = %q, want the chosen %q", got, betaUnit.ID)
+	}
+	login.mutex.Lock()
+	opened := login.opened
+	login.mutex.Unlock()
+	if opened != 1 {
+		t.Errorf("org use opened the browser %d times, want one tab", opened)
+	}
+	paths := login.issuer.AuthorizationPaths()[before:]
+	queries := login.issuer.Authorizations()[before:]
+	if len(paths) < 2 {
+		t.Fatalf("org use authorized %d times, want the login and iam: %v", len(paths), paths)
+	}
+	if paths[0] != "/authorize" || queries[0].Get("prompt") != "login" {
+		t.Errorf("the first authorization went to %q with prompt %q, want /authorize with prompt=login",
+			paths[0], queries[0].Get("prompt"))
+	}
+	for index := 1; index < len(paths); index++ {
+		if paths[index] != "/ou/"+betaUnit.ID+"/authorize" || queries[index].Get("prompt") == "login" {
+			t.Errorf("authorization %d went to %q with prompt %q, want the chosen organization's endpoint "+
+				"without a sign-in", index, paths[index], queries[index].Get("prompt"))
+		}
+	}
+	store := session.Store{StateRoot: login.shell.StateRoot}
+	context := cloudContext(t, login.shell)
+	for _, ref := range []string{context.CredentialRef, contexts.ProductSessionRef(context.CredentialRef, "iam")} {
+		stored, err := store.Load(ref)
+		if err != nil {
+			t.Fatalf("session %s: %v", ref, err)
+		}
+		if got := auth.TokenOrganization(stored.AccessToken).ID; got != betaUnit.ID {
+			t.Errorf("session %s acts in %q, want %q", ref, got, betaUnit.ID)
+		}
+	}
+	if !strings.Contains(login.out.String(), `Logged the "cloud-dev" context in to the Beta Labs (beta) organization.`) {
+		t.Errorf("the switch does not name the chosen organization:\n%s", login.out)
+	}
+}
+
+func TestOrgUseOnCloudWithNoArgumentAndNoInputRefusesAndChangesNothing(t *testing.T) {
+	login := newSignedInCloudOrgsWith(t, fakeissuer.Options{ChosenOrganizationUnit: betaUnit.ID})
+	before := len(login.issuer.AuthorizationPaths())
+	t.Setenv("WSO2_NO_INPUT", "1")
+	login.errOut.Reset()
+
+	if code := login.shell.Run([]string{"org", "use"}); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d: %s", code, exit.AuthPolicy, login.errOut)
+	}
+	if !strings.Contains(login.errOut.String(), "auth.non_interactive") {
+		t.Errorf("refusal:\n%s", login.errOut)
+	}
+	if got := len(login.issuer.AuthorizationPaths()); got != before {
+		t.Errorf("a refused org use authorized %d times", got-before)
+	}
+	context := cloudContext(t, login.shell)
+	if _, err := (session.Store{StateRoot: login.shell.StateRoot}).Load(context.CredentialRef); err != nil {
+		t.Errorf("a refused org use ended the login session: %v", err)
 	}
 }

@@ -87,6 +87,10 @@ type loginFlags struct {
 	// noProducts is --no-products: authorize the login session alone, and no
 	// product beside it.
 	noProducts bool
+	// chooseOrganization asks the provider to sign the person in again, where
+	// WSO2 Cloud offers its organization picker, and runs every authorization
+	// after the first in the organization that sign-in was issued in.
+	chooseOrganization bool
 }
 
 // login establishes the selected context's interactive session.
@@ -214,6 +218,9 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 	}
 	// One tab serves every authorization this login opens in the browser.
 	tab := oauthflow.NewTab()
+	if flags.chooseOrganization {
+		tab = oauthflow.NewSignInTab()
+	}
 	defer tab.Close()
 	outcome := loginOutcome{withheld: map[string][]string{}, exchanged: flags.only == "" && !flags.noProducts}
 	for index, access := range accesses {
@@ -231,6 +238,11 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 		}
 		if index == 0 {
 			outcome.first = result
+			if flags.chooseOrganization && selected.Context.WSO2Cloud() {
+				// Pinned, so the rest cannot land in another organization
+				// unnoticed: checkIssuedIn refuses one that does.
+				selected.Context.Organization = issuedIn(result).ID
+			}
 		}
 		outcome.established = append(outcome.established, access)
 		outcome.withheld[access.SessionRef] = withheldScopes(access, result)
