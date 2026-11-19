@@ -239,7 +239,7 @@ func TestApisInvokeRefusesAnApiThatIsNotDeployed(t *testing.T) {
 	if outcome.Problem == nil || outcome.Problem.Code != "apim.not_deployed" {
 		t.Fatalf("problem = %+v, want apim.not_deployed", outcome.Problem)
 	}
-	if !strings.Contains(outcome.Problem.Recovery, "wso2 apim api deploy hello-api-v1") {
+	if !strings.Contains(outcome.Problem.Recovery, "ws apim api deploy hello-api-v1") {
 		t.Fatalf("the recovery does not name the deploy command: %q", outcome.Problem.Recovery)
 	}
 }

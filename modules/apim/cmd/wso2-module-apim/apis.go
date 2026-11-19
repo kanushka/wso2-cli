@@ -38,7 +38,7 @@ const (
 )
 
 // gatewayRestApiAPIVersion and gatewayRestApiKind are the only values
-// "wso2 apim api create -f" accepts, the same CR the gateway itself reads.
+// "ws apim api create -f" accepts, the same CR the gateway itself reads.
 // See gateway/hello-api.yaml.
 const (
 	gatewayRestApiAPIVersion = "gateway.api-platform.wso2.com/v1"
@@ -87,30 +87,30 @@ var gatewayRestApiTopLevelFields = map[string]bool{
 // only metadata.name; anything else is refused the same way.
 var gatewayRestApiMetadataFields = map[string]bool{"name": true}
 
-// apisCreateFlags are what "wso2 apim api create" was asked for.
+// apisCreateFlags are what "ws apim api create" was asked for.
 type apisCreateFlags struct {
 	file    string
 	project string
 }
 
-// apisCreate answers "wso2 apim api create -f <file> --project <id>".
+// apisCreate answers "ws apim api create -f <file> --project <id>".
 func apisCreate(command *cobra.Command, flags *apisCreateFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		if len(command.Flags().Args()) != 0 {
 			return result.Result{}, usageProblem(
-				"wso2 apim api create takes no positional arguments",
-				"Run wso2 apim api create -f <file> --project <id>.")
+				"ws apim api create takes no positional arguments",
+				"Run ws apim api create -f <file> --project <id>.")
 		}
 		if flags.project == "" {
 			return result.Result{}, usageProblem(
-				"wso2 apim api create needs the project to create the API in",
-				"Run wso2 apim api create -f <file> --project <id>. wso2 apim project list shows "+
+				"ws apim api create needs the project to create the API in",
+				"Run ws apim api create -f <file> --project <id>. ws apim project list shows "+
 					"the ids.")
 		}
 		if flags.file == "" {
 			return result.Result{}, usageProblem(
-				"wso2 apim api create needs the RestApi file to read",
-				"Run wso2 apim api create -f <file> --project <id>.")
+				"ws apim api create needs the RestApi file to read",
+				"Run ws apim api create -f <file> --project <id>.")
 		}
 		raw, err := os.ReadFile(flags.file)
 		if err != nil {
@@ -123,7 +123,7 @@ func apisCreate(command *cobra.Command, flags *apisCreateFlags) module.Handler {
 			return result.Result{}, err
 		}
 
-		client, err := controlPlane(ctx, request)
+		client, err := controlPlane(ctx, request, scopeAPICreate)
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -137,7 +137,7 @@ func apisCreate(command *cobra.Command, flags *apisCreateFlags) module.Handler {
 			With("version", "Version", created.Version).
 			With("context", "Context", created.Context).
 			With(NextField, "Next",
-				"Run wso2 apim api deploy "+created.ID+" --gateway-id <gateway-id> to deploy it."), nil
+				"Run ws apim api deploy "+created.ID+" --gateway-id <gateway-id> to deploy it."), nil
 	}
 }
 
@@ -162,7 +162,7 @@ func createRESTAPIRequest(raw []byte, project string) (map[string]any, error) {
 	kind, _ := doc["kind"].(string)
 	if apiVersion != gatewayRestApiAPIVersion || kind != gatewayRestApiKind {
 		return nil, usageProblem(
-			fmt.Sprintf("the file names apiVersion %q and kind %q, but wso2 apim api create only "+
+			fmt.Sprintf("the file names apiVersion %q and kind %q, but ws apim api create only "+
 				"accepts apiVersion %q and kind %q", apiVersion, kind,
 				gatewayRestApiAPIVersion, gatewayRestApiKind),
 			"Pass a gateway RestApi document, such as gateway/hello-api.yaml.")
@@ -460,7 +460,7 @@ func validateOperations(path string, raw any) ([]map[string]any, []string, error
 	return mapped, unmapped, nil
 }
 
-// apisDeployFlags are what "wso2 apim api deploy" was asked for.
+// apisDeployFlags are what "ws apim api deploy" was asked for.
 type apisDeployFlags struct {
 	gatewayID string
 }
@@ -473,7 +473,7 @@ type deployment struct {
 	Status       string `json:"status"`
 }
 
-// apisDeploy answers "wso2 apim api deploy <api-id> --gateway-id <gateway-id>".
+// apisDeploy answers "ws apim api deploy <api-id> --gateway-id <gateway-id>".
 //
 // This posts the deployment alone. platform-api's own DeployAPI operation
 // associates the API with the target gateway itself when it is not already
@@ -484,16 +484,16 @@ type deployment struct {
 func apisDeploy(command *cobra.Command, flags *apisDeployFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		apiID, err := exactlyOneArgument(command.Flags().Args(),
-			"wso2 apim api deploy needs the id of the API to deploy",
-			"Run wso2 apim api deploy <api-id> --gateway-id <gateway-id>. wso2 apim api list "+
+			"ws apim api deploy needs the id of the API to deploy",
+			"Run ws apim api deploy <api-id> --gateway-id <gateway-id>. ws apim api list "+
 				"--project <id> shows the ids.")
 		if err != nil {
 			return result.Result{}, err
 		}
 		if flags.gatewayID == "" {
 			return result.Result{}, usageProblem(
-				"wso2 apim api deploy needs the gateway to deploy to",
-				"Run wso2 apim api deploy "+apiID+" --gateway-id <gateway-id>.")
+				"ws apim api deploy needs the gateway to deploy to",
+				"Run ws apim api deploy "+apiID+" --gateway-id <gateway-id>.")
 		}
 
 		client, err := controlPlane(ctx, request)
@@ -517,6 +517,6 @@ func apisDeploy(command *cobra.Command, flags *apisDeployFlags) module.Handler {
 			With("gatewayId", "Gateway", flags.gatewayID).
 			With("status", "Status", created.Status).
 			With(NextField, "Next",
-				"Run wso2 apim gateway api list to see it once the gateway has deployed it."), nil
+				"Run ws apim gateway api list to see it once the gateway has deployed it."), nil
 	}
 }

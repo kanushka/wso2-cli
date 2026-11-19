@@ -45,7 +45,7 @@ type removalFlags struct {
 	yes bool
 }
 
-// apisUndeployFlags are what "wso2 apim api undeploy" was asked for.
+// apisUndeployFlags are what "ws apim api undeploy" was asked for.
 type apisUndeployFlags struct {
 	gatewayID string
 }
@@ -102,17 +102,17 @@ func undeployActive(ctx context.Context, client platform.Client, endpoint, apiID
 	return undeployed, nil
 }
 
-// apisUndeploy answers "wso2 apim api undeploy <api-id> [--gateway-id <id>]".
+// apisUndeploy answers "ws apim api undeploy <api-id> [--gateway-id <id>]".
 // It asks for no --yes: an undeployed API is deployed again with one command.
 func apisUndeploy(command *cobra.Command, flags *apisUndeployFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		apiID, err := exactlyOneArgument(command.Flags().Args(),
-			"wso2 apim api undeploy needs the id of the API to undeploy",
-			"Run wso2 apim api undeploy <api-id>. wso2 apim api list shows the ids.")
+			"ws apim api undeploy needs the id of the API to undeploy",
+			"Run ws apim api undeploy <api-id>. ws apim api list shows the ids.")
 		if err != nil {
 			return result.Result{}, err
 		}
-		client, err := controlPlane(ctx, request)
+		client, err := controlPlane(ctx, request, scopeAPIDeploymentRead)
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -128,7 +128,7 @@ func apisUndeploy(command *cobra.Command, flags *apisUndeployFlags) module.Handl
 		for _, d := range undeployed {
 			report = report.WithRow(d.DeploymentID, d.GatewayID)
 		}
-		next := "The gateway drops the route a moment later; wso2 apim gateway api list shows when."
+		next := "The gateway drops the route a moment later; ws apim gateway api list shows when."
 		if len(undeployed) == 0 {
 			next = "The API had no active deployment to undeploy."
 		}
@@ -136,22 +136,22 @@ func apisUndeploy(command *cobra.Command, flags *apisUndeployFlags) module.Handl
 	}
 }
 
-// apisDelete answers "wso2 apim api delete <api-id> [--yes]". It undeploys the
+// apisDelete answers "ws apim api delete <api-id> [--yes]". It undeploys the
 // API from every gateway first, because deleting it is what the user asked for
 // and an active deployment is the one thing that would leave a gateway serving
 // an API the control plane no longer records.
 func apisDelete(command *cobra.Command, flags *removalFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		apiID, err := exactlyOneArgument(command.Flags().Args(),
-			"wso2 apim api delete needs the id of the API to delete",
-			"Run wso2 apim api delete <api-id>. wso2 apim api list shows the ids.")
+			"ws apim api delete needs the id of the API to delete",
+			"Run ws apim api delete <api-id>. ws apim api list shows the ids.")
 		if err != nil {
 			return result.Result{}, err
 		}
 		if err := flags.confirmed(ctx, request, "the API "+apiID+" and every deployment of it"); err != nil {
 			return result.Result{}, err
 		}
-		client, err := controlPlane(ctx, request)
+		client, err := controlPlane(ctx, request, scopeAPIDeploymentRead, scopeAPIDelete)
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -170,19 +170,19 @@ func apisDelete(command *cobra.Command, flags *removalFlags) module.Handler {
 	}
 }
 
-// projectsDelete answers "wso2 apim project delete <project-id> [--yes]".
+// projectsDelete answers "ws apim project delete <project-id> [--yes]".
 func projectsDelete(command *cobra.Command, flags *removalFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		projectID, err := exactlyOneArgument(command.Flags().Args(),
-			"wso2 apim project delete needs the id of the project to delete",
-			"Run wso2 apim project delete <project-id>. wso2 apim project list shows the ids.")
+			"ws apim project delete needs the id of the project to delete",
+			"Run ws apim project delete <project-id>. ws apim project list shows the ids.")
 		if err != nil {
 			return result.Result{}, err
 		}
 		if err := flags.confirmed(ctx, request, "the project "+projectID); err != nil {
 			return result.Result{}, err
 		}
-		client, err := controlPlane(ctx, request)
+		client, err := controlPlane(ctx, request, scopeProjectDelete)
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -207,7 +207,7 @@ func removalCallFailed(err error, attempted, endpoint, what string) error {
 		switch refusal.Status {
 		case 404:
 			return moduleProblem("apim.not_found", "the deployment records no "+what,
-				"Run wso2 apim project list or wso2 apim api list to see what it records.")
+				"Run ws apim project list or ws apim api list to see what it records.")
 		case 400, 409:
 			return moduleProblem("apim.call_failed",
 				"the deployment would not "+attempted+": "+refusalMessage(refusal),

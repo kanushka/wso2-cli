@@ -62,9 +62,9 @@ type page[T any] struct {
 	List  []T `json:"list"`
 }
 
-// projectsList answers "wso2 apim project list".
+// projectsList answers "ws apim project list".
 func projectsList(ctx context.Context, request module.Request) (result.Result, error) {
-	client, err := controlPlane(ctx, request)
+	client, err := controlPlane(ctx, request, scopeProjectRead)
 	if err != nil {
 		return result.Result{}, err
 	}
@@ -80,14 +80,14 @@ func projectsList(ctx context.Context, request module.Request) (result.Result, e
 	for _, p := range listing.List {
 		report = report.WithRow(p.DisplayName, p.ID, p.OrganizationID)
 	}
-	next := "Run wso2 apim api list --project <id> to see what one holds."
+	next := "Run ws apim api list --project <id> to see what one holds."
 	if listing.Count == 0 {
 		next = "This organization holds no projects yet."
 	}
 	return report.With(NextField, "Next", next), nil
 }
 
-// apisList answers "wso2 apim api list [--project <id>]".
+// apisList answers "ws apim api list [--project <id>]".
 //
 // The control plane requires a project: measured against API Platform 0.16.0,
 // /rest-apis without projectId is refused. So with no --project this reads the
@@ -96,7 +96,7 @@ func projectsList(ctx context.Context, request module.Request) (result.Result, e
 func apisList(command *cobra.Command, projectID *string) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		_ = command
-		client, err := controlPlane(ctx, request)
+		client, err := controlPlane(ctx, request, scopeProjectRead, scopeAPIRead)
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -146,7 +146,7 @@ func apisList(command *cobra.Command, projectID *string) module.Handler {
 			report = report.WithRow(row...)
 		}
 		return report.With(NextField, "Next",
-			"Run wso2 apim gateway api list to see which of these a gateway is serving."), nil
+			"Run ws apim gateway api list to see which of these a gateway is serving."), nil
 	}
 }
 
@@ -173,7 +173,7 @@ type gatewayListing struct {
 	APIs  []gatewayRestAPI `json:"apis"`
 }
 
-// gatewayApisList answers "wso2 apim gateway api list": what the gateway is
+// gatewayApisList answers "ws apim gateway api list": what the gateway is
 // actually serving, which is not always what the control plane designed.
 func gatewayApisList(ctx context.Context, request module.Request) (result.Result, error) {
 	client, err := gateway(ctx, request)

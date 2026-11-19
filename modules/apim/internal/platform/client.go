@@ -19,6 +19,7 @@ package platform
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -41,6 +42,9 @@ type Client struct {
 	Endpoint string
 	// Token is the access the shell brokered for this invocation.
 	Token string
+	// Scopes are the permissions the command's calls need, used only to
+	// explain a refusal.
+	Scopes []string
 	// HTTP serves the calls. A nil value uses a client bounded by
 	// requestTimeout.
 	HTTP *http.Client
@@ -59,6 +63,9 @@ type Failure struct {
 	// present when the error is a validation failure. Empty when the
 	// deployment stated none.
 	FieldErrors []FieldError
+	// Asked are the permissions the command's calls need, and Carried
+	// those its token carries; Carried is empty for a token that names none.
+	Asked, Carried []string
 }
 
 // FieldError is one per-field validation failure a deployment stated,
@@ -131,7 +138,9 @@ func (c Client) do(ctx context.Context, method, path string, body, out any) erro
 		return fmt.Errorf("platform: reading the answer to %s: %w", path, err)
 	}
 	if answer.StatusCode < 200 || answer.StatusCode > 299 {
-		return failure(answer.StatusCode, read)
+		refusal := failure(answer.StatusCode, read)
+		refusal.Asked, refusal.Carried = c.Scopes, TokenScopes(c.Token)
+		return refusal
 	}
 	if out == nil {
 		return nil
@@ -145,7 +154,7 @@ func (c Client) do(ctx context.Context, method, path string, body, out any) erro
 // failure reads whatever the deployment said about a refusal. The control
 // plane states a code and a message string; a deployment that states neither
 // still produces a Failure, because the status alone is worth reporting.
-func failure(status int, body []byte) error {
+func failure(status int, body []byte) Failure {
 	var stated struct {
 		Code        string          `json:"code"`
 		Message     json.RawMessage `json:"message"`
@@ -178,4 +187,25 @@ func readMessage(raw json.RawMessage) string {
 		return structured.DefaultValue
 	}
 	return ""
+}
+
+// TokenScopes reads the scopes a JWT access token names, without verifying it:
+// the shell proved the token, and this only explains a refusal. An opaque
+// token, or one naming no scope, yields none.
+func TokenScopes(token string) []string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil
+	}
+	var claims struct {
+		Scope string `json:"scope"`
+	}
+	if json.Unmarshal(payload, &claims) != nil {
+		return nil
+	}
+	return strings.Fields(claims.Scope)
 }

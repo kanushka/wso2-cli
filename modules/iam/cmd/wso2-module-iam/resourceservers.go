@@ -53,7 +53,7 @@ type resourceServerListing struct {
 	ResourceServers []resourceServer `json:"resourceServers"`
 }
 
-// resourceServersList answers "wso2 iam resource-server list".
+// resourceServersList answers "ws iam resource-server list".
 func resourceServersList(ctx context.Context, request module.Request) (result.Result, error) {
 	client, err := clientFor(ctx, request)
 	if err != nil {
@@ -74,7 +74,7 @@ func resourceServersList(ctx context.Context, request module.Request) (result.Re
 		report = report.WithRow(rs.Name, rs.Identifier, rs.ID)
 	}
 	return report.With(NextField, "Next",
-		"Record one on the selected context with wso2 context product add <namespace> "+
+		"Record one on the selected context with ws context product add <namespace> "+
 			"--url <url> --audience <identifier>."), nil
 }
 
@@ -89,7 +89,7 @@ type resourceServerFlags struct {
 	ou          string
 }
 
-// resourceServersCreate answers "wso2 iam resource-server create".
+// resourceServersCreate answers "ws iam resource-server create".
 //
 // Two of ThunderID's rules are checked here rather than left to the
 // deployment, because both are answered late and in terms that name something
@@ -165,7 +165,7 @@ func createResourceServer(
 func resourceServerName(positional []string, flags resourceServerFlags) (string, error) {
 	switch {
 	case len(positional) == 0:
-		return "", usageProblem("wso2 iam resource-server create needs a name")
+		return "", usageProblem("ws iam resource-server create needs a name")
 	case len(positional) > 1:
 		return "", usageProblem("this command takes one name, and was given " +
 			strconv.Itoa(len(positional)))

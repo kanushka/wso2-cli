@@ -55,8 +55,11 @@ const StatusSchema = "iam.status/v1"
 const ManagementAudience = "identity-management"
 
 // ManagementScope is the permission every command here needs: the deployment's
-// own management permission.
+// own management permission, as a self-hosted ThunderID names it.
 const ManagementScope = "system"
+
+// CloudManagementScope is the same permission as WSO2 Cloud names it.
+const CloudManagementScope = "iam:system"
 
 // NextField is the field name the shell renders as a trailing next-step line.
 // Every result this module returns ends with it, so a user is never left
@@ -86,17 +89,17 @@ func main() {
 
 // moduleOptions describe this module to the SDK.
 //
-// AuthAudiences and AuthScopes name the management audience and scope every
-// handler requests access for, and module.json declares the same values: the
-// shell intersects a runtime request with what the module declared at
-// installation, so an audience declared in only one place is refused rather
-// than granted.
+// AuthAudiences names the management audience every handler requests access
+// for, and module.json declares the same values: the shell intersects a
+// runtime request with what the module declared at installation, so an
+// audience declared in only one place is refused rather than granted.
+// AuthScopes names the management permission under both deployments' names.
 func moduleOptions() module.Options {
 	return module.Options{
 		Namespace:     Namespace,
 		Version:       moduleVersion,
 		AuthAudiences: []string{ManagementAudience},
-		AuthScopes:    []string{ManagementScope},
+		AuthScopes:    []string{ManagementScope, CloudManagementScope},
 	}
 }
 
@@ -116,40 +119,40 @@ func commands() *cobratree.Tree {
 	root := &cobra.Command{
 		Use:     Namespace,
 		Short:   "Work with WSO2 Identity Platform: users, apps, and resource servers.",
-		Example: "  wso2 iam user list",
+		Example: "  ws iam user list",
 	}
 	statusCommand := &cobra.Command{
 		Use:     "status",
 		Short:   "Report this module's own status and what to run first.",
-		Example: "  wso2 iam status",
+		Example: "  ws iam status",
 	}
 	usersCommand := &cobra.Command{
 		Use:     "user",
 		Short:   "Read the people this deployment knows.",
-		Example: "  wso2 iam user list",
+		Example: "  ws iam user list",
 	}
 	usersListCommand := &cobra.Command{
 		Use:     "list",
 		Short:   "List the users the deployment records.",
-		Example: "  wso2 iam user list",
+		Example: "  ws iam user list",
 	}
 	usersCommand.AddCommand(usersListCommand)
 
 	resourceServersCommand := &cobra.Command{
 		Use:   "resource-server",
 		Short: "Read, create and delete the resource servers products are known by.",
-		Example: "  wso2 iam resource-server list\n" +
-			"  wso2 iam resource-server create <name> --identifier <uri>",
+		Example: "  ws iam resource-server list\n" +
+			"  ws iam resource-server create <name> --identifier <uri>",
 	}
 	resourceServersListCommand := &cobra.Command{
 		Use:     "list",
 		Short:   "List the resource servers the deployment records.",
-		Example: "  wso2 iam resource-server list",
+		Example: "  ws iam resource-server list",
 	}
 	resourceServersCreateCommand := &cobra.Command{
 		Use:     "create <name> --identifier <uri>",
 		Short:   "Create a resource server a product's access is bound to.",
-		Example: "  wso2 iam resource-server create <name> --identifier <uri>",
+		Example: "  ws iam resource-server create <name> --identifier <uri>",
 	}
 	// Declared on the command rather than parsed by hand: the SDK parses a
 	// module's own arguments with this flag set before the handler runs, so a
@@ -171,8 +174,8 @@ func commands() *cobratree.Tree {
 	}
 	resourceServersDeleteCommand := &cobra.Command{
 		Use:     "delete <id-or-identifier> [--yes]",
-		Short:   "Delete a resource server and its permissions, asking first; wso2 iam resource-server list shows the ids.",
-		Example: "  wso2 iam resource-server delete <id-or-identifier>",
+		Short:   "Delete a resource server and its permissions, asking first; ws iam resource-server list shows the ids.",
+		Example: "  ws iam resource-server delete <id-or-identifier>",
 	}
 	deleteFlags := resourceServerDeleteFlags{}
 	resourceServersDeleteCommand.Flags().BoolVar(&deleteFlags.yes, "yes", false,
@@ -183,18 +186,18 @@ func commands() *cobratree.Tree {
 	appsCommand := &cobra.Command{
 		Use:     "app",
 		Short:   "Read the applications this deployment registers.",
-		Example: "  wso2 iam app list",
+		Example: "  ws iam app list",
 	}
 	appsListCommand := &cobra.Command{
 		Use:     "list",
 		Short:   "List the applications the deployment records.",
-		Example: "  wso2 iam app list",
+		Example: "  ws iam app list",
 	}
 	appsCommand.AddCommand(appsListCommand)
 
 	root.AddCommand(statusCommand, usersCommand, appsCommand, resourceServersCommand)
 
-	// The JSON members each result carries, declared so that wso2 help
+	// The JSON members each result carries, declared so that ws help
 	// --output json can say what a command answers before it is run. A
 	// listing's rows are one member, "rows", holding its columns.
 	cobratree.ResultFields(statusCommand, "namespace", "version", "endpoint", NextField)
@@ -212,17 +215,17 @@ func commands() *cobratree.Tree {
 		Handle(resourceServersDeleteCommand, resourceServersDelete(resourceServersDeleteCommand, &deleteFlags))
 }
 
-// status answers "wso2 iam status".
+// status answers "ws iam status".
 //
 // It reports what it can know without asking anything of the shell, so a freshly
 // generated module answers before it has been given an identity to act as. Call
 // your product from here: the invocation carries the selected context, and
 // request.Access.Acquire is how a handler obtains short-lived access to it.
 func status(ctx context.Context, request module.Request) (result.Result, error) {
-	next := "Create a context that logs in through this product with wso2 context create <name> " +
-		"--login-product iam --url <url> --use, then run wso2 login."
+	next := "Create a context that logs in through this product with ws context create <name> " +
+		"--login-product iam --url <url> --use, then run ws login."
 	if request.Context.Endpoint != "" {
-		next = "Run wso2 iam --help to see what this module can do at " + request.Context.Endpoint + "."
+		next = "Run ws iam --help to see what this module can do at " + request.Context.Endpoint + "."
 	}
 	return result.New(StatusSchema).
 		With("namespace", "Namespace", Namespace).

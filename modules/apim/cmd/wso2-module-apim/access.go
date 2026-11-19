@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/wso2/wso2-cli/modules/apim/internal/platform"
@@ -27,29 +28,45 @@ import (
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
+// The WSO2 Cloud permissions guarding the control-plane routes this module
+// calls. Every one is declared, so the sign-in asks for all of them.
+const (
+	scopeProjectRead       = "ap:project:read"
+	scopeProjectCreate     = "ap:project:create"
+	scopeProjectDelete     = "ap:project:delete"
+	scopeAPIRead           = "ap:rest_api:read"
+	scopeAPICreate         = "ap:rest_api:create"
+	scopeAPIDelete         = "ap:rest_api:delete"
+	scopeAPIDeploymentRead = "ap:rest_api:deployment:read"
+	scopeGatewayRead       = "ap:gateway:read"
+)
+
+// declaredScopes is every permission a command asks for, as module.json
+// declares them.
+var declaredScopes = []string{
+	scopeProjectRead, scopeProjectCreate, scopeProjectDelete,
+	scopeAPIRead, scopeAPICreate, scopeAPIDelete, scopeAPIDeploymentRead, scopeGatewayRead,
+}
+
 // controlPlane asks the shell for access to the product's own record and
-// builds the client for the control plane.
-//
-// No scopes are named. On this product the shell's access is obtained by
-// exchanging the login session for one bound to the product's audience, and an
-// exchanged token carries no resource-server permissions: the deployment
-// authorizes the call from the group the token carries, mapped to a role at
-// the product. Naming scopes here would ask the shell to prove a narrowing
-// this deployment never performs. Leaving them empty asks for exactly what the
-// context's product record consents to, which is the honest request.
-func controlPlane(ctx context.Context, request module.Request) (platform.Client, error) {
+// builds the client for the control plane. It names no scope, so the shell
+// grants the record's full set: a product session is one scope set, renewed
+// as a whole, and narrowing it per command would end it for the next one.
+// needed are the permissions the command's calls require, kept only to
+// explain a refusal.
+func controlPlane(ctx context.Context, request module.Request, needed ...string) (platform.Client, error) {
 	if request.Context.Endpoint == "" {
 		return platform.Client{}, moduleProblem("apim.product_not_recorded",
 			"the selected context records no endpoint for the apim product, so this command has "+
 				"nowhere to call",
-			"Run wso2 context product add apim --url <url> to record it on the selected context, then "+
+			"Run ws context product add apim --url <url> to record it on the selected context, then "+
 				"run this command again.")
 	}
 	access, err := request.Access.Acquire(ctx, module.AccessRequest{Audience: ManagementAudience})
 	if err != nil {
 		return platform.Client{}, err
 	}
-	return platform.Client{Endpoint: request.Context.Endpoint, Token: access.Token}, nil
+	return platform.Client{Endpoint: request.Context.Endpoint, Token: access.Token, Scopes: needed}, nil
 }
 
 // gateway asks for access to the product's gateway record and builds the
@@ -64,8 +81,8 @@ func gateway(ctx context.Context, request module.Request) (platform.Client, erro
 		return platform.Client{}, moduleProblem("apim.gateway_not_recorded",
 			"the selected context records no gateway for the apim product, so this command has "+
 				"nowhere to call",
-			"Run wso2 context product add apim --url <url> --gateway <gateway-url> --replace, "+
-				"then run wso2 login.")
+			"Run ws context product add apim --url <url> --gateway <gateway-url> --replace, "+
+				"then run ws login.")
 	}
 	access, err := request.Access.Acquire(ctx, module.AccessRequest{
 		Audience: GatewayAudience,
@@ -87,17 +104,46 @@ func callFailed(err error, attempted, endpoint string) error {
 			"Check that this machine can reach that URL, then retry.")
 	}
 	if refusal.Status == 401 || refusal.Status == 403 {
-		return moduleProblem("apim.not_authorized",
-			"the deployment refused this context's access when asked to "+attempted,
-			"Ask an administrator to map this user's group to a role carrying the permissions "+
-				"the operation needs, then run wso2 login again.")
+		return notAuthorized(refusal, attempted)
 	}
 	return moduleProblem("apim.call_failed",
 		"the deployment would not "+attempted+": "+refusalMessage(refusal),
 		"Check the deployment's own logs for the refusal, then retry.")
 }
 
-// createCallFailed refuses "wso2 apim api create"'s own call to POST
+// notAuthorized explains a 401 or 403. A token that names permissions, as
+// WSO2 Cloud's do, says which the command needed and whether a new sign-in
+// could change the answer. A token that names none was reached by exchange,
+// and the deployment authorized it from the user's group.
+func notAuthorized(refusal platform.Failure, attempted string) error {
+	message := "the deployment refused this context's access when asked to " + attempted
+	if len(refusal.Carried) == 0 {
+		return moduleProblem("apim.not_authorized", message,
+			"Ask an administrator to map this user's group to a role carrying the permissions "+
+				"the operation needs, then run ws login again.")
+	}
+	var missing []string
+	for _, scope := range refusal.Asked {
+		if !slices.Contains(refusal.Carried, scope) {
+			missing = append(missing, scope)
+		}
+	}
+	if len(missing) > 0 {
+		return moduleProblem("apim.not_authorized",
+			message+"; the access does not carry "+strings.Join(missing, ", "),
+			"Run ws login so the sign-in asks for it again. If the sign-in still leaves it out, "+
+				"this user's role in the organization does not carry it: ask an administrator to "+
+				"grant one that does.")
+	}
+	if len(refusal.Asked) > 0 {
+		message += ", although the access carries " + strings.Join(refusal.Asked, ", ")
+	}
+	return moduleProblem("apim.not_authorized", message,
+		"Signing in again will not help. Ask an administrator to grant this user a role in this "+
+			"organization that allows it.")
+}
+
+// createCallFailed refuses "ws apim api create"'s own call to POST
 // /rest-apis.
 //
 // A 400 there means the file this command built the request from was what the
@@ -110,7 +156,7 @@ func createCallFailed(err error, endpoint, file string) error {
 	if errors.As(err, &refusal) && refusal.Status == 400 {
 		return moduleProblem("apim.call_failed",
 			"the deployment refused the API built from "+file+": "+refusalMessage(refusal),
-			"Fix "+file+" and run wso2 apim api create again.")
+			"Fix "+file+" and run ws apim api create again.")
 	}
 	return callFailed(err, "create the API", endpoint)
 }

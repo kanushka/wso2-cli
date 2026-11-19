@@ -30,12 +30,12 @@ import (
 // ProjectSchema identifies the semantic shape of a created project.
 const ProjectSchema = "apim.project/v1"
 
-// projectsCreateFlags are what "wso2 apim project create" was asked for.
+// projectsCreateFlags are what "ws apim project create" was asked for.
 type projectsCreateFlags struct {
 	description string
 }
 
-// projectsCreate answers "wso2 apim project create <name> [--description
+// projectsCreate answers "ws apim project create <name> [--description
 // <text>]".
 //
 // CreateRequestProject.id is optional — platform-api's own schema says it is
@@ -46,13 +46,13 @@ type projectsCreateFlags struct {
 func projectsCreate(command *cobra.Command, flags *projectsCreateFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		name, err := exactlyOneArgument(command.Flags().Args(),
-			"wso2 apim project create needs the project's display name",
-			"Run wso2 apim project create <name>.")
+			"ws apim project create needs the project's display name",
+			"Run ws apim project create <name>.")
 		if err != nil {
 			return result.Result{}, err
 		}
 
-		client, err := controlPlane(ctx, request)
+		client, err := controlPlane(ctx, request, scopeProjectCreate)
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -70,11 +70,11 @@ func projectsCreate(command *cobra.Command, flags *projectsCreateFlags) module.H
 			With("displayName", "Name", created.DisplayName).
 			With("organizationId", "Organization", created.OrganizationID).
 			With(NextField, "Next",
-				"Run wso2 apim api create -f <file> --project "+created.ID+" to create an API in it."), nil
+				"Run ws apim api create -f <file> --project "+created.ID+" to create an API in it."), nil
 	}
 }
 
-// projectCreateCallFailed refuses "wso2 apim project create"'s own call to
+// projectCreateCallFailed refuses "ws apim project create"'s own call to
 // POST /projects. A 409 means a project by this name (or requested id) exists
 // already, so the refusal names it and points at the listing rather than
 // callFailed's generic "check the deployment's logs" — there is nothing to
@@ -84,7 +84,7 @@ func projectCreateCallFailed(err error, endpoint, name string) error {
 	if errors.As(err, &refusal) && refusal.Status == 409 {
 		return moduleProblem("apim.project_exists",
 			"a project named "+name+" already exists: "+refusalMessage(refusal),
-			"Run wso2 apim project list to see it.")
+			"Run ws apim project list to see it.")
 	}
 	return callFailed(err, "create the project", endpoint)
 }

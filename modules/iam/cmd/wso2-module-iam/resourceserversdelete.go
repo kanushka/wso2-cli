@@ -46,7 +46,7 @@ type resourceServerResources struct {
 	} `json:"resources"`
 }
 
-// resourceServersDelete answers "wso2 iam resource-server delete
+// resourceServersDelete answers "ws iam resource-server delete
 // <id-or-identifier> [--yes]".
 //
 // It takes the identifier as well as the id because the identifier is what
@@ -55,12 +55,12 @@ type resourceServerResources struct {
 // the deployment will not delete a resource server over, so they go first.
 func resourceServersDelete(command *cobra.Command, flags *resourceServerDeleteFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
-		const usage = "Run wso2 iam resource-server delete <id-or-identifier>. " +
-			"wso2 iam resource-server list shows both."
+		const usage = "Run ws iam resource-server delete <id-or-identifier>. " +
+			"ws iam resource-server list shows both."
 		positional := command.Flags().Args()
 		if len(positional) != 1 {
 			return result.Result{}, deleteUsageProblem(
-				"wso2 iam resource-server delete needs the one resource server to delete", usage)
+				"ws iam resource-server delete needs the one resource server to delete", usage)
 		}
 		// Asked before anything is read, so a run where nothing may be
 		// asked is refused with nothing called; the shell's refusal is
@@ -90,7 +90,7 @@ func resourceServersDelete(command *cobra.Command, flags *resourceServerDeleteFl
 		if found == nil {
 			return result.Result{}, moduleProblem("iam.not_found",
 				"the deployment records no resource server with the id or identifier "+positional[0],
-				"Run wso2 iam resource-server list to see what it records.")
+				"Run ws iam resource-server list to see what it records.")
 		}
 
 		base := "/resource-servers/" + url.PathEscape(found.ID)

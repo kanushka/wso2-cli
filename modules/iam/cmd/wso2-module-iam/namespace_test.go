@@ -24,8 +24,8 @@ import (
 
 // TestEveryCommandThisModuleNamesIsItsOwn catches the mistake that shipped
 // once: a repository-wide rename of the word "identity" rewrote this module's
-// own namespace out of its next-step and recovery text, so wso2 iam user
-// list told the reader to run wso2 account resource-server list — a command
+// own namespace out of its next-step and recovery text, so ws iam user
+// list told the reader to run ws account resource-server list — a command
 // no shell has.
 //
 // It is worth a test rather than care because the damage is invisible to every
