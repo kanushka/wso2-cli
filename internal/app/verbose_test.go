@@ -173,7 +173,7 @@ func TestVerboseRecordsWhatALogoutEstablished(t *testing.T) {
 // actually minted for this run, and greps everything the shell wrote for them.
 // That is deliberate: a denylist can only be as complete as whoever last edited
 // it, so the thing under test is the output, not the list. A later call site
-// that logs a token under an attribute name nobody added to sensitiveKeys is
+// that logs a token under an attribute name nobody added to sdk/diag's list is
 // caught here, because the value it leaks is the value this test is looking
 // for.
 func TestVerboseLoggingNeverLeaksTokenMaterial(t *testing.T) {
