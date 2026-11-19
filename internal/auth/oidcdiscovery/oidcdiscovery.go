@@ -24,9 +24,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
+	"sync/atomic"
 
 	oidc "github.com/coreos/go-oidc/v3/oidc"
+	"golang.org/x/oauth2"
 
 	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
 	"github.com/wso2/wso2-cli/sdk/problem"
@@ -59,6 +62,7 @@ const maxNamedIssuer = 64
 // discovery failure, because guessing among the rest would put the shell in
 // the position of explaining a deployment it cannot see.
 func Discover(ctx context.Context, issuer, issuerID string) (*oidc.Provider, error) {
+	ctx, answered := listening(ctx)
 	if issuerID != "" {
 		ctx = oidc.InsecureIssuerURLContext(ctx, issuerID)
 	}
@@ -70,7 +74,7 @@ func Discover(ctx context.Context, issuer, issuerID string) (*oidc.Provider, err
 			return nil, issuertrust.Problem(issuer)
 		case errors.As(err, &mismatch):
 			return nil, mismatchProblem(mismatch.Discovered)
-		case unanswered(err):
+		case !answered.Load() && unanswered(err):
 			return nil, Unreachable()
 		}
 		return nil, Unreadable()
@@ -121,13 +125,44 @@ func Unreachable() problem.Problem {
 		WithRecovery(discoveryRecovery)
 }
 
-// unanswered reports a request that failed in the transport, before any HTTP
-// response arrived. go-oidc returns a response it could not use as a plain
-// error, so a *url.Error here means the request itself never completed, unless
-// it is the URL that could not be parsed and nothing was sent.
+// unanswered reports a request that failed in the transport. Discover asks it
+// only when no response arrived: the HTTP client also reports a redirect it
+// cannot follow as a *url.Error, after the provider answered. A URL that could
+// not be parsed sent nothing, and is the configuration's fault, not the
+// network's.
 func unanswered(err error) bool {
 	var transport *url.Error
 	return errors.As(err, &transport) && transport.Op != "parse"
+}
+
+// listening hands go-oidc the HTTP client ctx carries, wrapped so Discover
+// learns whether any response arrived.
+func listening(ctx context.Context) (context.Context, *atomic.Bool) {
+	client := http.DefaultClient
+	if carried, ok := ctx.Value(oauth2.HTTPClient).(*http.Client); ok && carried != nil {
+		client = carried
+	}
+	inner := client.Transport
+	if inner == nil {
+		inner = http.DefaultTransport
+	}
+	answered := new(atomic.Bool)
+	recording := *client
+	recording.Transport = answerRecorder{inner: inner, answered: answered}
+	return oidc.ClientContext(ctx, &recording), answered
+}
+
+type answerRecorder struct {
+	inner    http.RoundTripper
+	answered *atomic.Bool
+}
+
+func (r answerRecorder) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := r.inner.RoundTrip(request)
+	if response != nil {
+		r.answered.Store(true)
+	}
+	return response, err
 }
 
 // mismatchProblem is the refusal for a provider whose configuration names
