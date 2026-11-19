@@ -32,6 +32,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"time"
 
@@ -170,33 +171,53 @@ func (s Store) Load(ref string) (Session, error) {
 		return Session{}, loginRequired("no stored login session exists for the selected context",
 			"Run wso2 login to establish a session for this context.")
 	case err != nil:
-		return Session{}, keyringUnavailable()
+		return Session{}, keyringUnavailable(err)
 	}
 	var stored Session
-	if json.Unmarshal([]byte(value), &stored) != nil || stored.RefreshToken == "" {
-		// A stale or foreign entry is indistinguishable from no session.
-		return Session{}, loginRequired("the stored login session for the selected context cannot be read",
-			"Run wso2 login to establish a fresh session for this context.")
+	if json.Unmarshal([]byte(value), &stored) != nil {
+		return Session{}, unreadable()
 	}
-	// The large tokens come from their side entries when the session entry
+	// The large values come from their side entries when the session entry
 	// carries none inline; an entry written before the side entries existed
-	// carries its access token inline and is read as it was written.
-	if stored.AccessToken == "" {
-		stored.AccessToken = s.sideEntry(name + accessTokenSuffix)
+	// carries them inline and is read as it was written.
+	for suffix, field := range stored.largeValues() {
+		if *field == "" {
+			*field = s.sideEntry(name + suffix)
+		}
 	}
-	if stored.IDToken == "" {
-		stored.IDToken = s.sideEntry(name + idTokenSuffix)
+	if stored.RefreshToken == "" {
+		// A stale or foreign entry is indistinguishable from no session.
+		return Session{}, unreadable()
 	}
 	return stored, nil
+}
+
+func unreadable() problem.Problem {
+	return loginRequired("the stored login session for the selected context cannot be read",
+		"Run wso2 login to establish a fresh session for this context.")
 }
 
 // The suffixes of a session's side entries. '#' is admitted by neither a
 // credential reference nor a product namespace, so a side entry can never be
 // mistaken for, or collide with, a session entry.
 const (
-	accessTokenSuffix = "#access"
-	idTokenSuffix     = "#id"
+	accessTokenSuffix  = "#access"
+	idTokenSuffix      = "#id"
+	refreshTokenSuffix = "#refresh"
+	deviceSecretSuffix = "#device"
 )
+
+var sideSuffixes = []string{accessTokenSuffix, idTokenSuffix, refreshTokenSuffix, deviceSecretSuffix}
+
+// largeValues are the session's fields that live in side entries, by suffix.
+func (v *Session) largeValues() map[string]*string {
+	return map[string]*string{
+		accessTokenSuffix:  &v.AccessToken,
+		idTokenSuffix:      &v.IDToken,
+		refreshTokenSuffix: &v.RefreshToken,
+		deviceSecretSuffix: &v.DeviceSecret,
+	}
+}
 
 // sideEntry reads one side entry, empty when there is none. A backend that
 // cannot be asked shows up on the session entry itself, which was read first.
@@ -225,7 +246,7 @@ func (s Store) Stored(ref string) (bool, error) {
 	case errors.Is(err, keyring.ErrNotFound):
 		return false, nil
 	default:
-		return false, keyringUnavailable()
+		return false, keyringUnavailable(err)
 	}
 }
 
@@ -250,42 +271,41 @@ const ProbeCredentialRef = "probe.reachability"
 func (s Store) Probe() error {
 	_, err := keyring.Get(Service, ProbeCredentialRef)
 	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
-		return keyringUnavailable()
+		return keyringUnavailable(err)
 	}
 	return nil
 }
 
 // Save writes the session, replacing any previous entry.
 //
-// The access token and the identity token go to side entries of their own,
-// and the session entry holds the rest. macOS's secure-store tool refuses a
-// command over 4096 bytes, and a session carrying three JSON web tokens is
-// larger than that once encoded; split three ways every piece stays well
-// under. A side entry a session no longer has a value for is removed, so a
-// later read cannot resurrect a token from an earlier session.
+// The tokens and the device secret go to side entries of their own, and the
+// session entry holds the rest. macOS's secure-store tool refuses a command
+// over 4096 bytes, base64-encoded, and a login session carrying three JSON web
+// tokens and a device secret is far larger than that; split up, every piece
+// stays under. A side entry a session no longer has a value for is removed,
+// so a later read cannot resurrect a token from an earlier session.
 func (s Store) Save(ref string, value Session) error {
 	entry := value
-	entry.AccessToken = ""
-	entry.IDToken = ""
+	for _, field := range entry.largeValues() {
+		*field = ""
+	}
 	data, err := json.Marshal(entry)
 	if err != nil {
-		// A Session of strings and a time cannot fail to marshal; treat the
-		// impossible the same as an unusable backend rather than panicking.
-		return keyringUnavailable()
+		return keyringUnavailable(err)
 	}
 	name := s.EntryName(ref)
 	if err := keyring.Set(Service, name, string(data)); err != nil {
-		return keyringUnavailable()
+		return keyringUnavailable(err)
 	}
-	for suffix, token := range map[string]string{accessTokenSuffix: value.AccessToken, idTokenSuffix: value.IDToken} {
-		if token == "" {
+	for suffix, field := range value.largeValues() {
+		if *field == "" {
 			if err := keyring.Delete(Service, name+suffix); err != nil && !errors.Is(err, keyring.ErrNotFound) {
-				return keyringUnavailable()
+				return keyringUnavailable(err)
 			}
 			continue
 		}
-		if err := keyring.Set(Service, name+suffix, token); err != nil {
-			return keyringUnavailable()
+		if err := keyring.Set(Service, name+suffix, *field); err != nil {
+			return keyringUnavailable(err)
 		}
 	}
 	retireLegacyEntry(ref)
@@ -298,8 +318,8 @@ func (s Store) Save(ref string, value Session) error {
 // nothing can end. Best effort: the entry this store owns has already been
 // written or removed, and that is the answer the caller gets.
 func retireLegacyEntry(ref string) {
-	for _, name := range []string{ref + accessTokenSuffix, ref + idTokenSuffix, ref} {
-		_ = keyring.Delete(Service, name)
+	for _, suffix := range append(sideSuffixes, "") {
+		_ = keyring.Delete(Service, ref+suffix)
 	}
 }
 
@@ -325,9 +345,9 @@ func (s Store) Delete(ref string) (bool, error) {
 	// ended is the session entry's answer, and a side entry left behind
 	// would be a token on the machine that nothing can reach any more.
 	name := s.EntryName(ref)
-	for _, suffix := range []string{accessTokenSuffix, idTokenSuffix} {
+	for _, suffix := range sideSuffixes {
 		if err := keyring.Delete(Service, name+suffix); err != nil && !errors.Is(err, keyring.ErrNotFound) {
-			return false, keyringUnavailable()
+			return false, keyringUnavailable(err)
 		}
 	}
 	retireLegacyEntry(ref)
@@ -338,7 +358,7 @@ func (s Store) Delete(ref string) (bool, error) {
 	case errors.Is(err, keyring.ErrNotFound):
 		return false, nil
 	default:
-		return false, keyringUnavailable()
+		return false, keyringUnavailable(err)
 	}
 }
 
@@ -350,12 +370,13 @@ func loginRequired(message, recovery string) problem.Problem {
 		WithRecovery(recovery)
 }
 
-// keyringUnavailable reports the secure store as unusable. The backend's own
-// error is deliberately dropped: it may describe the user's desktop session in
-// terms the shell cannot vouch for, and the recovery is the same regardless.
-func keyringUnavailable() problem.Problem {
-	return problem.New(problem.CategoryAuthPolicy, "auth.keyring_unavailable",
+// keyringUnavailable reports the secure store as unusable. The rendered
+// problem leaves the backend's own error out: it may describe the user's
+// desktop session in terms the shell cannot vouch for, and the recovery is the
+// same regardless. It stays in the error chain for the diagnostic log.
+func keyringUnavailable(backend error) error {
+	return fmt.Errorf("%w: %w", problem.New(problem.CategoryAuthPolicy, "auth.keyring_unavailable",
 		"the OS secure store is not available to the shell").
-		WithRecovery("Enable the OS keychain or secret service for this user, then retry. " +
-			"The shell does not store credentials in files.")
+		WithRecovery("Enable the OS keychain or secret service for this user, then retry. "+
+			"The shell does not store credentials in files."), backend)
 }

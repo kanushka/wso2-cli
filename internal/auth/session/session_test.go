@@ -17,6 +17,7 @@
 package session_test
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -627,4 +628,87 @@ func TestEntryNameIsTheReferenceScopedToTheRoot(t *testing.T) {
 	if again := store.EntryName("thunder"); again != name {
 		t.Errorf("the entry name is not stable: %q then %q", name, again)
 	}
+}
+
+// A login session from a fresh ThunderID sign-in carries three JSON web
+// tokens and a device secret. Each keychain value must still fit the 4096-byte
+// command macOS's secure-store tool accepts, which go-keyring builds by
+// base64-encoding the value behind a prefix.
+func TestAFullLoginSessionFitsTheMacOSSecureStore(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	scopes := make([]string, 24)
+	for i := range scopes {
+		scopes[i] = fmt.Sprintf("ap:rest_api:deployment:%02d", i)
+	}
+	saved := session.Session{
+		Issuer:                "https://platform-idp-development.gateway.dev.cloud.wso2.com",
+		RefreshToken:          tokenOfLength(1600),
+		AccessToken:           tokenOfLength(2200),
+		IDToken:               tokenOfLength(2000),
+		DeviceSecret:          tokenOfLength(1800),
+		ExpiresAt:             time.Now(),
+		SessionExpiresAt:      time.Now(),
+		DeviceSecretExpiresAt: time.Now(),
+		Subject:               "0d5e8b1c-3f4a-4c2e-9a1b-ac0e00000001",
+		Name:                  "A Person With A Rather Long Display Name",
+		Email:                 "a.person.with.a.long.address@example.com",
+		Strategy:              "direct",
+		ClientID:              "WSO2_CLI",
+		Scopes:                scopes,
+		Granted:               append([]string{"openid", "profile", "email", "device_sso"}, scopes...),
+		Resource:              "https://apim.example.test/api/am/publisher",
+		Audience:              "https://apim.example.test/api/am/publisher",
+		Bound:                 true,
+	}
+	if err := store.Save("cloud-dev", saved); err != nil {
+		t.Fatal(err)
+	}
+	name := store.EntryName("cloud-dev")
+	for _, key := range []string{name, name + "#access", name + "#id", name + "#refresh", name + "#device"} {
+		value, err := keyring.Get(session.Service, key)
+		if err != nil {
+			continue
+		}
+		if n := macOSSetCommandLength(session.Service, key, value); n > 4096 {
+			t.Errorf("%s needs a %d-byte secure-store command, over macOS's 4096", key, n)
+		}
+	}
+	loaded, err := store.Load("cloud-dev")
+	if err != nil || loaded.RefreshToken != saved.RefreshToken || loaded.DeviceSecret != saved.DeviceSecret ||
+		loaded.AccessToken != saved.AccessToken || loaded.IDToken != saved.IDToken {
+		t.Fatalf("the session did not round-trip: %v", err)
+	}
+	if removed, err := store.Delete("cloud-dev"); err != nil || !removed {
+		t.Fatalf("delete: %v %v", removed, err)
+	}
+	for _, key := range []string{name + "#refresh", name + "#device"} {
+		if _, err := keyring.Get(session.Service, key); err == nil {
+			t.Errorf("%s survived delete", key)
+		}
+	}
+}
+
+// The backend's own answer stays reachable through the error chain for the
+// diagnostic log, though the rendered problem leaves it out.
+func TestAnUnavailableBackendKeepsItsOwnError(t *testing.T) {
+	backend := errors.New("data passed to Set was too big")
+	keyring.MockInitWithError(backend)
+	store := session.Store{StateRoot: t.TempDir()}
+	err := store.Save("acme-cloud-login", session.Session{RefreshToken: "rt-1"})
+	assertProblemCode(t, err, "auth.keyring_unavailable")
+	if !errors.Is(err, backend) {
+		t.Errorf("the backend's error is not in the chain: %v", err)
+	}
+}
+
+func tokenOfLength(n int) string {
+	return strings.Repeat("a", n/3) + "." + strings.Repeat("b", n/3) + "." + strings.Repeat("c", n-2*(n/3)-2)
+}
+
+// macOSSetCommandLength mirrors go-keyring's darwin Set, which refuses a
+// command over 4096 bytes.
+func macOSSetCommandLength(service, account, value string) int {
+	quoted := "go-keyring-base64:" + base64.StdEncoding.EncodeToString([]byte(value))
+	return len(fmt.Sprintf("add-generic-password -U -s '%s' -a '%s' -w '%s'\n", service, account, quoted))
 }

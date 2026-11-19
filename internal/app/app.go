@@ -108,6 +108,16 @@ type invocationState struct {
 	noInput bool
 }
 
+// logUnderlyingCause writes what a refusal wraps beyond its rendered problem,
+// such as the secure-store backend's own error, which the refusal leaves out.
+func (s Shell) logUnderlyingCause(err error) {
+	var typed problem.Problem
+	if err == nil || !errors.As(err, &typed) || err.Error() == typed.Error() {
+		return
+	}
+	s.log.Debug("the refusal wraps an underlying error", "error", err.Error())
+}
+
 // CommandNames reports the shell's own command names, sorted.
 //
 // A namespace with one of these names is unreachable: the shell resolves its
@@ -201,12 +211,13 @@ func printsCompletionScript(args []string) bool {
 		slices.Contains([]string{"bash", "fish", "powershell", "zsh"}, words[1])
 }
 
-func (s Shell) dispatch(args []string) error {
+func (s Shell) dispatch(args []string) (err error) {
 	// Created before the command tree so that every closure the tree captures
 	// shares this log, and turned on later by --verbose. Until then it writes
 	// nothing, which is what an invocation without the flag must produce.
 	s.log = output.NewLogger()
 	s.invocation = &invocationState{}
+	defer func() { s.logUnderlyingCause(err) }()
 
 	// Trust is widened before anything reaches the network, because the first
 	// request a login makes is the discovery fetch and a self-signed deployment
