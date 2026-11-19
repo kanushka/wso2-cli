@@ -341,7 +341,7 @@ that name a token, code, secret, password, API key or credential are written as
 
 When diagnostics are on, a product module is handed `WSO2_DEBUG=1`, and its
 standard error is kept up to 256 KiB instead of 8 KiB. A module built against
-SDK v0.5.0 or later logs through `Request.Log` and `diag.Transport` there,
+SDK v0.5.0 or later logs through `Request.Log` and `httplog.Transport` there,
 through the same redaction; one built earlier writes what it always did.
 
 Every run is also recorded in `<state root>/cli/logs/wso2.log` (inside

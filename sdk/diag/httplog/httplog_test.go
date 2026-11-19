@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package diag
+package httplog
 
 import (
 	"bytes"
@@ -23,22 +23,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/wso2/wso2-cli/sdk/diag"
 )
-
-func TestFromContextDiscardsWhenNothingWasAttached(t *testing.T) {
-	if FromContext(context.Background()).Enabled(context.Background(), -8) {
-		t.Fatal("a context with no logger yields one that writes")
-	}
-}
-
-func TestFromContextReturnsTheAttachedLogger(t *testing.T) {
-	var captured bytes.Buffer
-	ctx := WithLogger(context.Background(), New(&captured, false))
-	FromContext(ctx).Debug("a diagnostic")
-	if !strings.Contains(captured.String(), "a diagnostic") {
-		t.Fatalf("the attached logger was not used: %q", &captured)
-	}
-}
 
 func TestTransportLogsEachRequestWithoutItsSecrets(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -47,7 +34,7 @@ func TestTransportLogsEachRequestWithoutItsSecrets(t *testing.T) {
 	defer server.Close()
 
 	var captured bytes.Buffer
-	ctx := WithLogger(context.Background(), New(&captured, false))
+	ctx := diag.WithLogger(context.Background(), diag.New(&captured, false))
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/apis?apiKey=k-must-never-appear", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +65,7 @@ func TestTransportLogsAFailureWithoutTheQuery(t *testing.T) {
 	server.Close()
 
 	var captured bytes.Buffer
-	ctx := WithLogger(context.Background(), New(&captured, false))
+	ctx := diag.WithLogger(context.Background(), diag.New(&captured, false))
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target+"/apis?apiKey=k-must-never-appear", nil)
 	if err != nil {
 		t.Fatal(err)

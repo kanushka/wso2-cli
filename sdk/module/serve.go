@@ -98,7 +98,7 @@ type Request struct {
 	// the shell's redaction, only when the shell asked for diagnostics
 	// (--verbose or WSO2_DEBUG), and discards otherwise, so a handler logs
 	// unconditionally. The handler's context carries it too, for
-	// diag.FromContext and diag.Transport. It is never nil in a Request the
+	// diag.FromContext and httplog.Transport. It is never nil in a Request the
 	// SDK builds; an older shell never asks, and this one stays silent.
 	Log *slog.Logger
 }

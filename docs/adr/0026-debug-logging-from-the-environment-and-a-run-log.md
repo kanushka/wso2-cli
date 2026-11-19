@@ -37,9 +37,12 @@ instead of 8 KiB, because it now carries a log rather than a warning.
 The SDK gives every handler `Request.Log`, a `*slog.Logger` that writes to
 standard error when `WSO2_DEBUG` asks and discards otherwise, as JSON lines when
 the invocation renders JSON. The handler's context carries the same logger, and
-`diag.Transport` wraps an HTTP transport so each request made with that context
-logs its method, URL without query, status and duration. No header or body is
-logged. A module wires it in one line, on the `http.Client` it already has.
+`httplog.Transport` wraps an HTTP transport so each request made with that
+context logs its method, URL without query, status and duration. No header or
+body is logged. A module wires it in one line, on the `http.Client` it already
+has. It lives in its own package, `sdk/diag/httplog`, so that importing `diag`
+for redaction does not import an HTTP client: `wso2 version` must resolve
+inventory with no `net/http` in its dependency graph.
 
 Redaction moved from the shell into the SDK's `diag` package, and the shell now
 uses it from there. One list of secret attribute names covers both sides of the
@@ -66,7 +69,10 @@ What it holds depends on whether diagnostics are on:
   duration. No argument, no flag value, no problem message (it can carry a URL
   or an id), and no context, organization or account name.
 - **Under `--verbose` or `WSO2_DEBUG`:** everything standard error shows, and
-  every line the module wrote to standard error.
+  every line the module wrote to standard error. A module line is free text,
+  which key-based redaction cannot read, so it reaches the file as the module
+  wrote it, as it already reached the terminal; a module logging through
+  `Request.Log` is redacted before the line is written.
 
 The always-on records cost a few hundred bytes a run and hold less than shell
 history does, and they let `ws doctor` say "the last run failed" after the
@@ -116,7 +122,7 @@ replace, then bump the shell's own requirement and `sdkPublishedVersion`.
 
 **Modules log once they are rebuilt.** The example module, `apim` and `iam`
 gain diagnostics when they are released against `sdk/v0.5.0` and wrap their
-HTTP client's transport with `diag.Transport`. Until then they behave as before
+HTTP client's transport with `httplog.Transport`. Until then they behave as before
 under `WSO2_DEBUG=1`.
 
 **Module diagnostics are still prefixed on standard error.** The shell writes

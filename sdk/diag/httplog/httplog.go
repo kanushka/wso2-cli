@@ -14,33 +14,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package diag
+// Package httplog logs a module's HTTP requests to the diagnostic log its
+// context carries. It is apart from diag so that what imports diag for
+// redaction alone does not import an HTTP client.
+package httplog
 
 import (
-	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/wso2/wso2-cli/sdk/diag"
 )
-
-type loggerKey struct{}
-
-// WithLogger returns ctx carrying log, for code that is handed a context but
-// not a Request: an HTTP transport, a client several calls deep.
-func WithLogger(ctx context.Context, log *slog.Logger) context.Context {
-	return context.WithValue(ctx, loggerKey{}, log)
-}
-
-// FromContext returns the logger ctx carries, or one that discards when it
-// carries none, so a caller never has to check.
-func FromContext(ctx context.Context) *slog.Logger {
-	if log, ok := ctx.Value(loggerKey{}).(*slog.Logger); ok && log != nil {
-		return log
-	}
-	return Discard()
-}
 
 // Transport wraps inner, or http.DefaultTransport when inner is nil, so that
 // every request made with a context from the SDK logs its method, URL, status
@@ -61,7 +47,7 @@ type loggingTransport struct {
 }
 
 func (t loggingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	log := FromContext(request.Context())
+	log := diag.FromContext(request.Context())
 	started := time.Now()
 	response, err := t.inner.RoundTrip(request)
 	attributes := []any{
