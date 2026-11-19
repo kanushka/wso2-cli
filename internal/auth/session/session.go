@@ -334,8 +334,15 @@ func (s Store) Save(ref string, value Session) error {
 		return keyringUnavailable(err)
 	}
 	name := s.EntryName(ref)
-	replaced := s.sideKeysOf(name, s.generationOf(name))
-	var written []string
+	current := s.generationOf(name)
+	s.retireAbandoned(name, current)
+	// The generation is named before its side entries are written, so a save
+	// that dies before its entry leaves nothing the next save or delete
+	// cannot find.
+	if err := secureStore.Set(Service, name+pendingSuffix, generation); err != nil {
+		return keyringUnavailable(err)
+	}
+	written := []string{name + pendingSuffix}
 	for suffix, field := range value.largeValues() {
 		if *field == "" {
 			continue
@@ -353,9 +360,25 @@ func (s Store) Save(ref string, value Session) error {
 		discard(written)
 		return keyringUnavailable(err)
 	}
-	discard(replaced)
+	discard(append(s.sideKeysOf(name, current), name+pendingSuffix))
 	retireLegacyEntry(ref)
 	return nil
+}
+
+// pendingSuffix names the entry that holds the generation a save is writing
+// until its session entry lands.
+const pendingSuffix = "#pending"
+
+// retireAbandoned removes the side entries of a save that died before its
+// session entry, best effort.
+func (s Store) retireAbandoned(name, current string) {
+	pending, err := secureStore.Get(Service, name+pendingSuffix)
+	if err != nil || pending == "" || pending == current {
+		return
+	}
+	for _, suffix := range sideSuffixes {
+		_ = secureStore.Delete(Service, sideKey(name, suffix, pending))
+	}
 }
 
 // entry is what the session entry holds: the session without its large
@@ -448,7 +471,9 @@ func (s Store) Delete(ref string) (bool, error) {
 	// ended is the session entry's answer, and a side entry left behind
 	// would be a token on the machine that nothing can reach any more.
 	name := s.EntryName(ref)
-	for _, key := range s.sideKeysOf(name, s.generationOf(name)) {
+	current := s.generationOf(name)
+	s.retireAbandoned(name, current)
+	for _, key := range append(s.sideKeysOf(name, current), name+pendingSuffix) {
 		if err := secureStore.Delete(Service, key); err != nil && !errors.Is(err, keyring.ErrNotFound) {
 			return false, keyringUnavailable(err)
 		}

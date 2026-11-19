@@ -667,11 +667,15 @@ func TestAFullLoginSessionFitsTheMacOSSecureStore(t *testing.T) {
 	if err := store.Save("cloud-dev", saved); err != nil {
 		t.Fatal(err)
 	}
-	if len(written.keys) != 5 {
-		t.Errorf("the save wrote %d entries, want the session entry and four side entries", len(written.keys))
+	if len(written.keys) != 6 {
+		t.Errorf("the save wrote %d entries, want the pending marker, the session entry and four side entries",
+			len(written.keys))
 	}
 	for _, key := range written.keys {
 		value, err := keyring.Get(session.Service, key)
+		if err != nil && strings.HasSuffix(key, "#pending") {
+			continue
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -878,3 +882,69 @@ func (r recordingStore) Set(service, user, password string) error {
 }
 
 func (r recordingStore) Delete(service, user string) error { return keyring.Delete(service, user) }
+
+// crashingStore dies, as the process would, on the write of one key, and
+// records the keys it wrote before.
+type crashingStore struct {
+	at      string
+	written *recorded
+}
+
+func (c crashingStore) Get(service, user string) (string, error) { return keyring.Get(service, user) }
+
+func (c crashingStore) Set(service, user, password string) error {
+	if user == c.at {
+		panic("crashed")
+	}
+	c.written.keys = append(c.written.keys, user)
+	return keyring.Set(service, user, password)
+}
+
+func (c crashingStore) Delete(service, user string) error { return keyring.Delete(service, user) }
+
+// crashBeforeTheEntry runs a save that dies after its side entries and before
+// its session entry, into the keys it wrote.
+func crashBeforeTheEntry(t *testing.T, store session.Store, ref string, value session.Session, written *recorded) {
+	t.Helper()
+	restore := session.UseSecureStore(crashingStore{at: store.EntryName(ref), written: written})
+	defer restore()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("the save did not reach its session entry")
+		}
+	}()
+	_ = store.Save(ref, value)
+}
+
+// A save that died before its session entry leaves tokens nothing reads; the
+// next save or delete of that reference removes them.
+func TestTheTokensOfASaveThatDiedAreRemovedByTheNextSaveOrDelete(t *testing.T) {
+	for name, next := range map[string]func(store session.Store) error{
+		"delete": func(store session.Store) error { _, err := store.Delete("cloud-dev"); return err },
+		"save": func(store session.Store) error {
+			return store.Save("cloud-dev", session.Session{RefreshToken: "rt-c"})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			keyring.MockInit()
+			store := session.Store{StateRoot: t.TempDir()}
+			if err := store.Save("cloud-dev", session.Session{RefreshToken: "rt-a", DeviceSecret: "ds-a"}); err != nil {
+				t.Fatal(err)
+			}
+			var abandoned recorded
+			crashBeforeTheEntry(t, store, "cloud-dev", session.Session{RefreshToken: "rt-b", DeviceSecret: "ds-b"}, &abandoned)
+			if len(abandoned.keys) == 0 {
+				t.Fatal("the save that died wrote nothing")
+			}
+
+			if err := next(store); err != nil {
+				t.Fatal(err)
+			}
+			for _, key := range abandoned.keys {
+				if value, err := keyring.Get(session.Service, key); err == nil && strings.Contains(value, "-b") {
+					t.Errorf("%s from the save that died survived", key)
+				}
+			}
+		})
+	}
+}
