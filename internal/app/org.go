@@ -529,7 +529,7 @@ func orgUseUnfinished(err error, name, previous string) error {
 	if reported.Recovery != "" {
 		note = reported.Recovery + " " + note
 	}
-	return reported.WithRecovery(note)
+	return withRecovery(err, reported, note)
 }
 
 // reportOrgUse reports the organization a context now names.

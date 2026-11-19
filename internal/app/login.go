@@ -365,7 +365,28 @@ func extendIncompleteLoginRecovery(err error, established []contexts.ProductAcce
 	if reported.Recovery != "" {
 		recovery = reported.Recovery + " " + recovery
 	}
-	return reported.WithRecovery(recovery)
+	return withRecovery(err, reported, recovery)
+}
+
+// withRecovery is err with the problem it carries given another recovery.
+// The errors wrapped beside the problem are kept, so the diagnostic log still
+// names them.
+func withRecovery(err error, reported problem.Problem, recovery string) error {
+	updated := reported.WithRecovery(recovery)
+	joined, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		return updated
+	}
+	causes := []error{}
+	for _, wrapped := range joined.Unwrap() {
+		if _, isProblem := wrapped.(problem.Problem); !isProblem {
+			causes = append(causes, wrapped)
+		}
+	}
+	if len(causes) == 0 {
+		return updated
+	}
+	return fmt.Errorf("%w: %w", updated, errors.Join(causes...))
 }
 
 // loginAccesses is what this login authorizes: every session by default, the
