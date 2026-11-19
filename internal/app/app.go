@@ -139,8 +139,16 @@ func (s Shell) Run(args []string) exit.Code {
 		s.Streams.Out = output.Named(&printed, output.NameOf(stdout))
 	}
 	err := s.dispatch(args)
+	written := false
 	if asJSON && err == nil {
-		err = output.Document(stdout, printed.Bytes())
+		// A completion script is sourced as printed, and wso2 config unset
+		// output answers in the table mode it leaves in force.
+		if printsCompletionScript(args) || s.requestedMode(args) != output.ModeJSON {
+			_, err = stdout.Write(printed.Bytes())
+		} else {
+			err = output.Document(stdout, printed.Bytes())
+		}
+		written = true
 	}
 	if err == nil {
 		return exit.OK
@@ -154,7 +162,7 @@ func (s Shell) Run(args []string) exit.Code {
 	// reads a CI log there, and a script that already did keeps working.
 	output.Problem(s.Streams.Err, typed)
 	status := exit.ForProblem(typed)
-	if asJSON {
+	if asJSON && !written {
 		_ = output.FailureDocument(stdout, printed.Bytes(), typed, int(status))
 	}
 	return status
@@ -162,10 +170,9 @@ func (s Shell) Run(args []string) exit.Code {
 
 // requestedMode reads the rendering a command line asks for before anything
 // parses it: --output wherever the shell would read it, before a bare "--",
-// or else the "output" preference. A completion request is never JSON, and
-// neither is a completion script, which a shell sources as it is printed.
+// or else the "output" preference. A completion request is never JSON.
 func (s Shell) requestedMode(args []string) output.Mode {
-	if len(args) > 0 && isCompletionRequest(args[0]) || printsCompletionScript(args) {
+	if len(args) > 0 && isCompletionRequest(args[0]) {
 		return output.ModeTable
 	}
 	if separator := slices.Index(args, "--"); separator >= 0 {
@@ -243,6 +250,9 @@ func (s Shell) dispatch(args []string) error {
 	if name == "--version" {
 		// --version answers before Cobra parses anything, so no other shell
 		// flag has been read and there is nothing to log about.
+		if err := refuseUnknownOutputMode(args); err != nil {
+			return err
+		}
 		return s.version(nil, s.requestedMode(args))
 	}
 	// A shell-owned command, or any leading flag, is Cobra's to route. Anything

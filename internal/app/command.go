@@ -263,13 +263,41 @@ func (s Shell) shellOutputMode(command *cobra.Command) (output.Mode, error) {
 	if flag != nil && flag.Changed {
 		mode, ok := output.ParseMode(flag.Value.String())
 		if !ok {
-			return "", problem.New(problem.CategoryUsage, "shell.unknown_output_mode",
-				fmt.Sprintf("%q is not an output mode", flag.Value.String())).
-				WithRecovery("Use --output table or --output json.")
+			return "", outputModeProblem(flag.Value.String())
 		}
 		return mode, nil
 	}
 	return s.preferredMode(), nil
+}
+
+func outputModeProblem(value string) problem.Problem {
+	return problem.New(problem.CategoryUsage, "shell.unknown_output_mode",
+		fmt.Sprintf("%q is not an output mode", value)).
+		WithRecovery("Use --output table or --output json.")
+}
+
+// refuseUnknownOutputMode refuses the last --output value on a line that no
+// flag parser reads, the way shellOutputMode refuses one that is parsed.
+func refuseUnknownOutputMode(args []string) error {
+	if separator := slices.Index(args, "--"); separator >= 0 {
+		args = args[:separator]
+	}
+	var (
+		value   string
+		written bool
+	)
+	for index, argument := range args {
+		switch {
+		case (argument == "--"+outputFlag || argument == "-o") && index+1 < len(args):
+			value, written = args[index+1], true
+		case attachedOutput(argument):
+			value, written = outputFlagValue(argument)
+		}
+	}
+	if _, ok := output.ParseMode(value); written && !ok {
+		return outputModeProblem(value)
+	}
+	return nil
 }
 
 // preferredMode is the "output" preference, or output.ModeTable when none is

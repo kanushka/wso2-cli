@@ -62,7 +62,8 @@ The shell's own problems move where the cause is now nameable:
 persistent flags, so a caller never needs to know which commands render JSON
 or which ones could prompt before asking. The one exception to a single JSON
 document is `ws completion <shell>`, which prints the script a shell sources
-as it is, since wrapping it would break every profile that loads it. A
+as it is, since wrapping it would break every profile that loads it; a
+failure before the script is printed is still an error document. A
 standard input that is not a terminal refuses every question the way
 `--no-input` does, and the module is handed `WSO2_NO_INPUT=1` either way.
 It does not stop a browser login: the person completes that in the browser,

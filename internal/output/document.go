@@ -30,11 +30,11 @@ import (
 // that printed prose is carried as its message, and one that printed nothing
 // is an empty object. See docs/adr/0023-exit-codes-by-cause-and-one-json-document-per-command.md.
 func Document(w io.Writer, printed []byte) error {
-	trimmed := bytes.TrimSpace(printed)
-	if json.Valid(trimmed) && len(trimmed) > 0 {
+	if json.Valid(printed) {
 		_, err := w.Write(printed)
 		return err
 	}
+	trimmed := bytes.TrimSpace(printed)
 	document := map[string]any{}
 	if len(trimmed) > 0 {
 		document["message"] = string(trimmed)

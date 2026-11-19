@@ -35,6 +35,16 @@ func TestDocumentPassesJSONThrough(t *testing.T) {
 	}
 }
 
+func TestDocumentWritesOnlyValidJSON(t *testing.T) {
+	var w bytes.Buffer
+	if err := output.Document(&w, []byte("\u00a0{\"a\": 1}")); err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid(w.Bytes()) {
+		t.Errorf("wrote what is not JSON: %q", w.String())
+	}
+}
+
 func TestDocumentCarriesProseAsTheMessage(t *testing.T) {
 	var w bytes.Buffer
 	if err := output.Document(&w, []byte("Switched to <ctx>.\n")); err != nil {

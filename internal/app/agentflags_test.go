@@ -18,9 +18,12 @@ package app_test
 
 import (
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
+
+	keyring "github.com/zalando/go-keyring"
 
 	"github.com/wso2/wso2-cli/internal/catalog"
 	"github.com/wso2/wso2-cli/internal/exit"
@@ -245,6 +248,8 @@ func TestATableFailureLeavesStandardOutputEmpty(t *testing.T) {
 }
 
 func TestWhoamiJSONCarriesTheNextStepAsCommands(t *testing.T) {
+	keyring.MockInit()
+	t.Setenv("WSO2_CONTEXT", "")
 	shell, _, _ := newShell(t)
 	installLogin(t, shell, whoamiSeededDocument())
 	code, out, errOut := run(t, shell, "whoami", "-o", "json")
@@ -287,5 +292,60 @@ func TestAJSONResultWithNoNextStepHasNoNextMember(t *testing.T) {
 	_, out, _ := run(t, shell, "context", "list", "-o", "json")
 	if strings.Contains(out, `"next"`) {
 		t.Errorf("a result with no next step carries one:\n%s", out)
+	}
+}
+
+func TestUnsettingAJSONOutputPreferenceAnswersInTheModeItLeaves(t *testing.T) {
+	shell, _, _ := newShell(t)
+	mustRun(t, shell, "config", "set", "output", "json")
+	code, out, errOut := run(t, shell, "config", "unset", "output")
+	if code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if json.Valid([]byte(out)) || !strings.Contains(out, `Unset "output"`) {
+		t.Errorf("the confirmation is not the table the unset leaves in force:\n%s", out)
+	}
+}
+
+func TestAFailedWriteOfTheDocumentIsNotFollowedByAnother(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	failing := &countingFailWriter{}
+	shell.Streams.Out = failing
+	if code := shell.Run([]string{"version", "-o", "json"}); code == exit.OK {
+		t.Fatalf("a failed write exited 0: %s", errOut)
+	}
+	if failing.writes != 1 {
+		t.Errorf("standard output was written %d times after the first write failed", failing.writes)
+	}
+}
+
+type countingFailWriter struct{ writes int }
+
+func (w *countingFailWriter) Write([]byte) (int, error) {
+	w.writes++
+	return 0, errors.New("broken pipe")
+}
+
+func TestACompletionScriptThatFailsToStartIsAnErrorDocument(t *testing.T) {
+	shell, _, _ := newShell(t)
+	code, out, errOut := run(t, shell, "completion", "zsh", "--bogus", "-o", "json")
+	if code != exit.Usage {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	var document struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(out), &document); err != nil || document.Error.Code != "shell.unknown_flag" {
+		t.Errorf("standard output is not the error document (%v):\n%s", err, out)
+	}
+}
+
+func TestTheVersionFlagRefusesAnUnknownOutputMode(t *testing.T) {
+	shell, _, _ := newShell(t)
+	code, _, errOut := run(t, shell, "--version", "--output", "xml")
+	if code != exit.Usage || !strings.Contains(errOut, "shell.unknown_output_mode") {
+		t.Errorf("exit %d, want the refusal ws version gives:\n%s", code, errOut)
 	}
 }

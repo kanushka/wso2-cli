@@ -98,7 +98,7 @@ Every command accepts `--output json` (`-o json`), before or after the command
 name, and so does the `output` preference. Standard output is then exactly one
 JSON object, whether the command succeeds or fails (ADR 0023). The one
 exception is `ws completion <shell>`, which prints the script a shell sources
-as it is.
+as it is; when it fails, it writes the error document like any other command.
 
 On success the object is the command's own result, its members at the top
 level. When the table form ends with a `Next` line, the object carries `next`:
