@@ -24,6 +24,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/wso2/wso2-cli/internal/modules"
+	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/internal/parsetree"
 	"github.com/wso2/wso2-cli/sdk/cobratree"
 	"github.com/wso2/wso2-cli/sdk/module"
@@ -120,7 +121,7 @@ func TestTheShellLandsWhereTheModuleWouldLand(t *testing.T) {
 			}
 			cobraAccepts := findErr == nil && found.ParseFlags(rest) == nil
 
-			line, parseErr := parseProductArgs("reference", declared, args)
+			line, parseErr := parseProductArgs("reference", declared, args, output.ModeTable)
 
 			if !cobraAccepts {
 				if parseErr == nil {

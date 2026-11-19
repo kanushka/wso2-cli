@@ -29,6 +29,9 @@ func TestForProblemMapsEveryCategoryToADistinctNonZeroClass(t *testing.T) {
 		problem.CategoryModuleTrust,
 		problem.CategoryModuleProcess,
 		problem.CategoryProductService,
+		problem.CategoryNotFound,
+		problem.CategoryConflict,
+		problem.CategoryUnreachable,
 	}
 
 	seen := make(map[Code]problem.Category, len(categories))
@@ -47,5 +50,23 @@ func TestForProblemMapsEveryCategoryToADistinctNonZeroClass(t *testing.T) {
 func TestForProblemFailsClosedForAnUnknownCategory(t *testing.T) {
 	if code := ForProblem(problem.Problem{Category: "invented"}); code != ModuleProcess {
 		t.Fatalf("unknown category mapped to %d, want the module process class %d", code, ModuleProcess)
+	}
+}
+
+func TestForProblemMapsEachCauseToItsSysexitsStatus(t *testing.T) {
+	want := map[problem.Category]Code{
+		problem.CategoryUsage:          64,
+		problem.CategoryNotFound:       66,
+		problem.CategoryUnreachable:    68,
+		problem.CategoryModuleTrust:    69,
+		problem.CategoryModuleProcess:  70,
+		problem.CategoryConflict:       73,
+		problem.CategoryProductService: 75,
+		problem.CategoryAuthPolicy:     77,
+	}
+	for category, status := range want {
+		if got := ForProblem(problem.New(category, "code", "message")); got != status {
+			t.Errorf("category %s exits %d, want %d", category, got, status)
+		}
 	}
 }

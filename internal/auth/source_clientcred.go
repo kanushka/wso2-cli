@@ -155,6 +155,12 @@ func (s clientCredentialsSource) refusedGrant(err error, sent string) error {
 				"to a current secret for this context's OAuth client, then retry the command.",
 				s.secretVariable),
 		}
+	case errors.Is(err, errNoAccessToken):
+		return denial("auth.discovery_failed",
+			fmt.Sprintf("the identity provider's token response for the %q module carried no access token",
+				s.namespace),
+			"The identity provider answered the token request without an access token. Check the "+
+				"identity provider's logs for why, then retry.")
 	case errors.As(err, &refusal):
 		// The deployment answered, and its answer is not one the shell can
 		// classify. Reporting it as a credential to correct or a registration

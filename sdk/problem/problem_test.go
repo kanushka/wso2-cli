@@ -83,6 +83,9 @@ func TestCategoriesAreDistinctStableStrings(t *testing.T) {
 		problem.CategoryModuleTrust:    "module_trust",
 		problem.CategoryModuleProcess:  "module_process",
 		problem.CategoryProductService: "product_service",
+		problem.CategoryNotFound:       "not_found",
+		problem.CategoryConflict:       "conflict",
+		problem.CategoryUnreachable:    "unreachable",
 	}
 	for category, want := range categories {
 		if string(category) != want {

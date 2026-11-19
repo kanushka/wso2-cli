@@ -108,14 +108,17 @@ For a failure, return a `problem.Problem` rather than a bare error:
 
 ```go
 return result.Result{}, problem.New(problem.CategoryProductService,
-	"abc.list_unavailable", "The ABC service did not answer.").
+	"abc.list_unavailable", "The ABC service could not list the items.").
 	WithRecovery("Check the product URL recorded on this context.")
 ```
 
 The category is your one exit-code decision, and you make it by naming the
 kind of failure rather than picking a number. The shell maps `usage` to 64,
-`module_trust` to 69, `module_process` to 70, `product_service` to 75, and
-`auth_policy` to 77. Any error that isn't a `Problem` becomes
+`not_found` to 66, `unreachable` to 68, `module_trust` to 69,
+`module_process` to 70, `conflict` to 73, `product_service` to 75, and
+`auth_policy` to 77. A service that gave no answer at all is `unreachable`;
+one that answered with an error is `product_service`. The three newer
+categories need a shell that knows them; see ADR 0023. Any error that isn't a `Problem` becomes
 `abc.handler_failed`, a module process failure, which tells your user nothing.
 
 ## 3. Call your product

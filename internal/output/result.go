@@ -184,9 +184,9 @@ func marshalPlain(value any) ([]byte, error) {
 // nextCommandLimit is the most commands a result's next list carries.
 const nextCommandLimit = 3
 
-// nextCommands reports the commands a next step names, as JSON renders them:
+// NextCommands reports the commands a next step names, as JSON renders them:
 // never null, and never more than nextCommandLimit entries.
-func nextCommands(w io.Writer, next string) []string {
+func NextCommands(w io.Writer, next string) []string {
 	commands := Commands(w, next)
 	if commands == nil {
 		return []string{}
@@ -238,7 +238,7 @@ func resultJSON(w io.Writer, produced result.Result) error {
 			// as the commands to run. JSON carries the list, built from the
 			// real ids the module wrote into the sentence, and at most three
 			// of them: a next step that names more is a page, not a step.
-			value, err = marshalPlain(nextCommands(w, field.Value))
+			value, err = marshalPlain(NextCommands(w, field.Value))
 		}
 		if err != nil {
 			return fmt.Errorf("output: cannot encode the value of %q: %w", field.Name, err)

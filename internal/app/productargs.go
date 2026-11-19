@@ -101,9 +101,9 @@ func (f *shellFlags) read(namespace string, args []string) (int, error) {
 // that is not built on Cobra — is parsed the way every module was before: the
 // command path is the leading run of plain words, and everything from the first
 // unrecognised flag onward is the module's to interpret or refuse.
-func parseProductArgs(namespace string, declared parsetree.Tree, args []string) (productLine, error) {
+func parseProductArgs(namespace string, declared parsetree.Tree, args []string, mode output.Mode) (productLine, error) {
 	if !declared.Declared() {
-		return parseUndeclaredProductArgs(namespace, args)
+		return parseUndeclaredProductArgs(namespace, args, mode)
 	}
 
 	routed := declared.Route(args)
@@ -115,7 +115,7 @@ func parseProductArgs(namespace string, declared parsetree.Tree, args []string) 
 		arguments []string
 		help      bool
 	)
-	flags := shellFlags{mode: output.ModeTable}
+	flags := shellFlags{mode: mode}
 	for index := 0; index < len(args); index++ {
 		if routed.Path[index] {
 			continue
@@ -194,9 +194,9 @@ type productLine struct {
 // declaration it cannot tell whether the word after that flag is the flag's
 // value or a command of its own. Everything from there is the module's to
 // interpret or refuse.
-func parseUndeclaredProductArgs(namespace string, args []string) (productLine, error) {
+func parseUndeclaredProductArgs(namespace string, args []string, mode output.Mode) (productLine, error) {
 	var command []string
-	flags := shellFlags{mode: output.ModeTable}
+	flags := shellFlags{mode: mode}
 	remaining := args
 	for len(remaining) > 0 {
 		consumed, failure := flags.read(namespace, remaining)

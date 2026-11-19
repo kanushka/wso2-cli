@@ -107,7 +107,7 @@ func permittedVersions(file NamespaceFile, policy Policy) ([]Version, error) {
 				return []Version{version}, nil
 			}
 		}
-		return nil, problem.New(problem.CategoryUsage, "catalog.version_not_published",
+		return nil, problem.New(problem.CategoryNotFound, "catalog.version_not_published",
 			fmt.Sprintf("the %q module publishes no version %s", file.Namespace, pinned)).
 			WithRecovery("Choose a published version.")
 	}

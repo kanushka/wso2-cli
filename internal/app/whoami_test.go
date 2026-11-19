@@ -442,15 +442,15 @@ func TestWhoamiLeavesOutAnOrganizationTheContextDoesNotName(t *testing.T) {
 	}
 }
 
-// TestWhoamiRefusesAnUnknownContextAsUsage proves an unresolvable --context
-// name is refused as the argument mistake it is, rather than folded into the
+// TestWhoamiRefusesAnUnknownContextAsNotFound proves an unresolvable --context
+// name is refused as a missing context, rather than folded into the
 // report as a state.
-func TestWhoamiRefusesAnUnknownContextAsUsage(t *testing.T) {
+func TestWhoamiRefusesAnUnknownContextAsNotFound(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	installLogin(t, shell, whoamiSeededDocument())
 
-	if code := shell.Run([]string{"whoami", "--context", "nosuch"}); code != exit.Usage {
-		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
+	if code := shell.Run([]string{"whoami", "--context", "nosuch"}); code != exit.NotFound {
+		t.Fatalf("exit code = %d, want %d (not found); stderr: %s", code, exit.NotFound, errOut)
 	}
 	requireRefusal(t, errOut.String(), "contexts.unknown_context")
 }

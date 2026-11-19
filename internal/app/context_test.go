@@ -236,28 +236,29 @@ func TestContextCreateWithAURLAloneLogsInThroughTheLoginProduct(t *testing.T) {
 
 func TestContextCreateRefusals(t *testing.T) {
 	cases := map[string]struct {
-		args []string
-		code string
+		args   []string
+		code   string
+		status exit.Code
 	}{
-		"a login product alone": {[]string{"--login-product", "iam"}, "shell.missing_required_flag"},
-		"neither form":          {nil, "shell.missing_required_flag"},
+		"a login product alone": {[]string{"--login-product", "iam"}, "shell.missing_required_flag", exit.Usage},
+		"neither form":          {nil, "shell.missing_required_flag", exit.Usage},
 		"both forms": {[]string{"--login-product", "iam", "--url", thunderURL, "--issuer", thunderURL,
-			"--client-id", "x"}, "shell.conflicting_arguments"},
-		"an issuer without a client":    {[]string{"--issuer", thunderURL}, "shell.missing_required_flag"},
-		"thunder through an issuer":     {[]string{"--issuer", thunderURL, "--client-id", "x", "--provider", "thunder"}, "shell.conflicting_arguments"},
-		"a product that is no provider": {[]string{"--login-product", "api", "--url", apiURL}, "shell.invalid_argument"},
-		"an unknown provider":           {[]string{"--issuer", thunderURL, "--client-id", "x", "--provider", "okta"}, "shell.invalid_argument"},
+			"--client-id", "x"}, "shell.conflicting_arguments", exit.Usage},
+		"an issuer without a client":    {[]string{"--issuer", thunderURL}, "shell.missing_required_flag", exit.Usage},
+		"thunder through an issuer":     {[]string{"--issuer", thunderURL, "--client-id", "x", "--provider", "thunder"}, "shell.conflicting_arguments", exit.Usage},
+		"a product that is no provider": {[]string{"--login-product", "api", "--url", apiURL}, "shell.invalid_argument", exit.Usage},
+		"an unknown provider":           {[]string{"--issuer", thunderURL, "--client-id", "x", "--provider", "okta"}, "shell.invalid_argument", exit.Usage},
 		"a secret where a name belongs": {[]string{"--login-product", "iam", "--url", thunderURL,
-			"--client-secret-variable", "s3cr3t-value"}, "shell.invalid_argument"},
+			"--client-secret-variable", "s3cr3t-value"}, "shell.invalid_argument", exit.Usage},
 		"a missing product under --no-install": {[]string{"--login-product", "nosuch", "--url", thunderURL,
-			"--no-install"}, "shell.product_not_installed"},
+			"--no-install"}, "shell.product_not_installed", exit.NotFound},
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
 			shell, _, _ := newContextShell(t)
 			code, _, errOut := run(t, shell, append([]string{"context", "create", "local"}, testCase.args...)...)
-			if code != exit.Usage && code != exit.AuthPolicy {
-				t.Fatalf("exit %d, want a refusal: %s", code, errOut)
+			if code != testCase.status {
+				t.Fatalf("exit %d, want %d: %s", code, testCase.status, errOut)
 			}
 			if !strings.Contains(errOut, testCase.code) {
 				t.Errorf("stderr does not carry %s:\n%s", testCase.code, errOut)
@@ -273,12 +274,13 @@ func TestContextCreateRefusals(t *testing.T) {
 }
 
 func TestContextCreateRefusesATakenNameAndAnIllegalOne(t *testing.T) {
-	for _, name := range []string{"acme", "Acme", "a b", "1acme"} {
+	for name, want := range map[string]exit.Code{"acme": exit.Conflict, "Acme": exit.Usage, "a b": exit.Usage,
+		"1acme": exit.Usage} {
 		t.Run(name, func(t *testing.T) {
 			shell, _, _ := newContextShell(t)
 			installLogin(t, shell, oneContextDocument())
 			code, _, errOut := run(t, shell, "context", "create", name, "--login-product", "iam", "--url", thunderURL)
-			if code != exit.Usage {
+			if code != want {
 				t.Fatalf("exit %d: %s", code, errOut)
 			}
 			if strings.Contains(errOut, "remove it") {
@@ -323,7 +325,7 @@ func TestProductAddRefusesAnExistingProductWithoutReplace(t *testing.T) {
 	shell, _, _ := newContextShell(t)
 	localSetup(t, shell)
 	code, _, errOut := run(t, shell, "context", "product", "add", "api", "--url", apiURL)
-	if code != exit.Usage || !strings.Contains(errOut, "contexts.product_exists") {
+	if code != exit.Conflict || !strings.Contains(errOut, "contexts.product_exists") {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 }
@@ -713,8 +715,8 @@ func TestContextUseIsRefusedForAnUnknownName(t *testing.T) {
 	shell, _, errOut := newShell(t)
 	installLogin(t, shell, oneContextDocument())
 
-	if code := shell.Run([]string{"context", "use", "nosuch"}); code != exit.Usage {
-		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
+	if code := shell.Run([]string{"context", "use", "nosuch"}); code != exit.NotFound {
+		t.Fatalf("exit code = %d, want the not-found class %d; stderr: %s", code, exit.NotFound, errOut)
 	}
 	if !strings.Contains(errOut.String(), "contexts.unknown_context") {
 		t.Errorf("stderr does not carry contexts.unknown_context:\n%s", errOut)

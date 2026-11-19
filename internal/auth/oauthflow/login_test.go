@@ -112,6 +112,11 @@ func interceptCode(t *testing.T, issuer *fakeissuer.Issuer, authURL string) (cod
 // the authentication policy class, carrying recovery guidance.
 func requireProblem(t *testing.T, err error, code string) problem.Problem {
 	t.Helper()
+	return requireProblemIn(t, err, code, problem.CategoryAuthPolicy)
+}
+
+func requireProblemIn(t *testing.T, err error, code string, category problem.Category) problem.Problem {
+	t.Helper()
 	var typed problem.Problem
 	if !errors.As(err, &typed) {
 		t.Fatalf("expected a typed problem, got %v", err)
@@ -119,8 +124,8 @@ func requireProblem(t *testing.T, err error, code string) problem.Problem {
 	if typed.Code != code {
 		t.Fatalf("expected problem %q, got %q (%s)", code, typed.Code, typed.Message)
 	}
-	if typed.Category != problem.CategoryAuthPolicy {
-		t.Fatalf("problem %q is in category %q, not the authentication policy class", typed.Code, typed.Category)
+	if typed.Category != category {
+		t.Fatalf("problem %q is in category %q, want %q", typed.Code, typed.Category, category)
 	}
 	if typed.Recovery == "" {
 		t.Fatalf("problem %q states no recovery", typed.Code)
@@ -423,6 +428,25 @@ func TestLoginRefusesAnUnreachableIssuer(t *testing.T) {
 	_, err := login.Run(testContext(t, 30*time.Second))
 	if err == nil {
 		t.Fatal("an unreachable issuer was accepted")
+	}
+	_ = requireProblemIn(t, err, "auth.discovery_failed", problem.CategoryUnreachable)
+}
+
+func TestLoginDoesNotReportAMalformedIssuerAsUnreachable(t *testing.T) {
+	login := oauthflow.Login{
+		Issuer:   "http://127.0.0.1:1/%zz",
+		ClientID: "client-123",
+		Out:      &recorder{},
+		Ports:    []int{0},
+		OpenBrowser: func(string) error {
+			t.Error("the login opened a browser against a malformed issuer")
+			return nil
+		},
+	}
+
+	_, err := login.Run(testContext(t, 30*time.Second))
+	if err == nil {
+		t.Fatal("a malformed issuer was accepted")
 	}
 	_ = requireProblem(t, err, "auth.discovery_failed")
 }

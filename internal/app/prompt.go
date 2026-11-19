@@ -59,7 +59,7 @@ func (s Shell) reader() io.Reader {
 // nothing more — both wait on a person without ever reading this process's
 // own stdin, so a terminal on that descriptor is not what either needs.
 func (s Shell) nonInteractiveControl(noInput bool) string {
-	if noInput {
+	if noInput || s.invocation.asksNoInput() {
 		return "--no-input"
 	}
 	if os.Getenv(NoInputEnvVar) != "" {
@@ -99,6 +99,12 @@ func (s Shell) mayPrompt(noInput bool) (bool, string) {
 		return false, reasonNotATerminal
 	}
 	return true, ""
+}
+
+// asksNoInput reports whether --no-input was written where a shell command
+// parsed it. A nil state, a Shell built directly, asked for nothing.
+func (i *invocationState) asksNoInput() bool {
+	return i != nil && i.noInput
 }
 
 // promptTUIOffEnvVar, when set to anything, keeps the shell's questions in

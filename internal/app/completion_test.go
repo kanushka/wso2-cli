@@ -294,8 +294,8 @@ func TestCompletionInstallLeavesAFishFileItDidNotWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, errOut, code := runInstall(t); code != exit.Usage || !strings.Contains(errOut, "shell.completion_file_exists") {
-		t.Fatalf("exit %d, want a usage refusal; stderr: %s", code, errOut)
+	if _, errOut, code := runInstall(t); code != exit.Conflict || !strings.Contains(errOut, "shell.completion_file_exists") {
+		t.Fatalf("exit %d, want a conflict refusal; stderr: %s", code, errOut)
 	}
 	if got := readFile(t, file); got != "# mine\n" {
 		t.Errorf("the user's file was replaced:\n%s", got)

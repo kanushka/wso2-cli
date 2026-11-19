@@ -16,8 +16,8 @@ and how each refusal is reported.
 
 | Command | Description |
 | --- | --- |
-| `ws help` | Shows the root command tree and help for a command, all from local state, with no login, no network call and no module launched. The root page opens with a start-here block of three commands in order, `ws login`, `ws product install <product>` and `ws <product> status`, then the shell commands, the products (those published but not installed marked `(not installed)`), and the shell flags. `ws help <product>` and `ws <product> --help` show the installed product's groups with one example per group and end with a next line computed from this machine's state: no context or no record of the product names the context command that records it (`ws context product add <product> --url <url>`, or `ws context create <name> --login-product <product> --url <url> --use` for a login provider); a recorded product with no stored session, an expired one, or one against another issuer names `ws login`; otherwise the module's own first command, as its tree declares it. A group page (`ws apim api`) lists its actions and the examples the module declared for the group, the first two of its leaves' when it declared none. A leaf page (`ws apim api create --help`) shows the flags with each required one marked `(required)`, and the command's runnable example; a flag that takes an id says which command lists the ids. Every page comes from the command tree recorded at install (ADR 0013). `--output json` renders the same topic as one JSON document on standard output, the way an agent reads the whole tree in one go: `ws help --output json` carries `name` (the shell as invoked), `commands` (every shell command, flattened, each with its `path` after the name, `description`, `examples`, `runnable`, the names of the `commands` beneath it and its `flags`, each flag with `name`, `shorthand`, `type`, `default`, `required` and `description`), `flags` (the shell flags every shell command accepts, `--help` and `--verbose`; a shell command that takes `--context` or `--output` lists them in its own `flags`), `products` (every product the release or this machine knows, with `installed`, and for an installed one the declared tree in the same command shape, plus `resultFields` where the module declared what a command's result carries, and `flags`, the shell flags accepted on every product command line: `--context`, `--no-input` and `--output`) and `warnings` (present only when something could not be read; an unreadable module store leaves every product unmarked and says so here, as the table form does in its closing line). `ws help <product> [<command>] --output json` carries that product with the commands beneath the one named; `ws help <command> --output json` a shell command's subtree; `ws <product> [<command>] --help --output json` is the product form again. Nothing is launched and the catalog is not read, so the document is the same with the catalog unreachable. |
-| `ws version` | Shows the shell, protocol, and installed module versions. |
+| `ws help` | Shows the root command tree and help for a command, all from local state, with no login, no network call and no module launched. The root page opens with a start-here block of three commands in order, `ws login`, `ws product install <product>` and `ws <product> status`, then the shell commands, the products (those published but not installed marked `(not installed)`), and the shell flags. `ws help <product>` and `ws <product> --help` show the installed product's groups with one example per group and end with a next line computed from this machine's state: no context or no record of the product names the context command that records it (`ws context product add <product> --url <url>`, or `ws context create <name> --login-product <product> --url <url> --use` for a login provider); a recorded product with no stored session, an expired one, or one against another issuer names `ws login`; otherwise the module's own first command, as its tree declares it. A group page (`ws apim api`) lists its actions and the examples the module declared for the group, the first two of its leaves' when it declared none. A leaf page (`ws apim api create --help`) shows the flags with each required one marked `(required)`, and the command's runnable example; a flag that takes an id says which command lists the ids. Every page comes from the command tree recorded at install (ADR 0013). `--output json` renders the same topic as one JSON document on standard output, the way an agent reads the whole tree in one go: `ws help --output json` carries `name` (the shell as invoked), `commands` (every shell command, flattened, each with its `path` after the name, `description`, `examples`, `runnable`, the names of the `commands` beneath it and its `flags`, each flag with `name`, `shorthand`, `type`, `default`, `required` and `description`), `flags` (the shell flags every shell command accepts, `--help`, `--verbose`, `--output` and `--no-input`; a shell command that takes `--context` lists it in its own `flags`), `products` (every product the release or this machine knows, with `installed`, and for an installed one the declared tree in the same command shape, plus `resultFields` where the module declared what a command's result carries, and `flags`, the shell flags accepted on every product command line: `--context`, `--no-input` and `--output`) and `warnings` (present only when something could not be read; an unreadable module store leaves every product unmarked and says so here, as the table form does in its closing line). `ws help <product> [<command>] --output json` carries that product with the commands beneath the one named, and for the product's own page `next`, the commands its next line names; `ws help <command> --output json` a shell command's subtree; `ws <product> [<command>] --help --output json` is the product form again. Nothing is launched and the catalog is not read, so the document is the same with the catalog unreachable. |
+| `ws version` | Shows the shell, protocol, and installed module versions. `-o json` carries `shell`, `protocol`, `platform`, and `modules`, each with `name`, `version` and `platform`. |
 | `ws completion install [<shell>]` | Sets up tab completion for `bash`, `zsh`, `fish` or `powershell`, or for the shell `$SHELL` names (PowerShell on Windows when it is unset). zsh and bash get a line that loads the script inside the `# >>> wso2 cli >>>` block of `~/.zshrc` or `~/.bashrc` (`~/.bash_profile` when that is the one there, or on macOS when neither is), the block added when there is none; zsh also gets a `compinit` that runs only when nothing has run one. fish gets `~/.config/fish/completions/<name>.fish` (under `$XDG_CONFIG_HOME` when set), and PowerShell a line in the block of `$PROFILE`, refused with `shell.completion_profile_blocked` under a `Restricted` or `AllSigned` execution policy. `--profile <file>` edits that file instead. The lines name the command as it was invoked. A second run changes nothing and says so. Refusals: an unsupported shell (`shell.completion_shell_unsupported`), no `$SHELL` (`shell.completion_shell_unknown`), a profile that cannot be written (`shell.completion_profile_unwritable`), a block with no end marker (`shell.completion_profile_unreadable`), and a fish file it did not write (`shell.completion_file_exists`). `--output json` reports `shell`, `file` and `changed`. |
 | `ws completion <shell>` | Writes the tab-completion script for `bash`, `zsh`, `fish` or `powershell` to standard output when it is piped or redirected, exactly as Cobra generates it. At a terminal it prints how to set completion up instead, naming `ws completion install`; `--print` writes the script anyway. |
 | `ws login` | Establishes the login session, then one session per further product the context records, each through the same browser sign-on. `--only <namespace>` authorizes just that product — both of its records when it holds a gateway record, or one record alone as `--only <namespace>/gateway` — refused with `shell.invalid_argument` when the context records no such namespace; `--no-products` authorizes the login session alone, leaving product and gateway sessions unestablished; the two together are refused with `shell.conflicting_arguments`. The report is three rows: `Context`, the context logged in to; `Email`, the signed-in person as the identity token named them (the email, else the display name, else the subject, else `-` when a device login verified none); and `Status`, `logged in`. Each browser sign-on prints its authorization URL on standard error, `If the browser does not open, visit: <url>`, whether or not a browser opened. What reached each product is `ws whoami -o json`'s to say. When a later product fails after earlier ones already succeeded, the failure names what was established and points at `ws login --only <namespace>` (or `--only <namespace>/gateway`) to retry only the one that was not, keeping the sessions already stored. Without `--context` and `--url`, in a terminal, login asks `Log in to:` an existing context (listed, the selected one as the default) or a new one; a new one runs the `ws context create` wizard (below), without its closing offer to log in, and then logs in to the context it wrote; a client-credentials context ends there, reporting that it needs no login. With no contexts it goes straight to a new one. A `--context` naming no context runs the same wizard, taking that name, in a terminal and is refused with `shell.missing_required_flag` otherwise, naming `--url` and `--client-id`. Under `--no-input`, `WSO2_NO_INPUT`, `WSO2_CONTEXT`, or a standard input that is not a terminal, nothing is asked and the selected context is used. |
@@ -48,13 +48,13 @@ and how each refusal is reported.
 | `ws config` | With no subcommand, prints this family's help on standard output and exits 0: naming a family without a subcommand is an incomplete command, not a failed one, and every subcommand it names works. The help names `list`, `get`, `set` and `unset`. A subcommand the family does not have is a different case and is still refused with `shell.unknown_command` and the usage exit class (#133), so a typo is never reported to a script as success. |
 | `ws config list` | Built today: shows every key in the closed set of shell preferences — the default output mode and the catalog origin override — and whether each is currently configured. |
 | `ws config get <key>` | Built today: shows one shell preference. `key` must be one of `output`, `catalog-origin`; any other value is refused with `config.unknown_key`, naming the valid keys. |
-| `ws config set <key> <value>` | Built today: changes one shell preference. An unknown key is refused the same way `config get` refuses one; a value a key does not accept is refused with `config.invalid_value`, naming what is acceptable (`table` or `json` for `output`; an absolute http or https URL for `catalog-origin`). Each preference is the lowest-precedence source for what it governs: `--output` wins over a configured output mode, and `WSO2_CLI_CATALOG_ORIGIN` wins over a configured catalog origin — a saved preference can never override either. `output` governs exactly the commands that accept `--output`: `ws whoami`, `ws doctor`, `ws logout`, `ws help`, and the `context`, `config` and `org` families. It does not reach `ws version` or the `product` family, which render fixed prose and refuse `--output` with `shell.unsupported_flag`; a preference that silently did nothing for them would be a worse contract than a flag refused out loud. A colour preference is not in this set: `output.ColorEnabled` has no production caller yet, so a key that claimed to govern colour would change nothing observable; it is the obvious first key to add once something renders in colour. |
+| `ws config set <key> <value>` | Built today: changes one shell preference. An unknown key is refused the same way `config get` refuses one; a value a key does not accept is refused with `config.invalid_value`, naming what is acceptable (`table` or `json` for `output`; an absolute http or https URL for `catalog-origin`). Each preference is the lowest-precedence source for what it governs: `--output` wins over a configured output mode, and `WSO2_CLI_CATALOG_ORIGIN` wins over a configured catalog origin — a saved preference can never override either. `output` governs every command, as `--output` does: a command whose report is only prose writes it as the `message` of one JSON document (ADR 0023). A colour preference is not in this set: `output.ColorEnabled` has no production caller yet, so a key that claimed to govern colour would change nothing observable; it is the obvious first key to add once something renders in colour. |
 | `ws config unset <key>` | Built today: removes one preference, so its built-in default governs again. Unsetting a key that was never set succeeds and reports the default that governs, since the config family already treats "unset" as a fact rather than an error. |
 | `ws product available` | Deprecated spelling of `ws product list`, which ADR 0015 merged it into. It is hidden from help, runs the merged list, and names `ws product list` on standard error. |
 | `ws module …` | Deprecated spelling of the `ws product` family, kept by ADR 0015. It is hidden from help, runs the same subcommand, and names `ws product` on standard error. |
 | `ws product install <product>` | Installs the latest compatible stable release of a module, or the latest on the channel `--channel <channel>` names, and records that channel as the one the module follows. |
 | `ws product install <product>@<version>` | Installs an exact compatible module version. |
-| `ws product list` | Lists every product the module catalog publishes or this machine has installed, in one table: the installed version or `—`, the channel, and the update available or the version an install would take. When the catalog cannot be reached, it lists the installed products with update `unknown`, warns on standard error that the updates and the installable products are unknown, and exits 0. |
+| `ws product list` | Lists every product the module catalog publishes or this machine has installed, in one table: the installed version or `—`, the channel, and the update available or the version an install would take. When the catalog cannot be reached, it lists the installed products with update `unknown`, warns on standard error that the updates and the installable products are unknown, and exits 0. `-o json` carries `products`, each with `product`, `installed` and `available` (bare versions, empty when there is none), `channel`, `pinned` (the pinned version, when there is one) and `state` (`current`, `updatable`, `pinned`, `not-published`, `not-installed`, or `unknown` when the catalog could not be read), and `catalogReachable`. |
 | `ws product update <product>` | Updates one product module. Naming a module is already an explicit target, so this does not prompt; `--dry-run` still reports what it would do without changing anything. A module the catalog publishes no version of on its followed channel — withdrawn, renamed, or moved to a channel this install no longer follows — is reported by name rather than called current, since the catalog cannot say whether the installed version is current when it does not publish the module at all; this does not change the exit status. |
 | `ws product update --all` | Built today: updates every installed product module that has a newer version on its followed channel, skipping a pinned one. Being unbounded, it prompts for confirmation before moving anything, unless the catalog says nothing would move, in which case it reports each product's outcome from that one catalog read without asking; `--yes` skips the prompt, `--dry-run` reports what it would do without changing anything, and `--no-input` (or `WSO2_NO_INPUT`) refuses rather than prompt. Refuses `shell.non_interactive` when it may not prompt and `--yes` was not given — either because `--no-input` or `WSO2_NO_INPUT` asked that nothing prompt, or because standard input is not a terminal; the refusal names the control that fired and offers the one way out that applies to it, and `shell.conflicting_arguments` for `--yes` with `--dry-run`. A module the catalog publishes no version of on its followed channel — withdrawn, renamed, or moved to a channel this install no longer follows — is reported by name rather than called current, since the catalog cannot say whether the installed version is current when it does not publish the module at all; this does not change the exit status, so a scheduled `--all` run does not start failing the moment one module goes unpublished upstream. |
 | `ws product remove <product>` | Built today: removes one installed module, leaving configuration and credentials alone. Prompts for confirmation after confirming the module is installed; `--yes` skips the prompt, `--dry-run` reports what it would remove without removing anything, and `--no-input` (or `WSO2_NO_INPUT`) refuses rather than prompt. Refuses `shell.module_not_installed` before any prompt when the module is not installed, `shell.non_interactive` when it may not prompt and `--yes` was not given — either because `--no-input` or `WSO2_NO_INPUT` asked that nothing prompt, or because standard input is not a terminal; the refusal names the control that fired and offers the one way out that applies to it, and `shell.conflicting_arguments` for `--yes` with `--dry-run`. |
@@ -92,6 +92,47 @@ Every refusal `ws login` and a brokered command make carries a typed code.
 | `auth.session_required` | Nothing is stored for a product and `--no-input`/`WSO2_NO_INPUT` forbids the browser that would authorize it. | `ws login --only <namespace>` where a browser can open. |
 | `auth.reauthorization_required` | A session for the product is stored, but the deployment would not renew it to the permissions the module needs. | Log in again where a browser can open; if it still refuses, an administrator has to grant the role. |
 
+## JSON output
+
+Every command accepts `--output json` (`-o json`), before or after the command
+name, and so does the `output` preference. Standard output is then exactly one
+JSON object, whether the command succeeds or fails (ADR 0023). The one
+exception is `ws completion <shell>`, which prints the script a shell sources
+as it is; when it fails, it writes the error document like any other command.
+
+On success the object is the command's own result, its members at the top
+level. When the table form ends with a `Next` line, the object carries `next`:
+the commands that line names, as runnable lines with the real names and ids
+filled in, at most three. A placeholder such as `<url>` stays only where the
+shell cannot know the value. A result with no next step has no `next`. A
+command whose report is only prose, such as `ws login` or
+`ws product install`, writes it as `message`, with `next` read from its `Next`
+line. A command that printed nothing writes `{}`.
+
+On failure the object has an `error` member, and the exit status is the
+problem's class, as below:
+
+```json
+{
+  "error": {
+    "code": "contexts.unknown_context",
+    "category": "not_found",
+    "message": "no context named \"staging\" is configured",
+    "recovery": "Run ws context list to see the configured contexts, then ws context use <name> to select one.",
+    "next": ["ws context list", "ws context use <name>"],
+    "exit": 66
+  }
+}
+```
+
+`recovery` is left out when the problem has none; it says why each command is
+suggested. `next` is always present, and lists the commands the recovery names
+in the shape a result's `next` has. A command that
+rendered a JSON report before it failed, such as `ws doctor`, keeps its members
+and gains `error`; one that printed prose keeps it as `message`. The same
+problem is still written to standard error as prose. A product module's problem
+is reported the same way.
+
 ## Exit classes
 
 The shell alone decides the process exit status: a module returns a typed
@@ -102,14 +143,19 @@ parsing any output.
 | Status | Class | What produces it |
 | --- | --- | --- |
 | `0` | Success | The command completed. |
-| `64` | Usage | Invalid arguments, flags, or configuration, including a malformed context document. |
+| `64` | Usage | Invalid arguments, flags, or configuration, including a malformed context document and a command or flag that does not exist. |
+| `66` | Not found | A named thing that does not exist: a context, a product record, a module or module version, or a product's resource. |
+| `68` | Unreachable | A service that gave no answer: the module catalog origin (including `ws doctor --online`'s catalog check), or an identity provider no network path reaches. |
 | `69` | Module trust | A module integrity, signature, platform, or compatibility failure. |
-| `70` | Module process | A protocol violation, a module process that failed to launch or crashed, or an unreachable module catalog origin (including `ws doctor --online`'s catalog check). |
+| `70` | Module process | A protocol violation, or a module process that failed to launch or crashed. |
+| `73` | Conflict | A thing that already exists, such as a context or product record of that name, or a resource in a state that refuses the change. |
 | `75` | Product service | A failure the product service itself reported. |
 | `77` | Authentication policy | An authentication or broker policy failure, including no context selected, and a missing or expired session. |
 
 An unrecognized problem category is reported as a module process failure, `70`,
-rather than as success.
+rather than as success. Statuses 66, 68, and 73 were added in ADR 0023; a
+module built before them reports a missing or conflicting resource with the
+class its author chose then.
 
 One command opts out of the `77` class on purpose: `ws example status`
 reports a broker refusal as fields of its result and exits `0`, because
@@ -121,17 +167,21 @@ class for the same refusal.
 ## Non-interactive use
 
 `--no-input` declares that nothing may prompt, open a browser, or wait for a
-human. `WSO2_NO_INPUT`, set to any non-empty value, does the same for every
+human. Every shell command accepts it, before or after the command name.
+`WSO2_NO_INPUT`, set to any non-empty value, does the same for every
 invocation in the environment. A job that sets either wants to fail fast on a
-misconfigured context rather than hang until its own timeout.
+misconfigured context rather than hang until its own timeout. A standard input
+that is not a terminal refuses every question the same way, since nobody could
+answer it, but it does not stop a browser login, which a person completes in
+the browser rather than on standard input.
 
 When a question may be asked, it is asked on standard error, never standard
 output. On a terminal it is drawn as a form: options are picked with the arrow
 keys and Enter, an answer is checked as it is typed, and Ctrl+C or Esc cancels
-with `shell.cancelled`, having written nothing. Where standard input or
-standard error is not a terminal, and whenever `WSO2_ACCESSIBLE` is set to any
-non-empty value, the same questions are printed as numbered, line-oriented
-prompts, which suit a screen reader (ADR 0017).
+with `shell.cancelled`, having written nothing. Where standard error is not a
+terminal, and whenever `WSO2_ACCESSIBLE` is set to any non-empty value, the
+same questions are printed as numbered, line-oriented prompts, which suit a
+screen reader (ADR 0017).
 
 A browser or device login under `--no-input` is refused with
 `auth.non_interactive` and exit class `77`. Automation authenticates with a
@@ -151,8 +201,9 @@ opens the browser to authorize it, printing the product and the issuer
 first, unless `--no-input` or `WSO2_NO_INPUT` asked otherwise, in which
 case it refuses with `auth.session_required` and exit class `77`, naming
 the control that refused and `ws login --only <namespace>` as the way to
-establish that session ahead of time. Whichever of the two asked, the
-module is handed `WSO2_NO_INPUT=1`, so a module reads one spelling.
+establish that session ahead of time. Whichever of the two asked, or when
+standard input is not a terminal, the module is handed `WSO2_NO_INPUT=1`, so a
+module reads one spelling.
 
 A product command that deletes something asks first, the way `ws product
 remove` does: the module sends its question over the module contract and the

@@ -167,9 +167,12 @@ func TestContextCreateWizardRefusesAKnownNameBeforeAsking(t *testing.T) {
 	shell, _, _ := newContextShell(t)
 	localSetup(t, shell)
 	shell.Reader = failIfReadReader{t}
-	for name, code := range map[string]string{"local": "contexts.context_exists", "Bad_Name": "shell.invalid_argument"} {
+	for name, want := range map[string]struct {
+		code   string
+		status exit.Code
+	}{"local": {"contexts.context_exists", exit.Conflict}, "Bad_Name": {"shell.invalid_argument", exit.Usage}} {
 		exitCode, _, errOut := run(t, shell, "context", "create", name)
-		if exitCode != exit.Usage || !strings.Contains(errOut, code) {
+		if exitCode != want.status || !strings.Contains(errOut, want.code) {
 			t.Errorf("%s: exit %d, stderr: %s", name, exitCode, errOut)
 		}
 	}

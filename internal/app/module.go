@@ -84,14 +84,9 @@ func (s Shell) productCommand() *cobra.Command {
 				WithRecovery(moduleRecovery)
 		},
 	}
-	// The family declares neither shell flag, so every module subcommand
-	// refuses both. Every module lifecycle command renders fixed, non-JSON text
-	// and selects no context: an install or an update names its target as an
-	// argument, not by --context, and its report is prose meant to be read, not
-	// a schema a script parses. moduleinstall_test.go's
-	// TestVerboseInstallKeepsProgressOffStdout confirms by hand that
-	// wso2 product install <product> --output json is refused outright, and this
-	// absence is where that refusal now comes from.
+	// The family takes no --context: an install or an update names its target
+	// as an argument. Under --output json, list renders a document of its own
+	// and the others' prose is carried as a message (ADR 0023).
 	command.AddCommand(s.moduleAvailableCommand(), s.moduleInstallCommand(), s.moduleListCommand(),
 		s.moduleRemoveCommand(), s.moduleUpdateCommand())
 	return command
@@ -114,7 +109,11 @@ func (s Shell) moduleAvailableCommand() *cobra.Command {
 	command.RunE = func(command *cobra.Command, args []string) error {
 		_, _ = fmt.Fprintf(s.Streams.Err,
 			"%s is now wso2 product list; run wso2 product list instead.\n", command.CommandPath())
-		return s.moduleList()
+		mode, err := s.shellOutputMode(command)
+		if err != nil {
+			return err
+		}
+		return s.moduleList(mode)
 	}
 	return command
 }
@@ -125,7 +124,11 @@ func (s Shell) moduleListCommand() *cobra.Command {
 		Short: "List every product: the installed version, and the update or install available.",
 		Args:  noArguments(moduleListUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			return s.moduleList()
+			mode, err := s.shellOutputMode(command)
+			if err != nil {
+				return err
+			}
+			return s.moduleList(mode)
 		},
 	}
 	// Every module subcommand recovers with its own usage line, so a mistyped
@@ -318,7 +321,7 @@ func (s Shell) moduleRemove(opts removeOptions) error {
 // Reporting success here would tell a user their module is gone when what is
 // installed is something else under the name they meant.
 func notInstalledProblem(namespace string) problem.Problem {
-	return problem.New(problem.CategoryUsage, "shell.module_not_installed",
+	return problem.New(problem.CategoryNotFound, "shell.module_not_installed",
 		fmt.Sprintf("no %s module is installed", namespace)).
 		WithRecovery("Run wso2 product list to see what is installed.")
 }
@@ -486,7 +489,7 @@ func (s Shell) installer() (install.Installer, error) {
 // The whole report costs one request whatever is installed, because the index
 // carries the latest version per channel and no version history is fetched: a
 // listing selects nothing, and selecting is what a history is for.
-func (s Shell) moduleList() error {
+func (s Shell) moduleList(mode output.Mode) error {
 	installer, err := s.installer()
 	if err != nil {
 		return err
@@ -512,9 +515,13 @@ func (s Shell) moduleList() error {
 		// stderr warning, not the exit code, is where the degraded half is
 		// reported, the same contract a corrupt preferences document already
 		// has.
-		return s.moduleListOffline(installer, unreachable)
+		return s.moduleListOffline(installer, unreachable, mode)
 	}
 
+	if mode == output.ModeJSON {
+		return encodeJSONWithNext(s.Streams.Out, productListing(statuses, true),
+			strings.Join(listSummary(statuses), " "))
+	}
 	if len(statuses) == 0 {
 		_, err := fmt.Fprintln(s.Streams.Out, "No products are installed, and the catalog publishes none.")
 		return err
@@ -552,12 +559,16 @@ func (s Shell) moduleList() error {
 // config unset when the "catalog-origin" preference chose the origin). It is
 // given even when nothing is installed, because there it is all that stops an
 // empty report reading as "the catalog offers nothing".
-func (s Shell) moduleListOffline(installer install.Installer, unreachable problem.Problem) error {
+func (s Shell) moduleListOffline(installer install.Installer, unreachable problem.Problem, mode output.Mode) error {
 	statuses, err := installer.CheckLocal()
 	if err != nil {
 		return err
 	}
-	if len(statuses) == 0 {
+	if mode == output.ModeJSON {
+		if err := encodeJSON(s.Streams.Out, productListing(statuses, false)); err != nil {
+			return err
+		}
+	} else if len(statuses) == 0 {
 		if _, err := fmt.Fprintln(s.Streams.Out, "No products are installed."); err != nil {
 			return err
 		}
@@ -574,7 +585,7 @@ func (s Shell) moduleListOffline(installer install.Installer, unreachable proble
 			return err
 		}
 	}
-	output.Diagnostic(s.Streams.Err, problem.New(problem.CategoryModuleProcess, unreachable.Code,
+	output.Diagnostic(s.Streams.Err, problem.New(unreachable.Category, unreachable.Code,
 		"the module catalog could not be reached, so update availability and the products it offers are unknown").
 		WithRecovery(unreachable.Recovery))
 	return nil
@@ -609,6 +620,22 @@ const (
 	// machine, so Available is what a plain install would take.
 	stateNotInstalled
 )
+
+// word is the state as wso2 product list --output json names it.
+func (state moduleState) word() string {
+	switch state {
+	case stateUpdatable:
+		return "updatable"
+	case statePinned:
+		return "pinned"
+	case stateUnpublished:
+		return "not-published"
+	case stateNotInstalled:
+		return "not-installed"
+	default:
+		return "current"
+	}
+}
 
 // stateOf classifies one module. The order matters: a module that is not
 // installed has no pin or installed version for the rest to be about, and a
@@ -1055,4 +1082,44 @@ func (s Shell) moduleAliasCommand() *cobra.Command {
 		return s.applyShellFlags(command, args)
 	}
 	return command
+}
+
+// productListReport is wso2 product list as JSON.
+type productListReport struct {
+	Products []productListEntry `json:"products"`
+	// CatalogReachable is false when the catalog could not be read, so only
+	// the installed products are listed and their state is unknown.
+	CatalogReachable bool `json:"catalogReachable"`
+}
+
+type productListEntry struct {
+	Product   string `json:"product"`
+	Installed string `json:"installed"`
+	Channel   string `json:"channel"`
+	Available string `json:"available"`
+	Pinned    string `json:"pinned,omitempty"`
+	State     string `json:"state"`
+}
+
+// productListing reports the same statuses the table does, with versions
+// bare rather than prefixed, and the state the update column words.
+func productListing(statuses []install.Status, reachable bool) productListReport {
+	report := productListReport{Products: []productListEntry{}, CatalogReachable: reachable}
+	for _, status := range statuses {
+		entry := productListEntry{Product: status.Namespace, Installed: status.Installed,
+			Channel: status.PolicyChannel, Available: status.Available, Pinned: status.PinnedVersion}
+		if entry.Channel == "" && !status.Pinned {
+			entry.Channel = status.Channel
+		}
+		switch {
+		case !reachable && status.Pinned:
+			entry.State = "pinned"
+		case !reachable:
+			entry.State = "unknown"
+		default:
+			entry.State = stateOf(status).word()
+		}
+		report.Products = append(report.Products, entry)
+	}
+	return report
 }

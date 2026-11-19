@@ -304,7 +304,7 @@ func planLogin(document contexts.Document, name, issuer, clientID string) (conte
 // it. The message names both values because a user who typed one of them is
 // looking at half the answer.
 func identityDiffers(name, field, declared, asked string) problem.Problem {
-	return problem.New(problem.CategoryUsage, "contexts.context_exists",
+	return problem.New(problem.CategoryConflict, "contexts.context_exists",
 		fmt.Sprintf("the context %q already logs in against the %s %q, not %q",
 			name, field, declared, asked)).
 		WithRecovery("Log in under another name with --context <name>. " +

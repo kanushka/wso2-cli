@@ -22,6 +22,7 @@
 package app
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -30,6 +31,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/wso2/wso2-cli/internal/catalog"
 	"github.com/wso2/wso2-cli/internal/contexts"
@@ -92,6 +94,18 @@ type Shell struct {
 	// sees, and it is safe to use while nil, which is what a Shell built
 	// directly in a test is.
 	log *output.Logger
+
+	// invocation holds what applyShellFlags read from flags every command
+	// shares, for the closures the command tree captured before parsing. It
+	// is a pointer for the reason log is, and nil in a Shell built directly.
+	invocation *invocationState
+}
+
+// invocationState is what one invocation's shared flags asked for.
+type invocationState struct {
+	// noInput is --no-input written anywhere a shell command parses it,
+	// including before the command name.
+	noInput bool
 }
 
 // CommandNames reports the shell's own command names, sorted.
@@ -116,7 +130,27 @@ func CommandNames() []string {
 func (s Shell) Run(args []string) exit.Code {
 	s.Streams.Out = output.Named(s.Streams.Out, s.Name)
 	s.Streams.Err = output.Named(s.Streams.Err, s.Name)
+	// Under --output json, standard output is one JSON document whatever the
+	// command printed, so a command that has only prose is still parseable
+	// (ADR 0023). What it prints is held until it returns.
+	stdout := s.Streams.Out
+	var printed bytes.Buffer
+	asJSON := s.requestedMode(args) == output.ModeJSON
+	if asJSON {
+		s.Streams.Out = output.Named(&printed, output.NameOf(stdout))
+	}
 	err := s.dispatch(args)
+	written := false
+	if asJSON && err == nil {
+		// A completion script is sourced as printed, and wso2 config unset
+		// output answers in the table mode it leaves in force.
+		if printsCompletionScript(args) || s.requestedMode(args) != output.ModeJSON {
+			_, err = stdout.Write(printed.Bytes())
+		} else {
+			err = output.Document(stdout, printed.Bytes())
+		}
+		written = true
+	}
 	if err == nil {
 		return exit.OK
 	}
@@ -125,8 +159,46 @@ func (s Shell) Run(args []string) exit.Code {
 	if !errors.As(err, &typed) {
 		typed = problem.New(problem.CategoryModuleProcess, "shell.unexpected_failure", err.Error())
 	}
+	// The prose stays on standard error under --output json too: a person
+	// reads a CI log there, and a script that already did keeps working.
 	output.Problem(s.Streams.Err, typed)
-	return exit.ForProblem(typed)
+	status := exit.ForProblem(typed)
+	if asJSON && !written {
+		_ = output.FailureDocument(stdout, printed.Bytes(), typed, int(status))
+	}
+	return status
+}
+
+// requestedMode reads the rendering a command line asks for before anything
+// parses it: --output wherever the shell would read it, before a bare "--",
+// or else the "output" preference. A completion request is never JSON.
+func (s Shell) requestedMode(args []string) output.Mode {
+	if len(args) > 0 && isCompletionRequest(args[0]) {
+		return output.ModeTable
+	}
+	if separator := slices.Index(args, "--"); separator >= 0 {
+		args = args[:separator]
+	}
+	if mode, found := argumentOutputMode(args); found {
+		return mode
+	}
+	return s.preferredMode()
+}
+
+// printsCompletionScript reports whether a command line is wso2 completion
+// <shell>, read past any leading flags.
+func printsCompletionScript(args []string) bool {
+	var words []string
+	for index := 0; index < len(args); index++ {
+		switch argument := args[index]; {
+		case argument == "-o" || argument == "--"+outputFlag || argument == "--"+contextFlag:
+			index++
+		case !strings.HasPrefix(argument, "-"):
+			words = append(words, argument)
+		}
+	}
+	return len(words) >= 2 && words[0] == "completion" &&
+		slices.Contains([]string{"bash", "fish", "powershell", "zsh"}, words[1])
 }
 
 func (s Shell) dispatch(args []string) error {
@@ -134,6 +206,7 @@ func (s Shell) dispatch(args []string) error {
 	// shares this log, and turned on later by --verbose. Until then it writes
 	// nothing, which is what an invocation without the flag must produce.
 	s.log = output.NewLogger()
+	s.invocation = &invocationState{}
 
 	// Trust is widened before anything reaches the network, because the first
 	// request a login makes is the discovery fetch and a self-signed deployment
@@ -178,7 +251,10 @@ func (s Shell) dispatch(args []string) error {
 	if name == "--version" {
 		// --version answers before Cobra parses anything, so no other shell
 		// flag has been read and there is nothing to log about.
-		return s.version(nil)
+		if err := refuseUnknownOutputMode(args); err != nil {
+			return err
+		}
+		return s.version(nil, s.requestedMode(args))
 	}
 	// A shell-owned command, or any leading flag, is Cobra's to route. Anything
 	// else is a product namespace, and its arguments must reach the module
@@ -190,11 +266,28 @@ func (s Shell) dispatch(args []string) error {
 		root.SetArgs(args)
 		// Execute runs the command bodies too, so its error is returned as it
 		// is. A flag-parsing failure has already been turned into a usage
-		// problem by the flag-error hook; anything else is classified by Run.
-		return root.Execute()
+		// problem by the flag-error hook, except one in a parent's flags:
+		// Cobra parses those while it finds the command, before any hook.
+		// Anything else is classified by Run.
+		err := root.Execute()
+		if parentFlagFailure(err) {
+			return flagProblem(root, err)
+		}
+		return err
 	}
 
 	return s.dispatchNamespace(root, name, args[1:])
+}
+
+func parentFlagFailure(err error) bool {
+	var (
+		notExist  *pflag.NotExistError
+		required  *pflag.ValueRequiredError
+		invalid   *pflag.InvalidValueError
+		malformed *pflag.InvalidSyntaxError
+	)
+	return errors.As(err, &notExist) || errors.As(err, &required) ||
+		errors.As(err, &invalid) || errors.As(err, &malformed)
 }
 
 // isShellCommand reports whether a name is a command the shell owns. A built-in
@@ -227,7 +320,7 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 		return err
 	}
 	// --no-input is taken the same way and for the same reason.
-	args, noInput, err := takeNoInput(args)
+	args, noInput, err := s.productNoInput(args)
 	if err != nil {
 		return err
 	}
@@ -448,7 +541,8 @@ func (s Shell) helpTopic(help *cobra.Command, args []string) error {
 		return unknownProductCommand(namespace, routed, declared)
 	}
 	if asJSON {
-		return s.renderHelpJSON(s.productHelpDocument(namespace, declared, routed.Command))
+		return s.renderHelpJSON(s.productHelpDocument(namespace, declared, routed.Command,
+			resolved.Receipt.Capabilities.Product))
 	}
 	return s.renderProductHelp(namespace, declared, routed.Command, resolved.Receipt.Capabilities.Product)
 }

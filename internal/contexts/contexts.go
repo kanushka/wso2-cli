@@ -586,7 +586,7 @@ func (d Document) Migrated() (Migration, bool) {
 }
 
 func unknownContext(name string) problem.Problem {
-	return contextProblem("contexts.unknown_context",
+	return notFoundProblem("contexts.unknown_context",
 		fmt.Sprintf("no context named %q is configured", name),
 		"Run wso2 context list to see the configured contexts, then wso2 context use <name> "+
 			"to select one.")
@@ -606,7 +606,7 @@ func noContextSelected() problem.Problem {
 // recovery differs: there is no list to consult and nothing to select, so the
 // only way forward is to create a context.
 func noContextConfigured(name string) problem.Problem {
-	return contextProblem("contexts.unknown_context",
+	return notFoundProblem("contexts.unknown_context",
 		fmt.Sprintf("no context named %q is configured, and no contexts exist", name),
 		"Run wso2 context create <name> --login-product <product> --url <url>, "+
 			"wso2 context apply -f <file>, or wso2 login --url <issuer> --client-id <id> to create one.")
@@ -699,6 +699,10 @@ func malformed(detail string) problem.Problem {
 	return contextProblem("contexts.document_malformed",
 		"the WSO2 CLI context document "+detail,
 		DefaultDocumentRecovery)
+}
+
+func notFoundProblem(code, message, recovery string) problem.Problem {
+	return problem.New(problem.CategoryNotFound, code, message).WithRecovery(recovery)
 }
 
 func contextProblem(code, message, recovery string) problem.Problem {

@@ -84,10 +84,9 @@ func (s Shell) contextCommand() *cobra.Command {
 				WithRecovery(contextRecovery)
 		},
 	}
-	// The family renders a machine-readable result. It takes no family-wide
-	// --context: naming a context is what its own arguments do. The product
-	// subcommands are the one exception, and declare their own.
-	declareOutputFlag(command.PersistentFlags())
+	// The family takes no family-wide --context: naming a context is what its
+	// own arguments do. The product subcommands are the one exception, and
+	// declare their own.
 	command.AddCommand(s.contextCreateCommand(), s.contextProductCommand(), s.contextApplyCommand(),
 		s.contextUseCommand(), s.contextListCommand(), s.contextCurrentCommand(), s.contextShowCommand(),
 		s.contextRenameCommand(), s.contextDeleteCommand(), s.contextEditCommand(),
@@ -243,7 +242,7 @@ func (s Shell) contextUse(command *cobra.Command, name string) error {
 		return s.explainWriteRefusal(root, err)
 	}
 	if mode == output.ModeJSON {
-		return encodeContextJSON(s.Streams.Out, contextSelection{Context: name})
+		return encodeJSON(s.Streams.Out, contextSelection{Context: name})
 	}
 	_, err = fmt.Fprintf(s.Streams.Out, "\nCommands now run against the %q context.\n", name)
 	return err
@@ -276,7 +275,7 @@ func (s Shell) contextList(command *cobra.Command) error {
 		})
 	}
 	if mode == output.ModeJSON {
-		return encodeContextJSON(s.Streams.Out, listing)
+		return encodeJSON(s.Streams.Out, listing)
 	}
 	// An unconfigured machine is a state, not a breakage, so it reports what to
 	// run rather than that nothing is there.
@@ -397,7 +396,7 @@ func (s Shell) contextShow(command *cobra.Command) error {
 	report.Notes = append(report.Notes, driftNotes(document, s.installedDescriptors())...)
 
 	if mode == output.ModeJSON {
-		return encodeContextJSON(s.Streams.Out, report)
+		return encodeJSON(s.Streams.Out, report)
 	}
 	return report.renderTable(s.Streams.Out)
 }
@@ -610,7 +609,10 @@ type reportable interface {
 // renderContext writes one result as JSON or as a labelled field table.
 func renderContext(w io.Writer, mode output.Mode, value reportable) error {
 	if mode == output.ModeJSON {
-		return encodeContextJSON(w, value)
+		if stepper, ok := value.(nextStepper); ok {
+			return encodeJSONWithNext(w, value, stepper.next())
+		}
+		return encodeJSON(w, value)
 	}
 	if err := output.Fields(w, value.fields()); err != nil {
 		return err
@@ -627,13 +629,23 @@ type nextStepper interface {
 	next() string
 }
 
-// encodeContextJSON writes one result as an indented JSON document.
-func encodeContextJSON(w io.Writer, value any) error {
+// encodeJSON writes one result as an indented JSON document.
+func encodeJSON(w io.Writer, value any) error {
+	return encodeJSONWithNext(w, value, "")
+}
+
+// encodeJSONWithNext writes one result as an indented JSON document, with the
+// commands its next step names as a next member when it names any (ADR 0023).
+func encodeJSONWithNext(w io.Writer, value any, next string) error {
 	encoded, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
-		return fmt.Errorf("app: cannot encode the context result: %w", err)
+		return fmt.Errorf("app: cannot encode the result: %w", err)
 	}
-	_, err = fmt.Fprintf(w, "%s\n", output.RenameJSON(encoded, output.NameOf(w)))
+	document, err := output.WithNext(w, append(output.RenameJSON(encoded, output.NameOf(w)), '\n'), next)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(document)
 	return err
 }
 
@@ -670,11 +682,11 @@ func declaresContext(document contexts.Document, name string) bool {
 
 // contextExists refuses to replace a context that is already there.
 func contextExists(name string) problem.Problem {
-	return problem.New(problem.CategoryUsage, "contexts.context_exists",
+	return problem.New(problem.CategoryConflict, "contexts.context_exists",
 		fmt.Sprintf("a context named %q is already configured", name)).
 		WithRecovery("Choose another name, or run wso2 context list to see what is configured. " +
-			"Creating a context never replaces one; wso2 context apply -f <file> replaces a context " +
-			"by name.")
+			"Creating a context never replaces one; to replace one by name, run " +
+			"wso2 context apply -f <file>.")
 }
 
 // selectionMark marks the row a command would run against.

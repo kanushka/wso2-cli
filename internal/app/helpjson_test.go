@@ -22,7 +22,10 @@ import (
 	"strings"
 	"testing"
 
+	keyring "github.com/zalando/go-keyring"
+
 	"github.com/wso2/wso2-cli/internal/app"
+	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/exit"
 	"github.com/wso2/wso2-cli/internal/modules/fixture"
 	"github.com/wso2/wso2-cli/internal/output"
@@ -118,10 +121,9 @@ func TestHelpJSONRendersTheWholeTreeInOneDocument(t *testing.T) {
 		t.Errorf("help itself is not listed")
 	}
 	// The document's own flags are the ones every shell command takes; the
-	// root's --context and --output are not, and a shell command that takes
-	// them lists them itself.
-	if got := flagNames(document.Flags); got != "help,verbose" {
-		t.Errorf("shell flags = %q, want help,verbose", got)
+	// root's --context is not, and a shell command that takes it lists it.
+	if got := flagNames(document.Flags); got != "help,no-input,output,verbose" {
+		t.Errorf("shell flags = %q, want help,no-input,output,verbose", got)
 	}
 	if list, ok := findPath(document.Commands, "context", "list"); !ok || !strings.Contains(flagNames(list.Flags), "output") {
 		t.Errorf("context list does not list the --output it declares: %+v", list)
@@ -290,5 +292,97 @@ func TestHelpTableFormIsUnchangedAndABadModeIsRefused(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "shell.unknown_output_mode") {
 		t.Errorf("a bad mode was not refused as one:\n%s", errOut)
+	}
+}
+
+// TestHelpJSONForAProductCarriesItsNextStep proves the namespace page's Next
+// line reaches the JSON form as next, and a command's page, which has no Next
+// line, carries none.
+func TestHelpJSONForAProductCarriesItsNextStep(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	t.Setenv("WSO2_CONTEXT", "")
+	installFixture(t, shell, fixture.Module{Namespace: "widget", Version: "0.1.0", CommandTree: guidedTree()})
+
+	for _, line := range [][]string{{"help", "widget", "-o", "json"}, {"widget", "--help", "-o", "json"}} {
+		out.Reset()
+		if code := shell.Run(line); code != exit.OK {
+			t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+		}
+		var document struct {
+			Next []string `json:"next"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &document); err != nil {
+			t.Fatalf("not JSON: %v\n%s", err, out)
+		}
+		if strings.Join(document.Next, "|") != "wso2 context product add widget --url <url>" {
+			t.Errorf("%v: next = %q", line, document.Next)
+		}
+	}
+
+	out.Reset()
+	if code := shell.Run([]string{"help", "widget", "project", "-o", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	var page map[string]json.RawMessage
+	if err := json.Unmarshal(out.Bytes(), &page); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if _, found := page["next"]; found {
+		t.Errorf("a command's page carries a next step:\n%s", out)
+	}
+}
+
+func TestHelpJSONCarriesAProductsRootExampleWhole(t *testing.T) {
+	keyring.MockInit()
+	shell, out, errOut := newLoginShell(t)
+	tree := guidedTree()
+	tree.Commands[0].Example = "  wso2 widget project list --sort in"
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0", CommandTree: tree})
+	installLogin(t, shell, browserDoc("https://issuer.example.test"))
+	store := session.Store{StateRoot: shell.StateRoot}
+	if err := store.Save(credentialRef, session.Session{Issuer: "https://issuer.example.test", RefreshToken: "r"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := shell.Run([]string{"help", "reference", "-o", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	var document struct {
+		Next []string `json:"next"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &document); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if strings.Join(document.Next, "|") != "wso2 widget project list --sort in" {
+		t.Errorf("next = %q, want the root example whole", document.Next)
+	}
+}
+
+func TestASavedJSONPreferenceRendersAProductsHelpAsJSON(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	t.Setenv("WSO2_CONTEXT", "")
+	installFixture(t, shell, fixture.Module{Namespace: "widget", Version: "0.1.0", CommandTree: guidedTree()})
+	if code := shell.Run([]string{"config", "set", "output", "json"}); code != exit.OK {
+		t.Fatalf("config set output json: exit %d: %s", code, errOut)
+	}
+
+	out.Reset()
+	if code := shell.Run([]string{"widget", "--help"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	var page map[string]json.RawMessage
+	if err := json.Unmarshal(out.Bytes(), &page); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if _, wrapped := page["message"]; wrapped {
+		t.Errorf("the product's help was rendered as a table and wrapped:\n%s", out)
+	}
+
+	out.Reset()
+	if code := shell.Run([]string{"widget", "--help", "--output", "table"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if json.Valid(out.Bytes()) {
+		t.Errorf("--output table did not override the saved preference:\n%s", out)
 	}
 }

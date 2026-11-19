@@ -443,3 +443,52 @@ func TestValidArtifactURLRefusesANonHTTPScheme(t *testing.T) {
 		}
 	}
 }
+
+func TestAnAnsweredRefusalIsNotReportedAsUnreachable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	client := Client{Origin: server.URL, HTTP: server.Client()}
+	_, indexErr := client.Index(context.Background())
+	_, downloadErr := client.Download(context.Background(), server.URL+"/archive.tar.gz", nil)
+	for _, err := range []error{indexErr, downloadErr} {
+		var typed problem.Problem
+		if !errors.As(err, &typed) || typed.Category != problem.CategoryModuleProcess {
+			t.Errorf("err = %v, want a module_process problem: the host answered", err)
+		}
+	}
+
+	server.Close()
+	_, err := client.Download(context.Background(), server.URL+"/archive.tar.gz", nil)
+	var typed problem.Problem
+	if !errors.As(err, &typed) || typed.Category != problem.CategoryUnreachable {
+		t.Errorf("err = %v, want an unreachable problem: nothing answered", err)
+	}
+}
+
+func TestAnAnsweredRefusalDoesNotBlameTheNetwork(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/short.tar.gz" {
+			w.Header().Set("Content-Length", "100")
+			_, _ = w.Write([]byte("partial"))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	client := Client{Origin: server.URL, HTTP: server.Client()}
+	_, indexErr := client.Index(context.Background())
+	_, statusErr := client.Download(context.Background(), server.URL+"/archive.tar.gz", nil)
+	_, shortErr := client.Download(context.Background(), server.URL+"/short.tar.gz", nil)
+	for _, err := range []error{indexErr, statusErr, shortErr} {
+		var typed problem.Problem
+		if !errors.As(err, &typed) || typed.Category != problem.CategoryModuleProcess {
+			t.Errorf("err = %v, want a module_process problem: the host answered", err)
+			continue
+		}
+		if strings.Contains(typed.Recovery, "network") {
+			t.Errorf("the recovery for a host that answered blames the network: %q", typed.Recovery)
+		}
+	}
+}

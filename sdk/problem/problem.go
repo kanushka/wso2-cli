@@ -40,6 +40,16 @@ const (
 	CategoryModuleProcess Category = "module_process"
 	// CategoryProductService covers failures reported by a product service.
 	CategoryProductService Category = "product_service"
+	// CategoryNotFound covers a named thing that does not exist, such as a
+	// context, a product record, or a product's resource.
+	CategoryNotFound Category = "not_found"
+	// CategoryConflict covers a thing that already exists or is in a state
+	// that refuses the change.
+	CategoryConflict Category = "conflict"
+	// CategoryUnreachable covers a service or host that gave no answer at all.
+	// A shell older than these three categories reports them as
+	// CategoryModuleProcess; see docs/adr/0023-exit-codes-by-cause-and-one-json-document-per-command.md.
+	CategoryUnreachable Category = "unreachable"
 )
 
 // Problem is a typed, safe-to-render failure. Its fields must never carry

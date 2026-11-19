@@ -195,8 +195,8 @@ func TestLoginIsRefusedWhenAnIdentityOfThatNameDiffers(t *testing.T) {
 
 			code := shell.Run([]string{"login", "--url", issuerURL,
 				"--client-id", testCase.clientID, "--context", "customer"})
-			if code != exit.Usage {
-				t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
+			if code != exit.Conflict {
+				t.Fatalf("exit code = %d, want %d (conflict); stderr: %s", code, exit.Conflict, errOut)
 			}
 			requireRefusal(t, errOut.String(), "contexts.context_exists")
 			after, err := os.ReadFile(contexts.Path(shell.StateRoot))

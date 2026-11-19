@@ -429,13 +429,16 @@ returned fails `Validate`.
 Returning a `Problem` is how a handler avoids `handler_failed` and gets a
 category and code of its own choosing.
 
-### The five categories, and the exit codes they map to
+### The eight categories, and the exit codes they map to
 
 | Category | Value | Exit code | Covers |
 | --- | --- | --- | --- |
 | `CategoryUsage` | `usage` | 64 | Invalid arguments, flags, or configuration |
+| `CategoryNotFound` | `not_found` | 66 | A named resource that does not exist |
+| `CategoryUnreachable` | `unreachable` | 68 | A product service or host that gave no answer |
 | `CategoryModuleTrust` | `module_trust` | 69 | Module integrity or compatibility failures |
 | `CategoryModuleProcess` | `module_process` | 70 | Protocol or module process failures |
+| `CategoryConflict` | `conflict` | 73 | A resource that already exists or refuses the change |
 | `CategoryProductService` | `product_service` | 75 | Failures reported by a product service |
 | `CategoryAuthPolicy` | `auth_policy` | 77 | Authentication and broker policy failures |
 
@@ -445,7 +448,11 @@ an unclassified failure is never mistaken for success.
 Choosing the category is the module author's one exit-code decision, and it is
 made by naming the class of failure rather than by picking a number. A product
 API that answered with an error is `product_service`; a user who typed the wrong
-flag is `usage`.
+flag is `usage`; an id the product does not hold is `not_found`, a name it
+already holds is `conflict`, and a deployment that gave no answer is
+`unreachable`. Those three need a shell that knows them (ADR 0023): an older
+shell reports them as 70, so a module that sends them should raise its minimum
+shell version.
 
 ## Testing a handler
 

@@ -353,7 +353,7 @@ func (s Shell) ensureInstalled(namespace string, noInstall bool) (string, error)
 		return "", nil
 	}
 	if noInstall {
-		return "", problem.New(problem.CategoryUsage, "shell.product_not_installed",
+		return "", problem.New(problem.CategoryNotFound, "shell.product_not_installed",
 			fmt.Sprintf("the %s product is not installed, and --no-install forbids installing it", namespace)).
 			WithRecovery(fmt.Sprintf("Run wso2 product install %s first, or drop --no-install.", namespace))
 	}

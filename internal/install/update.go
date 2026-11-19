@@ -384,7 +384,7 @@ func selectInstalled(installed []modules.Installed, namespaces []string) ([]modu
 			}
 		}
 		if !found {
-			return nil, problem.New(problem.CategoryUsage, "modules.not_installed",
+			return nil, problem.New(problem.CategoryNotFound, "modules.not_installed",
 				fmt.Sprintf("no version of the %q module is installed", namespace)).
 				WithRecovery("Run wso2 product install " + namespace + " to install it, or wso2 version to see what is installed.")
 		}

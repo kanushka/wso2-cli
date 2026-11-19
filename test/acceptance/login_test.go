@@ -25,6 +25,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -379,8 +380,19 @@ func TestAModuleRunWithoutALoginIsRefusedWithTheCommandThatFixesIt(t *testing.T)
 	if len(deployment.service.presented()) != 0 {
 		t.Error("a refused command still reached the product service")
 	}
-	if deployment.out.String() != "" {
-		t.Errorf("a refused command wrote to standard output:\n%s", deployment.out)
+	// Under --output json the refusal is also the one document on standard
+	// output, naming the same command.
+	var document struct {
+		Error struct {
+			Code string   `json:"code"`
+			Next []string `json:"next"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(deployment.out.Bytes(), &document); err != nil {
+		t.Fatalf("standard output is not one JSON document: %v\n%s", err, deployment.out)
+	}
+	if document.Error.Code != "auth.login_required" || !slices.Contains(document.Error.Next, "wso2 login") {
+		t.Errorf("error = %+v, want auth.login_required with wso2 login in next", document.Error)
 	}
 }
 

@@ -169,20 +169,20 @@ func (s Shell) rootCommand() *cobra.Command {
 	// the module's flag and none of the shell's business.
 	root.Flags().SetInterspersed(false)
 
-	// --help and --verbose are persistent because every command honors them:
-	// help is universal, and applyShellFlags turns the diagnostic log on off
-	// the root's own flag set whoever the command is.
+	// --help, --verbose, --output and --no-input are persistent because every
+	// command honors them, so an agent never has to know which commands render
+	// JSON or which ones could prompt before asking (ADR 0023). A command that
+	// renders only prose is wrapped into one JSON document by Run.
 	//
-	// --context and --output are not. They are declared by each command that
-	// can act on one, and here only for the root's own job of dispatching a
-	// product namespace, which honors both. Declaring them persistently is what
-	// used to put them in every command's help while the shell refused
-	// them, so that help advertised what the command rejected and the refusal
-	// pointed back at the help (#147).
+	// --context is not. It is declared by each command that can act on one,
+	// and here only for the root's own job of dispatching a product namespace.
+	// Declaring it persistently would put it in the help of commands that
+	// refuse it.
 	root.PersistentFlags().BoolP("help", "h", false, "Show help for a command.")
 	root.PersistentFlags().Bool(verboseFlag, false, "Write diagnostics about what the shell attempted to stderr.")
+	declareOutputFlag(root.PersistentFlags())
+	root.PersistentFlags().Bool(noInputFlag, false, "Refuse rather than prompt, open a browser, or wait for a person.")
 	declareContextFlag(root.Flags())
-	declareOutputFlag(root.Flags())
 
 	root.AddCommand(s.configCommand(), s.contextCommand(), s.doctorCommand(),
 		s.loginCommand(), s.logoutCommand(), s.productCommand(), s.moduleAliasCommand(), s.orgCommand(), s.versionCommand(),
@@ -210,10 +210,6 @@ func (s Shell) rootCommand() *cobra.Command {
 		if command.Name() == "help" {
 			command.Short = "Show the shell command tree."
 			command.Run = nil
-			// --output json renders the tree a topic covers as one JSON
-			// document, which is how an agent reads the whole of help in
-			// one go instead of walking it page by page.
-			declareOutputFlag(command.Flags())
 			command.RunE = func(command *cobra.Command, args []string) error {
 				return s.helpTopic(command, args)
 			}
@@ -243,6 +239,9 @@ func (s Shell) applyShellFlags(command *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	if flag := shellFlag(command, noInputFlag); s.invocation != nil && flag != nil && flag.Changed {
+		s.invocation.noInput, _ = strconv.ParseBool(flag.Value.String())
+	}
 	// The error is discarded rather than reported: it can only mean the flag is
 	// absent or is not a boolean, and both are this file's own mistake to make,
 	// not a user's to be told about.
@@ -264,31 +263,67 @@ func (s Shell) shellOutputMode(command *cobra.Command) (output.Mode, error) {
 	if flag != nil && flag.Changed {
 		mode, ok := output.ParseMode(flag.Value.String())
 		if !ok {
-			return "", problem.New(problem.CategoryUsage, "shell.unknown_output_mode",
-				fmt.Sprintf("%q is not an output mode", flag.Value.String())).
-				WithRecovery("Use --output table or --output json.")
+			return "", outputModeProblem(flag.Value.String())
 		}
 		return mode, nil
 	}
+	return s.preferredMode(), nil
+}
+
+func outputModeProblem(value string) problem.Problem {
+	return problem.New(problem.CategoryUsage, "shell.unknown_output_mode",
+		fmt.Sprintf("%q is not an output mode", value)).
+		WithRecovery("Use --output table or --output json.")
+}
+
+// refuseUnknownOutputMode refuses the last --output value on a line that no
+// flag parser reads, the way shellOutputMode refuses one that is parsed.
+func refuseUnknownOutputMode(args []string) error {
+	if separator := slices.Index(args, "--"); separator >= 0 {
+		args = args[:separator]
+	}
+	var (
+		value   string
+		written bool
+	)
+	for index, argument := range args {
+		switch {
+		case (argument == "--"+outputFlag || argument == "-o") && index+1 == len(args):
+			return usageProblem(fmt.Errorf("flag needs an argument: %s", argument))
+		case argument == "--"+outputFlag || argument == "-o":
+			value, written = args[index+1], true
+		case attachedOutput(argument):
+			value, written = outputFlagValue(argument)
+		}
+	}
+	if _, ok := output.ParseMode(value); written && !ok {
+		return outputModeProblem(value)
+	}
+	return nil
+}
+
+// preferredMode is the "output" preference, or output.ModeTable when none is
+// usable.
+func (s Shell) preferredMode() output.Mode {
 	root, err := s.stateRoot()
 	if err != nil {
 		// Left to the caller: nearly every command resolves its own state root
 		// immediately afterward and reports this properly. Defaulting to
 		// output.ModeTable here costs nothing, because the command never
 		// reaches a point where that default is rendered.
-		return output.ModeTable, nil
+		return output.ModeTable
 	}
 	document, _ := preferences.Load(root)
 	if configured, set := document.Get(preferences.KeyOutputMode); set {
 		if mode, ok := output.ParseMode(configured); ok {
-			return mode, nil
+			return mode
 		}
 		// A stored value Set already validates cannot fail to parse here in
 		// production; this is only reached by a document edited by hand.
 		// Falling back rather than refusing keeps R9's asymmetry: a bad
 		// preference must not break every command that reads it.
 	}
-	return output.ModeTable, nil
+	return output.ModeTable
 }
 
 // enableDiagnostics opens the diagnostic log, once.
@@ -323,7 +358,8 @@ func (s Shell) enableDiagnostics(command *cobra.Command, mode output.Mode) {
 // takeVerbose removes every spelling of --verbose from an argument list and
 // reports whether the list asked for diagnostics.
 func takeVerbose(args []string) (remaining []string, asked bool, err error) {
-	return takeBoolFlag(args, verboseFlag)
+	remaining, asked, _, err = takeBoolFlag(args, verboseFlag)
+	return remaining, asked, err
 }
 
 // takeNoInput removes every spelling of --no-input from a product command
@@ -333,7 +369,26 @@ func takeVerbose(args []string) (remaining []string, asked bool, err error) {
 // value; the shell owns it wherever it is written, and the module is told
 // through WSO2_NO_INPUT instead.
 func takeNoInput(args []string) (remaining []string, asked bool, err error) {
-	return takeBoolFlag(args, noInputFlag)
+	remaining, asked, _, err = takeBoolFlag(args, noInputFlag)
+	return remaining, asked, err
+}
+
+// productNoInput takes --no-input from a product command line. One written
+// there overrides one written before the namespace, the last occurrence
+// winning as it does for every flag pflag parses, and the invocation is left
+// agreeing with the answer.
+func (s Shell) productNoInput(args []string) (remaining []string, asked bool, err error) {
+	remaining, asked, written, err := takeBoolFlag(args, noInputFlag)
+	if err != nil {
+		return nil, false, err
+	}
+	if !written {
+		asked = s.invocation.asksNoInput()
+	}
+	if s.invocation != nil {
+		s.invocation.noInput = asked
+	}
+	return remaining, asked, nil
 }
 
 // takeBoolFlag removes every spelling of a shell-owned boolean flag from an
@@ -352,27 +407,27 @@ func takeNoInput(args []string) (remaining []string, asked bool, err error) {
 // "--" — and switched the shell non-interactive on a word that was addressed to
 // the module. The separator is left in place and forwarded, as it is by every
 // other reader of a product line, because it is the module's own argument too.
-func takeBoolFlag(args []string, flag string) (remaining []string, asked bool, err error) {
+func takeBoolFlag(args []string, flag string) (remaining []string, asked, written bool, err error) {
 	remaining = make([]string, 0, len(args))
 	for index, argument := range args {
 		switch {
 		case argument == "--":
-			return append(remaining, args[index:]...), asked, nil
+			return append(remaining, args[index:]...), asked, written, nil
 		case argument == "--"+flag:
-			asked = true
+			asked, written = true, true
 		case strings.HasPrefix(argument, "--"+flag+"="):
 			value := strings.TrimPrefix(argument, "--"+flag+"=")
 			enabled, parseErr := strconv.ParseBool(value)
 			if parseErr != nil {
-				return nil, false, usageProblem(fmt.Errorf("invalid argument %q for %q flag: %w",
+				return nil, false, false, usageProblem(fmt.Errorf("invalid argument %q for %q flag: %w",
 					value, "--"+flag, parseErr))
 			}
-			asked = enabled
+			asked, written = enabled, true
 		default:
 			remaining = append(remaining, argument)
 		}
 	}
-	return remaining, asked, nil
+	return remaining, asked, written, nil
 }
 
 // noInputFlag is the spelling of the shell's non-interactive flag.
@@ -449,29 +504,23 @@ func shellFlag(command *cobra.Command, name string) *pflag.Flag {
 	return own
 }
 
-// refuseShellFlagsWrittenEarly refuses a shell flag written before the name of a
+// refuseShellFlagsWrittenEarly refuses --context written before the name of a
 // command that cannot act on it.
 //
 // Cobra parses a flag written before the command name into the root's flag set,
 // so the command's own parser never sees it and cannot refuse it. Without this,
-// "wso2 --output json version" would be accepted and silently ignored, while
-// "wso2 version --output json" is refused — the same request answered two ways
+// "wso2 --context prod version" would be accepted and silently ignored, while
+// "wso2 version --context prod" is refused — the same request answered two ways
 // depending on where it was written.
 func refuseShellFlagsWrittenEarly(command *cobra.Command) error {
 	if command == command.Root() {
 		return nil
 	}
-	for _, name := range []string{contextFlag, outputFlag} {
-		early := command.Root().Flags().Lookup(name)
-		if early == nil || !early.Changed {
-			continue
-		}
-		if command.Flags().Lookup(name) != nil {
-			continue
-		}
-		return unsupportedFlag(command, name)
+	early := command.Root().Flags().Lookup(contextFlag)
+	if early == nil || !early.Changed || command.Flags().Lookup(contextFlag) != nil {
+		return nil
 	}
-	return nil
+	return unsupportedFlag(command, contextFlag)
 }
 
 // declareContextFlag declares --context on a command that acts on a named
@@ -485,8 +534,8 @@ func declareContextFlag(flags *pflag.FlagSet) {
 	flags.String(contextFlag, "", "Use the named context instead of the selected one.")
 }
 
-// declareOutputFlag declares --output on a command that renders a
-// machine-readable result.
+// declareOutputFlag declares --output, which the root declares once for every
+// command.
 func declareOutputFlag(flags *pflag.FlagSet) {
 	flags.StringP(outputFlag, "o", string(output.ModeTable), "Render results as table or json.")
 }
@@ -569,10 +618,9 @@ func ownsShellFlag(root *cobra.Command, name string) bool {
 //
 // Both spellings are read, because pflag words them differently and reading
 // only the long one meant a flag refused by its shorthand never reached the
-// shell's own refusal. "wso2 product list --output json" was answered with
-// shell.unsupported_flag and "wso2 product list -o json" with pflag's own
-// "unknown shorthand flag: 'o' in -o" — one request, two problem codes, and the
-// second leaking the parser's vocabulary into user-facing text. #154.
+// shell's own refusal: the long spelling got shell.unsupported_flag and the
+// short one pflag's own "unknown shorthand flag: 'o' in -o", one request with
+// two problem codes, the second leaking the parser's vocabulary.
 //
 // The shorthand is resolved to its name against the root's own flag sets, which
 // is also what decides the question: a letter the root declares is a shell flag
@@ -637,11 +685,9 @@ func (s Shell) loginCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  noArguments(loginUsageRecovery),
 		RunE: func(command *cobra.Command, args []string) error {
-			// login logs in to a named context, so it declares --context. It
-			// renders no machine-readable result and does not declare
-			// --output: what a login writes is prose about a browser and a
-			// session, and a caller that wants the outcome as data reads
-			// wso2 whoami afterwards.
+			// login logs in to a named context, so it declares --context.
+			// Its report is prose, carried as a message under --output json;
+			// a caller that wants the outcome as data reads wso2 whoami.
 			if flag := shellFlag(command, contextFlag); flag != nil {
 				flags.contextName = flag.Value.String()
 			}
@@ -671,10 +717,9 @@ func (s Shell) logoutCommand() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Args:                  noArguments(logoutUsageRecovery),
 		RunE: func(command *cobra.Command, args []string) error {
-			// logout declares both shell flags: it acts on a named context,
-			// and it is the only interactive-auth command that renders a
-			// machine-readable result, because what the issuer was told about
-			// the ended session is not observable any other way.
+			// logout acts on a named context, so it declares --context. It
+			// renders a machine-readable result because what the issuer was
+			// told about the ended session is not observable any other way.
 			mode, err := s.shellOutputMode(command)
 			if err != nil {
 				return err
@@ -689,7 +734,6 @@ func (s Shell) logoutCommand() *cobra.Command {
 	command.Flags().BoolVar(&keepBrowser, "keep-browser-session", false,
 		"Leave the identity providers' browser sessions in place; end only the shell's own sessions.")
 	declareContextFlag(command.Flags())
-	declareOutputFlag(command.Flags())
 	return command
 }
 
@@ -698,11 +742,13 @@ func (s Shell) versionCommand() *cobra.Command {
 		Use:                   "version",
 		Short:                 "Show the shell, protocol, and installed product versions.",
 		DisableFlagsInUseLine: true,
-		// version declares neither shell flag. It renders fixed prose about
-		// this build and the modules installed beside it, and selects no
-		// context.
+		// version selects no context, so it takes no --context.
 		RunE: func(command *cobra.Command, args []string) error {
-			return s.version(args)
+			mode, err := s.shellOutputMode(command)
+			if err != nil {
+				return err
+			}
+			return s.version(args, mode)
 		},
 	}
 }

@@ -59,7 +59,7 @@ func referenceTree() parsetree.Tree {
 // is refused.
 func parse(t *testing.T, tree parsetree.Tree, args ...string) productLine {
 	t.Helper()
-	line, err := parseProductArgs("reference", tree, args)
+	line, err := parseProductArgs("reference", tree, args, output.ModeTable)
 	if err != nil {
 		t.Fatalf("parsing %q: %v", args, err)
 	}
@@ -69,7 +69,7 @@ func parse(t *testing.T, tree parsetree.Tree, args ...string) productLine {
 // refusal reads a product line expecting a typed refusal.
 func refusal(t *testing.T, tree parsetree.Tree, args ...string) problem.Problem {
 	t.Helper()
-	_, err := parseProductArgs("reference", tree, args)
+	_, err := parseProductArgs("reference", tree, args, output.ModeTable)
 	var reported problem.Problem
 	if !errors.As(err, &reported) {
 		t.Fatalf("parsing %q returned %v, want a typed problem", args, err)
@@ -561,5 +561,25 @@ func TestTheSeparatorEndsTheShellsClaimOnItsOwnBooleans(t *testing.T) {
 				t.Errorf("the module receives %q", joined)
 			}
 		})
+	}
+}
+
+func TestTheLastNoInputOnAProductLineWins(t *testing.T) {
+	for _, testCase := range []struct {
+		leading bool
+		args    []string
+		want    bool
+	}{
+		{true, []string{"status", "--no-input=false"}, false},
+		{true, []string{"status"}, true},
+		{false, []string{"status", "--no-input"}, true},
+		{false, []string{"status"}, false},
+	} {
+		shell := Shell{invocation: &invocationState{noInput: testCase.leading}}
+		_, asked, err := shell.productNoInput(testCase.args)
+		if err != nil || asked != testCase.want || shell.invocation.asksNoInput() != testCase.want {
+			t.Errorf("leading %v, %q: asked %v, invocation %v, err %v; want %v",
+				testCase.leading, testCase.args, asked, shell.invocation.asksNoInput(), err, testCase.want)
+		}
 	}
 }

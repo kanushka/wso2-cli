@@ -274,11 +274,11 @@ func TestAnUnreachableOriginIsDistinguishableFromAnUnknownModule(t *testing.T) {
 
 	unreachableStdout, unreachableStderr, unreachableErr :=
 		installModuleFrom(shell, stateRoot, unreachableOrigin(t), catalogNamespace)
-	requireProblem(t, unreachableStdout, unreachableStderr, unreachableErr, 70, "catalog.origin_unreachable")
+	requireProblem(t, unreachableStdout, unreachableStderr, unreachableErr, 68, "catalog.origin_unreachable")
 
 	unknownStdout, unknownStderr, unknownErr :=
 		installModuleFrom(shell, stateRoot, origin.server.URL, "nosuchproduct")
-	requireProblem(t, unknownStdout, unknownStderr, unknownErr, 64, "catalog.unknown_module")
+	requireProblem(t, unknownStdout, unknownStderr, unknownErr, 66, "catalog.unknown_module")
 
 	// The two are told apart by both halves of the reporting idiom, so neither
 	// automation reading the exit class nor a person reading the code has to
@@ -454,14 +454,8 @@ func TestAChannelSelectionTakesTheNewestOnThatChannel(t *testing.T) {
 // internal/output's own unit tests: running module install non-interactively
 // (this harness always pipes both streams, so IsTerminal is false for
 // either) with --verbose must add the download's periodic progress lines to
-// stderr and must never change what stdout renders. wso2 product install does
-// not support --output at all — it is refused outright, confirmed by hand
-// (`wso2 product install <product> --output json` exits 64 with
-// shell.unsupported_flag) because the module family in internal/app/module.go
-// "module" case returns nil — so this is the applicable analogue of a
-// "--output json is unaffected" test for this command family: stdout is a
-// fixed, non-JSON message either way, and what matters is that --verbose
-// cannot perturb it.
+// stderr and must never change what stdout renders. Its stdout is a fixed
+// message either way, and what matters is that --verbose cannot perturb it.
 //
 // What this test can and cannot catch, checked by hand: verboseProgress
 // (internal/output/progress.go) writes through the pre-existing Logger, which

@@ -515,9 +515,9 @@ func TestDoctorOnlineChecksCatalogReachability(t *testing.T) {
 		// An otherwise healthy, unconfigured machine still exits nonzero once
 		// --online adds a failing catalog check: catalog decides the exit
 		// status like any other check when it is the only one that failed.
-		if code := shell.Run([]string{"doctor", "--online", "--verbose", "--output", "json"}); code != exit.ModuleProcess {
-			t.Fatalf("exit code = %d, want %d (module process, the catalog client's own class); stderr: %s",
-				code, exit.ModuleProcess, errOut)
+		if code := shell.Run([]string{"doctor", "--online", "--verbose", "--output", "json"}); code != exit.Unreachable {
+			t.Fatalf("exit code = %d, want %d (unreachable, the catalog client's own class); stderr: %s",
+				code, exit.Unreachable, errOut)
 		}
 		// The probe shares the module commands' diagnostic log, so --verbose
 		// surfaces the raw transport detail here exactly as wso2 product list
@@ -551,10 +551,10 @@ func TestDoctorWithoutOnlineNeverAddsACatalogCheck(t *testing.T) {
 	}
 }
 
-// TestDoctorRefusesAnUnknownContextAsUsage proves an unresolvable --context
-// name is refused as the argument mistake it is, rather than folded into the
+// TestDoctorRefusesAnUnknownContextAsNotFound proves an unresolvable --context
+// name is refused as a missing context, rather than folded into the
 // health report as a finding.
-func TestDoctorRefusesAnUnknownContextAsUsage(t *testing.T) {
+func TestDoctorRefusesAnUnknownContextAsNotFound(t *testing.T) {
 	keyring.MockInit()
 	shell, _, errOut := newShell(t)
 	seeded := identityOnlyDocument()
@@ -562,8 +562,8 @@ func TestDoctorRefusesAnUnknownContextAsUsage(t *testing.T) {
 	seeded.Contexts = []contexts.Context{acmeCloud("acme")}
 	installLogin(t, shell, seeded)
 
-	if code := shell.Run([]string{"doctor", "--context", "nosuch"}); code != exit.Usage {
-		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
+	if code := shell.Run([]string{"doctor", "--context", "nosuch"}); code != exit.NotFound {
+		t.Fatalf("exit code = %d, want %d (not found); stderr: %s", code, exit.NotFound, errOut)
 	}
 	requireRefusal(t, errOut.String(), "contexts.unknown_context")
 }

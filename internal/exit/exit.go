@@ -39,6 +39,12 @@ const (
 	ModuleProcess Code = 70
 	// ProductService reports a failure reported by a product service.
 	ProductService Code = 75
+	// NotFound reports a named thing that does not exist.
+	NotFound Code = 66
+	// Unreachable reports a service or host that gave no answer.
+	Unreachable Code = 68
+	// Conflict reports a thing that already exists or refuses the change.
+	Conflict Code = 73
 )
 
 // ForProblem maps a typed problem to its exit class. An unrecognized category
@@ -55,6 +61,12 @@ func ForProblem(p problem.Problem) Code {
 		return ModuleProcess
 	case problem.CategoryProductService:
 		return ProductService
+	case problem.CategoryNotFound:
+		return NotFound
+	case problem.CategoryUnreachable:
+		return Unreachable
+	case problem.CategoryConflict:
+		return Conflict
 	default:
 		return ModuleProcess
 	}

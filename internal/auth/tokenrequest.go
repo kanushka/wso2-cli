@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/wso2/wso2-cli/internal/auth/issuertrust"
+	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
 const (
@@ -201,7 +202,7 @@ func issuerUnreachable(err error, issuer string) error {
 	if issuertrust.Untrusted(err) {
 		return Denial{Problem: issuertrust.Problem(issuer)}
 	}
-	return denial("auth.discovery_failed",
+	return categorizedDenial(problem.CategoryUnreachable, "auth.discovery_failed",
 		"the shell could not reach the identity provider to obtain access for this command",
 		"Check that this machine can reach the issuer of the selected context, then retry.")
 }

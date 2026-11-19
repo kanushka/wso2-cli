@@ -280,8 +280,8 @@ func TestModuleRemoveOnAModuleThatIsNotInstalledDoesNotPromptFirst(t *testing.T)
 	// have consulted it.
 	shell.Reader = failIfReadReader{t}
 
-	if code := shell.Run([]string{"module", "remove", "reference"}); code != exit.Usage {
-		t.Fatalf("exit code = %d, want %d (usage); stderr: %s", code, exit.Usage, errOut)
+	if code := shell.Run([]string{"module", "remove", "reference"}); code != exit.NotFound {
+		t.Fatalf("exit code = %d, want %d (not found); stderr: %s", code, exit.NotFound, errOut)
 	}
 	requireRefusal(t, errOut.String(), "shell.module_not_installed")
 	if out.String() != "" {
