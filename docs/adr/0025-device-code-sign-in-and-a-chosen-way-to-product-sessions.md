@@ -86,7 +86,8 @@ provider's products are authorized as before.
 
 Before this, a product whose device secret was missing, expired, refused by
 the provider, or answered in another organization was authorized in the
-browser instead, without being asked. Under `exchange` that is now refused
+browser instead, without being asked, latterly with one plain line saying
+so. Under `exchange` that is now refused
 with `auth.device_secret_unavailable`, naming why, and the recovery names both
 ways on: sign in again, which issues a new device secret, or set
 `productSessions: browser`. A secret the provider no longer answers is

@@ -185,7 +185,8 @@ func TestLogoutOfADeviceCodeContextPrintsTheSignOutPageInsteadOfOpeningIt(t *tes
 
 	login.run(t, "logout")
 
-	if !strings.Contains(login.errOut.String(), "Open this URL to end the browser session") ||
+	if !strings.Contains(login.errOut.String(), "On the device you signed in with, open this URL to end the "+
+		"browser session") ||
 		strings.Contains(login.errOut.String(), "id_token_hint") {
 		t.Errorf("stderr does not print the sign-out URL without the identity token:\n%s", login.errOut)
 	}
