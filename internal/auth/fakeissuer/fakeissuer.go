@@ -1640,10 +1640,6 @@ func (i *Issuer) mintAccessTokenIn(ou *OrganizationUnit, subject string, scopes 
 	return token
 }
 
-func (i *Issuer) mintIDToken(clientID, nonce string, scopes []string) string {
-	return i.mintIDTokenIn(i.homeOrganizationUnit(), clientID, nonce, scopes)
-}
-
 func (i *Issuer) mintIDTokenIn(ou *OrganizationUnit, clientID, nonce string, scopes []string) string {
 	now := time.Now()
 	issuer := i.Identifier()
