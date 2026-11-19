@@ -443,3 +443,26 @@ func TestValidArtifactURLRefusesANonHTTPScheme(t *testing.T) {
 		}
 	}
 }
+
+func TestAnAnsweredRefusalIsNotReportedAsUnreachable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	client := Client{Origin: server.URL, HTTP: server.Client()}
+	_, indexErr := client.Index(context.Background())
+	_, downloadErr := client.Download(context.Background(), server.URL+"/archive.tar.gz", nil)
+	for _, err := range []error{indexErr, downloadErr} {
+		var typed problem.Problem
+		if !errors.As(err, &typed) || typed.Category != problem.CategoryModuleProcess {
+			t.Errorf("err = %v, want a module_process problem: the host answered", err)
+		}
+	}
+
+	server.Close()
+	_, err := client.Download(context.Background(), server.URL+"/archive.tar.gz", nil)
+	var typed problem.Problem
+	if !errors.As(err, &typed) || typed.Category != problem.CategoryUnreachable {
+		t.Errorf("err = %v, want an unreachable problem: nothing answered", err)
+	}
+}

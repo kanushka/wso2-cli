@@ -155,7 +155,7 @@ func (s clientCredentialsSource) refusedGrant(err error, sent string) error {
 				"to a current secret for this context's OAuth client, then retry the command.",
 				s.secretVariable),
 		}
-	case errors.As(err, &refusal):
+	case errors.As(err, &refusal), errors.Is(err, errNoAccessToken):
 		// The deployment answered, and its answer is not one the shell can
 		// classify. Reporting it as a credential to correct or a registration
 		// to narrow would send the user to change something that may be fine,

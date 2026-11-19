@@ -123,10 +123,11 @@ func Unreachable() problem.Problem {
 
 // unanswered reports a request that failed in the transport, before any HTTP
 // response arrived. go-oidc returns a response it could not use as a plain
-// error, so a *url.Error here means the request itself never completed.
+// error, so a *url.Error here means the request itself never completed, unless
+// it is the URL that could not be parsed and nothing was sent.
 func unanswered(err error) bool {
 	var transport *url.Error
-	return errors.As(err, &transport)
+	return errors.As(err, &transport) && transport.Op != "parse"
 }
 
 // mismatchProblem is the refusal for a provider whose configuration names

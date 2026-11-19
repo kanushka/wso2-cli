@@ -230,7 +230,7 @@ func (c Client) get(ctx context.Context, target string, limit int64, report Prog
 		_ = response.Body.Close()
 	}()
 	if response.StatusCode != http.StatusOK {
-		return nil, refuse(target, fmt.Sprintf("the server answered with status %d", response.StatusCode))
+		return nil, answered(refuse(target, fmt.Sprintf("the server answered with status %d", response.StatusCode)))
 	}
 	// The counting reader sits inside the limit reader, not outside it: what
 	// is counted and reported is exactly what the limit reader lets through,
@@ -247,7 +247,7 @@ func (c Client) get(ctx context.Context, target string, limit int64, report Prog
 		return nil, c.unreachable(target, err, refuse)
 	}
 	if int64(len(body)) > limit {
-		return nil, refuse(target, fmt.Sprintf("the server answered with more than %d bytes", limit))
+		return nil, answered(refuse(target, fmt.Sprintf("the server answered with more than %d bytes", limit)))
 	}
 	return body, nil
 }
@@ -344,6 +344,13 @@ func shortCause(err error) string {
 // of URL. originUnreachable serves the two catalog documents; a download
 // passes artifactUnreachable instead, because the advice the two give differs.
 type refusal func(target, detail string) problem.Problem
+
+// answered reclassifies a refusal for a host that did answer: exit 68 is kept
+// for one that gave no answer at all (ADR 0023).
+func answered(refused problem.Problem) problem.Problem {
+	refused.Category = problem.CategoryModuleProcess
+	return refused
+}
 
 // artifactUnreachable reports that a module artifact could not be downloaded.
 //

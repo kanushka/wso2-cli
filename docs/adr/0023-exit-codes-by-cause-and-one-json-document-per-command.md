@@ -50,11 +50,13 @@ The shell's own problems move where the cause is now nameable:
   missing thing it was asked about.
 - **Conflict (73):** `contexts.context_exists`, `contexts.product_exists`, and
   `shell.completion_file_exists`.
-- **Unreachable (68):** `catalog.origin_unreachable`,
-  `catalog.artifact_unreachable`, and `auth.discovery_failed` when the
-  identity provider gave no answer at all. The code stays the same, because
-  the list of authentication codes is closed. When the provider answers with
-  something the shell will not use, `auth.discovery_failed` remains `77`.
+- **Unreachable (68):** `catalog.origin_unreachable` and
+  `catalog.artifact_unreachable` when the host gave no answer at all, and
+  `auth.discovery_failed` when the identity provider gave none. The codes stay
+  the same, because the list of authentication codes is closed. A catalog
+  host that answers with an error status or an oversized body keeps exiting
+  70, and an identity provider that answers with something the shell will not
+  use keeps `auth.discovery_failed` at 77.
 
 ## One JSON document per command
 

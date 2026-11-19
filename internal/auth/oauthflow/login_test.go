@@ -432,6 +432,25 @@ func TestLoginRefusesAnUnreachableIssuer(t *testing.T) {
 	_ = requireProblemIn(t, err, "auth.discovery_failed", problem.CategoryUnreachable)
 }
 
+func TestLoginDoesNotReportAMalformedIssuerAsUnreachable(t *testing.T) {
+	login := oauthflow.Login{
+		Issuer:   "http://127.0.0.1:1/%zz",
+		ClientID: "client-123",
+		Out:      &recorder{},
+		Ports:    []int{0},
+		OpenBrowser: func(string) error {
+			t.Error("the login opened a browser against a malformed issuer")
+			return nil
+		},
+	}
+
+	_, err := login.Run(testContext(t, 30*time.Second))
+	if err == nil {
+		t.Fatal("a malformed issuer was accepted")
+	}
+	_ = requireProblem(t, err, "auth.discovery_failed")
+}
+
 func TestLoginRefusesWhenNoLoopbackPortIsFree(t *testing.T) {
 	issuer := fakeissuer.New(t, fakeissuer.Options{Audience: "reference-status"})
 	for _, port := range oauthflow.LoopbackPorts() {
