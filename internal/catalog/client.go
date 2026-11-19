@@ -230,7 +230,7 @@ func (c Client) get(ctx context.Context, target string, limit int64, report Prog
 		_ = response.Body.Close()
 	}()
 	if response.StatusCode != http.StatusOK {
-		return nil, answered(refuse(target, fmt.Sprintf("the server answered with status %d", response.StatusCode)))
+		return nil, refuse(target, fmt.Sprintf("the server answered with status %d", response.StatusCode), true)
 	}
 	// The counting reader sits inside the limit reader, not outside it: what
 	// is counted and reported is exactly what the limit reader lets through,
@@ -244,10 +244,11 @@ func (c Client) get(ctx context.Context, target string, limit int64, report Prog
 	}
 	body, err := io.ReadAll(io.LimitReader(reader, limit+1))
 	if err != nil {
-		return nil, c.unreachable(target, err, refuse)
+		c.logFailure(target, err)
+		return nil, refuse(target, "the server's answer ended before it was complete", true)
 	}
 	if int64(len(body)) > limit {
-		return nil, answered(refuse(target, fmt.Sprintf("the server answered with more than %d bytes", limit)))
+		return nil, refuse(target, fmt.Sprintf("the server answered with more than %d bytes", limit), true)
 	}
 	return body, nil
 }
@@ -309,10 +310,14 @@ func validArtifactURL(artifactURL string) error {
 // to the client's diagnostic log, where --verbose surfaces it, and the message
 // carries the short cause shortCause distils instead.
 func (c Client) unreachable(target string, err error, refuse refusal) problem.Problem {
+	c.logFailure(target, err)
+	return refuse(target, shortCause(err), false)
+}
+
+func (c Client) logFailure(target string, err error) {
 	if c.Log != nil {
 		c.Log.Debug("a catalog request failed", "url", target, "error", err.Error())
 	}
-	return refuse(target, shortCause(err))
 }
 
 // shortCause names why a request failed in one short phrase, so the refusal
@@ -343,13 +348,16 @@ func shortCause(err error) string {
 // refusal renders one failed read as the typed problem for its caller's kind
 // of URL. originUnreachable serves the two catalog documents; a download
 // passes artifactUnreachable instead, because the advice the two give differs.
-type refusal func(target, detail string) problem.Problem
+// answered is whether the host sent any response: exit 68 and the advice to
+// check the network are kept for one that gave no answer at all (ADR 0023).
+type refusal func(target, detail string, answered bool) problem.Problem
 
-// answered reclassifies a refusal for a host that did answer: exit 68 is kept
-// for one that gave no answer at all (ADR 0023).
-func answered(refused problem.Problem) problem.Problem {
-	refused.Category = problem.CategoryModuleProcess
-	return refused
+// reachedCategory is the category of a refusal by whether the host answered.
+func reachedCategory(answered bool) problem.Category {
+	if answered {
+		return problem.CategoryModuleProcess
+	}
+	return problem.CategoryUnreachable
 }
 
 // artifactUnreachable reports that a module artifact could not be downloaded.
@@ -359,28 +367,38 @@ func answered(refused problem.Problem) problem.Problem {
 // the preference does not govern where an artifact lives, so pointing a user
 // at wso2 config would send them to a knob that cannot turn this (review on
 // #161).
-func (c Client) artifactUnreachable(target, detail string) problem.Problem {
-	return problem.New(problem.CategoryUnreachable, "catalog.artifact_unreachable",
+func (c Client) artifactUnreachable(target, detail string, answered bool) problem.Problem {
+	recovery := "Check network access to the artifact's host and try again. " +
+		"The catalog itself answered; only this download failed."
+	if answered {
+		recovery = "The artifact's host answered but did not serve the artifact. Try again later, " +
+			"and report it to the module catalog's maintainers if it persists."
+	}
+	return problem.New(reachedCategory(answered), "catalog.artifact_unreachable",
 		fmt.Sprintf("the module artifact at %s could not be downloaded: %s", target, detail)).
-		WithRecovery("Check network access to the artifact's host and try again. " +
-			"The catalog itself answered; only this download failed.")
+		WithRecovery(recovery)
 }
 
 // originUnreachable reports that the origin could not be read, with the
 // recovery chosen by where the origin came from. When it is the built-in
 // default (or the environment variable, which only the test harness sets),
-// the network is the thing to check; when the "catalog-origin" preference
-// chose it, the preference is the thing to revisit, and blaming the network
-// would send the user away from the actual fix (fix round 2, F3).
-func (c Client) originUnreachable(target, detail string) problem.Problem {
+// the network is the thing to check, unless the origin answered; when the
+// "catalog-origin" preference chose it, the preference is the thing to
+// revisit, and blaming the network would send the user away from the actual
+// fix (fix round 2, F3).
+func (c Client) originUnreachable(target, detail string, answered bool) problem.Problem {
 	recovery := "Check network access to the catalog origin and try again. " +
 		"The module may well exist; this run could not ask."
+	if answered {
+		recovery = "The catalog origin answered but did not serve the catalog. Try again later, " +
+			"and report it to the module catalog's maintainers if it persists."
+	}
 	if c.OriginConfigured {
 		recovery = "The catalog origin is set by the \"catalog-origin\" preference; " +
 			"run wso2 config unset catalog-origin to restore the default, or " +
 			"wso2 config set catalog-origin <url> to change it."
 	}
-	return problem.New(problem.CategoryUnreachable, "catalog.origin_unreachable",
+	return problem.New(reachedCategory(answered), "catalog.origin_unreachable",
 		fmt.Sprintf("the module catalog at %s could not be read: %s", target, detail)).
 		WithRecovery(recovery)
 }

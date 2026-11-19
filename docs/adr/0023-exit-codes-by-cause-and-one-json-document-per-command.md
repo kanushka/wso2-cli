@@ -54,8 +54,8 @@ The shell's own problems move where the cause is now nameable:
   `catalog.artifact_unreachable` when the host gave no answer at all, and
   `auth.discovery_failed` when the identity provider gave none. The codes stay
   the same, because the list of authentication codes is closed. A catalog
-  host that answers with an error status or an oversized body keeps exiting
-  70, and an identity provider that answers with something the shell will not
+  host that answers with an error status, an oversized body or a body cut
+  short keeps exiting 70, and an identity provider that answers with something the shell will not
   use keeps `auth.discovery_failed` at 77.
 
 ## One JSON document per command

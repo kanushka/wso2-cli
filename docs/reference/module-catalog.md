@@ -218,8 +218,8 @@ thing for a user to do about it:
 - `modules.artifact_malformed`, exit 69: the archive is not the shape a module
   archive has.
 - `catalog.origin_unreachable`, exit 68: the catalog origin gave no answer.
-  An origin that answers with an error status or an oversized body exits 70
-  with the same code.
+  An origin that answers with an error status, an oversized body or a body
+  cut short exits 70 with the same code.
 - `catalog.unknown_module`, exit 66: the catalog was read and publishes no
   such module.
 - `catalog.unknown_channel`, exit 64: the requested channel is not a release
