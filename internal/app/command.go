@@ -708,6 +708,11 @@ func (s Shell) loginCommand() *cobra.Command {
 	command.Flags().BoolVar(&flags.serviceAccount, "service-account", false,
 		"Sign in to WSO2 Cloud as the service account in "+ServiceAccountIDVariable+" and "+
 			ServiceAccountSecretVariable+".")
+	command.Flags().StringVar(&flags.clientIDVariable, "client-id-variable", "",
+		"With --service-account, read the client id from this variable instead of "+ServiceAccountIDVariable+".")
+	command.Flags().StringVar(&flags.clientSecretVariable, "client-secret-variable", "",
+		"With --service-account, read the client secret from this variable instead of "+
+			ServiceAccountSecretVariable+".")
 	declareContextFlag(command.Flags())
 	return command
 }

@@ -84,6 +84,11 @@ type loginFlags struct {
 	// serviceAccount is --service-account: sign in to the WSO2 Cloud
 	// environment as the service account the environment holds.
 	serviceAccount bool
+	// clientIDVariable and clientSecretVariable are --client-id-variable and
+	// --client-secret-variable: the variables a service account is read
+	// from, when not WSO2_CLIENT_ID and WSO2_CLIENT_SECRET.
+	clientIDVariable     string
+	clientSecretVariable string
 	// only is --only <namespace>: authorize this one product's access instead
 	// of every access the identity records.
 	only string
@@ -118,8 +123,12 @@ func (s Shell) login(flags loginFlags) error {
 	if flags.serviceAccount {
 		return s.loginServiceAccount(flags)
 	}
-	if err := s.ignoredServiceAccountVariables(flags); err != nil {
-		return err
+	if flags.clientIDVariable != "" || flags.clientSecretVariable != "" {
+		return problem.New(problem.CategoryUsage, "shell.conflicting_arguments",
+			"--client-id-variable and --client-secret-variable name a service account's variables, and "+
+				"take --service-account").
+			WithRecovery("Run wso2 login --service-account --client-id-variable <VARIABLE> " +
+				"--client-secret-variable <VARIABLE>.")
 	}
 	if flags.issuer == "" && flags.clientID == "" {
 		// Which context this login is about, asked when the flags leave it
@@ -152,6 +161,9 @@ func (s Shell) login(flags loginFlags) error {
 	}
 	selected, err := s.selection(flags.contextName)
 	if err != nil {
+		return err
+	}
+	if err := s.ignoredServiceAccountVariables(flags, selected); err != nil {
 		return err
 	}
 	outcome, err := s.establishAndStore(selected, flags)

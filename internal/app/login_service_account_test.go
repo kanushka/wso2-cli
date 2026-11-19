@@ -45,6 +45,13 @@ type serviceAccountLogin struct {
 
 func newServiceAccountLogin(t *testing.T, options fakeissuer.Options) serviceAccountLogin {
 	t.Helper()
+	return newServiceAccountLoginWith(t, options, []string{modules.MachineInline})
+}
+
+// newServiceAccountLoginWith installs apim declaring apimMachine as the ways a
+// client-credentials context may reach it.
+func newServiceAccountLoginWith(t *testing.T, options fakeissuer.Options, apimMachine []string) serviceAccountLogin {
+	t.Helper()
 	keyring.MockInit()
 	options.Host = "localhost"
 	options.RequireResource = true
@@ -65,7 +72,7 @@ func newServiceAccountLogin(t *testing.T, options fakeissuer.Options) serviceAcc
 	installFixture(t, shell, fixture.Module{Namespace: "apim", Version: "0.1.0",
 		Product: &modules.ProductDescriptor{
 			Audience: modules.AudienceResource, Grant: contexts.GrantExchange, Scopes: cloudAPIMScopes,
-			Machine: []string{modules.MachineInline},
+			Machine: apimMachine,
 		}})
 	installFixture(t, shell, fixture.Module{Namespace: "iam", Version: "0.1.0",
 		Product: &modules.ProductDescriptor{
@@ -160,8 +167,8 @@ func TestServiceAccountLoginReportsAsOneJSONDocument(t *testing.T) {
 	if len(report.Next) == 0 {
 		t.Errorf("no next step: %+v", report)
 	}
-	if !strings.Contains(login.errOut.String(), "ap:api:manage") {
-		t.Errorf("stderr does not name the withheld scope:\n%s", login.errOut)
+	if said := login.errOut.String(); !strings.Contains(said, "apim") || strings.Contains(said, "ap:api:manage") {
+		t.Errorf("stderr does not say plainly that apim lacks permissions:\n%s", said)
 	}
 
 	written := cloudServiceAccountContext(t, login.shell)
@@ -271,11 +278,12 @@ func TestAPlainLoginSaysItIgnoredTheServiceAccountVariables(t *testing.T) {
 	login := newCloudLogin(t)
 	installCloudAPIM(t, login.shell)
 	t.Setenv("WSO2_CLIENT_ID", "ci-client")
-	t.Setenv("WSO2_CLIENT_SECRET", serviceAccountSecret)
+	t.Setenv("WSO2_CLIENT_SECRET", "")
 	login.run(t, "login")
 	said := login.errOut.String()
-	if strings.Count(said, "--service-account") != 1 {
-		t.Errorf("stderr does not say once that --service-account uses the variables:\n%s", said)
+	if strings.Count(said, "--service-account") != 1 || !strings.Contains(said, "WSO2_CLIENT_ID") ||
+		strings.Contains(said, "WSO2_CLIENT_SECRET") {
+		t.Errorf("stderr does not say once that the set variable was ignored for --service-account:\n%s", said)
 	}
 	if strings.Contains(said, serviceAccountSecret) {
 		t.Errorf("the secret was printed:\n%s", said)
@@ -346,4 +354,124 @@ func TestANonInteractiveCloudLoginPointsAtTheServiceAccount(t *testing.T) {
 	if !strings.Contains(login.errOut.String(), "login --service-account") {
 		t.Errorf("the refusal does not name the service-account login:\n%s", login.errOut)
 	}
+}
+
+func TestAPlainLoginOutsideWSO2CloudSaysNothingOfTheServiceAccount(t *testing.T) {
+	shell, _, errOut, issuer := newCreatingLogin(t)
+	if code := shell.Run([]string{"login", "--url", issuer.URL, "--client-id", "wso2-cli", "--context", "local"}); code != exit.OK {
+		t.Fatalf("first login: exit %d, stderr %s", code, errOut)
+	}
+	t.Setenv("WSO2_CLIENT_ID", "ci-client")
+	errOut.Reset()
+	if code := shell.Run([]string{"login", "--context", "local"}); code != exit.OK {
+		t.Fatalf("login: exit %d, stderr %s", code, errOut)
+	}
+	if strings.Contains(errOut.String(), "--service-account") {
+		t.Errorf("a login outside WSO2 Cloud mentioned the service account:\n%s", errOut)
+	}
+}
+
+func TestAProductTheAccountCannotReachDoesNotStopTheLogin(t *testing.T) {
+	login := newServiceAccountLogin(t, fakeissuer.Options{RegisteredResource: "urn:wso2:cloud"})
+	if code := login.run("login", "--service-account", "--no-input", "-o", "json"); code != exit.OK {
+		t.Fatalf("exit %d, stderr %s", code, login.errOut)
+	}
+	var report struct {
+		Products []struct {
+			Namespace string   `json:"namespace"`
+			Scopes    []string `json:"scopes"`
+			Withheld  []string `json:"withheld"`
+		} `json:"products"`
+		Next []string `json:"next"`
+	}
+	if err := json.Unmarshal(login.out.Bytes(), &report); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, login.out)
+	}
+	if len(report.Products) != 2 || report.Products[1].Namespace != "iam" || len(report.Products[1].Scopes) != 0 ||
+		!slices.Equal(report.Products[1].Withheld, []string{"iam:system"}) {
+		t.Errorf("products = %+v, want iam reported with nothing granted", report.Products)
+	}
+	if strings.Count(login.errOut.String(), "iam") == 0 {
+		t.Errorf("stderr does not name the product that was refused:\n%s", login.errOut)
+	}
+	if len(report.Next) != 1 || !strings.HasPrefix(report.Next[0], "wso2 apim") {
+		t.Errorf("next = %q, want a command of a product the account reaches", report.Next)
+	}
+	cloudServiceAccountContext(t, login.shell)
+}
+
+func TestAModuleThatRefusesServiceAccountsIsLeftOut(t *testing.T) {
+	login := newServiceAccountLoginWith(t, fakeissuer.Options{}, nil)
+	if code := login.run("login", "--service-account", "--no-input"); code != exit.OK {
+		t.Fatalf("exit %d, stderr %s", code, login.errOut)
+	}
+	if !strings.Contains(login.errOut.String(), "apim") {
+		t.Errorf("stderr does not say apim was left out:\n%s", login.errOut)
+	}
+	written := cloudServiceAccountContext(t, login.shell)
+	if _, recorded := written.Products["apim"]; recorded {
+		t.Errorf("apim was recorded although its module does not admit a service account")
+	}
+	if _, recorded := written.Products["iam"]; !recorded {
+		t.Errorf("iam was not recorded")
+	}
+}
+
+func TestTheServiceAccountVariablesCanBeNamed(t *testing.T) {
+	login := newServiceAccountLogin(t, fakeissuer.Options{})
+	t.Setenv("WSO2_CLIENT_ID", "")
+	t.Setenv("WSO2_CLIENT_SECRET", "")
+	t.Setenv("CI_ID", "ci-client")
+	t.Setenv("CI_SECRET", serviceAccountSecret)
+	if code := login.run("login", "--service-account", "--no-input", "--client-id-variable", "CI_ID",
+		"--client-secret-variable", "CI_SECRET"); code != exit.OK {
+		t.Fatalf("exit %d, stderr %s", code, login.errOut)
+	}
+	if written := cloudServiceAccountContext(t, login.shell); written.Login.ClientSecretVariable != "CI_SECRET" {
+		t.Errorf("secret variable = %q, want CI_SECRET", written.Login.ClientSecretVariable)
+	}
+	if code := login.run("login", "--client-secret-variable", "CI_SECRET"); code != exit.Usage {
+		t.Errorf("--client-secret-variable without --service-account: exit %d, want %d", code, exit.Usage)
+	}
+}
+
+func TestTheServiceAccountLoginReplacesOnlyAServiceAccountContext(t *testing.T) {
+	login := newServiceAccountLogin(t, fakeissuer.Options{})
+	if code := login.run("context", "create", "machine", "--issuer", login.issuer.URL, "--client-id", "other",
+		"--client-secret-variable", "OTHER_SECRET"); code != exit.OK {
+		t.Fatalf("context create: exit %d, stderr %s", code, login.errOut)
+	}
+	if code := login.run("login", "--service-account", "--no-input", "--context", "machine"); code == exit.OK {
+		t.Fatalf("the login replaced a client-credentials context it did not write")
+	}
+	if found, _ := loadDocument(t, login.shell).Find("machine"); found.Login.ClientID != "other" {
+		t.Errorf("machine = %+v, want it left as it was", found.Login)
+	}
+}
+
+func TestTheServiceAccountWizardSaysWhereTheAccountComesFrom(t *testing.T) {
+	login := newServiceAccountLogin(t, fakeissuer.Options{})
+	t.Setenv("WSO2_CLIENT_ID", "")
+	t.Setenv("WSO2_CLIENT_SECRET", "")
+	login.shell.Reader = strings.NewReader("ci-client\nwrong-one\n")
+	if code := login.run("login", "--service-account"); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
+	}
+	said := login.errOut.String()
+	if !strings.Contains(said, "WSO2 Cloud console") {
+		t.Errorf("the wizard does not say where to create the account:\n%s", said)
+	}
+	if strings.Contains(said, "WSO2_CLIENT_SECRET") || strings.Contains(said, "cloud-dev-ci") {
+		t.Errorf("the refusal of a typed secret names a variable or a context that does not hold it:\n%s", said)
+	}
+}
+
+func TestATypedEnvironmentStillWritesTheContext(t *testing.T) {
+	login := newServiceAccountLogin(t, fakeissuer.Options{})
+	t.Setenv(app.CloudEnvVar, "")
+	login.shell.Reader = strings.NewReader("dev\n")
+	if code := login.run("login", "--service-account"); code != exit.OK {
+		t.Fatalf("exit %d, stderr %s", code, login.errOut)
+	}
+	cloudServiceAccountContext(t, login.shell)
 }
