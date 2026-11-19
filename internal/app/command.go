@@ -242,7 +242,9 @@ func (s Shell) applyShellFlags(command *cobra.Command, args []string) error {
 		return err
 	}
 	if s.invocation != nil && command.HasParent() {
-		s.invocation.commandPath = command.CommandPath()
+		// The root's own name is the binary as invoked; the record uses one
+		// spelling whatever the binary is called.
+		s.invocation.commandPath = recordedCommand(strings.Fields(command.CommandPath())[1:]...)
 	}
 	if flag := shellFlag(command, noInputFlag); s.invocation != nil && flag != nil && flag.Changed {
 		s.invocation.noInput, _ = strconv.ParseBool(flag.Value.String())
@@ -258,20 +260,27 @@ func (s Shell) applyShellFlags(command *cobra.Command, args []string) error {
 			s.invocation.verbose = &verbose
 		}
 	}
-	// The root dispatching a product namespace leaves WSO2_DEBUG to
-	// dispatchNamespace, because a --verbose=false written after the
-	// namespace has not been read yet and has to be able to win.
+	// The root dispatching a product namespace leaves the decision to
+	// dispatchNamespace, where a --verbose written after the namespace is
+	// read and can still win. A completion request runs on every Tab and
+	// writes nothing to stderr.
 	dispatching := !command.HasParent() && len(args) > 0
-	if written && verbose || !written && !dispatching && debugFromEnvironment() {
+	if dispatching || isCompletionRequest(command.Name()) {
+		return nil
+	}
+	if diagnosticsAsked(written, verbose) {
 		s.enableDiagnostics(command, mode)
 	}
 	return nil
 }
 
-// debugFromEnvironment reports whether WSO2_DEBUG asks for diagnostics. A
-// --verbose written anywhere on the line is consulted first and wins, because
-// it is what the person running the command can see and drop.
-func debugFromEnvironment() bool {
+// diagnosticsAsked decides whether diagnostics are on: a --verbose written on
+// the line, else WSO2_DEBUG. The flag wins because it is what the person
+// running the command can see and drop.
+func diagnosticsAsked(written, verbose bool) bool {
+	if written {
+		return verbose
+	}
 	return diag.Requested(os.Getenv(diag.EnvVar))
 }
 
@@ -357,12 +366,10 @@ func (s Shell) preferredMode() output.Mode {
 // output. See docs/adr/0003-shell-owned-output.md.
 //
 // It is idempotent because there are two doors into it: the root's flag
-// parser, which every built-in command now inherits --verbose through
-// wherever it is written, and the product-namespace path's own takeVerbose
-// scan (app.go), which still parses its own arguments by hand because a
-// module's flags must reach it unparsed. A user who writes the flag through
-// both doors — before a shell flag and after a product namespace's own — asked
-// for diagnostics once.
+// parser, which every built-in command inherits --verbose through wherever it
+// is written, and the product-namespace path's productVerbose, which parses
+// its own arguments by hand because a module's flags must reach it unparsed.
+// Either door also opens for WSO2_DEBUG when no --verbose was written.
 func (s Shell) enableDiagnostics(command *cobra.Command, mode output.Mode) {
 	if s.log.Enabled() {
 		return
@@ -379,29 +386,18 @@ func (s Shell) enableDiagnostics(command *cobra.Command, mode output.Mode) {
 		"output_mode", string(mode))
 }
 
-// takeVerbose removes every spelling of --verbose from an argument list and
-// reports whether the list asked for diagnostics.
-func takeVerbose(args []string) (remaining []string, asked bool, err error) {
-	remaining, asked, _, err = takeBoolFlag(args, verboseFlag)
-	return remaining, asked, err
-}
-
 // productVerbose takes --verbose from a product command line and decides
-// whether diagnostics are on: the last --verbose on the line, before or after
-// the namespace, and WSO2_DEBUG only when neither side wrote one.
+// whether diagnostics are on. The last --verbose on the line wins, after the
+// namespace or before it, as pflag decides for a flag written twice.
 func (s Shell) productVerbose(args []string) (remaining []string, asked bool, err error) {
 	remaining, asked, written, err := takeBoolFlag(args, verboseFlag)
 	if err != nil {
 		return nil, false, err
 	}
-	switch {
-	case written:
-	case s.invocation != nil && s.invocation.verbose != nil:
-		asked = *s.invocation.verbose
-	default:
-		asked = debugFromEnvironment()
+	if !written && s.invocation != nil && s.invocation.verbose != nil {
+		asked, written = *s.invocation.verbose, true
 	}
-	return remaining, asked, nil
+	return remaining, diagnosticsAsked(written, asked), nil
 }
 
 // takeNoInput removes every spelling of --no-input from a product command

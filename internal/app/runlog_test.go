@@ -265,3 +265,24 @@ func hasFinding(report doctorReport, check string) bool {
 	}
 	return false
 }
+
+// The binary may be installed as ws; the log names commands one way whatever
+// it was called, so doctor and anyone grepping the file read one spelling.
+func TestARenamedShellRecordsCommandsUnderTheSourceName(t *testing.T) {
+	shell, _, _ := newRunLogShell(t)
+	shell.Name = "ws"
+	shell.Run([]string{"context", "use", "staging-acme"})
+	records := runLogRecords(t, shell)
+	if got := records[len(records)-1]["command"]; got != "wso2 context use" {
+		t.Fatalf("the end record names %q, want %q", got, "wso2 context use")
+	}
+}
+
+func TestACompletionRequestWritesNothingUnderWSO2Debug(t *testing.T) {
+	shell, _, errOut := newRunLogShell(t)
+	t.Setenv("WSO2_DEBUG", "1")
+	shell.Run([]string{"__complete", "con"})
+	if strings.Contains(errOut.String(), debugStarted) || strings.Contains(errOut.String(), runlog.EndedMessage) {
+		t.Fatalf("a completion request wrote diagnostics:\n%s", errOut)
+	}
+}

@@ -65,6 +65,22 @@ func TestOpenNarrowsAnExistingFileToItsOwner(t *testing.T) {
 	assertMode(t, Path(root), 0o600)
 }
 
+func TestOpenNarrowsAnExistingDirectoryToItsOwner(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Dir(Path(root)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Dir(Path(root)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file, err := Open(root)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer file.Close()
+	assertMode(t, filepath.Dir(Path(root)), 0o700)
+}
+
 func TestAFullFileRotatesAndOnlyTheNewestAreKept(t *testing.T) {
 	root := t.TempDir()
 	line := []byte(strings.Repeat("x", 1023) + "\n")

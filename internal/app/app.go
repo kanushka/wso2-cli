@@ -117,7 +117,7 @@ type invocationState struct {
 	// runID ties this run's records in the run log together.
 	runID string
 	// commandPath is the command this run resolved to, in declared words
-	// only: "wso2 context use", "wso2 apim apis list". An argument never
+	// only: "wso2 context use", "wso2 apim api list". An argument never
 	// becomes part of it, because the run log keeps it on every run.
 	commandPath string
 	// verbose is --verbose written where a shell command parsed it, nil when
@@ -162,7 +162,7 @@ func (s Shell) Run(args []string) exit.Code {
 	// then it writes nothing to stderr, which is what an invocation without
 	// either must produce.
 	s.log = output.NewLogger()
-	s.invocation = &invocationState{commandPath: output.SourceName}
+	s.invocation = &invocationState{commandPath: recordedCommand()}
 	defer s.openRunLog(args)()
 	s.log.Record(runlog.StartedMessage,
 		"shell_version", version.Shell(),
@@ -284,12 +284,6 @@ func printsCompletionScript(args []string) bool {
 }
 
 func (s Shell) dispatch(args []string) (err error) {
-	if s.log == nil {
-		s.log = output.NewLogger()
-	}
-	if s.invocation == nil {
-		s.invocation = &invocationState{commandPath: output.SourceName}
-	}
 	defer func() { s.logUnderlyingCause(err) }()
 
 	// Trust is widened before anything reaches the network, because the first
@@ -434,7 +428,7 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 		}
 		return s.unknownNamespace(root, namespace, namespaces)
 	}
-	s.invocation.commandPath = output.SourceName + " " + namespace
+	s.invocation.commandPath = recordedCommand(namespace)
 
 	identity, err := s.identity()
 	if err != nil {
@@ -659,4 +653,10 @@ func (s Shell) upgradeContexts(root string) {
 	for _, note := range notes {
 		_, _ = fmt.Fprintln(s.Streams.Err, note)
 	}
+}
+
+// recordedCommand is a command as the run log names it: in declared words,
+// under the shell's source name whatever the binary was invoked as.
+func recordedCommand(words ...string) string {
+	return strings.Join(append([]string{output.SourceName}, words...), " ")
 }

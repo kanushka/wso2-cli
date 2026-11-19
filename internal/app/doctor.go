@@ -538,7 +538,7 @@ func (s Shell) lastRunFinding(root string) (doctorFinding, bool) {
 		current = s.invocation.runID
 	}
 	run, found := runlog.LastFinished(root, func(run runlog.Run) bool {
-		return run.Invocation == current || run.Command == output.SourceName+" doctor"
+		return run.Invocation == current || run.Command == recordedCommand("doctor")
 	})
 	if !found || run.ExitCode == 0 {
 		return doctorFinding{}, false

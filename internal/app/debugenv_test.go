@@ -169,3 +169,21 @@ func TestAModuleKeepsMoreDiagnosticsUnderVerbose(t *testing.T) {
 		}
 	}
 }
+
+// The last --verbose on the line wins, as pflag decides for a flag written
+// twice before the command.
+func TestAVerboseFalseAfterTheNamespaceBeatsOneBeforeIt(t *testing.T) {
+	t.Setenv("WSO2_DEBUG", "")
+	recorded := filepath.Join(t.TempDir(), "environment")
+	shell, _, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0",
+		Contents: []byte("#!/bin/sh\nenv > " + recorded + "\nexit 0\n")})
+	shell.Run([]string{"--verbose", "reference", "status", "--verbose=false"})
+	if strings.Contains(errOut.String(), debugStarted) {
+		t.Fatalf("diagnostics were written:\n%s", errOut)
+	}
+	environment, _ := os.ReadFile(recorded)
+	if strings.Contains(string(environment), "WSO2_DEBUG") {
+		t.Fatalf("the module was told diagnostics are on:\n%s", environment)
+	}
+}

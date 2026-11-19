@@ -119,7 +119,7 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 	// Only a declared tree tells a command word from an argument; without one
 	// the namespace alone is recorded.
 	if declared.Declared() && s.invocation != nil {
-		s.invocation.commandPath = strings.Join(append([]string{output.SourceName, namespace}, command...), " ")
+		s.invocation.commandPath = recordedCommand(append([]string{namespace}, command...)...)
 	}
 	mode, contextName := line.mode, line.contextName
 	selection, err := s.selection(contextName)

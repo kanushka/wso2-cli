@@ -76,8 +76,12 @@ type File struct {
 // directory private to the current user.
 func Open(root string) (*File, error) {
 	path := Path(root)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, fmt.Errorf("runlog: cannot create %s: %w", filepath.Dir(path), err)
+	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return nil, fmt.Errorf("runlog: cannot create %s: %w", directory, err)
+	}
+	if err := os.Chmod(directory, 0o700); err != nil {
+		return nil, fmt.Errorf("runlog: cannot restrict %s: %w", directory, err)
 	}
 	log := &File{path: path}
 	if err := log.open(); err != nil {

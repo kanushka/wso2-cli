@@ -527,7 +527,10 @@ func TestTheNoInputFlagIsTakenOffAProductLineWhereverItIsWritten(t *testing.T) {
 // for the same reason: it is not a flag, it is an argument that looks like one.
 func TestTheSeparatorEndsTheShellsClaimOnItsOwnBooleans(t *testing.T) {
 	takes := map[string]func([]string) ([]string, bool, error){
-		"--verbose":  takeVerbose,
+		"--verbose": func(args []string) ([]string, bool, error) {
+			remaining, asked, _, err := takeBoolFlag(args, verboseFlag)
+			return remaining, asked, err
+		},
 		"--no-input": takeNoInput,
 	}
 
