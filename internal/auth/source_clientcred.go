@@ -120,6 +120,14 @@ func (s clientCredentialsSource) grant(ctx context.Context, scopes []string) (to
 	return issued, nil
 }
 
+// refusedGrant reads why the deployment refused, and says so in the shell's own
+// terms.
+//
+// Three answers are worth telling apart, because they send the user to three
+// different places: a registration the deployment owns, a secret the job owns,
+// and an issuer this shell cannot speak for.
+// sent is the resource indicator this request carried, empty when it carried
+// none. It is what tells the two halves of invalid_target apart.
 func (s clientCredentialsSource) refusedGrant(err error, sent string) error {
 	var refusal issuerRefusal
 	switch {
