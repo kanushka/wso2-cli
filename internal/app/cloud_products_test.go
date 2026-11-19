@@ -461,3 +461,32 @@ func TestACloudIAMRecordTakesTheCloudScope(t *testing.T) {
 		t.Errorf("iam scopes = %v, want [iam:system]", got)
 	}
 }
+
+// What a Cloud login records — the table's scopes, no descriptor grant — is
+// what the installed product would write on that context, so neither doctor
+// nor context show calls it drift.
+func TestACloudLoginsRecordsDoNotDrift(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudIAM(t, login.shell)
+	installCloudAPIM(t, login.shell)
+	login.run(t, "login")
+	if err := contexts.Update(login.shell.StateRoot, func(document contexts.Document) (contexts.Document, error) {
+		target, _ := document.Find("cloud-dev")
+		target.Login.Product = "iam"
+		return document.Put(target), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	login.errOut.Reset()
+	login.out.Reset()
+	login.shell.Run([]string{"doctor", "--output", "json"})
+	if strings.Contains(login.out.String(), `"status": "differs"`) {
+		t.Errorf("doctor reports drift on a Cloud login's own records:\n%s", login.out)
+	}
+	login.out.Reset()
+	login.run(t, "context", "show")
+	if strings.Contains(login.out.String(), "records the") {
+		t.Errorf("context show reports drift on a Cloud login's own records:\n%s", login.out)
+	}
+}
