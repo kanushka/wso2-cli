@@ -68,6 +68,9 @@ const (
 	// browserSessionPrinted: no browser could be opened; the sign-out URLs
 	// were printed for the user to open.
 	browserSessionPrinted = "sign-out printed"
+	// browserSessionNotOpened: no browser could be opened, and the output
+	// mode left no place to print the sign-out URLs.
+	browserSessionNotOpened = "sign-out not opened"
 )
 
 // logout ends every session the selected context's identity holds: the login
@@ -213,16 +216,21 @@ func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.Product
 			s.log.Debug("opened a sign-out page", "issuer", access.Issuer)
 			continue
 		}
-		opened = browserSessionPrinted
 		// A printed URL can end up in a terminal's scrollback or a pasted
 		// bug report, so it names the client without the identity token;
 		// the provider may then ask to confirm the sign-out. It goes to the
 		// diagnostic stream, which under a machine-readable output mode
 		// carries only structured lines.
 		printed := withoutTokenHint(target)
-		if flags.mode == output.ModeJSON {
-			s.log.Debug("a sign-out page to open", "issuer", access.Issuer, "url", printed)
-		} else if _, err := fmt.Fprintf(s.Streams.Err,
+		if flags.mode == output.ModeJSON || printed == "" {
+			s.log.Debug("a sign-out page not opened", "issuer", access.Issuer, "url", printed)
+			if opened != browserSessionPrinted {
+				opened = browserSessionNotOpened
+			}
+			continue
+		}
+		opened = browserSessionPrinted
+		if _, err := fmt.Fprintf(s.Streams.Err,
 			"Open this URL to end the browser session at %s; it may ask you to confirm:\n%s\n",
 			access.Issuer, printed); err != nil {
 			return browserSessionPrinted

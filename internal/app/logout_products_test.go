@@ -152,6 +152,25 @@ func TestLogoutPrintsSignOutURLsWithoutTheIdentityToken(t *testing.T) {
 	}
 }
 
+// Under -o json nothing is printed, so the report says the page was not
+// opened rather than that it was printed.
+func TestLogoutUnderJSONSaysTheSignOutPageWasNotOpened(t *testing.T) {
+	keyring.MockInit()
+	login := fakeissuer.New(t, fakeissuer.Options{RequireResource: true})
+	product := fakeissuer.New(t, fakeissuer.Options{Audience: "apim-cli"})
+	shell, out, errOut := newShell(t)
+	t.Setenv("WSO2_CONTEXT", "")
+	t.Setenv("WSO2_NO_INPUT", "")
+	seedSignedInSessions(t, shell, login, product)
+	shell.OpenBrowser = func(string) error { return errors.New("no browser") }
+	if code := shell.Run([]string{"logout", "-o", "json"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if strings.Contains(out.String(), "sign-out printed") || !strings.Contains(out.String(), `"sign-out not opened at `) {
+		t.Errorf("report:\n%s", out)
+	}
+}
+
 func TestLogoutKeepsTheBrowserSessionWhenAsked(t *testing.T) {
 	for _, tc := range []struct {
 		name string
