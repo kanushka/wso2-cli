@@ -18,6 +18,7 @@ package auth
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/wso2/wso2-cli/sdk/problem"
@@ -28,5 +29,18 @@ func TestAClientCredentialAnswerWithoutAnAccessTokenIsNotUnreachable(t *testing.
 	var refused Denial
 	if !errors.As(err, &refused) || refused.Problem.Category != problem.CategoryAuthPolicy {
 		t.Errorf("refusal = %v, want an auth_policy denial", err)
+	}
+}
+
+func TestAClientCredentialAnswerWithoutAnAccessTokenIsNotCalledARefusal(t *testing.T) {
+	err := clientCredentialsSource{namespace: "reference"}.refusedGrant(errNoAccessToken, "")
+	var refused Denial
+	if !errors.As(err, &refused) || refused.Problem.Code != "auth.discovery_failed" {
+		t.Fatalf("refusal = %v, want auth.discovery_failed", err)
+	}
+	for _, said := range []string{refused.Problem.Message, refused.Problem.Recovery} {
+		if strings.Contains(said, "refused") || strings.Contains(said, "registered") {
+			t.Errorf("an answer with no access token is described as a refusal or a registration fault: %q", said)
+		}
 	}
 }
