@@ -90,6 +90,9 @@ type loginFlags struct {
 	// device is --device: a context this login creates signs in with a
 	// device code. On a context that exists it must agree with its kind.
 	device bool
+	// cloudCreated says this login wrote the WSO2 Cloud context it signs in
+	// to, whose kind --device sets once the sign-in has succeeded.
+	cloudCreated bool
 	// chooseOrganization asks the provider to sign the person in again, where
 	// WSO2 Cloud offers its organization picker, and runs every authorization
 	// after the first in the organization that sign-in was issued in.
@@ -141,6 +144,14 @@ func (s Shell) login(flags loginFlags) error {
 			"wso2 login takes --client-id only with --url, which names the issuer the client is registered with").
 			WithRecovery(loginUsageRecovery)
 	}
+	// --device is checked against the context before a Cloud login installs
+	// or records anything for it, so a refusal changes nothing.
+	byDeviceOnceSignedIn := flags.device && flags.cloudCreated
+	if selected, err := s.selection(flags.contextName); err == nil && !byDeviceOnceSignedIn {
+		if err := checkDeviceFlag(flags, selected.Context); err != nil {
+			return err
+		}
+	}
 	if err := s.prepareCloudLogin(flags); err != nil {
 		return err
 	}
@@ -148,17 +159,45 @@ func (s Shell) login(flags loginFlags) error {
 	if err != nil {
 		return err
 	}
-	if err := checkDeviceFlag(flags, selected.Context); err != nil {
-		return err
+	if byDeviceOnceSignedIn {
+		// Recorded only after the sign-in succeeds, so a provider that refuses
+		// the device code leaves a context that still signs in.
+		selected.Context.Login.Kind = contexts.KindOAuthDevice
+		selected.Identity = selected.Context.Account()
 	}
 	outcome, err := s.establishAndStore(selected, flags)
 	if err != nil {
 		return err
 	}
+	if byDeviceOnceSignedIn {
+		if err := s.recordDeviceKind(selected.Context.Name); err != nil {
+			return err
+		}
+	}
 	if err := s.reportLogin(selected, outcome); err != nil {
 		return err
 	}
 	return output.NextStep(s.Streams.Out, s.loginNext(selected, outcome))
+}
+
+// recordDeviceKind records that a context signs in with a device code.
+func (s Shell) recordDeviceKind(name string) error {
+	root, err := s.stateRoot()
+	if err != nil {
+		return err
+	}
+	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
+		found, ok := document.Find(name)
+		if !ok {
+			return document, nil
+		}
+		found.Login.Kind = contexts.KindOAuthDevice
+		return document.Put(found), nil
+	})
+	if err != nil {
+		return s.explainWriteRefusal(root, err)
+	}
+	return nil
 }
 
 // checkDeviceFlag refuses --device on a context that signs in another way.

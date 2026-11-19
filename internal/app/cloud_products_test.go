@@ -607,3 +607,58 @@ func TestACloudSignInThatHandsOutNoSecretSaysWhyAndHowOn(t *testing.T) {
 		t.Errorf("a Cloud context recorded productSessions %q, want exchange", got)
 	}
 }
+
+func TestLoginDeviceOnACloudBrowserContextChangesNothingHoweverItIsReached(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		args   []string
+		env    string
+		reader string
+	}{
+		"selected by default":   {args: []string{"login", "--device", "--no-input"}},
+		"named by --context":    {args: []string{"login", "--device", "--context", "cloud-dev"}},
+		"named by WSO2_CONTEXT": {args: []string{"login", "--device"}, env: "cloud-dev"},
+		"picked in the chooser": {args: []string{"login", "--device"}, reader: "\n\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			login := newCloudLogin(t)
+			installCloudAPIM(t, login.shell)
+			login.run(t, "login")
+			// Installed after the login, so a login that prepared the context
+			// would record it.
+			installCloudIAM(t, login.shell)
+			t.Setenv(app.CloudEnvVar, "")
+			t.Setenv("WSO2_CONTEXT", testCase.env)
+			if testCase.reader != "" {
+				login.shell.Reader = strings.NewReader(testCase.reader)
+			}
+			path := contexts.Path(login.shell.StateRoot)
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if code := login.shell.Run(testCase.args); code != exit.Usage {
+				t.Fatalf("exit %d, want %d; stderr %s", code, exit.Usage, login.errOut)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(after) != string(before) {
+				t.Errorf("a refused login changed the context document:\n%s", after)
+			}
+		})
+	}
+}
+
+func TestAFailedCloudFirstRunWithDeviceLeavesNoDeviceCodeContext(t *testing.T) {
+	login := newCloudLoginWith(t, fakeissuer.Options{DeviceInterval: 1, DeviceUnauthorizedClient: true})
+	installCloudAPIM(t, login.shell)
+
+	if code := login.shell.Run([]string{"login", "--device"}); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
+	}
+	if kind := cloudContext(t, login.shell).Login.Kind; kind != contexts.KindOAuthBrowser {
+		t.Errorf("a failed device-code sign-in left the Cloud context signing in with %q", kind)
+	}
+}
