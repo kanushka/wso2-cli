@@ -164,7 +164,8 @@ func (s Shell) logout(flags logoutFlags) error {
 		products = append(products, access.Namespace+" "+state)
 	}
 	ended.productSessions = products
-	ended.browserSession = s.endBrowserSessions(flags, accesses, signOuts)
+	ended.browserSession = s.endBrowserSessions(flags, accesses, signOuts,
+		selected.Context.Login.Kind == contexts.KindOAuthDevice)
 
 	return s.reportLogout(flags.mode, selected, ended)
 }
@@ -178,8 +179,10 @@ func (s Shell) logout(flags logoutFlags) error {
 // It is best effort, like revocation (ADR 0010): the page is opened and its
 // outcome is not observable from here. Nothing opens under --keep-browser-
 // session, under --no-input or WSO2_NO_INPUT, or when nothing was stored.
+// printOnly prints each page instead of opening it, for a device-code context:
+// the browser session is on whichever device approved the code, not here.
 func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.ProductAccess,
-	signOuts map[string]oauthflow.EndSession) string {
+	signOuts map[string]oauthflow.EndSession, printOnly bool) string {
 	if len(signOuts) == 0 {
 		return browserSessionUnaffected
 	}
@@ -211,10 +214,12 @@ func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.Product
 			s.log.Debug("no sign-out page for a provider", "issuer", access.Issuer)
 			continue
 		}
-		if err := s.openBrowser(target); err == nil {
-			s.log.Debug("opened a sign-out page", "issuer", access.Issuer)
-			openedAt = append(openedAt, access.Issuer)
-			continue
+		if !printOnly {
+			if err := s.openBrowser(target); err == nil {
+				s.log.Debug("opened a sign-out page", "issuer", access.Issuer)
+				openedAt = append(openedAt, access.Issuer)
+				continue
+			}
 		}
 		missedAt = append(missedAt, access.Issuer)
 		// A printed URL can end up in a terminal's scrollback or a pasted

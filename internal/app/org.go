@@ -431,10 +431,17 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 			WithRecovery("Run wso2 org use <organization-id>; wso2 whoami -o json shows the id of the " +
 				"organization a login was issued in.")
 	}
+	byDeviceCode := selected.Context.Login.Kind == contexts.KindOAuthDevice
 	if control := s.nonInteractiveControl(false); control != "" {
 		again := "wso2 org use"
 		if organization != "" {
 			again += " " + organization
+		}
+		if byDeviceCode {
+			return problem.New(problem.CategoryAuthPolicy, "auth.non_interactive",
+				fmt.Sprintf("switching the %q context to another organization signs in again with a device "+
+					"code, which waits for a person, and %s asked not to", name, control)).
+				WithRecovery(fmt.Sprintf("Run %s without it.", again))
 		}
 		return problem.New(problem.CategoryAuthPolicy, "auth.non_interactive",
 			fmt.Sprintf("switching the %q context to another organization logs in again in the browser, "+
@@ -462,6 +469,21 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 	}
 	if err := endAll(); err != nil {
 		return err
+	}
+	if byDeviceCode {
+		// ThunderID serves the device grant at no organization's endpoint,
+		// so the person picks the organization on the page and the sign-in
+		// is checked against it afterwards.
+		hint := "On the sign-in page, choose the organization to switch to. The page asks only on a full " +
+			"sign-in, so sign out of WSO2 Cloud in that browser first if it does not ask."
+		if id != "" {
+			hint = fmt.Sprintf("On the sign-in page, choose the %s organization; a sign-in in any other is "+
+				"refused. The page asks only on a full sign-in, so sign out of WSO2 Cloud in that browser "+
+				"first if it does not ask.", id)
+		}
+		if _, err := fmt.Fprintln(s.Streams.Err, hint); err != nil {
+			return err
+		}
 	}
 	switching := selected
 	switching.Context.Organization = id

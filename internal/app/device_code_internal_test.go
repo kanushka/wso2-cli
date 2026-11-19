@@ -169,3 +169,25 @@ func loadContextDocument(t *testing.T, shell Shell) contexts.Document {
 	}
 	return document
 }
+
+func TestLogoutOfADeviceCodeContextPrintsTheSignOutPageInsteadOfOpeningIt(t *testing.T) {
+	login := newDeviceCodeLogin(t, fakeissuer.Options{DeviceSSO: true})
+	login.run(t, "login")
+	tokens := []string{
+		login.load(t, deviceRef).RefreshToken,
+		login.load(t, contexts.ProductSessionRef(deviceRef, "second")).RefreshToken,
+	}
+	login.errOut.Reset()
+
+	login.run(t, "logout")
+
+	if !strings.Contains(login.errOut.String(), "Open this URL to end the browser session") ||
+		strings.Contains(login.errOut.String(), "id_token_hint") {
+		t.Errorf("stderr does not print the sign-out URL without the identity token:\n%s", login.errOut)
+	}
+	for _, token := range tokens {
+		if login.issuer.RefreshTokenLive(token) {
+			t.Error("a refresh token is still live at the provider after logout")
+		}
+	}
+}

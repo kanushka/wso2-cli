@@ -709,8 +709,8 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.PathValue("ou") != "":
 			ou = i.organizationUnit(r.PathValue("ou"))
-		case query.Get("prompt") == "login" && i.opts.ChosenOrganizationUnit != "":
-			ou = i.organizationUnit(i.opts.ChosenOrganizationUnit)
+		case query.Get("prompt") == "login" && i.chosenOrganizationUnit() != "":
+			ou = i.organizationUnit(i.chosenOrganizationUnit())
 		}
 		i.mutex.Lock()
 		i.codes[code] = codeGrant{
@@ -1199,9 +1199,10 @@ func (i *Issuer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "unauthorized_client")
 		return
 	}
+	chosen := i.chosenOrganizationUnit()
 	ou := i.homeOrganizationUnit()
-	if i.opts.ChosenOrganizationUnit != "" {
-		ou = i.organizationUnit(i.opts.ChosenOrganizationUnit)
+	if chosen != "" {
+		ou = i.organizationUnit(chosen)
 	}
 	deviceCode := randomToken("dc")
 	userCode := randomUserCode()
@@ -1331,6 +1332,21 @@ func (i *Issuer) issueDeviceTokens(w http.ResponseWriter, grant deviceGrant) {
 		response["id_token"] = i.mintIDTokenIn(grant.ou, audience, "", scopes)
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+// ChooseOrganizationUnit makes later device authorizations land in the
+// organization with the given id, as a person choosing it on the verification
+// page does.
+func (i *Issuer) ChooseOrganizationUnit(id string) {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	i.opts.ChosenOrganizationUnit = id
+}
+
+func (i *Issuer) chosenOrganizationUnit() string {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	return i.opts.ChosenOrganizationUnit
 }
 
 // DeviceAuthorizations is every device authorization request's form, in the
