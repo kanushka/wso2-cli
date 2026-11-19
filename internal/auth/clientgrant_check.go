@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"slices"
 
+	"github.com/wso2/wso2-cli/internal/auth/trustedhttp"
 	"github.com/wso2/wso2-cli/internal/contexts"
 )
 
@@ -50,9 +51,9 @@ func CheckClientGrant(ctx context.Context, client *http.Client, selection contex
 	if !found {
 		return ClientGrantCheck{}, fmt.Errorf("auth: the %q product is not recorded", namespace)
 	}
-	if client == nil {
-		client = http.DefaultClient
-	}
+	// Every issuer request the broker makes refuses a redirect off HTTPS, and
+	// this one carries the client secret.
+	client = trustedhttp.Client(client)
 	source := clientCredentialsSource{
 		namespace:      namespace,
 		contextName:    selection.Context.Name,
