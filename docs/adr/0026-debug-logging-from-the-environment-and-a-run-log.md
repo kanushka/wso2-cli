@@ -46,7 +46,11 @@ inventory with no `net/http` in its dependency graph.
 
 Redaction moved from the shell into the SDK's `diag` package, and the shell now
 uses it from there. One list of secret attribute names covers both sides of the
-module boundary, so a module cannot mask less than the shell does.
+module boundary, so a module cannot mask less than the shell does. Inside any
+string or error value, whatever its key, it also masks the secret query and
+fragment parameters of every URL (`id_token_hint`, `code`, `access_token` and
+the like) and anything shaped like a JWT, because a key cannot tell a URL that
+carries an ID token from one that does not.
 
 There is no protocol change. An older module ignores the variable; an older
 shell never sets it, and a newer module's log stays silent under it.
