@@ -112,7 +112,7 @@ command will. It then writes the context `cloud-<environment>-ci`, or the one
 client-credentials context, and refuses any other of that name with
 `contexts.context_exists`. The context is a `client-credentials` context: it
 records the client id and the name of the secret's variable, never the
-secret. Its organization is the one the service account's tokens name, and
+secret, which is sent exactly as its variable holds it. Its organization is the one the service account's tokens name, and
 each product records the scopes the service account was granted. Nothing is
 stored beyond the context: every command gets its own tokens, and there is
 nothing for `ws logout` to end. Each run of the login writes the context
@@ -139,7 +139,8 @@ terminal, nothing is asked, and an unset variable is refused with
 says where the service account is created and which products it needs roles
 for, asks for what is not set, the secret without echo, gets the tokens, and
 prints what CI needs: the variables, with the secret's as a name only, the
-command CI runs, `ws login --service-account --no-input`, and that CI needs
+command CI runs, `ws login --service-account --no-input` with the
+variable flags this run was given, which `next` carries too, and that CI needs
 the environment file. A login that asked for the client id or the secret
 writes nothing, and says so on standard error, since a context naming
 variables this machine does not set could serve no command here. `-o json`
@@ -148,9 +149,9 @@ reports `context` (absent when nothing was written), `environment`,
 nothing was granted) and, when some were left out, `withheld`, and `next`.
 
 A plain `ws login` never signs in as a service account. When it logs in to a
-WSO2 Cloud context on a terminal with `WSO2_CLIENT_ID` or `WSO2_CLIENT_SECRET`
-set, it says on standard error that the variable was ignored and that
-`ws login --service-account` uses it. A browser login refused under
+WSO2 Cloud context other than a service account's own with `WSO2_CLIENT_ID` or
+`WSO2_CLIENT_SECRET` set, terminal or not, it says on standard error that the
+variables set were ignored and that `ws login --service-account` uses them. A browser login refused under
 `--no-input` on a WSO2 Cloud context names `ws login --service-account` as
 the way to sign in from automation.
 

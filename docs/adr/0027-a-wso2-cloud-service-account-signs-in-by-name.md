@@ -12,15 +12,22 @@ roles of its own. This records how the shell signs in as one.
 
 `ws login --service-account` signs in as the service account
 `WSO2_CLIENT_ID` and `WSO2_CLIENT_SECRET` hold, or the variables
-`--client-id-variable` and `--client-secret-variable` name, in the environment `WSO2_CLOUD_ENV` names. A plain
-`ws login` never does, with or without a terminal, even when the variables are
-set; on a terminal it says on standard error that they were ignored. A developer's machine
-that carries CI's variables would otherwise sign in as the wrong identity, and
-nothing the shell switches to on its own is something a person can see coming.
+`--client-id-variable` and `--client-secret-variable` name, in the
+environment `WSO2_CLOUD_ENV` names. A plain `ws login` never does, with or
+without a terminal, even when the variables are set. When it logs in to a
+WSO2 Cloud context that is not a service account's own, it says on standard
+error, with or without a terminal, that the variables were ignored and that
+`ws login --service-account` uses them. A developer's machine that carries
+CI's variables would otherwise sign in as the wrong identity, and nothing the
+shell switches to on its own is something a person can see coming.
 
 The secret is never taken on the command line, where process listings and
-shell history keep it. The context records the name of its variable, as every
-`client-credentials` context does, and the client id, which is not a secret.
+shell history keep it, and never recorded: the context records only the name
+of the variable that holds it, as every `client-credentials` context does. It
+is sent exactly as the variable holds it, as every command sends it. The
+context does record the client id itself, which is not a secret; CI logs in
+again on every run, so the recorded value is always the one its variable
+holds.
 
 ## One token per product, nothing stored
 
