@@ -356,7 +356,8 @@ func (s Shell) enableDiagnostics(command *cobra.Command, mode output.Mode) {
 // takeVerbose removes every spelling of --verbose from an argument list and
 // reports whether the list asked for diagnostics.
 func takeVerbose(args []string) (remaining []string, asked bool, err error) {
-	return takeBoolFlag(args, verboseFlag)
+	remaining, asked, _, err = takeBoolFlag(args, verboseFlag)
+	return remaining, asked, err
 }
 
 // takeNoInput removes every spelling of --no-input from a product command
@@ -366,7 +367,26 @@ func takeVerbose(args []string) (remaining []string, asked bool, err error) {
 // value; the shell owns it wherever it is written, and the module is told
 // through WSO2_NO_INPUT instead.
 func takeNoInput(args []string) (remaining []string, asked bool, err error) {
-	return takeBoolFlag(args, noInputFlag)
+	remaining, asked, _, err = takeBoolFlag(args, noInputFlag)
+	return remaining, asked, err
+}
+
+// productNoInput takes --no-input from a product command line. One written
+// there overrides one written before the namespace, the last occurrence
+// winning as it does for every flag pflag parses, and the invocation is left
+// agreeing with the answer.
+func (s Shell) productNoInput(args []string) (remaining []string, asked bool, err error) {
+	remaining, asked, written, err := takeBoolFlag(args, noInputFlag)
+	if err != nil {
+		return nil, false, err
+	}
+	if !written {
+		asked = s.invocation.asksNoInput()
+	}
+	if s.invocation != nil {
+		s.invocation.noInput = asked
+	}
+	return remaining, asked, nil
 }
 
 // takeBoolFlag removes every spelling of a shell-owned boolean flag from an
@@ -385,27 +405,27 @@ func takeNoInput(args []string) (remaining []string, asked bool, err error) {
 // "--" — and switched the shell non-interactive on a word that was addressed to
 // the module. The separator is left in place and forwarded, as it is by every
 // other reader of a product line, because it is the module's own argument too.
-func takeBoolFlag(args []string, flag string) (remaining []string, asked bool, err error) {
+func takeBoolFlag(args []string, flag string) (remaining []string, asked, written bool, err error) {
 	remaining = make([]string, 0, len(args))
 	for index, argument := range args {
 		switch {
 		case argument == "--":
-			return append(remaining, args[index:]...), asked, nil
+			return append(remaining, args[index:]...), asked, written, nil
 		case argument == "--"+flag:
-			asked = true
+			asked, written = true, true
 		case strings.HasPrefix(argument, "--"+flag+"="):
 			value := strings.TrimPrefix(argument, "--"+flag+"=")
 			enabled, parseErr := strconv.ParseBool(value)
 			if parseErr != nil {
-				return nil, false, usageProblem(fmt.Errorf("invalid argument %q for %q flag: %w",
+				return nil, false, false, usageProblem(fmt.Errorf("invalid argument %q for %q flag: %w",
 					value, "--"+flag, parseErr))
 			}
-			asked = enabled
+			asked, written = enabled, true
 		default:
 			remaining = append(remaining, argument)
 		}
 	}
-	return remaining, asked, nil
+	return remaining, asked, written, nil
 }
 
 // noInputFlag is the spelling of the shell's non-interactive flag.

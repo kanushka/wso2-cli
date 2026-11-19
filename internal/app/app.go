@@ -302,11 +302,10 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 		return err
 	}
 	// --no-input is taken the same way and for the same reason.
-	args, noInput, err := takeNoInput(args)
+	args, noInput, err := s.productNoInput(args)
 	if err != nil {
 		return err
 	}
-	noInput = noInput || s.invocation.asksNoInput()
 	if verbose {
 		// The module's own --output governs, because these diagnostics
 		// interleave with the result the module renders under it.

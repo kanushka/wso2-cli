@@ -563,3 +563,23 @@ func TestTheSeparatorEndsTheShellsClaimOnItsOwnBooleans(t *testing.T) {
 		})
 	}
 }
+
+func TestTheLastNoInputOnAProductLineWins(t *testing.T) {
+	for _, testCase := range []struct {
+		leading bool
+		args    []string
+		want    bool
+	}{
+		{true, []string{"status", "--no-input=false"}, false},
+		{true, []string{"status"}, true},
+		{false, []string{"status", "--no-input"}, true},
+		{false, []string{"status"}, false},
+	} {
+		shell := Shell{invocation: &invocationState{noInput: testCase.leading}}
+		_, asked, err := shell.productNoInput(testCase.args)
+		if err != nil || asked != testCase.want || shell.invocation.asksNoInput() != testCase.want {
+			t.Errorf("leading %v, %q: asked %v, invocation %v, err %v; want %v",
+				testCase.leading, testCase.args, asked, shell.invocation.asksNoInput(), err, testCase.want)
+		}
+	}
+}
