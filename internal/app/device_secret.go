@@ -29,6 +29,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/auth/oauthflow"
 	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
+	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
 // deviceSecretMargin is how long before its stated expiry a device secret is
@@ -43,26 +44,36 @@ const deviceSecretDeadline = 30 * time.Second
 // device secret: only the login session's, since the secret describes the
 // sign-on that sign-in started and every later product is obtained
 // from it.
+//
+// A context whose products are authorized in the browser asks for none: it
+// would never present one.
 func asksForDeviceSecret(identity contexts.Account, access contexts.ProductAccess) bool {
-	return signsInAtThunderID(identity) && access.SessionRef == identity.LoginAccess().SessionRef
+	return signsInAtThunderID(identity) && access.SessionRef == identity.LoginAccess().SessionRef &&
+		identity.Auth.ProductSessionMethod() == contexts.ProductSessionsExchange
 }
 
-// fromDeviceSecret reports whether an access may be obtained by exchanging
-// the login session's device secret: a session of its own at the login issuer,
-// which is the one a browser authorization would otherwise be opened for.
+// fromDeviceSecret reports whether an access is obtained by exchanging the
+// login session's device secret: a session of its own at the login issuer, on
+// a context whose productSessions setting is the exchange.
 func fromDeviceSecret(identity contexts.Account, access contexts.ProductAccess) bool {
 	return signsInAtThunderID(identity) && access.Strategy == contexts.StrategySibling &&
-		access.Issuer == identity.Auth.Issuer && access.SessionRef != identity.LoginAccess().SessionRef
+		access.Issuer == identity.Auth.Issuer && access.SessionRef != identity.LoginAccess().SessionRef &&
+		identity.Auth.ProductSessionMethod() == contexts.ProductSessionsExchange
 }
 
 // establishFromDeviceSecret obtains access's session by exchanging the stored
-// device secret, and reports whether it did. A missing or expired secret, or
-// one the provider no longer answers, is not an error: the secret is
-// discarded and the caller authorizes through the browser instead.
+// device secret, and reports whether the access is one the exchange serves. For
+// such an access a missing, expired or refused secret is refused with
+// auth.device_secret_unavailable rather than authorized in the browser: the
+// person chose the exchange, and productSessions is how they choose the
+// browser. A secret the provider no longer answers is discarded first.
 func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access contexts.ProductAccess) (oauthflow.Result, bool, error) {
 	identity := selected.Identity
 	if !fromDeviceSecret(identity, access) {
 		return oauthflow.Result{}, false, nil
+	}
+	unavailable := func(reason string) (oauthflow.Result, bool, error) {
+		return oauthflow.Result{}, true, deviceSecretUnavailable(selected.Context.Name, access.Namespace, reason)
 	}
 	root, err := s.stateRoot()
 	if err != nil {
@@ -72,15 +83,24 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 	loginRef := identity.LoginAccess().SessionRef
 	login, err := store.Load(loginRef)
 	if isNoSession(err) {
-		return oauthflow.Result{}, false, nil
+		return unavailable("no sign-in is stored to exchange a device secret from")
 	}
-	if err != nil || login.DeviceSecret == "" {
-		return oauthflow.Result{}, false, err
+	if err != nil {
+		return oauthflow.Result{}, true, err
+	}
+	discarded := func(reason string) (oauthflow.Result, bool, error) {
+		if err := discardDeviceSecret(store, loginRef, login.DeviceSecret); err != nil {
+			return oauthflow.Result{}, true, err
+		}
+		return unavailable(reason)
+	}
+	if login.DeviceSecret == "" {
+		return unavailable("the sign-in kept no device secret")
 	}
 	now := time.Now()
 	if !login.DeviceSecretExpiresAt.IsZero() && !login.DeviceSecretExpiresAt.After(now.Add(deviceSecretMargin)) {
 		s.log.Debug("the device secret has expired", "credential_ref", loginRef)
-		return oauthflow.Result{}, false, s.endDeviceSecret(store, loginRef, login.DeviceSecret, access)
+		return discarded("the device secret has expired")
 	}
 	s.log.Debug("establishing a product session from the device secret",
 		"context", selected.Context.Name,
@@ -94,10 +114,11 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 	granted, err := auth.ExchangeDeviceSecret(ctx, nil, access, login.DeviceSecret, now)
 	if errors.Is(err, auth.ErrDeviceSecretSpent) {
 		s.log.Debug("the identity provider no longer accepts the device secret", "credential_ref", loginRef)
-		return oauthflow.Result{}, false, s.endDeviceSecret(store, loginRef, login.DeviceSecret, access)
+		return discarded("the identity provider no longer accepts the device secret, since the sign-on " +
+			"it describes has ended")
 	}
 	if err != nil {
-		return oauthflow.Result{}, false, err
+		return oauthflow.Result{}, true, err
 	}
 	extra := map[string]any{}
 	if granted.Granted != nil {
@@ -112,19 +133,13 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 	result := oauthflow.Result{Token: token, Subject: login.Subject, Name: login.Name, Email: login.Email}
 	if checkIssuedIn(selected.Context, result) != nil {
 		// The sign-on the secret describes is in another organization, and
-		// so will every later exchange be; the browser authorization names
-		// the one the context does.
+		// so will every later exchange be.
 		s.log.Debug("the device secret answers in another organization", "credential_ref", loginRef)
 		s.revokeUnused(access, result)
-		if err := discardDeviceSecret(store, loginRef, login.DeviceSecret); err != nil {
-			return oauthflow.Result{}, false, err
-		}
-		_, err := fmt.Fprintf(s.Streams.Err, "Your earlier sign-in is in another organization; the %q product "+
-			"needs the browser.\n", access.Namespace)
-		return oauthflow.Result{}, false, err
+		return discarded("the device secret answers in another organization than the context records")
 	}
 	if err := s.storeSession(access, result, session.EstablishedByDeviceSecret); err != nil {
-		return oauthflow.Result{}, false, err
+		return oauthflow.Result{}, true, err
 	}
 	// Best effort, like the browser path's own lines: the session is stored.
 	_, _ = fmt.Fprintf(s.Streams.Err, "Authorized the %q product from this sign-in, without the browser.\n",
@@ -132,15 +147,15 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 	return result, true, nil
 }
 
-// endDeviceSecret discards a device secret that can no longer be used, and
-// says that the product goes to the browser instead.
-func (s Shell) endDeviceSecret(store session.Store, loginRef, secret string, access contexts.ProductAccess) error {
-	if err := discardDeviceSecret(store, loginRef, secret); err != nil {
-		return err
-	}
-	_, err := fmt.Fprintf(s.Streams.Err, "Your earlier sign-in has ended; the %q product needs the browser.\n",
-		access.Namespace)
-	return err
+// deviceSecretUnavailable refuses a product the exchange cannot serve, naming
+// the two ways on: a fresh sign-in, which issues a new secret, and the
+// setting that authorizes products in the browser instead.
+func deviceSecretUnavailable(contextName, namespace, reason string) error {
+	return problem.New(problem.CategoryAuthPolicy, "auth.device_secret_unavailable",
+		fmt.Sprintf("the %q product cannot be authorized from this sign-in: %s", namespace, reason)).
+		WithRecovery(fmt.Sprintf("Run wso2 login to sign in again, which issues a new device secret, or "+
+			"set productSessions: browser in the login of the %q context to authorize each product in the "+
+			"browser instead.", contextName))
 }
 
 // discardDeviceSecret removes the device secret from the login session,

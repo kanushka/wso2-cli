@@ -63,8 +63,9 @@ func TestOrgUseOnCloudSignsInAgainForTheOtherOrganization(t *testing.T) {
 		t.Errorf("org use opened the browser %d times, want one tab", opened)
 	}
 	chained := login.issuer.AuthorizationPaths()[before:]
-	if len(chained) < 2 {
-		t.Errorf("org use authorized %d times in the tab, want the login and iam: %v", len(chained), chained)
+	if len(chained) != 1 {
+		t.Errorf("org use authorized %d times in the tab, want the login alone, iam from its device secret: %v",
+			len(chained), chained)
 	}
 	for _, path := range chained {
 		if path != "/ou/"+betaUnit.ID+"/authorize" {
@@ -226,6 +227,7 @@ func TestACloudContextEditedToAnotherOrganizationIsRefusedAtTheBroker(t *testing
 // same tab at that organization's endpoint, without a prompt.
 func TestOrgUseOnCloudWithNoArgumentLetsThePersonChooseInTheBrowser(t *testing.T) {
 	login := newSignedInCloudOrgsWith(t, fakeissuer.Options{ChosenOrganizationUnit: betaUnit.ID})
+	useProductSessions(t, login.shell, contexts.ProductSessionsBrowser)
 	before := len(login.issuer.AuthorizationPaths())
 
 	login.run(t, "org", "use")
@@ -339,5 +341,14 @@ func TestOrgUseOnCloudUnderJSONIsOneDocumentWithItsNextStep(t *testing.T) {
 	if document.Organization != betaUnit.ID || len(document.Next) == 0 ||
 		!strings.HasSuffix(document.Next[0], " status") {
 		t.Errorf("document = %+v, want the organization and the status of the first ready product as next", document)
+	}
+}
+
+func useProductSessions(t *testing.T, shell app.Shell, method string) {
+	t.Helper()
+	context := cloudContext(t, shell)
+	context.Login.ProductSessions = method
+	if err := contexts.Save(shell.StateRoot, loadDocument(t, shell).Put(context)); err != nil {
+		t.Fatal(err)
 	}
 }

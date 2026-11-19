@@ -182,6 +182,11 @@ type Login struct {
 	// ClientSecretVariable names the environment variable holding the client
 	// secret for the client-credentials kind. It is a name, never a value.
 	ClientSecretVariable string `json:"clientSecretVariable,omitempty"`
+	// ProductSessions says how a product with a session of its own at the
+	// login issuer gets it once the login session stands:
+	// ProductSessionsExchange (the default when empty) or
+	// ProductSessionsBrowser.
+	ProductSessions string `json:"productSessions,omitempty"`
 	// Product names the direct product the login authorization is run for.
 	// Written whenever the context reaches a direct product, so that adding a
 	// product which sorts earlier never moves the login from under the
@@ -232,6 +237,9 @@ type AccountAuth struct {
 	// IssuerID is the login block's issuerId. Schema version 3 has no such
 	// member, so it is never decoded from or encoded into one.
 	IssuerID string `json:"-"`
+	// ProductSessions is the login block's productSessions. Schema version 3
+	// has no such member.
+	ProductSessions string `json:"-"`
 	// CredentialVariable exists only on synthetic v1 contexts. Never encoded.
 	CredentialVariable string `json:"-"`
 }
@@ -251,6 +259,7 @@ func (c Context) Account() Account {
 			Provider:             c.Login.Provider,
 			Narrowing:            c.Login.Narrowing,
 			IssuerID:             c.Login.IssuerID,
+			ProductSessions:      c.Login.ProductSessions,
 			CredentialVariable:   c.credentialVariable,
 		},
 		Products:     c.Products,
@@ -271,7 +280,7 @@ func FromAccount(name string, account Account) Context {
 			Kind: account.Auth.Kind, Issuer: account.Auth.Issuer, ClientID: account.Auth.ClientID,
 			Tenant: account.Auth.Tenant, Provider: account.Auth.Provider, Narrowing: account.Auth.Narrowing,
 			ClientSecretVariable: account.Auth.ClientSecretVariable, Product: account.LoginProduct,
-			IssuerID: account.Auth.IssuerID,
+			IssuerID: account.Auth.IssuerID, ProductSessions: account.Auth.ProductSessions,
 		},
 		Products: account.Products,
 	}

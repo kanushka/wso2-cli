@@ -38,6 +38,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/contexts/fixture"
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
 const (
@@ -59,7 +60,8 @@ type deviceSecretLogin struct {
 	opened []url.Values
 }
 
-func newDeviceSecretLogin(t *testing.T, options fakeissuer.Options, provider string) *deviceSecretLogin {
+func newDeviceSecretLogin(t *testing.T, options fakeissuer.Options, provider string,
+	edits ...func(*contexts.Login)) *deviceSecretLogin {
 	t.Helper()
 	keyring.MockInit()
 	for _, name := range []string{"WSO2_NO_INPUT", "WSO2_CONTEXT", CloudEnvVar} {
@@ -92,10 +94,33 @@ func newDeviceSecretLogin(t *testing.T, options fakeissuer.Options, provider str
 				"second": {Endpoint: "https://second.example", Audience: deviceSecondAudience, Scopes: deviceSecondScopes},
 			}}},
 	}
+	for _, edit := range edits {
+		edit(&document.Contexts[0].Login)
+	}
 	if err := fixture.WriteV2(login.shell.StateRoot, document); err != nil {
 		t.Fatal(err)
 	}
 	return login
+}
+
+func productSessions(method string) func(*contexts.Login) {
+	return func(login *contexts.Login) { login.ProductSessions = method }
+}
+
+// refusedForTheSetting asserts err is the refusal that names the
+// productSessions setting, and that nothing was opened in the browser.
+func (d *deviceSecretLogin) refusedForTheSetting(t *testing.T, err error, opensBefore int) {
+	t.Helper()
+	var refusal problem.Problem
+	if !errors.As(err, &refusal) || refusal.Code != "auth.device_secret_unavailable" {
+		t.Fatalf("error = %v, want auth.device_secret_unavailable", err)
+	}
+	if !strings.Contains(refusal.Recovery, "productSessions: browser") {
+		t.Errorf("the recovery does not name the setting: %q", refusal.Recovery)
+	}
+	if got := d.browserOpens(); got != opensBefore {
+		t.Errorf("opened the browser %d times, want %d: no silent fallback", got, opensBefore)
+	}
 }
 
 func (d *deviceSecretLogin) run(t *testing.T, args ...string) {
@@ -226,24 +251,57 @@ func TestAWithheldScopeIsNamedForASessionFromTheDeviceSecret(t *testing.T) {
 	}
 }
 
-func TestAReusedBrowserSessionAuthorizesEachProductInOneBrowserTab(t *testing.T) {
+func TestAReusedBrowserSessionWithNoSecretRefusesTheNextProduct(t *testing.T) {
 	login := newDeviceSecretLogin(t, fakeissuer.Options{DeviceSSO: true, ReusedBrowserSession: true},
 		contexts.ProviderThunder)
+
+	if code := login.shell.Run([]string{"login"}); code != 77 {
+		t.Fatalf("login exit %d, want 77; stderr %s", code, login.errOut)
+	}
+	if !strings.Contains(login.errOut.String(), "auth.device_secret_unavailable") ||
+		!strings.Contains(login.errOut.String(), "productSessions: browser") {
+		t.Errorf("the refusal does not name the code and the setting:\n%s", login.errOut)
+	}
+	if strings.Contains(login.errOut.String(), "--only second") {
+		t.Errorf("the refusal offers a retry that presents the same missing secret:\n%s", login.errOut)
+	}
+	if got := login.browserOpens(); got != 1 {
+		t.Errorf("opened the browser %d times, want only the sign-in", got)
+	}
+	if _, err := (session.Store{StateRoot: login.shell.StateRoot}).Load(
+		contexts.ProductSessionRef(deviceRef, "second")); err == nil {
+		t.Error("the second product got a session though no secret was issued")
+	}
+}
+
+func TestProductSessionsByBrowserAuthorizeEachProductInOneBrowserTab(t *testing.T) {
+	login := newDeviceSecretLogin(t, fakeissuer.Options{DeviceSSO: true, ReusedBrowserSession: true},
+		contexts.ProviderThunder, productSessions(contexts.ProductSessionsBrowser))
 
 	login.run(t, "login")
 
 	if got := login.browserOpens(); got != 1 {
 		t.Fatalf("opened the browser %d times, want once for both products", got)
 	}
-	if !login.askedForDeviceSecret() {
-		t.Error("the login did not ask for a device secret")
-	}
-	if login.load(t, deviceRef).DeviceSecret != "" {
-		t.Error("a device secret was stored though none was issued")
+	if login.askedForDeviceSecret() {
+		t.Error("a login that authorizes products in the browser asked for a device secret")
 	}
 	if second := login.load(t, contexts.ProductSessionRef(deviceRef, "second")); second.EstablishedBy != "" ||
 		second.Resource != deviceSecondAudience {
 		t.Errorf("second session = %+v, want a browser authorization bound to its audience", second.Resource)
+	}
+}
+
+func TestProductSessionsByBrowserNeverExchangeASecret(t *testing.T) {
+	login := newDeviceSecretLogin(t, fakeissuer.Options{DeviceSSO: true}, contexts.ProviderThunder,
+		productSessions(contexts.ProductSessionsBrowser))
+	login.run(t, "login", "--only", "first")
+
+	selected := login.selection(t)
+	access, _ := selected.Identity.Access("second")
+	var unavailable auth.BrowserUnavailable
+	if err := login.shell.sessionEstablisher(selected, "second", true)(access); !errors.As(err, &unavailable) {
+		t.Fatalf("first use under --no-input = %v, want the browser refused", err)
 	}
 }
 
@@ -265,44 +323,30 @@ func TestFirstUseUnderNoInputIsServedByTheDeviceSecret(t *testing.T) {
 	}
 }
 
-func TestFirstUseUnderNoInputWithoutADeviceSecretIsRefused(t *testing.T) {
+func TestFirstUseWithoutADeviceSecretIsRefusedNamingTheSetting(t *testing.T) {
 	login := newDeviceSecretLogin(t, fakeissuer.Options{DeviceSSO: true, ReusedBrowserSession: true},
 		contexts.ProviderThunder)
 	login.run(t, "login", "--only", "first")
 
 	selected := login.selection(t)
 	access, _ := selected.Identity.Access("second")
-	var unavailable auth.BrowserUnavailable
-	if err := login.shell.sessionEstablisher(selected, "second", true)(access); !errors.As(err, &unavailable) {
-		t.Fatalf("first use = %v, want the browser refused", err)
+	for _, noInput := range []bool{true, false} {
+		err := login.shell.sessionEstablisher(selected, "second", noInput)(access)
+		login.refusedForTheSetting(t, err, 1)
 	}
 }
 
-func TestAnEndedBrowserSessionDiscardsTheSecretAndFallsBack(t *testing.T) {
+func TestAnEndedBrowserSessionDiscardsTheSecretAndRefuses(t *testing.T) {
 	login := newDeviceSecretLogin(t, fakeissuer.Options{DeviceSSO: true}, contexts.ProviderThunder)
 	login.run(t, "login", "--only", "first")
 	login.issuer.EndBrowserSession()
 
 	selected := login.selection(t)
 	access, _ := selected.Identity.Access("second")
-	var unavailable auth.BrowserUnavailable
-	if err := login.shell.sessionEstablisher(selected, "second", true)(access); !errors.As(err, &unavailable) {
-		t.Fatalf("first use = %v, want the browser path, refused under --no-input", err)
-	}
+	login.refusedForTheSetting(t, login.shell.sessionEstablisher(selected, "second", false)(access), 1)
 	if stored := login.load(t, deviceRef); stored.DeviceSecret != "" || stored.RefreshToken == "" {
 		t.Errorf("login session kept secret=%v refresh=%v; want the secret discarded and the session kept",
 			stored.DeviceSecret != "", stored.RefreshToken != "")
-	}
-	if !strings.Contains(login.errOut.String(),
-		`Your earlier sign-in has ended; the "second" product needs the browser.`) {
-		t.Errorf("the fallback was not said:\n%s", login.errOut)
-	}
-
-	if err := login.shell.sessionEstablisher(selected, "second", false)(access); err != nil {
-		t.Fatalf("first use with a browser: %v", err)
-	}
-	if got := login.browserOpens(); got != 2 {
-		t.Errorf("opened the browser %d times, want the login and the fallback", got)
 	}
 }
 
@@ -339,20 +383,17 @@ func TestOnlyAThunderIDProviderThatAdvertisesDeviceSSOIsAskedForASecret(t *testi
 	} {
 		t.Run(name, func(t *testing.T) {
 			login := newDeviceSecretLogin(t, testCase.options, testCase.provider)
-			login.run(t, "login")
+			login.run(t, "login", "--only", "first")
 			if login.askedForDeviceSecret() {
 				t.Error("the login asked for a device secret")
-			}
-			if got := login.browserOpens(); got != 1 {
-				t.Errorf("opened the browser %d times, want once for both products", got)
 			}
 		})
 	}
 }
 
-// Each way the device secret stops serving says so in one plain line before
-// the browser is needed instead.
-func TestADeviceSecretThatStopsServingSaysTheBrowserIsNeeded(t *testing.T) {
+// Each way the device secret stops serving is refused with its reason, and
+// nothing goes to the browser instead.
+func TestADeviceSecretThatStopsServingIsRefusedWithItsReason(t *testing.T) {
 	home := fakeissuer.OrganizationUnit{ID: "7f21c4aa-9b2d-4e8f-8c3a-be7a00000001", Name: "Home", Handle: "home"}
 	other := fakeissuer.OrganizationUnit{ID: "7f21c4aa-9b2d-4e8f-8c3a-be7a00000002", Name: "Other", Handle: "other"}
 	for name, tc := range map[string]struct {
@@ -365,7 +406,7 @@ func TestADeviceSecretThatStopsServingSaysTheBrowserIsNeeded(t *testing.T) {
 			stop: func(_ *testing.T, login *deviceSecretLogin, _ *contexts.Selection) {
 				login.issuer.EndBrowserSession()
 			},
-			want: `Your earlier sign-in has ended; the "second" product needs the browser.`,
+			want: "no longer accepts the device secret",
 		},
 		"expired": {
 			options: fakeissuer.Options{DeviceSSO: true},
@@ -377,14 +418,14 @@ func TestADeviceSecretThatStopsServingSaysTheBrowserIsNeeded(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			want: `Your earlier sign-in has ended; the "second" product needs the browser.`,
+			want: "the device secret has expired",
 		},
 		"another organization": {
 			options: fakeissuer.Options{DeviceSSO: true, OrganizationUnits: []fakeissuer.OrganizationUnit{home, other}},
 			stop: func(_ *testing.T, _ *deviceSecretLogin, selected *contexts.Selection) {
 				selected.Context.Organization = other.ID
 			},
-			want: `Your earlier sign-in is in another organization; the "second" product needs the browser.`,
+			want: "answers in another organization",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -395,9 +436,10 @@ func TestADeviceSecretThatStopsServingSaysTheBrowserIsNeeded(t *testing.T) {
 			login.errOut.Reset()
 
 			access, _ := selected.Identity.Access("second")
-			_ = login.shell.sessionEstablisher(selected, "second", true)(access)
-			if !strings.Contains(login.errOut.String(), tc.want) {
-				t.Errorf("stderr does not say %q:\n%s", tc.want, login.errOut)
+			err := login.shell.sessionEstablisher(selected, "second", false)(access)
+			login.refusedForTheSetting(t, err, 1)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("refusal %v does not say %q", err, tc.want)
 			}
 		})
 	}
@@ -422,5 +464,13 @@ func TestDiscardingADeviceSecretKeepsOneANewerLoginStored(t *testing.T) {
 	}
 	if stored, err := store.Load("cloud-dev"); err != nil || stored.DeviceSecret != "" || stored.RefreshToken != "rt" {
 		t.Fatalf("after discarding the stored secret: %+v, %v", stored, err)
+	}
+}
+
+func TestAnotherProviderAuthorizesEveryProductInTheBrowserWhateverTheSetting(t *testing.T) {
+	login := newDeviceSecretLogin(t, fakeissuer.Options{DeviceSSO: true}, contexts.ProviderAsgardeo)
+	login.run(t, "login")
+	if got := login.browserOpens(); got != 1 {
+		t.Errorf("opened the browser %d times, want once for both products", got)
 	}
 }

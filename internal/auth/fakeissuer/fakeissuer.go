@@ -355,7 +355,7 @@ type Issuer struct {
 	onRevoke func()
 	// deviceSecrets are the device secrets issued, each live until the
 	// browser session it describes ends.
-	deviceSecrets map[string]bool
+	deviceSecrets map[string]deviceSecretRecord
 	// authorizations records every authorization request's query, in order,
 	// and authorizationPaths the path each one arrived at.
 	authorizations     []url.Values
@@ -427,7 +427,7 @@ func New(t *testing.T, opts Options) *Issuer {
 		keyID:         randomToken("key"),
 		codes:         map[string]codeGrant{},
 		refreshTokens: map[string]refreshRecord{},
-		deviceSecrets: map[string]bool{},
+		deviceSecrets: map[string]deviceSecretRecord{},
 		accessTokens:  map[string]tokenRecord{},
 		idTokens:      map[string]string{},
 		deviceGrants:  map[string]*deviceGrant{},
@@ -920,7 +920,7 @@ func (i *Issuer) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if i.opts.DeviceSSO && !i.opts.ReusedBrowserSession && slices.Contains(grant.scopes, deviceSSOScope) {
-		response["device_secret"] = i.mintDeviceSecret()
+		response["device_secret"] = i.mintDeviceSecret(grant.ou)
 	}
 	writeJSON(w, http.StatusOK, response)
 }
@@ -930,14 +930,21 @@ const (
 	jwtTokenType   = "urn:ietf:params:oauth:token-type:jwt"
 )
 
-func (i *Issuer) mintDeviceSecret() string {
+// deviceSecretRecord is one issued device secret: whether the sign-on it
+// describes still stands, and the organization unit it was signed in to.
+type deviceSecretRecord struct {
+	live bool
+	ou   *OrganizationUnit
+}
+
+func (i *Issuer) mintDeviceSecret(ou *OrganizationUnit) string {
 	now := time.Now()
 	secret := i.sign(map[string]any{
 		"iss": i.Identifier(), "aud": i.Identifier(), "sub": "user-1", "sid": randomToken("sid"),
 		"iat": now.Unix(), "exp": now.Add(24 * time.Hour).Unix(),
 	})
 	i.mutex.Lock()
-	i.deviceSecrets[secret] = true
+	i.deviceSecrets[secret] = deviceSecretRecord{live: true, ou: ou}
 	i.mutex.Unlock()
 	return secret
 }
@@ -947,8 +954,9 @@ func (i *Issuer) mintDeviceSecret() string {
 func (i *Issuer) EndBrowserSession() {
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
-	for secret := range i.deviceSecrets {
-		i.deviceSecrets[secret] = false
+	for secret, record := range i.deviceSecrets {
+		record.live = false
+		i.deviceSecrets[secret] = record
 	}
 }
 
@@ -958,8 +966,9 @@ func (i *Issuer) EndBrowserSession() {
 // holds, or interaction_required once the browser session has ended.
 func (i *Issuer) deviceSecretGrant(w http.ResponseWriter, r *http.Request) {
 	i.mutex.Lock()
-	live, issued := i.deviceSecrets[r.PostForm.Get("subject_token")]
+	record, issued := i.deviceSecrets[r.PostForm.Get("subject_token")]
 	i.mutex.Unlock()
+	live := record.live
 	switch {
 	case presentedClientID(r) == "":
 		oauthError(w, http.StatusUnauthorized, "invalid_client")
@@ -973,7 +982,10 @@ func (i *Issuer) deviceSecretGrant(w http.ResponseWriter, r *http.Request) {
 	}
 	resource := r.PostForm.Get("resource")
 	scopes := i.withoutWithheld(splitScopes(r.PostForm.Get("scope")))
-	ou := i.homeOrganizationUnit()
+	ou := record.ou
+	if ou == nil {
+		ou = i.homeOrganizationUnit()
+	}
 	refreshToken := randomToken("rt")
 	i.mutex.Lock()
 	i.refreshTokens[refreshToken] = refreshRecord{scopes: scopes, resource: resource, ou: ou}

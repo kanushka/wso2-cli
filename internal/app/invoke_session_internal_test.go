@@ -50,7 +50,7 @@ func sessionEstablisherDoc(loginIssuer string) contexts.Document {
 		SchemaVersion:  contexts.SchemaVersion,
 		DefaultContext: "acme-dev",
 
-		Contexts: []contexts.Context{{Name: "acme-dev", Type: "cloud", CredentialRef: sessionEstablisherCredentialRef, Login: contexts.Login{Kind: contexts.KindOAuthBrowser, Issuer: loginIssuer, ClientID: "client-123", Tenant: "acme", Provider: contexts.ProviderThunder}, Products: map[string]contexts.Product{
+		Contexts: []contexts.Context{{Name: "acme-dev", Type: "cloud", CredentialRef: sessionEstablisherCredentialRef, Login: contexts.Login{Kind: contexts.KindOAuthBrowser, Issuer: loginIssuer, ClientID: "client-123", Tenant: "acme", Provider: contexts.ProviderThunder, ProductSessions: contexts.ProductSessionsBrowser}, Products: map[string]contexts.Product{
 			"gateway": {
 				Endpoint: "https://gw.example",
 				Audience: "http://localhost:18080/mockapi",

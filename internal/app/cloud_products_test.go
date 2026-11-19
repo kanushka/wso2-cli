@@ -77,6 +77,10 @@ func newCloudLoginWith(t *testing.T, opts fakeissuer.Options) *cloudLogin {
 	t.Helper()
 	keyring.MockInit()
 	opts.Host, opts.RequireResource = "localhost", true
+	// WSO2 Cloud's ThunderID issues a device secret on every sign-in.
+	if !opts.ReusedBrowserSession {
+		opts.DeviceSSO = true
+	}
 	issuer := fakeissuer.New(t, opts)
 	shell, out, errOut := newLoginShell(t)
 	login := &cloudLogin{shell: shell, out: out, errOut: errOut, issuer: issuer}
@@ -175,9 +179,10 @@ func TestCloudLoginRecordsEveryInstalledCloudProductAndAuthorizesEach(t *testing
 	}
 
 	asked := login.authorizedScopes()
-	if len(asked) != 2 || !slices.Equal(asked[cloudShared], cloudAPIMScopes) ||
-		!slices.Equal(asked[cloudIAMURL], cloudIAMScopes) {
-		t.Errorf("authorizations asked for %v, want one per product with exactly its resource and scopes", asked)
+	if len(asked) != 1 || !slices.Equal(slices.DeleteFunc(asked[cloudShared], func(scope string) bool {
+		return scope == "device_sso"
+	}), cloudAPIMScopes) {
+		t.Errorf("authorizations asked for %v, want the sign-in alone with apim's resource and scopes", asked)
 	}
 	if login.opened != 1 {
 		t.Errorf("the browser was opened %d times, want once for both products", login.opened)
@@ -190,6 +195,11 @@ func TestCloudLoginRecordsEveryInstalledCloudProductAndAuthorizesEach(t *testing
 		stored, err := store.Load(ref)
 		if err != nil || stored.Resource != resource {
 			t.Errorf("session %s = %+v, %v; want one bound to %s", ref, stored, err, resource)
+		}
+		if resource == cloudIAMURL && (!slices.Equal(stored.Scopes, cloudIAMScopes) ||
+			stored.EstablishedBy != session.EstablishedByDeviceSecret) {
+			t.Errorf("iam session scopes %v established by %q, want %v from the device secret",
+				stored.Scopes, stored.EstablishedBy, cloudIAMScopes)
 		}
 	}
 
@@ -527,7 +537,7 @@ func TestACloudLoginUnderJSONWritesOneDocument(t *testing.T) {
 	if decoder.More() {
 		t.Errorf("standard output holds more than one document")
 	}
-	if !strings.Contains(login.errOut.String(), `Authorizing the "iam" product in the same browser tab.`) {
+	if !strings.Contains(login.errOut.String(), `Authorized the "iam" product from this sign-in, without the browser.`) {
 		t.Errorf("the progress line is not on standard error:\n%s", login.errOut)
 	}
 }

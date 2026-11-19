@@ -362,6 +362,11 @@ func extendIncompleteLoginRecovery(err error, established []contexts.ProductAcce
 	resume := fmt.Sprintf("Run wso2 login --only %s to retry just that product; "+
 		"the sessions already established are kept.", failed.Namespace)
 	recovery := sentence + " " + resume
+	// Retrying the product alone presents the same secret again; only a fresh
+	// sign-in or the setting helps, and the refusal already names both.
+	if reported.Code == "auth.device_secret_unavailable" {
+		recovery = sentence
+	}
 	if reported.Recovery != "" {
 		recovery = reported.Recovery + " " + recovery
 	}

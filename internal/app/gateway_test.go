@@ -44,6 +44,7 @@ const (
 func gatewayDoc(loginIssuer, productIssuer string) contexts.Document {
 	document := browserDoc(loginIssuer)
 	document.Contexts[0].Login.Provider = contexts.ProviderThunder
+	document.Contexts[0].Login.ProductSessions = contexts.ProductSessionsBrowser
 	document.Contexts[0].Organization = ""
 	document.Contexts[0].Login.Product = "iam"
 	document.Contexts[0].Products = map[string]contexts.Product{
@@ -252,6 +253,7 @@ func TestWhoamiShowsTheGatewayRecordBesideTheManagementOne(t *testing.T) {
 	machine.Contexts[0].CredentialRef = ""
 	machine.Contexts[0].Login.ClientSecretVariable = "WSO2_CI_CLIENT_SECRET"
 	machine.Contexts[0].Login.Product = ""
+	machine.Contexts[0].Login.ProductSessions = ""
 	installLogin(t, shell, machine)
 	out.Reset()
 	if code := shell.Run([]string{"whoami"}); code != exit.OK {
