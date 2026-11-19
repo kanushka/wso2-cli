@@ -25,12 +25,12 @@ handle (else the id), beside `organizationId` and `organizationName`.
 On a WSO2 Cloud context, `organization` names the ThunderID organization unit
 its sessions are signed in to, by id. Every authorization for the context is
 then sent to that organization's own endpoints: the discovered authorization
-and token endpoints with `/ou/<id>` ahead of their paths. A session whose token names
-another organization is refused with `auth.organization_mismatch` before it is
-stored, and its refresh token revoked. A device secret that answers in another
-organization is discarded, with the session it yielded, and the product is
-authorized in the browser instead. In place of the broker's home-tenant check,
-written for Asgardeo, a product command is refused with
+and token endpoints with `/ou/<id>` ahead of their paths. A session whose token
+names another organization is refused with `auth.organization_mismatch` before
+it is stored, and its refresh token revoked. A device secret that answers in
+another organization is discarded, with the session it yielded, and the product
+is authorized in the browser instead. In place of the broker's home-tenant
+check, written for Asgardeo, a product command is refused with
 `auth.organization_mismatch` when the login session's token names another
 organization than the context records, as after the context is edited by
 hand.
@@ -57,10 +57,11 @@ So the switch ends the sessions as above and asks for the first
 authorization at the discovered endpoint with `prompt=login`, which ThunderID
 takes as a forced sign-in. The products after it chain in the same tab with
 `prompt=none` at the organization that sign-in was issued in, and that
-organization is recorded once every product has signed in. The cost is
-choosing the sign-in provider again. A picker without a fresh sign-in would
-need ThunderID to offer one (it refuses `prompt=select_account`), so `ws login`
-itself keeps reusing the browser session and adds no flag for this. On any other ThunderID or
+organization is recorded once every product has signed in; a sign-in issued in
+no organization is refused before they chain. The cost is choosing the sign-in
+provider again. A picker without a fresh sign-in would need ThunderID to offer
+one (it refuses `prompt=select_account`), so `ws login` itself keeps reusing
+the browser session and adds no flag for this. On any other ThunderID or
 Identity Server context it is still refused with
 `auth.organization_switch_unsupported`.
 
@@ -68,9 +69,9 @@ Identity Server context it is still refused with
 lists the organizations a user belongs to. It is kept out of help and the root
 listing until something does, against the guide's rule that help lists only
 commands that work, so that typing it still gets a refusal that says how to
-choose an organization: `ws org use` with no argument. Whether the provider supports the
-organization endpoint, and whether it will publish such a list, are open
-questions to the platform team; the refusal goes when a list exists.
+choose an organization: `ws org use` with no argument. Whether the provider
+supports the organization endpoint, and whether it will publish such a list,
+are open questions to the platform team; the refusal goes when a list exists.
 
 ## The broker serves what the sign-in was granted
 
