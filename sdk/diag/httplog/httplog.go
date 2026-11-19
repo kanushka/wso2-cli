@@ -23,6 +23,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"regexp"
 	"time"
 
 	"github.com/wso2/wso2-cli/sdk/diag"
@@ -56,17 +57,30 @@ func (t loggingTransport) RoundTrip(request *http.Request) (*http.Response, erro
 		"duration_ms", time.Since(started).Milliseconds(),
 	}
 	if err != nil {
-		// A *url.Error repeats the full URL, query included, so only its cause
-		// is logged.
-		var wrapped *url.Error
-		if errors.As(err, &wrapped) {
-			err = wrapped.Err
-		}
-		log.Debug("a request failed", append(attributes, "error", err.Error())...)
+		log.Debug("a request failed", append(attributes, "error", loggableError(err))...)
 		return response, err
 	}
 	log.Debug("sent a request", append(attributes, "status", response.StatusCode)...)
 	return response, nil
+}
+
+var urlInText = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.\-]*://[^\s"'<>]+`)
+
+// loggableError is an error's text with every URL in it cut down the way the
+// url attribute is. A *url.Error repeats the request URL, and a custom
+// transport may quote one, so neither reaches the log with its query.
+func loggableError(err error) string {
+	var wrapped *url.Error
+	if errors.As(err, &wrapped) && wrapped.Err != nil {
+		err = wrapped.Err
+	}
+	return urlInText.ReplaceAllStringFunc(err.Error(), func(found string) string {
+		parsed, parseErr := url.Parse(found)
+		if parseErr != nil {
+			return "[url]"
+		}
+		return loggableURL(parsed)
+	})
 }
 
 func loggableURL(target *url.URL) string {

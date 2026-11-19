@@ -19,6 +19,7 @@ package httplog
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -78,5 +79,33 @@ func TestTransportLogsAFailureWithoutTheQuery(t *testing.T) {
 	}
 	if strings.Contains(captured.String(), "k-must-never-appear") {
 		t.Fatalf("the failure log carries the query:\n%s", &captured)
+	}
+}
+
+type failingTransport struct{ err error }
+
+func (f failingTransport) RoundTrip(*http.Request) (*http.Response, error) { return nil, f.err }
+
+// A custom transport is free to quote the URL in its error. The caller still
+// gets that error as it was returned; the log gets it without the query.
+func TestTransportReturnsTheInnerErrorAndLogsItWithoutTheQuery(t *testing.T) {
+	inner := errors.New(`proxy refused "https://user:pw@api.example.test/apis?apiKey=k-must-never-appear#frag"`)
+	var captured bytes.Buffer
+	ctx := diag.WithLogger(context.Background(), diag.New(&captured, false))
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.example.test/apis", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, returned := Transport(failingTransport{err: inner}).RoundTrip(request)
+	if returned != inner {
+		t.Fatalf("RoundTrip returned %v, want the inner transport's error itself", returned)
+	}
+	for _, leaked := range []string{"k-must-never-appear", "user:pw", "#frag"} {
+		if strings.Contains(captured.String(), leaked) {
+			t.Fatalf("the failure log carries %q:\n%s", leaked, &captured)
+		}
+	}
+	if !strings.Contains(captured.String(), "proxy refused") || !strings.Contains(captured.String(), "https://api.example.test/apis") {
+		t.Fatalf("the failure log lost its cause:\n%s", &captured)
 	}
 }
