@@ -135,6 +135,14 @@ by the shell. One sign-on answers every authorization the shell runs for that
 context, so a person enters credentials once however many products follow.
 _Avoid_: SSO session, browser login, auto sign-in
 
+**Service account**:
+A client-credentials application created in the WSO2 Cloud console, holding
+roles of its own, that automation signs in to WSO2 Cloud as with
+`ws login --service-account`. It is not the account record ADR 0016 retired:
+a context still holds the login, and the service account is only whose
+credential that login presents (ADR 0025).
+_Avoid_: Machine user, bot account, robot
+
 **Product session**:
 The authorization one interactive context holds on this machine for one
 product namespace, kept in the OS secure store under that context's

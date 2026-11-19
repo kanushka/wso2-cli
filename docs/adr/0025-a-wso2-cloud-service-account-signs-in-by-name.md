@@ -10,10 +10,11 @@ roles of its own. This records how the shell signs in as one.
 
 ## Named on the command line, read from the environment
 
-`ws login --service-account` signs in as the account `WSO2_CLIENT_ID` and
-`WSO2_CLIENT_SECRET` hold, in the environment `WSO2_CLOUD_ENV` names. A plain
+`ws login --service-account` signs in as the service account
+`WSO2_CLIENT_ID` and `WSO2_CLIENT_SECRET` hold, or the variables
+`--client-id-variable` and `--client-secret-variable` name, in the environment `WSO2_CLOUD_ENV` names. A plain
 `ws login` never does, with or without a terminal, even when the variables are
-set; it says on standard error that they were ignored. A developer's machine
+set; on a terminal it says on standard error that they were ignored. A developer's machine
 that carries CI's variables would otherwise sign in as the wrong identity, and
 nothing the shell switches to on its own is something a person can see coming.
 
@@ -34,17 +35,21 @@ The grant needs no person, so nothing is stored: each command gets its own
 tokens, as any `client-credentials` context does, and there is nothing to
 renew or revoke at logout.
 
-## The login checks the account and records what it holds
+## The login checks the service account and records what it holds
 
 The login gets every product's token before it writes anything. ThunderID
-leaves out, with a success, the scopes the account's roles do not carry, so
-the login records each product's granted scopes, and names on standard error
-what was left out: a later command asking for more is refused there, naming
-what it lacks. An account granted nothing for any product, or whose tokens
-name no organization (the `ouId` claim), is refused and nothing is written.
+leaves out, with a success, the scopes the service account's roles do not
+carry, so the login records each product's granted scopes and says on
+standard error which products lack some, with the scopes in its report and
+under `--verbose`: a later command asking for more is refused there, naming
+what it lacks. A product the identity provider will not issue for, or whose
+module does not admit a service account, is named and left out, and the login
+goes on with the rest. A service account granted nothing for any product, or
+whose tokens name no organization (the `ouId` claim), is refused and nothing
+is written.
 
 The organization the tokens name is recorded as the context's organization
-and as its login's home tenant: the account is registered in that
+and as its login's home tenant: the service account is registered in that
 organization and every token it is issued is issued there.
 
 ## A person sets it up with the same command
@@ -52,9 +57,9 @@ organization and every token it is issued is issued there.
 On a terminal, `ws login --service-account` asks for whatever is not set,
 the secret without echo, checks it the same way, and prints the variables CI
 needs, the secret's as a name only, and the one command CI runs:
-`ws login --service-account --no-input`. When it asked for anything it writes
-no context, because one naming variables this machine does not set would
-serve no command here.
+`ws login --service-account --no-input`. When it asked for the client id or
+the secret it writes no context, and says so, because one naming variables
+this machine does not set would serve no command here.
 
 ## Considered Options
 
@@ -62,7 +67,7 @@ serve no command here.
   saves CI one flag, and signs a developer's machine in as CI.
 - **A token per command shared across products at `urn:wso2:cloud`.** Fewer
   requests, at the cost of every module carrying every product's authority.
-- **Registering the account from the shell.** ThunderID's client registration
+- **Registering the service account from the shell.** ThunderID's client registration
   requires the deployment-wide `system` permission, which a person's token
   does not carry.
 - **The secret in a file.** Useful where secrets are mounted as files; left

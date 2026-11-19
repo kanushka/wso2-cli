@@ -98,51 +98,61 @@ lowercase domain name or an `environment` that is not one host name label.
 CI and other automation sign in to WSO2 Cloud as a service account, a
 client-credentials application created in the WSO2 Cloud console, with
 `ws login --service-account` (ADR 0025). It reads three variables:
-`WSO2_CLOUD_ENV`, the environment; `WSO2_CLIENT_ID`, the account's client id;
-and `WSO2_CLIENT_SECRET`, its secret. The secret is never taken on the command
-line.
+`WSO2_CLOUD_ENV`, the environment; `WSO2_CLIENT_ID`, the service account's
+client id; and `WSO2_CLIENT_SECRET`, its secret. `--client-id-variable` and
+`--client-secret-variable` name other variables; without `--service-account`
+they are refused with `shell.conflicting_arguments`. The secret is never taken
+on the command line.
 
 The login installs the WSO2 Cloud products that are not installed, then asks
 the environment's identity provider for one token per installed product, each
 for that product's resource server and its own scopes, exactly as every later
 command will. It then writes the context `cloud-<environment>-ci`, or the one
-`--context` names, and selects it. The context is a `client-credentials`
-context: it records the client id and the name of the secret's variable,
-never the secret. Its organization is the one the account's tokens name, and
-each product records the scopes the account was granted. Nothing is stored
-beyond the context: every command gets its own tokens, and there is nothing
-for `ws logout` to end. Each run of the login writes the context again.
+`--context` names, and selects it; it replaces only a WSO2 Cloud
+client-credentials context, and refuses any other of that name with
+`contexts.context_exists`. The context is a `client-credentials` context: it
+records the client id and the name of the secret's variable, never the
+secret. Its organization is the one the service account's tokens name, and
+each product records the scopes the service account was granted. Nothing is
+stored beyond the context: every command gets its own tokens, and there is
+nothing for `ws logout` to end. Each run of the login writes the context
+again.
 
-A product the account was granted only some of its scopes for is named on
-standard error with the scopes it lacks, and one it was granted none for is
-named too; commands that need what is missing are refused. The login fails
-with `auth.narrowing_unavailable` when the account was granted nothing for
-any product, and with `auth.organization_not_selected` when its tokens name
-no organization; nothing is written either way. A rejected secret is
-`auth.credential_unavailable`, naming the variable, and an identity provider
-that gives no answer exits 68. `--url`, `--client-id`, `--only` and
-`--no-products` are refused beside it with `shell.conflicting_arguments`.
+A product whose module does not declare `machine: ["inline"]` is left out,
+said in one line on standard error, `Left out <product>: its module does not
+accept a service account.` A product the service account was granted only
+some of its scopes for, and one it was granted none for or that the identity
+provider will not issue for, are each said in one line on standard error;
+which scopes were left out is in the `-o json` report and under `--verbose`.
+Commands that need what is missing are refused. The login fails with
+`auth.narrowing_unavailable` when the service account was granted nothing
+for any product, and with `auth.organization_not_selected` when its tokens
+name no organization or more than one; nothing is written either way. A
+rejected secret is `auth.credential_unavailable`, naming the variable, and an
+identity provider that gives no answer exits 68. `--url`, `--client-id`,
+`--only` and `--no-products` are refused beside it with
+`shell.conflicting_arguments`.
 
 Under `--no-input`, `WSO2_NO_INPUT` or a standard input that is not a
 terminal, nothing is asked, and an unset variable is refused with
 `shell.non_interactive` (exit 64), naming it. On a terminal the same command
-asks for what is not set, the secret without echo, gets the tokens, and prints
-what CI needs: the variables, with the secret's as a name only, and the
-command CI runs, `ws login --service-account --no-input`. A login that asked
-for any value writes nothing, since a context naming variables this machine
-does not set could serve no command here. `-o json` reports `context` (absent
-when nothing was written), `environment`, `organization`, `products`, each
-with `namespace`, `scopes` and, when some were left out, `withheld`, and
-`next`.
+says where the service account is created and which products it needs roles
+for, asks for what is not set, the secret without echo, gets the tokens, and
+prints what CI needs: the variables, with the secret's as a name only, the
+command CI runs, `ws login --service-account --no-input`, and that CI needs
+the environment file. A login that asked for the client id or the secret
+writes nothing, and says so on standard error, since a context naming
+variables this machine does not set could serve no command here. `-o json`
+reports `context` (absent when nothing was written), `environment`,
+`organization`, `products`, each with `namespace`, `scopes` (empty when
+nothing was granted) and, when some were left out, `withheld`, and `next`.
 
-A plain `ws login` never signs in as a service account. When
-`WSO2_CLIENT_ID` or `WSO2_CLIENT_SECRET` is set, it says on standard error
-that they were ignored and that `ws login --service-account` uses them. A
-browser login refused under `--no-input` on a WSO2 Cloud context names
-`ws login --service-account` as the way to sign in from automation.
-
-A product module must declare `machine: ["inline"]` for a service account to
-reach it; one that does not is refused with `auth.product_not_configured`.
+A plain `ws login` never signs in as a service account. When it logs in to a
+WSO2 Cloud context on a terminal with `WSO2_CLIENT_ID` or `WSO2_CLIENT_SECRET`
+set, it says on standard error that the variable was ignored and that
+`ws login --service-account` uses it. A browser login refused under
+`--no-input` on a WSO2 Cloud context names `ws login --service-account` as
+the way to sign in from automation.
 
 ### Products on a WSO2 Cloud context
 
