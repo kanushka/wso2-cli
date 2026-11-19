@@ -350,8 +350,10 @@ type Issuer struct {
 	// deviceSecrets are the device secrets issued, each live until the
 	// browser session it describes ends.
 	deviceSecrets map[string]bool
-	// authorizations records every authorization request's query, in order.
-	authorizations []url.Values
+	// authorizations records every authorization request's query, in order,
+	// and authorizationPaths the path each one arrived at.
+	authorizations     []url.Values
+	authorizationPaths []string
 }
 
 type codeGrant struct {
@@ -643,6 +645,7 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	i.mutex.Lock()
 	i.authorizations = append(i.authorizations, query)
+	i.authorizationPaths = append(i.authorizationPaths, r.URL.Path)
 	i.mutex.Unlock()
 	redirectURI := query.Get("redirect_uri")
 	switch {
@@ -709,6 +712,14 @@ func (i *Issuer) Authorizations() []url.Values {
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
 	return slices.Clone(i.authorizations)
+}
+
+// AuthorizationPaths is the path every authorization request arrived at, in
+// the order they arrived.
+func (i *Issuer) AuthorizationPaths() []string {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	return slices.Clone(i.authorizationPaths)
 }
 
 // acceptsRedirect reports whether the callback URL is one this issuer is

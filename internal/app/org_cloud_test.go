@@ -37,14 +37,32 @@ func newSignedInCloudOrgs(t *testing.T) *cloudLogin {
 	login.run(t, "login")
 	login.mutex.Lock()
 	login.paths = nil
+	login.opened = 0
 	login.mutex.Unlock()
 	return login
 }
 
 func TestOrgUseOnCloudSignsInAgainForTheOtherOrganization(t *testing.T) {
 	login := newSignedInCloudOrgs(t)
+	before := len(login.issuer.AuthorizationPaths())
 
 	login.run(t, "org", "use", betaUnit.ID)
+
+	login.mutex.Lock()
+	opened := login.opened
+	login.mutex.Unlock()
+	if opened != 1 {
+		t.Errorf("org use opened the browser %d times, want one tab", opened)
+	}
+	chained := login.issuer.AuthorizationPaths()[before:]
+	if len(chained) < 2 {
+		t.Errorf("org use authorized %d times in the tab, want the login and iam: %v", len(chained), chained)
+	}
+	for _, path := range chained {
+		if path != "/ou/"+betaUnit.ID+"/authorize" {
+			t.Errorf("the tab authorized at %q, want the organization's own authorization endpoint", path)
+		}
+	}
 
 	if got := cloudContext(t, login.shell).Organization; got != betaUnit.ID {
 		t.Errorf("context organization = %q, want %q", got, betaUnit.ID)
