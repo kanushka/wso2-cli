@@ -233,6 +233,10 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 				"--client-secret-variable <VARIABLE>, where the variable holds the client secret.")
 	}
 
+	selected, err := s.settleProductSessions(selected)
+	if err != nil {
+		return loginOutcome{}, err
+	}
 	accesses, err := s.loginAccesses(selected, flags)
 	if err != nil {
 		return loginOutcome{}, err

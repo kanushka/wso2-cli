@@ -474,3 +474,100 @@ func TestAnotherProviderAuthorizesEveryProductInTheBrowserWhateverTheSetting(t *
 		t.Errorf("opened the browser %d times, want once for both products", got)
 	}
 }
+
+// selfHosted makes the context a self-hosted ThunderID's rather than WSO2
+// Cloud's, whose product sessions are decided without asking the provider.
+func (d *deviceSecretLogin) selfHosted(t *testing.T) {
+	t.Helper()
+	document, err := contexts.Load(d.shell.StateRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	context, _ := document.Find("cloud")
+	context.Type = contexts.TypeOnprem
+	if err := contexts.Save(d.shell.StateRoot, document.Put(context)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (d *deviceSecretLogin) recordedProductSessions(t *testing.T) string {
+	t.Helper()
+	return d.selection(t).Context.Login.ProductSessions
+}
+
+func TestUnsetProductSessionsAreRecordedFromWhatTheProviderOffers(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		deviceSSO bool
+		want      string
+		notice    bool
+	}{
+		"device_sso advertised":  {true, contexts.ProductSessionsExchange, false},
+		"device_sso not offered": {false, contexts.ProductSessionsBrowser, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			login := newDeviceSecretLogin(t, fakeissuer.Options{DeviceSSO: testCase.deviceSSO},
+				contexts.ProviderThunder)
+			login.selfHosted(t)
+
+			login.run(t, "login")
+
+			if got := login.recordedProductSessions(t); got != testCase.want {
+				t.Errorf("recorded productSessions %q, want %q", got, testCase.want)
+			}
+			if got := strings.Count(login.errOut.String(), browserProductsNotice); got != map[bool]int{true: 1, false: 0}[testCase.notice] {
+				t.Errorf("the notice appears %d times:\n%s", got, login.errOut)
+			}
+			if _, err := (session.Store{StateRoot: login.shell.StateRoot}).Load(
+				contexts.ProductSessionRef(deviceRef, "second")); err != nil {
+				t.Errorf("the second product has no session: %v", err)
+			}
+			if got := login.browserOpens(); got != 1 {
+				t.Errorf("opened the browser %d times, want one tab", got)
+			}
+
+			login.errOut.Reset()
+			login.run(t, "login")
+			if strings.Contains(login.errOut.String(), browserProductsNotice) {
+				t.Errorf("the notice repeats once the value is recorded:\n%s", login.errOut)
+			}
+		})
+	}
+}
+
+func TestAnExplicitExchangeAtAProviderWithoutSharedSignInIsRefusedAndKept(t *testing.T) {
+	login := newDeviceSecretLogin(t, fakeissuer.Options{}, contexts.ProviderThunder,
+		productSessions(contexts.ProductSessionsExchange))
+	login.selfHosted(t)
+
+	if code := login.shell.Run([]string{"login"}); code != 77 {
+		t.Fatalf("login exit %d, want 77; stderr %s", code, login.errOut)
+	}
+	refusal := login.errOut.String()
+	for _, want := range []string{"auth.device_secret_unavailable", login.issuer.URL, "does not offer",
+		"productSessions: browser", "wso2 context edit"} {
+		if !strings.Contains(refusal, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, refusal)
+		}
+	}
+	if strings.Contains(refusal, "sign in again") {
+		t.Errorf("the refusal suggests a sign-in that cannot help:\n%s", refusal)
+	}
+	if got := login.recordedProductSessions(t); got != contexts.ProductSessionsExchange {
+		t.Errorf("an explicit setting became %q", got)
+	}
+	if got := login.browserOpens(); got != 1 {
+		t.Errorf("opened the browser %d times, want the sign-in alone", got)
+	}
+}
+
+func TestAnExplicitBrowserIsKeptWhereTheProviderOffersSharedSignIn(t *testing.T) {
+	login := newDeviceSecretLogin(t, fakeissuer.Options{DeviceSSO: true}, contexts.ProviderThunder,
+		productSessions(contexts.ProductSessionsBrowser))
+	login.run(t, "login")
+	if got := login.recordedProductSessions(t); got != contexts.ProductSessionsBrowser {
+		t.Errorf("an explicit setting became %q", got)
+	}
+	if strings.Contains(login.errOut.String(), browserProductsNotice) {
+		t.Errorf("an explicit setting was announced as decided:\n%s", login.errOut)
+	}
+}

@@ -77,10 +77,10 @@ func newCloudLoginWith(t *testing.T, opts fakeissuer.Options) *cloudLogin {
 	t.Helper()
 	keyring.MockInit()
 	opts.Host, opts.RequireResource = "localhost", true
-	// WSO2 Cloud's ThunderID issues a device secret on every sign-in.
-	if !opts.ReusedBrowserSession {
-		opts.DeviceSSO = true
-	}
+	// WSO2 Cloud's ThunderID offers device_sso and, on dev since 2026-11-19,
+	// issues a device secret on a reused browser sign-on too.
+	// ReusedBrowserSession models an environment not yet on that build.
+	opts.DeviceSSO = true
 	issuer := fakeissuer.New(t, opts)
 	shell, out, errOut := newLoginShell(t)
 	login := &cloudLogin{shell: shell, out: out, errOut: errOut, issuer: issuer}
@@ -579,5 +579,31 @@ func TestCloudLoginWithDeviceOnABrowserContextChangesNothing(t *testing.T) {
 	}
 	if got := loadDocument(t, login.shell).DefaultContext; got != "other" {
 		t.Errorf("a refused login selected %q as the current context", got)
+	}
+}
+
+func TestACloudSignInThatHandsOutNoSecretSaysWhyAndHowOn(t *testing.T) {
+	login := newCloudLoginWith(t, fakeissuer.Options{ReusedBrowserSession: true})
+	installCloudAPIM(t, login.shell)
+	installCloudIAM(t, login.shell)
+
+	if code := login.shell.Run([]string{"login"}); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
+	}
+	refusal := login.errOut.String()
+	for _, want := range []string{"auth.device_secret_unavailable", "no shared sign-in",
+		"already signed in", "wso2 logout", "wso2 login", "productSessions: browser"} {
+		if !strings.Contains(refusal, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, refusal)
+		}
+	}
+	if strings.Contains(refusal, "sign in again") {
+		t.Errorf("the refusal suggests a sign-in that would hand out nothing again:\n%s", refusal)
+	}
+	if login.opened != 1 {
+		t.Errorf("opened the browser %d times, want the sign-in alone", login.opened)
+	}
+	if got := cloudContext(t, login.shell).Login.ProductSessions; got != contexts.ProductSessionsExchange {
+		t.Errorf("a Cloud context recorded productSessions %q, want exchange", got)
 	}
 }

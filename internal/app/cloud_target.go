@@ -228,6 +228,7 @@ func (e cloudEnvironment) context(name string) (contexts.Context, error) {
 		Type: contexts.TypeCloud,
 		Login: contexts.Login{
 			Kind: contexts.KindOAuthBrowser, Issuer: e.Issuer, ClientID: clientID, Provider: contexts.ProviderThunder,
+			ProductSessions: contexts.ProductSessionsExchange,
 		},
 	}
 	if err := input.validate(); err != nil {
