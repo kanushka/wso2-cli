@@ -143,7 +143,8 @@ type Options struct {
 	// ChosenOrganizationUnit is the id of the organization the person picks
 	// when an authorization at the root endpoint asks them to sign in again
 	// with prompt=login, as ThunderID's organization picker lets them.
-	// Empty, the sign-in stays in the browser session's organization.
+	// Empty, the sign-in stays in the browser session's organization; an id
+	// none of OrganizationUnits carries issues tokens naming no organization.
 	ChosenOrganizationUnit string
 	// Name, GivenName, and FamilyName are the OIDC standard name claims minted
 	// into the identity token when set, modeling the claims ThunderID's

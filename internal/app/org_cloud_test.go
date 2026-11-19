@@ -18,6 +18,7 @@ package app_test
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -283,5 +284,36 @@ func TestOrgUseOnCloudWithNoArgumentAndNoInputRefusesAndChangesNothing(t *testin
 	context := cloudContext(t, login.shell)
 	if _, err := (session.Store{StateRoot: login.shell.StateRoot}).Load(context.CredentialRef); err != nil {
 		t.Errorf("a refused org use ended the login session: %v", err)
+	}
+}
+
+func TestOrgUseOnCloudWithNoArgumentRefusesASignInIssuedInNoOrganization(t *testing.T) {
+	login := newSignedInCloudOrgsWith(t, fakeissuer.Options{ChosenOrganizationUnit: "unlisted"})
+	login.run(t, "org", "use", betaUnit.ID)
+	before := len(login.issuer.AuthorizationPaths())
+	login.errOut.Reset()
+
+	if code := login.shell.Run([]string{"org", "use"}); code == exit.OK {
+		t.Fatal("a switch whose sign-in named no organization succeeded")
+	}
+	if got := len(login.issuer.AuthorizationPaths()) - before; got != 1 {
+		t.Errorf("org use authorized %d times, want the sign-in alone, refused before iam", got)
+	}
+	if got := cloudContext(t, login.shell).Organization; got != betaUnit.ID {
+		t.Errorf("context organization = %q, want the previous %q kept", got, betaUnit.ID)
+	}
+	store := session.Store{StateRoot: login.shell.StateRoot}
+	context := cloudContext(t, login.shell)
+	for _, ref := range []string{context.CredentialRef, contexts.ProductSessionRef(context.CredentialRef, "iam")} {
+		if _, err := store.Load(ref); err == nil {
+			t.Errorf("session %s survived a refused switch", ref)
+		}
+	}
+	refusal := login.errOut.String()
+	for _, want := range []string{"auth.organization_not_selected",
+		fmt.Sprintf("still names the %q organization", betaUnit.ID), "ended", "wso2 login"} {
+		if !strings.Contains(refusal, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, refusal)
+		}
 	}
 }

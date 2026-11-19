@@ -239,9 +239,16 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 		if index == 0 {
 			outcome.first = result
 			if flags.chooseOrganization && selected.Context.WSO2Cloud() {
+				chosen := issuedIn(result).ID
+				if chosen == "" {
+					return loginOutcome{}, problem.New(problem.CategoryAuthPolicy, "auth.organization_not_selected",
+						"the identity provider issued the sign-in in no organization").
+						WithRecovery("Run wso2 org use <organization-id>, or wso2 org use with no argument " +
+							"and choose an organization in the browser.")
+				}
 				// Pinned, so the rest cannot land in another organization
 				// unnoticed: checkIssuedIn refuses one that does.
-				selected.Context.Organization = issuedIn(result).ID
+				selected.Context.Organization = chosen
 			}
 		}
 		outcome.established = append(outcome.established, access)
