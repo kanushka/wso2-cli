@@ -881,9 +881,11 @@ var accountTermHolders = []string{
 	filepath.Join("internal", "contexts", "migrate.go"),
 }
 
-// protectedAccountTerms are English uses of the word that name no concept.
+// protectedAccountTerms are uses of the word that do not name the retired
+// record: English that names no concept, and WSO2 Cloud's service account, a
+// client-credentials application created in its console (ADR 0025).
 var protectedAccountTerms = []string{"accounts for", "account of", "into account", "runtime account",
-	"module account"}
+	"module account", "service account", "service-account"}
 
 // TestNoUserVisibleStringNamesAnAccount holds the retirement ADR 0016 made. A
 // context holds its own login and products, so a message still naming an

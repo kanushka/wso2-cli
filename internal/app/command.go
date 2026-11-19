@@ -705,6 +705,9 @@ func (s Shell) loginCommand() *cobra.Command {
 		"Authorize only the named product.")
 	command.Flags().BoolVar(&flags.noProducts, "no-products", false,
 		"Authorize only the login session, not the products.")
+	command.Flags().BoolVar(&flags.serviceAccount, "service-account", false,
+		"Sign in to WSO2 Cloud as the service account in "+ServiceAccountIDVariable+" and "+
+			ServiceAccountSecretVariable+".")
 	declareContextFlag(command.Flags())
 	return command
 }

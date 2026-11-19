@@ -59,7 +59,10 @@ type cloudEnvironment struct {
 
 // cloudEnvironmentName is the environment CloudEnvVar selects.
 func cloudEnvironmentName() (string, error) {
-	env := os.Getenv(CloudEnvVar)
+	return checkedCloudEnvironment(os.Getenv(CloudEnvVar))
+}
+
+func checkedCloudEnvironment(env string) (string, error) {
 	if !cloudEnvName.MatchString(env) {
 		return "", problem.New(problem.CategoryUsage, "shell.invalid_argument",
 			fmt.Sprintf("%s=%q is not an environment name", CloudEnvVar, env)).
