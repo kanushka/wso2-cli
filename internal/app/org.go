@@ -370,6 +370,10 @@ func refuseOrganizationSwitch(identity contexts.Account, organization string) er
 // missing organization.
 func (s Shell) orgChoose(command *cobra.Command, args []string) error {
 	selected, err := s.selection("")
+	var reported problem.Problem
+	if err != nil && !(errors.As(err, &reported) && reported.Code == "contexts.no_context_selected") {
+		return err
+	}
 	if err != nil || !selected.Context.WSO2Cloud() {
 		return exactlyOneArgument("the name of an organization", orgUseUsage)(command, args)
 	}

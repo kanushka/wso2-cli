@@ -18,6 +18,8 @@ package app_test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -291,6 +293,26 @@ func TestOrgUseIsRefusedForAWrongArgumentCount(t *testing.T) {
 
 	if code := shell.Run([]string{"org", "use"}); code != exit.Usage {
 		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
+	}
+}
+
+// TestOrgUseWithNoArgumentReportsAContextDocumentItCannotRead proves the
+// document's own refusal reaches the person, not a missing argument.
+func TestOrgUseWithNoArgumentReportsAContextDocumentItCannotRead(t *testing.T) {
+	shell, _, errOut := newShell(t)
+	path := contexts.Path(shell.StateRoot)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := shell.Run([]string{"org", "use"}); code != exit.Usage {
+		t.Fatalf("exit code = %d, want the usage class %d; stderr: %s", code, exit.Usage, errOut)
+	}
+	if !strings.Contains(errOut.String(), "contexts.document_malformed") {
+		t.Errorf("stderr does not carry contexts.document_malformed:\n%s", errOut)
 	}
 }
 
