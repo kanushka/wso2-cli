@@ -117,7 +117,7 @@ func moduleEnvironment(t *testing.T, args ...string) string {
 	installFixture(t, shell, fixture.Module{
 		Namespace: "reference",
 		Version:   "0.1.0",
-		Contents:  []byte("#!/bin/sh\nenv > " + recorded + "\nexit 0\n"),
+		Contents:  []byte("#!/bin/sh\nenv > '" + recorded + "'\nexit 0\n"),
 	})
 	shell.Run(append([]string{"reference", "status"}, args...))
 	environment, err := os.ReadFile(recorded)
@@ -177,7 +177,7 @@ func TestAVerboseFalseAfterTheNamespaceBeatsOneBeforeIt(t *testing.T) {
 	recorded := filepath.Join(t.TempDir(), "environment")
 	shell, _, errOut := newShell(t)
 	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0",
-		Contents: []byte("#!/bin/sh\nenv > " + recorded + "\nexit 0\n")})
+		Contents: []byte("#!/bin/sh\nenv > '" + recorded + "'\nexit 0\n")})
 	shell.Run([]string{"--verbose", "reference", "status", "--verbose=false"})
 	if strings.Contains(errOut.String(), debugStarted) {
 		t.Fatalf("diagnostics were written:\n%s", errOut)
