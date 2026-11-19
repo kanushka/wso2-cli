@@ -71,6 +71,19 @@ func (p formPrompter) Input(title, fallback string, validate func(string) error)
 	return orDefault(answer, fallback), nil
 }
 
+func (p formPrompter) Secret(title string) (string, error) {
+	var answer string
+	field := huh.NewInput().
+		Title(title).
+		EchoMode(huh.EchoModePassword).
+		Validate(func(typed string) error { return check(nil, strings.TrimSpace(typed)) }).
+		Value(&answer)
+	if err := p.run(field); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(answer), nil
+}
+
 // Confirm is a select of Yes and No rather than huh's confirm buttons, so a
 // yes/no question is answered the same way as every other choice. Filtering
 // two options helps nobody, so its key and hint are left out: the binding has

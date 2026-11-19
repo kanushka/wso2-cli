@@ -268,3 +268,18 @@ func TestConfirmFailsClosed(t *testing.T) {
 		t.Errorf("hint not shown:\n%s", out)
 	}
 }
+
+func TestSecretReadsALineFromAReaderThatIsNotATerminal(t *testing.T) {
+	prompter, out := linePrompter("  hidden-value  \n")
+	answer, err := prompter.Secret("Secret")
+	if err != nil || answer != "hidden-value" {
+		t.Fatalf("Secret = %q, %v", answer, err)
+	}
+	if strings.Contains(out.String(), "hidden-value") {
+		t.Errorf("the prompt echoed the answer:\n%s", out)
+	}
+	prompter, _ = linePrompter("")
+	if _, err := prompter.Secret("Secret"); !errors.Is(err, wizard.ErrNoAnswer) {
+		t.Errorf("Secret at end of input = %v, want ErrNoAnswer", err)
+	}
+}

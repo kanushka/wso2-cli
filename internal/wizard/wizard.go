@@ -67,6 +67,10 @@ type Prompter interface {
 	// Confirm asks a yes/no question. Only y or yes is a yes, and an empty
 	// answer or end of input takes fallback.
 	Confirm(title string, fallback bool) (bool, error)
+	// Secret asks title without echoing what is typed on a terminal, and
+	// returns the trimmed answer. It has no fallback: end of input with no
+	// answer returns ErrNoAnswer.
+	Secret(title string) (string, error)
 }
 
 // New returns a Prompter that reads from in and writes to out, drawing forms

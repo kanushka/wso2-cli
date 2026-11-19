@@ -19,8 +19,11 @@ package wizard
 import (
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 // linePrompter asks with numbered, line-oriented prompts.
@@ -97,6 +100,35 @@ func (p linePrompter) Input(title, fallback string, validate func(string) error)
 			return "", err
 		}
 	}
+}
+
+// Secret reads without echo when the input is a terminal. Any other reader
+// was handed in on purpose and is read as a line.
+func (p linePrompter) Secret(title string) (string, error) {
+	if _, err := fmt.Fprint(p.out, title+": "); err != nil {
+		return "", err
+	}
+	if file, ok := p.in.(*os.File); ok && term.IsTerminal(int(file.Fd())) {
+		typed, err := term.ReadPassword(int(file.Fd()))
+		if _, printErr := fmt.Fprintln(p.out); err == nil {
+			err = printErr
+		}
+		if err != nil {
+			return "", err
+		}
+		if answer := strings.TrimSpace(string(typed)); answer != "" {
+			return answer, nil
+		}
+		return "", ErrNoAnswer
+	}
+	answer, _, err := p.readLine()
+	if err != nil {
+		return "", err
+	}
+	if answer == "" {
+		return "", ErrNoAnswer
+	}
+	return answer, nil
 }
 
 func (p linePrompter) Confirm(title string, fallback bool) (bool, error) {
