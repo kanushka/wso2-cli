@@ -74,6 +74,9 @@ func TestOrgUseOnCloudSignsInAgainForTheOtherOrganization(t *testing.T) {
 	if !hasField(login.out.String(), "Organization", "Beta Labs (beta)") {
 		t.Errorf("the sign-in does not report the new organization:\n%s", login.out)
 	}
+	if !strings.Contains(login.out.String(), `Logged the "cloud-dev" context in to the Beta Labs (beta) organization.`) {
+		t.Errorf("the switch does not name the organization the way whoami does:\n%s", login.out)
+	}
 
 	login.out.Reset()
 	login.run(t, "org", "current")

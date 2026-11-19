@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 
 	"github.com/spf13/cobra"
 
@@ -438,7 +439,11 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 	if mode == output.ModeJSON {
 		return s.reportOrgUse(mode, name, id)
 	}
-	if _, err := fmt.Fprintf(s.Streams.Out, "\nLogged the %q context in to the %q organization.\n", name, id); err != nil {
+	label := strconv.Quote(id)
+	if issued := issuedIn(outcome.first); !issued.IsZero() {
+		label = issued.Label()
+	}
+	if _, err := fmt.Fprintf(s.Streams.Out, "\nLogged the %q context in to the %s organization.\n", name, label); err != nil {
 		return err
 	}
 	if err := s.reportLogin(switching, outcome); err != nil {
