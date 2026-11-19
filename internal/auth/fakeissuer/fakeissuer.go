@@ -62,8 +62,9 @@ type Options struct {
 	// request asks for: "honor" issues exactly them, "ignore" issues
 	// ClientScopes whatever was asked for, "filter" issues those of them in
 	// ClientScopes, as ThunderID keeps only what the client's roles carry, and
-	// "reject" answers invalid_scope. The default is "honor". It is separate from RefreshScopeMode because a
-	// deployment may narrow one grant and not the other.
+	// "reject" answers invalid_scope. The default is "honor". It is separate
+	// from RefreshScopeMode because a deployment may narrow one grant and not
+	// the other.
 	ClientScopeMode string
 	// ClientScopes is the permission set the registered client carries. It is
 	// what an "ignore" issuer answers a client-credentials request with,
@@ -722,8 +723,6 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Authorizations is every authorization request's query, in the order they
-// arrived.
 // ClientGrants is every client-credentials request this issuer answered or
 // refused, in order, with the presented client id under client_id. The secret
 // is never recorded.
@@ -733,6 +732,8 @@ func (i *Issuer) ClientGrants() []url.Values {
 	return slices.Clone(i.clientGrants)
 }
 
+// Authorizations is every authorization request's query, in the order they
+// arrived.
 func (i *Issuer) Authorizations() []url.Values {
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
