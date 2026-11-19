@@ -123,22 +123,23 @@ func TestCloudEnvironmentNamesItsContext(t *testing.T) {
 func TestCloudEnvironmentLoginRefusals(t *testing.T) {
 	for _, testCase := range []struct {
 		name, env, file, code string
+		status                exit.Code
 	}{
-		{"no file", "stage", "", "shell.cloud_environment_unknown"},
-		{"bad name", "Dev Env", "", "shell.invalid_argument"},
-		{"no issuer", "dev", "baseDomain: dev.cloud.example\nenvironment: development\n", "shell.input_malformed"},
-		{"no base domain", "dev", "issuer: https://idp.example\nenvironment: development\n", "shell.input_malformed"},
-		{"no environment", "dev", "issuer: https://idp.example\nbaseDomain: dev.cloud.example\n", "shell.input_malformed"},
+		{"no file", "stage", "", "shell.cloud_environment_unknown", exit.NotFound},
+		{"bad name", "Dev Env", "", "shell.invalid_argument", exit.Usage},
+		{"no issuer", "dev", "baseDomain: dev.cloud.example\nenvironment: development\n", "shell.input_malformed", exit.Usage},
+		{"no base domain", "dev", "issuer: https://idp.example\nenvironment: development\n", "shell.input_malformed", exit.Usage},
+		{"no environment", "dev", "issuer: https://idp.example\nbaseDomain: dev.cloud.example\n", "shell.input_malformed", exit.Usage},
 		{"unknown member", "dev", "issuer: https://idp.example\nbaseDomain: d.example\nenvironment: development\nsecret: x\n",
-			"shell.input_malformed"},
+			"shell.input_malformed", exit.Usage},
 		{"a context file", "dev", "contexts:\n  - name: a\n    login: {issuer: https://a.example, clientId: x}\n",
-			"shell.input_malformed"},
+			"shell.input_malformed", exit.Usage},
 		{"base domain with a path", "dev", "issuer: https://idp.example\nbaseDomain: d.example/x\nenvironment: development\n",
-			"shell.input_malformed"},
+			"shell.input_malformed", exit.Usage},
 		{"environment with a dot", "dev", "issuer: https://idp.example\nbaseDomain: d.example\nenvironment: a.b\n",
-			"shell.input_malformed"},
+			"shell.input_malformed", exit.Usage},
 		{"issuer not a URL", "dev", "issuer: idp.example\nbaseDomain: d.example\nenvironment: development\n",
-			"shell.invalid_argument"},
+			"shell.invalid_argument", exit.Usage},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			shell, _, errOut, _ := newCreatingLogin(t)
@@ -147,8 +148,8 @@ func TestCloudEnvironmentLoginRefusals(t *testing.T) {
 				writeCloudEnvironment(t, shell.StateRoot, testCase.env, testCase.file)
 			}
 			shell.Reader = failIfReadReader{t}
-			if code := shell.Run([]string{"login"}); code != exit.Usage {
-				t.Fatalf("exit %d, want usage; stderr %s", code, errOut)
+			if code := shell.Run([]string{"login"}); code != testCase.status {
+				t.Fatalf("exit %d, want %d; stderr %s", code, testCase.status, errOut)
 			}
 			requireRefusal(t, errOut.String(), testCase.code)
 			if got := len(loadDocument(t, shell).Contexts); got != 0 {

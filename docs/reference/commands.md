@@ -89,7 +89,7 @@ state directory:
 
 A name that is not lowercase letters, digits and hyphens is refused with
 `shell.invalid_argument`, a missing file with
-`shell.cloud_environment_unknown`, and a file missing a member or carrying an
+`shell.cloud_environment_unknown` (exit 66), and a file missing a member or carrying an
 unknown one with `shell.input_malformed`, as is a `baseDomain` that is not a
 lowercase domain name or an `environment` that is not one host name label.
 

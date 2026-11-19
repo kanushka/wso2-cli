@@ -168,7 +168,7 @@ func readCloudEnvironment(root, env string) (cloudEnvironment, error) {
 	path := cloudEnvironmentPath(root, env)
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return cloudEnvironment{}, problem.New(problem.CategoryUsage, "shell.cloud_environment_unknown",
+		return cloudEnvironment{}, problem.New(problem.CategoryNotFound, "shell.cloud_environment_unknown",
 			fmt.Sprintf("no WSO2 Cloud %q environment is configured on this machine", env)).
 			WithRecovery(fmt.Sprintf("Place the %s environment file at %s, or unset %s.", env, path, CloudEnvVar))
 	}

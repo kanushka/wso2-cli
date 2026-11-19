@@ -18,6 +18,7 @@ package app_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"maps"
 	"net/http"
 	"os"
@@ -488,5 +489,28 @@ func TestACloudLoginsRecordsDoNotDrift(t *testing.T) {
 	login.run(t, "context", "show")
 	if strings.Contains(login.out.String(), "records the") {
 		t.Errorf("context show reports drift on a Cloud login's own records:\n%s", login.out)
+	}
+}
+
+// Everything a Cloud login says about installing, recording and authorizing
+// products is on standard error, so standard output under -o json is the one
+// document the command's result is.
+func TestACloudLoginUnderJSONWritesOneDocument(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudAPIM(t, login.shell)
+	installCloudIAM(t, login.shell)
+
+	login.run(t, "login", "--output", "json", "--verbose")
+
+	var document map[string]any
+	decoder := json.NewDecoder(login.out)
+	if err := decoder.Decode(&document); err != nil {
+		t.Fatalf("standard output is not a JSON document: %v\n%s", err, login.out)
+	}
+	if decoder.More() {
+		t.Errorf("standard output holds more than one document")
+	}
+	if !strings.Contains(login.errOut.String(), `Authorizing the "iam" product in the same browser tab.`) {
+		t.Errorf("the progress line is not on standard error:\n%s", login.errOut)
 	}
 }
