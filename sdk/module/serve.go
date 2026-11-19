@@ -21,11 +21,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"runtime/debug"
 	"slices"
 	"strings"
 
+	"github.com/wso2/wso2-cli/sdk/diag"
 	"github.com/wso2/wso2-cli/sdk/problem"
 	"github.com/wso2/wso2-cli/sdk/protocol"
 	"github.com/wso2/wso2-cli/sdk/protocol/contractv1"
@@ -92,6 +94,13 @@ type Request struct {
 	// and decides whether anything may be asked at all; a handler whose
 	// command line carried --yes never touches it.
 	Prompt Confirmer
+	// Log is the module's diagnostic log. It writes to standard error, through
+	// the shell's redaction, only when the shell asked for diagnostics
+	// (--verbose or WSO2_DEBUG), and discards otherwise, so a handler logs
+	// unconditionally. The handler's context carries it too, for
+	// diag.FromContext and diag.Transport. It is never nil in a Request the
+	// SDK builds; an older shell never asks, and this one stays silent.
+	Log *slog.Logger
 }
 
 // Handler runs one product command.
@@ -235,6 +244,19 @@ func readInvoke(reader *protocol.Reader, invocationID string, descriptor Descrip
 	return invoke, nil
 }
 
+// diagnosticStream is where a handler's log goes: standard error, which the
+// shell captures and shows beside the result.
+var diagnosticStream io.Writer = os.Stderr
+
+// diagnostics is the handler's log for one invocation, following the shell's
+// rendering so a caller parsing JSON results can parse these lines too.
+func diagnostics(mode OutputMode) *slog.Logger {
+	if !diag.Requested(os.Getenv(diag.EnvVar)) {
+		return diag.Discard()
+	}
+	return diag.New(diagnosticStream, mode == OutputModeJSON)
+}
+
 // runCommand dispatches one invocation to its handler and returns either a
 // validated result or the problem to report.
 func runCommand(
@@ -257,6 +279,8 @@ func runCommand(
 		return result.Result{}, &failure
 	}
 
+	log := diagnostics(protocol.DecodeOutputMode(invoke.GetOutputMode()))
+	ctx = diag.WithLogger(ctx, log)
 	request := Request{
 		InvocationID: invocationID,
 		Command:      path,
@@ -270,6 +294,7 @@ func runCommand(
 		},
 		Access: broker,
 		Prompt: prompt,
+		Log:    log,
 	}
 
 	produced, err := call(ctx, descriptor, handler, request)

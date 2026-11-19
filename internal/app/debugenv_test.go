@@ -17,6 +17,8 @@
 package app_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -103,5 +105,67 @@ func TestAnExplicitVerboseFalseBeatsWSO2DebugOnTheProductNamespacePath(t *testin
 				t.Fatalf("%v still wrote diagnostics under WSO2_DEBUG=1:\n%s", args, errOut)
 			}
 		})
+	}
+}
+
+// moduleEnvironment runs a fixture module that records the environment the
+// shell launched it with, and returns that record.
+func moduleEnvironment(t *testing.T, args ...string) string {
+	t.Helper()
+	recorded := filepath.Join(t.TempDir(), "environment")
+	shell, _, _ := newShell(t)
+	installFixture(t, shell, fixture.Module{
+		Namespace: "reference",
+		Version:   "0.1.0",
+		Contents:  []byte("#!/bin/sh\nenv > " + recorded + "\nexit 0\n"),
+	})
+	shell.Run(append([]string{"reference", "status"}, args...))
+	environment, err := os.ReadFile(recorded)
+	if err != nil {
+		t.Fatalf("the module recorded no environment: %v", err)
+	}
+	return string(environment)
+}
+
+func TestAModuleIsToldDiagnosticsAreOn(t *testing.T) {
+	t.Run("--verbose", func(t *testing.T) {
+		t.Setenv("WSO2_DEBUG", "")
+		if environment := moduleEnvironment(t, "--verbose"); !strings.Contains(environment, "WSO2_DEBUG=1\n") {
+			t.Fatalf("--verbose did not reach the module as WSO2_DEBUG=1:\n%s", environment)
+		}
+	})
+	t.Run("WSO2_DEBUG", func(t *testing.T) {
+		t.Setenv("WSO2_DEBUG", "yes")
+		if environment := moduleEnvironment(t); !strings.Contains(environment, "WSO2_DEBUG=1\n") {
+			t.Fatalf("WSO2_DEBUG did not reach the module as WSO2_DEBUG=1:\n%s", environment)
+		}
+	})
+}
+
+func TestAModuleIsNotToldWhenDiagnosticsAreOff(t *testing.T) {
+	t.Setenv("WSO2_DEBUG", "1")
+	if environment := moduleEnvironment(t, "--verbose=false"); strings.Contains(environment, "WSO2_DEBUG") {
+		t.Fatalf("a module was told about diagnostics the user switched off:\n%s", environment)
+	}
+}
+
+// A module's diagnostics are its share of what --verbose shows, so the limit
+// that keeps a chatty module from flooding an ordinary run is raised under it.
+func TestAModuleKeepsMoreDiagnosticsUnderVerbose(t *testing.T) {
+	t.Setenv("WSO2_DEBUG", "")
+	chatty := "#!/bin/sh\ni=0\nwhile [ $i -lt 400 ]; do echo \"line $i of a module diagnostic\" >&2; i=$((i+1)); done\nexit 0\n"
+	for _, verbose := range []bool{false, true} {
+		shell, _, errOut := newShell(t)
+		installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0", Contents: []byte(chatty)})
+		args := []string{"reference", "status"}
+		if verbose {
+			args = append(args, "--verbose")
+		}
+		shell.Run(args)
+		truncated := strings.Contains(errOut.String(), "further diagnostics were discarded")
+		if truncated == verbose {
+			t.Fatalf("verbose=%v: truncated=%v; stderr ends:\n%s", verbose, truncated,
+				errOut.String()[max(0, errOut.Len()-400):])
+		}
 	}
 }
