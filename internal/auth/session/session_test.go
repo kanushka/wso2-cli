@@ -18,6 +18,7 @@ package session_test
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -711,4 +712,92 @@ func tokenOfLength(n int) string {
 func macOSSetCommandLength(service, account, value string) int {
 	quoted := "go-keyring-base64:" + base64.StdEncoding.EncodeToString([]byte(value))
 	return len(fmt.Sprintf("add-generic-password -U -s '%s' -a '%s' -w '%s'\n", service, account, quoted))
+}
+
+// A save that wrote the session entry and failed before all its side entries
+// leaves the entry naming a generation the side entries do not carry; the
+// side entries of the earlier save, perhaps another person's or another
+// organization's, are not read with it.
+func TestASaveThatFailedPartwayLeavesNoSession(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	earlier := session.Session{Issuer: "https://is.example", RefreshToken: "rt-a", AccessToken: "at-a", DeviceSecret: "ds-a"}
+	if err := store.Save("cloud-dev", earlier); err != nil {
+		t.Fatal(err)
+	}
+	name := store.EntryName("cloud-dev")
+	raw, err := keyring.Get(session.Service, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var written map[string]any
+	if err := json.Unmarshal([]byte(raw), &written); err != nil {
+		t.Fatal(err)
+	}
+	written["subject"] = "someone-else"
+	written["generation"] = "0000000000000000"
+	later, _ := json.Marshal(written)
+	if err := keyring.Set(session.Service, name, string(later)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.Load("cloud-dev")
+	assertProblemCode(t, err, "auth.login_required")
+}
+
+// An earlier shell keeps the refresh token and device secret inline and the
+// identity tokens in unmarked side entries, and its logout removes only those.
+// The side entries it does not know of are never read with its entry.
+func TestAnEarlierShellsEntryReadsOnlyTheSideEntriesItOwns(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := store.Save("cloud-dev", session.Session{RefreshToken: "rt-new", DeviceSecret: "ds-new"}); err != nil {
+		t.Fatal(err)
+	}
+	name := store.EntryName("cloud-dev")
+	for key, value := range map[string]string{
+		name:             `{"issuer":"https://is.example","refreshToken":"rt-old"}`,
+		name + "#access": "at-old",
+		name + "#id":     "idt-old",
+	} {
+		if err := keyring.Set(session.Service, key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	loaded, err := store.Load("cloud-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.RefreshToken != "rt-old" || loaded.DeviceSecret != "" || loaded.AccessToken != "at-old" || loaded.IDToken != "idt-old" {
+		t.Fatalf("loaded %+v", loaded)
+	}
+}
+
+// An earlier shell's inline entry moves into side entries on the next save.
+func TestAnEarlierShellsInlineEntryIsSplitOnTheNextSave(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	name := store.EntryName("cloud-dev")
+	if err := keyring.Set(session.Service, name, `{"issuer":"https://is.example","refreshToken":"rt","accessToken":"at","deviceSecret":"ds"}`); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load("cloud-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save("cloud-dev", loaded); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := keyring.Get(session.Service, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{`"rt"`, `"at"`, `"ds"`} {
+		if strings.Contains(raw, value) {
+			t.Errorf("the entry still carries %s inline: %s", value, raw)
+		}
+	}
+	again, err := store.Load("cloud-dev")
+	if err != nil || again.RefreshToken != "rt" || again.AccessToken != "at" || again.DeviceSecret != "ds" {
+		t.Fatalf("loaded %+v, %v", again, err)
+	}
 }

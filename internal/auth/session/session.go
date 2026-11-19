@@ -28,12 +28,14 @@
 package session
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	keyring "github.com/zalando/go-keyring"
@@ -173,23 +175,34 @@ func (s Store) Load(ref string) (Session, error) {
 	case err != nil:
 		return Session{}, keyringUnavailable(err)
 	}
-	var stored Session
+	var stored entry
 	if json.Unmarshal([]byte(value), &stored) != nil {
 		return Session{}, unreadable()
 	}
-	// The large values come from their side entries when the session entry
-	// carries none inline; an entry written before the side entries existed
-	// carries them inline and is read as it was written.
-	for suffix, field := range stored.largeValues() {
-		if *field == "" {
-			*field = s.sideEntry(name + suffix)
+	session := stored.Session
+	if stored.Generation == "" {
+		// An entry an earlier shell wrote keeps the refresh token and device
+		// secret inline and the two identity tokens in unmarked side entries.
+		// The other side entries are not its own, and are never read with it.
+		for _, suffix := range []string{accessTokenSuffix, idTokenSuffix} {
+			if field := session.largeValues()[suffix]; *field == "" {
+				*field = s.sideEntry(name + suffix)
+			}
+		}
+	} else {
+		for suffix, field := range session.largeValues() {
+			// A side value another save wrote, one that failed partway or
+			// an earlier shell's, belongs to another session: it is left out.
+			if generation, side, ok := strings.Cut(s.sideEntry(name+suffix), ":"); ok && generation == stored.Generation {
+				*field = side
+			}
 		}
 	}
-	if stored.RefreshToken == "" {
+	if session.RefreshToken == "" {
 		// A stale or foreign entry is indistinguishable from no session.
 		return Session{}, unreadable()
 	}
-	return stored, nil
+	return session, nil
 }
 
 func unreadable() problem.Problem {
@@ -285,11 +298,15 @@ func (s Store) Probe() error {
 // stays under. A side entry a session no longer has a value for is removed,
 // so a later read cannot resurrect a token from an earlier session.
 func (s Store) Save(ref string, value Session) error {
-	entry := value
-	for _, field := range entry.largeValues() {
+	generation, err := newGeneration()
+	if err != nil {
+		return keyringUnavailable(err)
+	}
+	stored := entry{Session: value, Generation: generation}
+	for _, field := range stored.largeValues() {
 		*field = ""
 	}
-	data, err := json.Marshal(entry)
+	data, err := json.Marshal(stored)
 	if err != nil {
 		return keyringUnavailable(err)
 	}
@@ -299,17 +316,49 @@ func (s Store) Save(ref string, value Session) error {
 	}
 	for suffix, field := range value.largeValues() {
 		if *field == "" {
-			if err := keyring.Delete(Service, name+suffix); err != nil && !errors.Is(err, keyring.ErrNotFound) {
-				return keyringUnavailable(err)
+			err = keyring.Delete(Service, name+suffix)
+			if errors.Is(err, keyring.ErrNotFound) {
+				err = nil
 			}
-			continue
+		} else {
+			err = keyring.Set(Service, name+suffix, generation+":"+*field)
 		}
-		if err := keyring.Set(Service, name+suffix, *field); err != nil {
+		if err != nil {
+			// Best effort: the entry already names a generation the side
+			// entries do not all carry, so Load would refuse it anyway.
+			for _, key := range append(sideKeys(name), name) {
+				_ = keyring.Delete(Service, key)
+			}
 			return keyringUnavailable(err)
 		}
 	}
 	retireLegacyEntry(ref)
 	return nil
+}
+
+// entry is what the session entry holds: the session without its large
+// values, and the generation of the save that wrote it. Each side entry that
+// save wrote carries the same generation, so Load pairs the entry only with
+// its own side entries. An entry without one is an earlier shell's.
+type entry struct {
+	Session
+	Generation string `json:"generation,omitempty"`
+}
+
+func newGeneration() (string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
+}
+
+func sideKeys(name string) []string {
+	keys := make([]string, len(sideSuffixes))
+	for i, suffix := range sideSuffixes {
+		keys[i] = name + suffix
+	}
+	return keys
 }
 
 // retireLegacyEntry removes what a shell before this one stored under the bare
