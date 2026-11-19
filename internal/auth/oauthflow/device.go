@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 
 	oidc "github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -55,6 +56,13 @@ type DeviceLogin struct {
 	// Scopes are the permissions to request beyond openid and offline_access —
 	// the identity's product scope union.
 	Scopes []string
+	// Resource is the RFC 8707 resource indicator the authorization names,
+	// for a provider such as ThunderID that binds a session to one resource
+	// server when it is authorized. Empty sends none.
+	Resource string
+	// DeviceSSO asks ThunderID for a device secret beside the tokens, when the
+	// discovery document lists the device_sso scope, as Login.DeviceSSO does.
+	DeviceSSO bool
 	// HTTPClient serves discovery, the device authorization request, and the
 	// polling. It defaults to http.DefaultClient.
 	HTTPClient *http.Client
@@ -100,14 +108,20 @@ func (d DeviceLogin) Run(ctx context.Context) (Result, error) {
 	// one. Saying so explicitly also spares every request the library's probe
 	// with HTTP Basic credentials this shell does not have.
 	endpoint.AuthStyle = oauth2.AuthStyleInParams
-	config := oauth2.Config{ClientID: d.ClientID, Endpoint: endpoint, Scopes: d.scopes()}
+	var capabilities struct {
+		ScopesSupported []string `json:"scopes_supported"`
+	}
+	_ = provider.Claims(&capabilities)
+	config := oauth2.Config{ClientID: d.ClientID, Endpoint: endpoint,
+		Scopes: d.scopes(d.DeviceSSO && slices.Contains(capabilities.ScopesSupported, scopeDeviceSSO))}
+	var options []oauth2.AuthCodeOption
+	if d.Resource != "" {
+		options = append(options, oauth2.SetAuthURLParam("resource", d.Resource))
+	}
 
-	authorization, err := config.DeviceAuth(ctx)
+	authorization, err := config.DeviceAuth(ctx, options...)
 	if err != nil {
-		return Result{}, notCompleted(
-			"the identity provider would not start a device authorization for this login",
-			"Confirm the client identifier in the selected context, and that its OAuth application is "+
-				"registered for the device authorization grant, then retry wso2 login.")
+		return Result{}, deviceAuthorizationRefused(err)
 	}
 	authorization.Interval = usableInterval(authorization.Interval)
 	if err := d.present(authorization); err != nil {
@@ -214,7 +228,8 @@ func (d DeviceLogin) present(authorization *oauth2.DeviceAuthResponse) error {
 func (d DeviceLogin) identify(
 	ctx context.Context, provider *oidc.Provider, token *oauth2.Token,
 ) (Result, error) {
-	result := Result{Token: token}
+	deviceSecret, _ := token.Extra("device_secret").(string)
+	result := Result{Token: token, DeviceSecret: deviceSecret}
 	raw, _ := token.Extra("id_token").(string)
 	if raw == "" {
 		return result, nil
@@ -282,8 +297,28 @@ func approvalFailed(err error) error {
 
 // scopes asks for the same permissions a browser login asks for, so a session
 // established either way narrows down to the same product access afterwards.
-func (d DeviceLogin) scopes() []string {
-	return Login{Scopes: d.Scopes}.scopes(false)
+func (d DeviceLogin) scopes(deviceSSO bool) []string {
+	return Login{Scopes: d.Scopes}.scopes(deviceSSO)
+}
+
+// deviceAuthorizationRefused reports a device authorization the provider
+// would not start. unauthorized_client is told apart because its way out is
+// the context's own setting: the client is not registered for the grant, so
+// retrying cannot help and a browser sign-in can.
+func deviceAuthorizationRefused(err error) error {
+	var refusal *oauth2.RetrieveError
+	if errors.As(err, &refusal) && refusal.ErrorCode == "unauthorized_client" {
+		return notCompleted(
+			"the OAuth application this context signs in as is not registered for the device "+
+				"authorization grant (unauthorized_client)",
+			"Set kind: oauth-browser in the login of the selected context to sign in through the "+
+				"browser, or ask the identity provider's administrator to allow the device code grant "+
+				"for the application.")
+	}
+	return notCompleted(
+		"the identity provider would not start a device authorization for this login",
+		"Confirm the client identifier in the selected context, and that its OAuth application is "+
+			"registered for the device authorization grant, then retry wso2 login.")
 }
 
 // httpClient wraps the caller's client so a key set is read for its keys and

@@ -139,14 +139,19 @@ type Session struct {
 	// DeviceSecretExpiresAt is its exp claim, zero when it states none.
 	DeviceSecret          string    `json:"deviceSecret,omitempty"`
 	DeviceSecretExpiresAt time.Time `json:"deviceSecretExpiresAt,omitempty"`
-	// EstablishedBy is how a product session was obtained when it was not a
-	// browser authorization: EstablishedByDeviceSecret, or empty.
+	// EstablishedBy is how a session was obtained when it was not a browser
+	// authorization: EstablishedByDeviceSecret, EstablishedByDeviceCode, or
+	// empty.
 	EstablishedBy string `json:"establishedBy,omitempty"`
 }
 
 // EstablishedByDeviceSecret marks a session obtained by exchanging the login
 // session's device secret.
 const EstablishedByDeviceSecret = "device-secret"
+
+// EstablishedByDeviceCode marks a session obtained by an RFC 8628 device
+// authorization.
+const EstablishedByDeviceCode = "device-code"
 
 // Store reads and writes sessions in the OS secure store.
 type Store struct {

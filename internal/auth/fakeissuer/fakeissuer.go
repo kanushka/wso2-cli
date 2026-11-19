@@ -298,6 +298,10 @@ type Options struct {
 	// commonest real cause of a token that will not verify: a context document
 	// whose client identifier is not the one the deployment signed in.
 	DeviceIDTokenAudience string
+	// DeviceUnauthorizedClient answers every device authorization request with
+	// unauthorized_client, as ThunderID does for a client whose registration
+	// does not list the device grant.
+	DeviceUnauthorizedClient bool
 
 	// TrustedIssuer makes this issuer a target of the JWT bearer grant: it
 	// accepts as an assertion any identity token that issuer minted, when the
@@ -348,6 +352,9 @@ type Issuer struct {
 	// map iteration order could not name "most recent" if a test ever started
 	// two authorizations.
 	lastDeviceCode string
+	// deviceAuthorizations records every device authorization request's form,
+	// in order.
+	deviceAuthorizations []url.Values
 	// refuseExchange makes the exchange grant answer unauthorized_client, as
 	// an issuer does for a client the grant is not registered on.
 	refuseExchange bool
@@ -390,6 +397,12 @@ type deviceGrant struct {
 	userCode string
 	scopes   []string
 	clientID string
+	// resource is the RFC 8707 indicator the request named, which ThunderID
+	// binds the approval's tokens to.
+	resource string
+	// ou is the organization unit the approval lands in: the verification
+	// page's sign-in picks it, so it is the chosen one, else the home one.
+	ou *OrganizationUnit
 	// pending and slowDown count down the answers still owed before the
 	// outcome applies. They live on the grant rather than on the issuer so two
 	// concurrent tests cannot consume each other's waiting states.
@@ -1174,18 +1187,31 @@ func (i *Issuer) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusNotFound, "invalid_request")
 		return
 	}
+	i.mutex.Lock()
+	i.deviceAuthorizations = append(i.deviceAuthorizations, r.PostForm)
+	i.mutex.Unlock()
 	clientID := presentedClientID(r)
 	if clientID == "" {
 		oauthError(w, http.StatusBadRequest, "invalid_client")
 		return
+	}
+	if i.opts.DeviceUnauthorizedClient {
+		oauthError(w, http.StatusBadRequest, "unauthorized_client")
+		return
+	}
+	ou := i.homeOrganizationUnit()
+	if i.opts.ChosenOrganizationUnit != "" {
+		ou = i.organizationUnit(i.opts.ChosenOrganizationUnit)
 	}
 	deviceCode := randomToken("dc")
 	userCode := randomUserCode()
 	i.mutex.Lock()
 	i.deviceGrants[deviceCode] = &deviceGrant{
 		userCode: userCode,
-		scopes:   splitScopes(r.PostForm.Get("scope")),
+		scopes:   i.withoutWithheld(splitScopes(r.PostForm.Get("scope"))),
 		clientID: clientID,
+		resource: r.PostForm.Get("resource"),
+		ou:       ou,
 		pending:  i.opts.DevicePendingPolls,
 		slowDown: i.opts.DeviceSlowDownPolls,
 	}
@@ -1252,9 +1278,9 @@ func (i *Issuer) deviceGrant(w http.ResponseWriter, r *http.Request) {
 	// The grant is read, its counters drawn down, and its redemption recorded in
 	// one critical section, so two concurrent polls can neither both consume the
 	// last pending answer nor both be approved.
-	scopes, clientID := []string(nil), ""
+	var approved deviceGrant
 	if found {
-		scopes, clientID = grant.scopes, grant.clientID
+		approved = *grant
 		if answer == "" {
 			grant.redeemed = true
 		}
@@ -1269,7 +1295,7 @@ func (i *Issuer) deviceGrant(w http.ResponseWriter, r *http.Request) {
 	case answer != "":
 		oauthError(w, http.StatusBadRequest, answer)
 	default:
-		i.issueDeviceTokens(w, scopes, clientID)
+		i.issueDeviceTokens(w, approved)
 	}
 }
 
@@ -1279,14 +1305,10 @@ func (i *Issuer) deviceGrant(w http.ResponseWriter, r *http.Request) {
 // nonce: RFC 8628 defines no nonce parameter, so an identity token here carries
 // none and a client that demanded one would be demanding something the flow
 // cannot supply.
-func (i *Issuer) issueDeviceTokens(w http.ResponseWriter, scopes []string, clientID string) {
-	// No resource: RFC 8628 defines no resource indicator on the device
-	// authorization request, and the shell sends none, so a session established
-	// this way is bound by the registration's audience like every session was
-	// before resource indicators existed.
-	ou := i.homeOrganizationUnit()
+func (i *Issuer) issueDeviceTokens(w http.ResponseWriter, grant deviceGrant) {
+	scopes, clientID := grant.scopes, grant.clientID
 	response := map[string]any{
-		"access_token": i.mintAccessTokenIn(ou, "user-1", scopes, ""),
+		"access_token": i.mintAccessTokenIn(grant.ou, "user-1", scopes, grant.resource),
 		"token_type":   "Bearer",
 		"expires_in":   300,
 		"scope":        strings.Join(scopes, " "),
@@ -1294,18 +1316,29 @@ func (i *Issuer) issueDeviceTokens(w http.ResponseWriter, scopes []string, clien
 	if !i.opts.OmitDeviceRefreshToken {
 		refreshToken := randomToken("rt")
 		i.mutex.Lock()
-		i.refreshTokens[refreshToken] = refreshRecord{scopes: scopes, ou: ou}
+		i.refreshTokens[refreshToken] = refreshRecord{scopes: scopes, resource: grant.resource, ou: grant.ou}
 		i.mutex.Unlock()
 		response["refresh_token"] = refreshToken
+	}
+	if i.opts.DeviceSSO && !i.opts.ReusedBrowserSession && slices.Contains(scopes, deviceSSOScope) {
+		response["device_secret"] = i.mintDeviceSecret(grant.ou)
 	}
 	if !i.opts.OmitDeviceIDToken {
 		audience := clientID
 		if i.opts.DeviceIDTokenAudience != "" {
 			audience = i.opts.DeviceIDTokenAudience
 		}
-		response["id_token"] = i.mintIDToken(audience, "", scopes)
+		response["id_token"] = i.mintIDTokenIn(grant.ou, audience, "", scopes)
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+// DeviceAuthorizations is every device authorization request's form, in the
+// order they arrived.
+func (i *Issuer) DeviceAuthorizations() []url.Values {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	return append([]url.Values(nil), i.deviceAuthorizations...)
 }
 
 // DevicePolls returns when each poll of the device grant arrived, in order.
