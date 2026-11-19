@@ -60,8 +60,9 @@ type Options struct {
 	RefreshScopeMode string
 	// ClientScopeMode is how the client-credentials grant treats the scopes a
 	// request asks for: "honor" issues exactly them, "ignore" issues
-	// ClientScopes whatever was asked for, "reject" answers invalid_scope. The
-	// default is "honor". It is separate from RefreshScopeMode because a
+	// ClientScopes whatever was asked for, "filter" issues those of them in
+	// ClientScopes, as ThunderID keeps only what the client's roles carry, and
+	// "reject" answers invalid_scope. The default is "honor". It is separate from RefreshScopeMode because a
 	// deployment may narrow one grant and not the other.
 	ClientScopeMode string
 	// ClientScopes is the permission set the registered client carries. It is
@@ -146,6 +147,9 @@ type Options struct {
 	// Empty, the sign-in stays in the browser session's organization; an id
 	// none of OrganizationUnits carries issues tokens naming no organization.
 	ChosenOrganizationUnit string
+	// OUClaim is the ouId an access token names, as ThunderID stamps the
+	// organization unit a token was issued in. Empty mints none.
+	OUClaim string
 	// Name, GivenName, and FamilyName are the OIDC standard name claims minted
 	// into the identity token when set, modeling the claims ThunderID's
 	// identity token carries alongside email. All three are empty by default:
@@ -360,6 +364,9 @@ type Issuer struct {
 	// and authorizationPaths the path each one arrived at.
 	authorizations     []url.Values
 	authorizationPaths []string
+	// clientGrants records every client-credentials request's form, with the
+	// presented client id under client_id, in order.
+	clientGrants []url.Values
 }
 
 type codeGrant struct {
@@ -717,6 +724,15 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 
 // Authorizations is every authorization request's query, in the order they
 // arrived.
+// ClientGrants is every client-credentials request this issuer answered or
+// refused, in order, with the presented client id under client_id. The secret
+// is never recorded.
+func (i *Issuer) ClientGrants() []url.Values {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	return slices.Clone(i.clientGrants)
+}
+
 func (i *Issuer) Authorizations() []url.Values {
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
@@ -1098,6 +1114,15 @@ func (i *Issuer) refreshGrant(w http.ResponseWriter, r *http.Request) {
 
 func (i *Issuer) clientCredentialsGrant(w http.ResponseWriter, r *http.Request) {
 	clientID, clientSecret := presentedClientCredentials(r)
+	recorded := url.Values{"client_id": {clientID}}
+	for _, key := range []string{"scope", "resource"} {
+		if r.PostForm.Has(key) {
+			recorded.Set(key, r.PostForm.Get(key))
+		}
+	}
+	i.mutex.Lock()
+	i.clientGrants = append(i.clientGrants, recorded)
+	i.mutex.Unlock()
 	if clientID == "" || clientSecret == "" ||
 		(i.opts.ClientSecret != "" && clientSecret != i.opts.ClientSecret) {
 		oauthError(w, http.StatusUnauthorized, "invalid_client")
@@ -1124,6 +1149,13 @@ func (i *Issuer) clientCredentialsGrant(w http.ResponseWriter, r *http.Request) 
 		// The deployment hands back the registered client's whole authority,
 		// whatever the request narrowed itself to.
 		issued = i.opts.ClientScopes
+	case "filter":
+		issued = nil
+		for _, scope := range requested {
+			if slices.Contains(i.opts.ClientScopes, scope) {
+				issued = append(issued, scope)
+			}
+		}
 	case "reject":
 		oauthError(w, http.StatusBadRequest, "invalid_scope")
 		return
@@ -1379,10 +1411,10 @@ func scopeMode(t *testing.T, option, configured string) string {
 	switch configured {
 	case "":
 		return "honor"
-	case "honor", "ignore", "reject":
+	case "honor", "ignore", "reject", "filter":
 		return configured
 	default:
-		t.Fatalf("fakeissuer: %s = %q, want honor, ignore, or reject", option, configured)
+		t.Fatalf("fakeissuer: %s = %q, want honor, ignore, filter, or reject", option, configured)
 		return ""
 	}
 }
@@ -1561,6 +1593,9 @@ func (i *Issuer) mintAccessTokenIn(ou *OrganizationUnit, subject string, scopes 
 		claims["org_id"] = i.opts.OrganizationClaim
 	}
 	withOrganizationUnit(claims, ou)
+	if i.opts.OUClaim != "" {
+		claims["ouId"] = i.opts.OUClaim
+	}
 	token := i.sign(claims)
 	i.mutex.Lock()
 	i.accessTokens[token] = tokenRecord{
