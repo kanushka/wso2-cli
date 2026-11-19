@@ -481,7 +481,8 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 		return orgUseUnfinished(err, name, selected.Context.Organization)
 	}
 	if mode == output.ModeJSON {
-		return s.reportOrgUse(mode, name, id)
+		return encodeJSONWithNext(s.Streams.Out, orgSelection{Context: name, Organization: id},
+			loginNext(switching, outcome))
 	}
 	label := strconv.Quote(id)
 	if issued := issuedIn(outcome.first); !issued.IsZero() {

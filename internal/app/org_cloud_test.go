@@ -17,6 +17,7 @@
 package app_test
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -318,5 +319,25 @@ func TestOrgUseOnCloudWithNoArgumentRefusesASignInIssuedInNoOrganization(t *test
 		if !strings.Contains(refusal, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, refusal)
 		}
+	}
+}
+
+func TestOrgUseOnCloudUnderJSONIsOneDocumentWithItsNextStep(t *testing.T) {
+	login := newSignedInCloudOrgs(t)
+	login.out.Reset()
+
+	login.run(t, "org", "use", betaUnit.ID, "-o", "json")
+
+	var document struct {
+		Context      string   `json:"context"`
+		Organization string   `json:"organization"`
+		Next         []string `json:"next"`
+	}
+	if err := json.Unmarshal(login.out.Bytes(), &document); err != nil {
+		t.Fatalf("stdout is not one JSON document: %v\n%s", err, login.out)
+	}
+	if document.Organization != betaUnit.ID || len(document.Next) == 0 ||
+		!strings.HasSuffix(document.Next[0], " status") {
+		t.Errorf("document = %+v, want the organization and the status of the first ready product as next", document)
 	}
 }
