@@ -168,6 +168,24 @@ func (l Login) continuedLine() string {
 	return fmt.Sprintf("Authorizing the %q product in the same browser tab.", l.Label)
 }
 
+// retriedLine is printed when the provider would not authorize without the
+// person, so the authorization is asked again in the same tab.
+func (l Login) retriedLine() string {
+	if l.Label == "" {
+		return "The browser needs you to sign in; continuing in the same tab."
+	}
+	return fmt.Sprintf("The browser needs you to sign in for %q; continuing in the same tab.", l.Label)
+}
+
+// reopenedLine is printed when the tab the previous authorization ended in
+// is no longer waiting, so the browser is opened again.
+func (l Login) reopenedLine() string {
+	if l.Label == "" {
+		return "The previous browser tab is no longer waiting; opening a new one."
+	}
+	return fmt.Sprintf("The previous browser tab is no longer waiting; opening a new one for %q.", l.Label)
+}
+
 // prompt is the line printed above the authorization URL, when the browser
 // could not be opened. A login that is
 // for a product says which one and where, since one wso2 login prints one
@@ -250,20 +268,28 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 		RedirectURL: tab.redirectURL(),
 		Scopes:      l.scopes(l.DeviceSSO && slices.Contains(capabilities.ScopesSupported, scopeDeviceSSO)),
 	}
-	// A tab already holding a sign-in is sent on without a prompt; a provider
-	// that wants the person after all answers so, and is asked again with one
-	// in the same tab.
-	silent := tab.holding()
+	// A tab already holding a sign-in is sent on without a prompt. A provider
+	// that refuses that, for whatever reason short of the resource itself, is
+	// asked once more with a prompt in the same tab.
 	var grant authorization
-	for {
-		grant, err = l.authorize(ctx, tab, config, silent)
+	for attempt := 0; ; attempt++ {
+		page := tab.take()
+		var progress string
+		switch {
+		case page != nil && attempt > 0:
+			progress = l.retriedLine()
+		case page != nil:
+			progress = l.continuedLine()
+		case tab.used():
+			progress = l.reopenedLine()
+		}
+		grant, err = l.authorize(ctx, tab, config, page, page != nil && attempt == 0, progress)
 		if err != nil {
 			return Result{}, err
 		}
 		if !grant.interactive {
 			break
 		}
-		silent = false
 	}
 	code, verifier, nonce := grant.code, grant.verifier, grant.nonce
 	exchangeOptions := []oauth2.AuthCodeOption{oauth2.VerifierOption(verifier)}
@@ -300,6 +326,7 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	// An issuer that discloses no email is a legal issuer; the login reports
 	// what it verified rather than refusing over a claim it did not need.
 	_ = idToken.Claims(&claims)
+	tab.authorized(l.Label)
 	deviceSecret, _ := token.Extra("device_secret").(string)
 	return Result{
 		Token:        token,
@@ -318,9 +345,16 @@ type authorization struct {
 	interactive           bool
 }
 
-// authorize sends the browser to one authorization: by the tab held from the
-// previous one when there is one, by opening the browser otherwise.
-func (l Login) authorize(ctx context.Context, tab *Tab, config oauth2.Config, silent bool) (authorization, error) {
+// authorize sends the browser to one authorization: by page, the tab held
+// from the previous one, when there is one, by opening the browser otherwise.
+// A page it does not send on is ended on the signed-in page.
+func (l Login) authorize(ctx context.Context, tab *Tab, config oauth2.Config, page *heldPage,
+	silent bool, progress string) (authorization, error) {
+	defer func() {
+		if page != nil {
+			page.next <- ""
+		}
+	}()
 	// The one-time values are drawn before anything is opened, so a failure
 	// to generate them cannot leave a tab waiting.
 	verifier := oauth2.GenerateVerifier()
@@ -348,14 +382,18 @@ func (l Login) authorize(ctx context.Context, tab *Tab, config oauth2.Config, si
 	if silent {
 		authOptions = append(authOptions, oauth2.SetAuthURLParam("prompt", "none"))
 	}
-	waiting := tab.expect(state, l.Label, l.Resource, silent)
+	waiting := tab.expect(state, l.Resource, silent)
 	defer tab.forget(waiting)
 	authURL := config.AuthCodeURL(state, authOptions...)
-	if tab.handOff(authURL) {
-		if _, err := io.WriteString(l.out(), l.continuedLine()+"\n"); err != nil {
+	if progress != "" {
+		if _, err := io.WriteString(l.out(), progress+"\n"); err != nil {
 			return authorization{}, notCompleted("the shell could not print the progress this login needs",
 				"Run wso2 login with standard output attached to your terminal.")
 		}
+	}
+	if page != nil {
+		page.next <- authURL
+		page = nil
 	} else if err := l.open(authURL); err != nil {
 		return authorization{}, err
 	}
@@ -601,9 +639,6 @@ type callback struct {
 	// authorization. It is captured here rather than checked by the caller so
 	// that no path through this package can accept a code without it.
 	state string
-	// label names the product the authorization is for, and appears on the
-	// signed-in page alone.
-	label string
 	// resource is the indicator the authorization request carried, empty when
 	// it carried none, and words a refusal of it.
 	resource string

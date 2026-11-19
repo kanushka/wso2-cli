@@ -38,6 +38,9 @@ type Tab struct {
 	logins   []*callback
 	held     *heldPage
 	products []string
+	// waited records that a page was ever held, so a later login that finds
+	// none knows the tab it would have continued in has ended.
+	waited bool
 }
 
 // heldPage is an accepted callback whose response waits for the tab's next
@@ -50,7 +53,7 @@ type heldPage struct {
 
 // holdLimit bounds how long a held callback waits for the next login, so a
 // run that stops between logins still ends the tab on a page.
-const holdLimit = time.Minute
+var holdLimit = time.Minute
 
 // NewTab starts a tab no login has used yet.
 func NewTab() *Tab { return &Tab{} }
@@ -77,8 +80,8 @@ func (t *Tab) bind(ports []int) error {
 func (t *Tab) redirectURL() string { return redirectURL(t.listener) }
 
 // expect registers one authorization the tab may be called back for.
-func (t *Tab) expect(state, label, resource string, silent bool) *callback {
-	waiting := &callback{state: state, label: label, resource: resource, silent: silent,
+func (t *Tab) expect(state, resource string, silent bool) *callback {
+	waiting := &callback{state: state, resource: resource, silent: silent,
 		results: make(chan callbackResult, 1)}
 	t.mutex.Lock()
 	t.logins = append(t.logins, waiting)
@@ -113,25 +116,32 @@ func (t *Tab) find(state string) *callback {
 	return found
 }
 
-// holding reports whether an accepted callback waits for the next login.
-func (t *Tab) holding() bool {
+// take removes the held page from the tab, for the caller alone to send on;
+// nil when no page is held.
+func (t *Tab) take() *heldPage {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
-	return t.held != nil
-}
-
-// handOff sends the held tab on to authURL, reporting false when no tab is
-// held, in which case the caller opens one.
-func (t *Tab) handOff(authURL string) bool {
-	t.mutex.Lock()
 	page := t.held
 	t.held = nil
-	t.mutex.Unlock()
-	if page == nil {
-		return false
+	return page
+}
+
+// used reports whether an earlier authorization ever held this tab.
+func (t *Tab) used() bool {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+	return t.waited
+}
+
+// authorized records a product whose authorization in this tab completed,
+// for the signed-in page to name.
+func (t *Tab) authorized(label string) {
+	if label == "" {
+		return
 	}
-	page.next <- authURL
-	return true
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+	t.products = append(t.products, label)
 }
 
 // Close ends the held tab on the signed-in page and stops the listener.
@@ -169,8 +179,11 @@ func (t *Tab) handle(w http.ResponseWriter, r *http.Request) {
 	case refusal == "invalid_target":
 		respond(w, pageRefused)
 		waiting.finish(callbackResult{err: targetRejected(waiting.resource)})
-	case waiting.silent && needsThePerson(refusal):
-		// The tab is kept, and the login asks again in it with a prompt.
+	case waiting.silent && refusal != "":
+		// login_required, interaction_required, consent_required and
+		// account_selection_required are the usual answers; a proxy may
+		// refuse prompt=none with anything else. The tab is kept either way,
+		// and the login asks again in it with a prompt.
 		t.hold(w, r, func() { waiting.finish(callbackResult{interactive: true}) })
 	case refusal != "":
 		// The provider's error code is not echoed to the terminal; what the
@@ -183,26 +196,8 @@ func (t *Tab) handle(w http.ResponseWriter, r *http.Request) {
 		respond(w, pageNoCode)
 	default:
 		code := query.Get("code")
-		t.hold(w, r, func() {
-			if waiting.label != "" {
-				t.mutex.Lock()
-				t.products = append(t.products, waiting.label)
-				t.mutex.Unlock()
-			}
-			waiting.finish(callbackResult{code: code})
-		})
+		t.hold(w, r, func() { waiting.finish(callbackResult{code: code}) })
 	}
-}
-
-// needsThePerson reports whether a refusal of a silent authorization means
-// only that the provider wants the person, which an authorization with a
-// prompt gives it.
-func needsThePerson(refusal string) bool {
-	switch refusal {
-	case "login_required", "interaction_required", "consent_required", "account_selection_required":
-		return true
-	}
-	return false
 }
 
 // hold makes this response the tab's held page, delivers the callback's
@@ -214,6 +209,7 @@ func (t *Tab) hold(w http.ResponseWriter, r *http.Request, deliver func()) {
 	t.mutex.Lock()
 	previous := t.held
 	t.held = page
+	t.waited = true
 	t.mutex.Unlock()
 	if previous != nil {
 		previous.next <- ""

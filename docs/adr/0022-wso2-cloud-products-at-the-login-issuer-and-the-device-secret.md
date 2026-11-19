@@ -86,11 +86,16 @@ once. The shell's loopback callback for each authorization but the last is
 answered with a redirect to the next one's authorization URL, with its own
 PKCE verifier, state and nonce, and `prompt=none`, the OpenID Connect request
 not to show the person anything; only the last callback renders the
-signed-in page, naming every product. A provider that answers a silent
-authorization with `login_required`, `interaction_required`,
-`consent_required` or `account_selection_required` gets the same
-authorization again with no `prompt`, in the same tab. Any other refusal is
-reported, as it was.
+signed-in page, naming every product whose authorization completed. A
+provider that refuses a silent authorization gets the same authorization
+again, once, with no `prompt`, in the same tab. The usual refusals are
+`login_required`, `interaction_required`, `consent_required` and
+`account_selection_required`, but any refusal but `invalid_target` is retried,
+because this applies to every provider, and a proxy that rejects `prompt=none`
+with, say, `invalid_request` must not break a login that worked with one tab
+per product. A tab the browser closed, or one no authorization followed for a
+minute, ends, and the next authorization opens the browser again, with a
+prompt.
 
 Before this, each authorization opened a tab of its own, each ending on its
 own signed-in page, so a person already signed in to WSO2 Cloud saw one tab
