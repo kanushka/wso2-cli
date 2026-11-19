@@ -416,6 +416,9 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 		if err := s.recordOrganization(root, name, id); err != nil {
 			return err
 		}
+		if _, err := fmt.Fprintln(s.Streams.Err, "Already signed in to this organization, so no new sign-in was needed."); err != nil {
+			return err
+		}
 		return s.reportOrgUse(mode, name, id)
 	}
 	if id != "" && !organizationUnitID.MatchString(id) {

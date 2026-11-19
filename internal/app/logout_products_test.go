@@ -144,6 +144,9 @@ func TestLogoutPrintsSignOutURLsWithoutTheIdentityToken(t *testing.T) {
 			t.Errorf("the sign-out URL for %s was not printed:\n%s", issuer, errOut)
 		}
 	}
+	if !strings.Contains(errOut.String(), "The browser did not open.") {
+		t.Errorf("the fallback to a printed URL was not announced:\n%s", errOut)
+	}
 	if strings.Contains(errOut.String(), "id_token_hint") || strings.Contains(errOut.String(), "idt-") {
 		t.Errorf("a printed sign-out URL carries the identity token:\n%s", errOut)
 	}

@@ -231,7 +231,8 @@ func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.Product
 		}
 		opened = browserSessionPrinted
 		if _, err := fmt.Fprintf(s.Streams.Err,
-			"Open this URL to end the browser session at %s; it may ask you to confirm:\n%s\n",
+			"The browser did not open. Open this URL to end the browser session at %s; it may ask you to "+
+				"confirm:\n%s\n",
 			access.Issuer, printed); err != nil {
 			return browserSessionPrinted
 		}

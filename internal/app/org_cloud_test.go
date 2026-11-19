@@ -128,6 +128,9 @@ func TestOrgUseOnCloudTakesTheSignedInOrganizationsHandle(t *testing.T) {
 	if len(login.paths) != 0 {
 		t.Errorf("org use signed in again for the organization already signed in to: %v", login.paths)
 	}
+	if !strings.Contains(login.errOut.String(), "Already signed in to this organization, so no new sign-in was needed.") {
+		t.Errorf("skipping the sign-in was not announced:\n%s", login.errOut)
+	}
 }
 
 func TestOrgUseOnCloudWithoutInputRefusesAndChangesNothing(t *testing.T) {

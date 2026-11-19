@@ -116,7 +116,12 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 		// the one the context does.
 		s.log.Debug("the device secret answers in another organization", "credential_ref", loginRef)
 		s.revokeUnused(access, result)
-		return oauthflow.Result{}, false, discardDeviceSecret(store, loginRef)
+		if err := discardDeviceSecret(store, loginRef); err != nil {
+			return oauthflow.Result{}, false, err
+		}
+		_, err := fmt.Fprintf(s.Streams.Err, "Your earlier sign-in is in another organization; the %q product "+
+			"needs the browser.\n", access.Namespace)
+		return oauthflow.Result{}, false, err
 	}
 	if err := s.storeSession(access, result, session.EstablishedByDeviceSecret); err != nil {
 		return oauthflow.Result{}, false, err
