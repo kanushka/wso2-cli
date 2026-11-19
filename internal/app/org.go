@@ -474,14 +474,13 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 		// ThunderID serves the device grant at no organization's endpoint,
 		// so the person picks the organization on the page and the sign-in
 		// is checked against it afterwards.
-		hint := "On the sign-in page, choose the organization to switch to. The page asks only on a full " +
-			"sign-in, so sign out of WSO2 Cloud in that browser first if it does not ask."
+		choose := "On the sign-in page, choose the organization to switch to."
 		if id != "" {
-			hint = fmt.Sprintf("On the sign-in page, choose the %s organization; a sign-in in any other is "+
-				"refused. The page asks only on a full sign-in, so sign out of WSO2 Cloud in that browser "+
-				"first if it does not ask.", id)
+			choose = fmt.Sprintf("On the sign-in page, choose the %s organization; a sign-in in any other is "+
+				"refused.", id)
 		}
-		if _, err := fmt.Fprintln(s.Streams.Err, hint); err != nil {
+		if _, err := fmt.Fprintln(s.Streams.Err, choose+" The page asks only on a full sign-in, so sign "+
+			"out of WSO2 Cloud in that browser first if it does not ask."); err != nil {
 			return err
 		}
 	}

@@ -73,7 +73,7 @@ func (s Shell) loginCreating(flags loginFlags) error {
 	// costs the user a refusal instead of a browser round trip they then find
 	// out was pointless. The write repeats the check against the document it
 	// actually holds the lock on, which is the answer that decides anything.
-	selected, err := planDeviceLogin(document, name, flags, clientID)
+	selected, err := planLoginFor(document, name, flags, clientID)
 	if err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func (s Shell) loginCreating(flags loginFlags) error {
 
 	written := loginWrite{Context: name, Assigned: assigned}
 	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
-		planned, err := planDeviceLogin(document, name, flags, clientID)
+		planned, err := planLoginFor(document, name, flags, clientID)
 		if err != nil {
 			return document, err
 		}
@@ -265,9 +265,9 @@ func refuseNonIssuerURL(issuer string) error {
 	return nil
 }
 
-// planDeviceLogin is planLogin, with a context it creates signing in by
-// device code when --device asks for one.
-func planDeviceLogin(document contexts.Document, name string, flags loginFlags,
+// planLoginFor is planLogin for this login's flags: a context it creates signs
+// in by device code when --device asks for one.
+func planLoginFor(document contexts.Document, name string, flags loginFlags,
 	clientID string) (contexts.Selection, error) {
 	selected, err := planLogin(document, name, flags.issuer, clientID)
 	if err != nil || !flags.device || declaresContext(document, name) {

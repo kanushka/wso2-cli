@@ -385,7 +385,7 @@ func extendIncompleteLoginRecovery(err error, established []contexts.ProductAcce
 	recovery := sentence + " " + resume
 	// Retrying the product alone presents the same secret again; only a fresh
 	// sign-in or the setting helps, and the refusal already names both.
-	if reported.Code == "auth.device_secret_unavailable" {
+	if reported.Code == deviceSecretUnavailableCode {
 		recovery = sentence
 	}
 	if reported.Recovery != "" {

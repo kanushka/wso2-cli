@@ -393,7 +393,8 @@ func TestOrgUseOnADeviceCodeCloudContextRefusesASignInInAnotherOrganization(t *t
 	if code := login.shell.Run([]string{"org", "use", betaUnit.ID}); code != exit.AuthPolicy {
 		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
 	}
-	if !strings.Contains(login.errOut.String(), "auth.organization_mismatch") {
+	if !strings.Contains(login.errOut.String(), "auth.organization_mismatch") ||
+		!strings.Contains(login.errOut.String(), "choose one on the sign-in page") {
 		t.Errorf("refusal:\n%s", login.errOut)
 	}
 	if got := cloudContext(t, login.shell).Organization; got != before {

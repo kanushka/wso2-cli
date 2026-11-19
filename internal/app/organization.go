@@ -111,9 +111,13 @@ func checkIssuedIn(c contexts.Context, result oauthflow.Result) error {
 	if want == "" || got.ID == "" || got.ID == want {
 		return nil
 	}
+	where := "in the browser"
+	if c.Login.Kind == contexts.KindOAuthDevice {
+		where = "on the sign-in page"
+	}
 	return problem.New(problem.CategoryAuthPolicy, "auth.organization_mismatch",
 		fmt.Sprintf("the identity provider issued this login in the %q organization, not in %q, which "+
 			"the %q context names", got.Label(), want, c.Name)).
 		WithRecovery("Run wso2 org use <organization-id> with an organization this user belongs " +
-			"to, or wso2 org use with no argument to choose one in the browser.")
+			"to, or wso2 org use with no argument to choose one " + where + ".")
 }

@@ -90,7 +90,10 @@ func (s Shell) loginCloud(flags loginFlags, root string, document contexts.Docum
 	}
 	name := cloudContextName(env)
 	flags.contextName = name
-	if declaresContext(document, name) {
+	if existing, found := document.Find(name); found {
+		if err := checkDeviceFlag(flags, existing); err != nil {
+			return flags, err
+		}
 		flags.cloudEnv = env
 		if document.DefaultContext == name {
 			return flags, nil

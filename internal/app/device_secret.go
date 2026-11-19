@@ -77,7 +77,7 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 	}
 	root, err := s.stateRoot()
 	if err != nil {
-		return oauthflow.Result{}, false, err
+		return oauthflow.Result{}, true, err
 	}
 	store := session.Store{StateRoot: root}
 	loginRef := identity.LoginAccess().SessionRef
@@ -147,15 +147,17 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 	return result, true, nil
 }
 
+const deviceSecretUnavailableCode = "auth.device_secret_unavailable"
+
 // deviceSecretUnavailable refuses a product the exchange cannot serve, naming
 // the two ways on: a fresh sign-in, which issues a new secret, and the
 // setting that authorizes products in the browser instead.
 func deviceSecretUnavailable(contextName, namespace, reason string) error {
-	return problem.New(problem.CategoryAuthPolicy, "auth.device_secret_unavailable",
+	return problem.New(problem.CategoryAuthPolicy, deviceSecretUnavailableCode,
 		fmt.Sprintf("the %q product cannot be authorized from this sign-in: %s", namespace, reason)).
-		WithRecovery(fmt.Sprintf("Run wso2 login to sign in again, which issues a new device secret, or "+
-			"set productSessions: browser in the login of the %q context to authorize each product in the "+
-			"browser instead.", contextName))
+		WithRecovery(fmt.Sprintf("Run wso2 login to sign in again, which issues a new device secret, or run "+
+			"wso2 context edit and set productSessions: browser in the login of the %q context to authorize "+
+			"each product in the browser instead.", contextName))
 }
 
 // discardDeviceSecret removes the device secret from the login session,

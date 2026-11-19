@@ -564,3 +564,20 @@ func TestCloudLoginWithDeviceRecordsADeviceCodeContext(t *testing.T) {
 		t.Errorf("iam session %+v, %v; want it from the device secret", stored.EstablishedBy, err)
 	}
 }
+
+func TestCloudLoginWithDeviceOnABrowserContextChangesNothing(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudAPIM(t, login.shell)
+	login.run(t, "login")
+	login.run(t, "context", "create", "other", "--issuer", login.issuer.URL, "--client-id", "x", "--use")
+	if got := loadDocument(t, login.shell).DefaultContext; got != "other" {
+		t.Fatalf("setup: default context %q", got)
+	}
+
+	if code := login.shell.Run([]string{"login", "--device"}); code != exit.Usage {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.Usage, login.errOut)
+	}
+	if got := loadDocument(t, login.shell).DefaultContext; got != "other" {
+		t.Errorf("a refused login selected %q as the current context", got)
+	}
+}
