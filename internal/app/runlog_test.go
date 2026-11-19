@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -310,7 +311,7 @@ func TestDoctorSaysWhenTheRunLogCannotBeWritten(t *testing.T) {
 	if !strings.Contains(finding.Detail, "not recorded") || strings.Contains(finding.Detail, "runlog:") {
 		t.Errorf("run-log detail = %q, want a plain reason", finding.Detail)
 	}
-	if !strings.Contains(finding.Recovery, shell.StateRoot+"/cli/logs") {
+	if !strings.Contains(finding.Recovery, filepath.Dir(runlog.Path(shell.StateRoot))) {
 		t.Errorf("run-log recovery = %q, want it to name the directory", finding.Recovery)
 	}
 
