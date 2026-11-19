@@ -77,7 +77,9 @@ func TestEveryOutputFlagInterpreterAgrees(t *testing.T) {
 			// calling parseLogoutArgs, which #89 deleted) is what proves the
 			// actual command wso2 logout runs agrees with pflag, not a
 			// separate hand-rolled stand-in for it.
-			logoutCmd, _, err := root.Find([]string{"logout"})
+			// A fresh root, so the value can come only from logout's own parse
+			// and not from the persistent flag the root parse above already set.
+			logoutCmd, _, err := shell.rootCommand().Find([]string{"logout"})
 			if err != nil {
 				t.Fatalf("root.Find(logout) failed: %v", err)
 			}
