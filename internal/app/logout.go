@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -207,24 +208,41 @@ func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.Product
 			s.log.Debug("no sign-out page for a provider", "issuer", access.Issuer)
 			continue
 		}
-		// The URL is an instruction, not a result, so it goes to the
-		// diagnostic stream; under a machine-readable output mode that stream
-		// carries only structured lines, and the URL travels as one.
+		openedAt = append(openedAt, access.Issuer)
+		if err := s.openBrowser(target); err == nil {
+			s.log.Debug("opened a sign-out page", "issuer", access.Issuer)
+			continue
+		}
+		opened = browserSessionPrinted
+		// A printed URL can end up in a terminal's scrollback or a pasted
+		// bug report, so it names the client without the identity token;
+		// the provider may then ask to confirm the sign-out. It goes to the
+		// diagnostic stream, which under a machine-readable output mode
+		// carries only structured lines.
+		printed := withoutTokenHint(target)
 		if flags.mode == output.ModeJSON {
-			s.log.Debug("opening a sign-out page", "issuer", access.Issuer, "url", target)
-		} else if _, err := fmt.Fprintf(s.Streams.Err, "Open this URL to end the browser session at %s:\n%s\n",
-			access.Issuer, target); err != nil {
+			s.log.Debug("a sign-out page to open", "issuer", access.Issuer, "url", printed)
+		} else if _, err := fmt.Fprintf(s.Streams.Err,
+			"Open this URL to end the browser session at %s; it may ask you to confirm:\n%s\n",
+			access.Issuer, printed); err != nil {
 			return browserSessionPrinted
 		}
-		if err := s.openBrowser(target); err != nil {
-			opened = browserSessionPrinted
-		}
-		openedAt = append(openedAt, access.Issuer)
 	}
 	if len(openedAt) == 0 {
 		return browserSessionUnaffected
 	}
 	return opened + " at " + strings.Join(openedAt, ", ")
+}
+
+func withoutTokenHint(target string) string {
+	parsed, err := url.Parse(target)
+	if err != nil {
+		return ""
+	}
+	query := parsed.Query()
+	query.Del("id_token_hint")
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 // openBrowser opens a URL the way login does: through the test seam when one

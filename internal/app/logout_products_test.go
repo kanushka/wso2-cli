@@ -17,6 +17,7 @@
 package app_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -119,8 +120,35 @@ func TestLogoutOpensEachProvidersSignOutPage(t *testing.T) {
 	if !strings.Contains(out.String(), "sign-out opened") {
 		t.Fatalf("report:\n%s", out)
 	}
-	if !strings.Contains(errOut.String(), login.URL+"/logout?") || !strings.Contains(errOut.String(), product.URL+"/logout?") {
-		t.Fatalf("the sign-out URLs were not printed:\n%s", errOut)
+	if strings.Contains(errOut.String(), "/logout?") || strings.Contains(errOut.String(), "idt-") {
+		t.Fatalf("a sign-out URL carrying the identity token was printed though the browser opened:\n%s", errOut)
+	}
+}
+
+// A browser that cannot be opened gets the sign-out URLs printed instead, and
+// a printed URL leaves the identity token out: it names the client alone.
+func TestLogoutPrintsSignOutURLsWithoutTheIdentityToken(t *testing.T) {
+	keyring.MockInit()
+	login := fakeissuer.New(t, fakeissuer.Options{RequireResource: true})
+	product := fakeissuer.New(t, fakeissuer.Options{Audience: "apim-cli"})
+	shell, out, errOut := newShell(t)
+	t.Setenv("WSO2_CONTEXT", "")
+	t.Setenv("WSO2_NO_INPUT", "")
+	seedSignedInSessions(t, shell, login, product)
+	shell.OpenBrowser = func(string) error { return errors.New("no browser") }
+	if code := shell.Run([]string{"logout"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	for _, issuer := range []string{login.URL, product.URL} {
+		if !strings.Contains(errOut.String(), issuer+"/logout?client_id=") {
+			t.Errorf("the sign-out URL for %s was not printed:\n%s", issuer, errOut)
+		}
+	}
+	if strings.Contains(errOut.String(), "id_token_hint") || strings.Contains(errOut.String(), "idt-") {
+		t.Errorf("a printed sign-out URL carries the identity token:\n%s", errOut)
+	}
+	if !strings.Contains(out.String(), "sign-out printed") {
+		t.Errorf("report:\n%s", out)
 	}
 }
 
