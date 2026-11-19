@@ -183,10 +183,18 @@ organization's own endpoint. A session records the scopes the provider
 granted, and the broker serves those rather than refusing for the ones the
 provider left out.
 
+## Later evidence (2026-11-19)
+
+The development environment now issues a device secret on a sign-in that
+reuses the browser's sign-on too, contrary to the 2026-11-13 measurement
+above; a product was authorized from the secret with the browser already
+signed in. An environment not yet on that build behaves as measured above.
+
 ## Amendment (ADR 0025)
 
 A product whose device secret is missing, expired or refused is no longer
 authorized in the browser instead: it is refused with
 `auth.device_secret_unavailable`. `login.productSessions` chooses how products
-get their sessions, `exchange` (the default) or `browser`, and a context may
+get their sessions, `exchange` or `browser`, recorded from the provider's
+discovery document when a context states neither, and a context may
 sign in with a device code, which yields a device secret as the browser does.

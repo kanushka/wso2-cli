@@ -26,9 +26,12 @@ account is the existing `client-credentials` kind, which has no login.
 
 `ws login --device` writes `oauth-device` on a context that login creates:
 the WSO2 Cloud first run under `WSO2_CLOUD_ENV`, a login with `--url`, and
-the setup wizard. On a context that exists, the kind decides, and `--device`
-on one that signs in another way is refused with `shell.invalid_argument`,
-naming `ws context edit` and the member to change. A flag that overrode the
+the setup wizard. Each records the kind only once the sign-in has succeeded,
+so a provider that refuses the device code leaves a context that still signs
+in. On a context that exists, the kind decides, and `--device` on one that
+signs in another way is refused with `shell.invalid_argument`, naming
+`ws context edit` and the member to change, before a WSO2 Cloud login
+installs or records anything for it. A flag that overrode the
 kind for one login would leave the next one signing in differently with
 nothing on record to say why.
 
@@ -66,7 +69,7 @@ sign-in's address is.
 A ThunderID context's products after the sign-in each need a session of
 their own (ADR 0022). `login.productSessions` says how they get it:
 
-- `exchange`, the default when the member is absent: each is obtained by
+- `exchange`: each is obtained by
   token exchange (RFC 8693, trading one credential for another at the token
   endpoint) of the sign-in's device secret, with no browser, during
   `ws login` and the first time a command needs the product. This is the
@@ -77,7 +80,18 @@ their own (ADR 0022). `login.productSessions` says how they get it:
   tab), and the sign-in asks for no device secret, since nothing would
   present it.
 
-There is no third value and no automatic choice. In particular a ThunderID
+A context that states neither has one recorded the first time it is needed,
+by its first login or the first command that needs a product: `exchange` where
+the provider's discovery document lists `device_sso`, and on WSO2 Cloud,
+whose provider does; `browser` otherwise, with one plain line saying so ("This
+sign-in service can't share a sign-in between products, so each product signs
+in through the browser. Change it with wso2 context edit."). It is decided
+once and written to the context file; from then on the recorded value decides,
+and a value a person stated is never changed. This is not a fallback at run
+time: it is a default chosen from what the provider says it offers, before
+anything is tried.
+
+There is no third value and no choice at run time. In particular a ThunderID
 context has no device code per product: a person who signed in with one code
 types no second one. The setting is read on ThunderID contexts only; another
 provider's products are authorized as before.
@@ -88,12 +102,16 @@ Before this, a product whose device secret was missing, expired, refused by
 the provider, or answered in another organization was authorized in the
 browser instead, without being asked, latterly with one plain line saying
 so. Under `exchange` that is now refused
-with `auth.device_secret_unavailable`, naming why, and the recovery names both
-ways on: sign in again, which issues a new device secret, or set
-`productSessions: browser`. A secret the provider no longer answers is
-discarded first. A self-hosted ThunderID whose discovery document does not list
-`device_sso` issues no secret, so its products are refused until the context
-says `productSessions: browser`. A device-code context never opens a browser
+with `auth.device_secret_unavailable`, naming why, and every recovery names
+`productSessions: browser` beside the way on that fits the reason. A secret
+that expired or whose sign-on ended is discarded, and signing in again issues
+a new one. When the sign-in kept none, the refusal says which of two things
+happened, since a plain "sign in again" would loop in both: a provider that
+does not offer `device_sso` (an explicit `exchange` there cannot work), or one
+that handed out none, likely because the browser was already signed in, for
+which the way on is `ws logout` then `ws login`. A recovery for a context other
+than the selected one names it with `--context`, as ADR 0023 has refusals
+name runnable commands. A device-code context never opens a browser
 for a product it was not told to, which on a machine with no browser would have
 failed anyway and on one with a browser would have been a surprise.
 
@@ -127,13 +145,16 @@ describes, tells the person which organization to choose on the page, and
 records it only if the sign-in was issued there; otherwise the previous
 organization stays recorded. With no argument it records the organization the
 sign-in was issued in. ThunderID shows its organization picker only on a full
-sign-in, so the instructions say to sign out of WSO2 Cloud in that browser
-first when the page does not ask.
+sign-in, so the instructions print the provider's sign-out address to open on
+that device first when the page does not ask. Only the organization already
+signed in to has a known name or handle, so the one to choose is named by id.
 
 `ws logout` on a device-code context revokes and deletes every session as
-before, and prints each provider's sign-out address on standard error instead
-of opening it: the provider's browser session is on whichever device approved
-the code, not on this machine.
+before, and prints each provider's sign-out address instead of opening it: the
+provider's browser session is on whichever device approved the code, not on
+this machine. Printing asks nothing of anyone, so it happens under
+`--no-input` too, and under `--output json` the addresses are in the report
+as `signOutUrls`.
 
 ## Follow-up: a sign-in an agent can finish across calls
 
@@ -158,6 +179,12 @@ shell registers there.
 - The token answer carries an identity token when `openid` is asked, a
   refresh token when the client may use `refresh_token`, and a device secret
   when `device_sso` was granted and the approval kept a sign-on.
+- Since 2026-11-19 the development environment issues a device secret on a
+  sign-in that reuses the browser's sign-on too, which ADR 0022 measured it
+  not doing on 2026-11-13; it was confirmed live by authorizing a product from
+  the secret with the browser already signed in. An environment not yet on
+  that build still issues none on a reused sign-on, which is the case the
+  "handed out no shared sign-in" refusal names.
 - A client whose registration does not list the grant is answered
   `unauthorized_client`. The organization-scoped token endpoint refuses every
   grant but client credentials, the authorization code and token exchange;
