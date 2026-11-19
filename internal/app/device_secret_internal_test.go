@@ -571,3 +571,31 @@ func TestAnExplicitBrowserIsKeptWhereTheProviderOffersSharedSignIn(t *testing.T)
 		t.Errorf("an explicit setting was announced as decided:\n%s", login.errOut)
 	}
 }
+
+func TestARefusalForAContextThatIsNotSelectedNamesIt(t *testing.T) {
+	login := newDeviceSecretLogin(t, fakeissuer.Options{DeviceSSO: true, ReusedBrowserSession: true},
+		contexts.ProviderThunder)
+	document, err := contexts.Load(login.shell.StateRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document.DefaultContext = ""
+	if err := contexts.Save(login.shell.StateRoot, document); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := login.shell.Run([]string{"login", "--context", "cloud"}); code != 77 {
+		t.Fatalf("login exit %d, want 77; stderr %s", code, login.errOut)
+	}
+	if !strings.Contains(login.errOut.String(), "wso2 logout --context cloud") {
+		t.Errorf("the recovery does not name the context:\n%s", login.errOut)
+	}
+
+	login.errOut.Reset()
+	if code := login.shell.Run([]string{"login", "--context", "cloud", "--device"}); code != 64 {
+		t.Fatalf("login --device exit %d, want 64; stderr %s", code, login.errOut)
+	}
+	if !strings.Contains(login.errOut.String(), "wso2 login --context cloud without --device") {
+		t.Errorf("the --device refusal does not name the context:\n%s", login.errOut)
+	}
+}

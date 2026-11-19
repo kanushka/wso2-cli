@@ -148,7 +148,7 @@ func (s Shell) login(flags loginFlags) error {
 	// or records anything for it, so a refusal changes nothing.
 	byDeviceOnceSignedIn := flags.device && flags.cloudCreated
 	if selected, err := s.selection(flags.contextName); err == nil && !byDeviceOnceSignedIn {
-		if err := checkDeviceFlag(flags, selected.Context); err != nil {
+		if err := s.checkDeviceFlag(flags, selected.Context); err != nil {
 			return err
 		}
 	}
@@ -203,7 +203,7 @@ func (s Shell) recordDeviceKind(name string) error {
 // checkDeviceFlag refuses --device on a context that signs in another way.
 // The context's kind is the setting; a flag that overrode it for one login
 // would leave the next one signing in differently with nothing to say why.
-func checkDeviceFlag(flags loginFlags, context contexts.Context) error {
+func (s Shell) checkDeviceFlag(flags loginFlags, context contexts.Context) error {
 	if !flags.device || context.Login.Kind == contexts.KindOAuthDevice {
 		return nil
 	}
@@ -211,8 +211,8 @@ func checkDeviceFlag(flags loginFlags, context contexts.Context) error {
 		fmt.Sprintf("--device asks for a device-code sign-in, and the %q context signs in with kind %s",
 			context.Name, context.Login.Kind)).
 		WithRecovery(fmt.Sprintf("Run wso2 context edit and set kind: oauth-device in the login of the %q "+
-			"context to sign in with a device code from now on, or run wso2 login without --device.",
-			context.Name))
+			"context to sign in with a device code from now on, or run wso2 login%s without --device.",
+			context.Name, s.contextArgument(context.Name)))
 }
 
 // loginOutcome is what one wso2 login established: the first authorization's
@@ -720,6 +720,7 @@ func (s Shell) establishSession(selected contexts.Selection, access contexts.Pro
 			Resource:  access.Resource,
 			DeviceSSO: asksForDeviceSecret(selected.Identity, access),
 			Out:       s.Streams.Err,
+			Log:       s.log,
 		}.Run(ctx)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), loginDeadline)

@@ -376,8 +376,12 @@ func TestOrgUseOnADeviceCodeCloudContextRecordsTheOrganizationChosenOnThePage(t 
 	if login.opened != 0 {
 		t.Errorf("org use on a device-code context opened the browser %d times", login.opened)
 	}
-	if !strings.Contains(login.errOut.String(), "choose the "+betaUnit.ID+" organization") {
+	if !strings.Contains(login.errOut.String(), "choose the organization whose id is "+betaUnit.ID) {
 		t.Errorf("the instructions do not say which organization to choose:\n%s", login.errOut)
+	}
+	if !strings.Contains(login.errOut.String(), "open this URL there first to sign out of WSO2 Cloud:\n"+
+		login.issuer.URL) {
+		t.Errorf("the instructions do not print the sign-out URL:\n%s", login.errOut)
 	}
 	stored, err := session.Store{StateRoot: login.shell.StateRoot}.Load(
 		contexts.ProductSessionRef(cloudContext(t, login.shell).CredentialRef, "iam"))
@@ -399,5 +403,45 @@ func TestOrgUseOnADeviceCodeCloudContextRefusesASignInInAnotherOrganization(t *t
 	}
 	if got := cloudContext(t, login.shell).Organization; got != before {
 		t.Errorf("context organization = %q, want the previous %q kept", got, before)
+	}
+}
+
+func TestALoginOfADeviceCodeCloudContextInAnotherOrganizationIsRefusedAndRevoked(t *testing.T) {
+	login := newSignedInCloudOrgsByDevice(t)
+	login.issuer.ChooseOrganizationUnit(betaUnit.ID)
+	login.run(t, "org", "use", betaUnit.ID)
+	login.issuer.ChooseOrganizationUnit(cloudOrgs[0].ID)
+	live := login.issuer.LiveRefreshTokens()
+	login.errOut.Reset()
+
+	if code := login.shell.Run([]string{"login"}); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
+	}
+	if !strings.Contains(login.errOut.String(), "auth.organization_mismatch") ||
+		!strings.Contains(login.errOut.String(), "on the sign-in page") {
+		t.Errorf("refusal:\n%s", login.errOut)
+	}
+	if got := login.issuer.LiveRefreshTokens(); got != live {
+		t.Errorf("%d refresh tokens live after the refused sign-in, want the %d before it", got, live)
+	}
+	if got := cloudContext(t, login.shell).Organization; got != betaUnit.ID {
+		t.Errorf("context organization = %q, want %q kept", got, betaUnit.ID)
+	}
+}
+
+func TestOrgUseWithNoArgumentOnADeviceCodeCloudContextRecordsWhatTheSignInChose(t *testing.T) {
+	login := newSignedInCloudOrgsByDevice(t)
+	login.issuer.ChooseOrganizationUnit(betaUnit.ID)
+
+	login.run(t, "org", "use")
+
+	if got := cloudContext(t, login.shell).Organization; got != betaUnit.ID {
+		t.Errorf("context organization = %q, want the chosen %q", got, betaUnit.ID)
+	}
+	if !strings.Contains(login.errOut.String(), "choose the organization to switch to") {
+		t.Errorf("the instructions do not ask to choose:\n%s", login.errOut)
+	}
+	if login.opened != 0 {
+		t.Errorf("opened the browser %d times", login.opened)
 	}
 }

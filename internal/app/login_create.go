@@ -77,7 +77,7 @@ func (s Shell) loginCreating(flags loginFlags) error {
 	if err != nil {
 		return err
 	}
-	if err := checkDeviceFlag(flags, selected.Context); err != nil {
+	if err := s.checkDeviceFlag(flags, selected.Context); err != nil {
 		return err
 	}
 	// Asked for the same reason, and with more at stake: a document this shell

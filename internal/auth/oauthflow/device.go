@@ -66,6 +66,9 @@ type DeviceLogin struct {
 	// DeviceSSO asks ThunderID for a device secret beside the tokens, when the
 	// discovery document lists the device_sso scope, as Login.DeviceSSO does.
 	DeviceSSO bool
+	// Log receives the provider's own error and description under --verbose.
+	// The refusal shown to the person never repeats them.
+	Log *output.Logger
 	// HTTPClient serves discovery, the device authorization request, and the
 	// polling. It defaults to http.DefaultClient.
 	HTTPClient *http.Client
@@ -124,6 +127,7 @@ func (d DeviceLogin) Run(ctx context.Context) (Result, error) {
 
 	authorization, err := config.DeviceAuth(ctx, options...)
 	if err != nil {
+		d.logRefusal("the identity provider refused the device authorization", err)
 		return Result{}, deviceAuthorizationRefused(err)
 	}
 	authorization.Interval = usableInterval(authorization.Interval)
@@ -133,6 +137,7 @@ func (d DeviceLogin) Run(ctx context.Context) (Result, error) {
 
 	token, err := config.DeviceAccessToken(d.noticingSlowDown(ctx, endpoint.TokenURL), authorization)
 	if err != nil {
+		d.logRefusal("the device authorization ended without tokens", err)
 		return Result{}, approvalFailed(err)
 	}
 	return d.identify(ctx, provider, token)
@@ -346,6 +351,16 @@ func approvalFailed(err error) error {
 // established either way narrows down to the same product access afterwards.
 func (d DeviceLogin) scopes(deviceSSO bool) []string {
 	return Login{Scopes: d.Scopes}.scopes(deviceSSO)
+}
+
+func (d DeviceLogin) logRefusal(message string, err error) {
+	var refusal *oauth2.RetrieveError
+	if errors.As(err, &refusal) {
+		d.Log.Debug(message, "provider_error", refusal.ErrorCode,
+			"provider_error_description", refusal.ErrorDescription)
+		return
+	}
+	d.Log.Debug(message, "error", err.Error())
 }
 
 // deviceAuthorizationRefused reports a device authorization the provider

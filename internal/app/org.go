@@ -17,6 +17,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
@@ -25,6 +26,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/wso2/wso2-cli/internal/auth"
+	"github.com/wso2/wso2-cli/internal/auth/oauthflow"
 	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/output"
@@ -441,7 +443,7 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 			return problem.New(problem.CategoryAuthPolicy, "auth.non_interactive",
 				fmt.Sprintf("switching the %q context to another organization signs in again with a device "+
 					"code, which waits for a person, and %s asked not to", name, control)).
-				WithRecovery(fmt.Sprintf("Run %s without it.", again))
+				WithRecovery(fmt.Sprintf("Run %s%s without it.", again, s.contextArgument(name)))
 		}
 		return problem.New(problem.CategoryAuthPolicy, "auth.non_interactive",
 			fmt.Sprintf("switching the %q context to another organization logs in again in the browser, "+
@@ -476,12 +478,24 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 		// is checked against it afterwards.
 		choose := "On the sign-in page, choose the organization to switch to."
 		if id != "" {
-			choose = fmt.Sprintf("On the sign-in page, choose the %s organization; a sign-in in any other is "+
-				"refused.", id)
+			// Only the organization signed in to has a known name or handle,
+			// and switching to it never reaches here.
+			choose = fmt.Sprintf("On the sign-in page, choose the organization whose id is %s; a sign-in "+
+				"in any other is refused.", id)
 		}
-		if _, err := fmt.Fprintln(s.Streams.Err, choose+" The page asks only on a full sign-in, so sign "+
-			"out of WSO2 Cloud in that browser first if it does not ask."); err != nil {
+		if _, err := fmt.Fprintln(s.Streams.Err, choose+" The page asks only on a full sign-in."); err != nil {
 			return err
+		}
+		login := selected.Identity.LoginAccess()
+		ctx, cancel := context.WithTimeout(context.Background(), revokeDeadline)
+		target, err := oauthflow.EndSession{Issuer: login.Issuer, IssuerID: login.IssuerID,
+			ClientID: login.ClientID}.URL(ctx)
+		cancel()
+		if printed := withoutTokenHint(target); err == nil && printed != "" {
+			if _, err := fmt.Fprintf(s.Streams.Err, "If it does not ask, open this URL there first to sign "+
+				"out of WSO2 Cloud:\n%s\n", printed); err != nil {
+				return err
+			}
 		}
 	}
 	switching := selected

@@ -1518,6 +1518,13 @@ func (i *Issuer) RefreshTokenLive(token string) bool {
 	return found
 }
 
+// LiveRefreshTokens is how many refresh tokens this issuer would still renew.
+func (i *Issuer) LiveRefreshTokens() int {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	return len(i.refreshTokens)
+}
+
 // MintAccessToken mints a live access token directly, as a code exchange
 // would, so a test can seed a session that already holds one. resource binds
 // the audience as a resource indicator would; empty takes the registration's.

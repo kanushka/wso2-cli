@@ -234,3 +234,34 @@ func TestLogoutOfADeviceCodeContextPrintsTheSignOutPageUnderNoInput(t *testing.T
 		t.Errorf("the report does not say the sign-out was printed:\n%s", login.out)
 	}
 }
+
+func TestTheProvidersRefusalOfADeviceCodeIsLoggedUnderVerbose(t *testing.T) {
+	login := newDeviceCodeLogin(t, fakeissuer.Options{DeviceSSO: true, DeviceUnauthorizedClient: true})
+
+	if code := login.shell.Run([]string{"--verbose", "login"}); code != 77 {
+		t.Fatalf("login exit %d, want 77", code)
+	}
+	for _, line := range strings.Split(login.errOut.String(), "\n") {
+		if strings.Contains(line, "provider_error") && strings.Contains(line, "unauthorized_client") {
+			return
+		}
+	}
+	t.Errorf("no debug line names the provider's error:\n%s", login.errOut)
+}
+
+func TestTheDeviceSecretReachesNeitherJSONNorVerboseOutput(t *testing.T) {
+	login := newDeviceCodeLogin(t, fakeissuer.Options{DeviceSSO: true})
+
+	login.run(t, "--verbose", "login", "-o", "json")
+
+	secret := login.load(t, deviceRef).DeviceSecret
+	if secret == "" {
+		t.Fatal("no device secret was stored to look for")
+	}
+	if strings.Contains(login.out.String(), secret) || strings.Contains(login.errOut.String(), secret) {
+		t.Error("the device secret reached an output stream")
+	}
+	if !strings.Contains(login.errOut.String(), "establishing a product session from the device secret") {
+		t.Errorf("the verbose output has no exchange lines to search:\n%s", login.errOut)
+	}
+}
