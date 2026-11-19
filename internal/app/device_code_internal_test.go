@@ -66,6 +66,10 @@ func TestADeviceCodeSignInAtThunderIDBindsTheResourceAndKeepsTheDeviceSecret(t *
 		t.Errorf("second session resource %q established by %q, want it from the device secret",
 			second.Resource, second.EstablishedBy)
 	}
+	if !strings.Contains(login.errOut.String(),
+		`Authorized the "second" product from this sign-in, without the browser.`) {
+		t.Errorf("stderr does not say the second product came from the sign-in:\n%s", login.errOut)
+	}
 	if !userCodeOnItsOwnLine(login.errOut.String()) {
 		t.Errorf("stderr does not show the user code on a line of its own:\n%s", login.errOut)
 	}

@@ -17,12 +17,15 @@
 package oauthflow
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"slices"
+	"sync"
 
 	oidc "github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -128,11 +131,55 @@ func (d DeviceLogin) Run(ctx context.Context) (Result, error) {
 		return Result{}, err
 	}
 
-	token, err := config.DeviceAccessToken(ctx, authorization)
+	token, err := config.DeviceAccessToken(d.noticingSlowDown(ctx, endpoint.TokenURL), authorization)
 	if err != nil {
 		return Result{}, approvalFailed(err)
 	}
 	return d.identify(ctx, provider, token)
+}
+
+// slowDownNotice is said once when the provider asks for slower polling,
+// which x/oauth2 acts on without telling anyone.
+const slowDownNotice = "The sign-in service asked the shell to check less often, so it is waiting a " +
+	"little longer between checks."
+
+// noticingSlowDown is ctx with an HTTP client that says slowDownNotice the
+// first time the token endpoint answers slow_down.
+func (d DeviceLogin) noticingSlowDown(ctx context.Context, tokenURL string) context.Context {
+	client := *d.httpClient()
+	base := client.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	client.Transport = &slowDownNoticer{base: base, tokenURL: tokenURL, out: d.out()}
+	return oidc.ClientContext(ctx, &client)
+}
+
+type slowDownNoticer struct {
+	base     http.RoundTripper
+	tokenURL string
+	out      io.Writer
+	said     sync.Once
+}
+
+func (n *slowDownNoticer) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := n.base.RoundTrip(request)
+	if err != nil || response.StatusCode != http.StatusBadRequest || request.URL.String() != n.tokenURL {
+		return response, err
+	}
+	body, readErr := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	response.Body = io.NopCloser(bytes.NewReader(body))
+	if readErr != nil {
+		return response, nil
+	}
+	var answer struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(body, &answer) == nil && answer.Error == "slow_down" {
+		n.said.Do(func() { _, _ = fmt.Fprintln(n.out, slowDownNotice) })
+	}
+	return response, nil
 }
 
 const (
@@ -311,9 +358,9 @@ func deviceAuthorizationRefused(err error) error {
 		return notCompleted(
 			"the OAuth application this context signs in as is not registered for the device "+
 				"authorization grant (unauthorized_client)",
-			"Set kind: oauth-browser in the login of the selected context to sign in through the "+
-				"browser, or ask the identity provider's administrator to allow the device code grant "+
-				"for the application.")
+			"Run wso2 context edit and set kind: oauth-browser in the selected context's login to sign "+
+				"in through the browser, or ask the identity provider's administrator to allow the device "+
+				"code grant for the application.")
 	}
 	return notCompleted(
 		"the identity provider would not start a device authorization for this login",

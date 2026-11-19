@@ -346,7 +346,18 @@ func TestADeviceLoginHonoursTheAdvertisedIntervalAndBacksOffWhenTold(t *testing.
 			"interval was not increased by the five seconds RFC 8628 requires",
 			gap, advertised+increment)
 	}
+	// The longer wait changes what the person sees happen, so it is said once,
+	// in plain words: no error code and no protocol term.
+	stderr := deployment.errOut.String()
+	if got := strings.Count(stderr, slowDownNotice); got != 1 {
+		t.Errorf("stderr says %q %d times, want once:\n%s", slowDownNotice, got, stderr)
+	}
+	if strings.Contains(stderr, "slow_down") {
+		t.Errorf("stderr names the protocol answer:\n%s", stderr)
+	}
 }
+
+const slowDownNotice = "The sign-in service asked the shell to check less often, so it is waiting a little longer between checks."
 
 func TestAHostileAdvertisedIntervalRefusesRatherThanCrashes(t *testing.T) {
 	// RFC 8628 lets the deployment set the polling interval, and nothing stops
