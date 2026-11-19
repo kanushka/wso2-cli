@@ -22,13 +22,11 @@
 // attribute names covers both sides of the module boundary. See
 // docs/adr/0026-debug-logging-from-the-environment-and-a-run-log.md.
 //
-// Redaction here is attribute-key-based and nothing else. It reads the key of
-// every attribute, wherever in a record that attribute sits, and it reads
-// neither the record's message nor the text of an error handed over as a value
-// — slog.Any("error", err) reaches the stream whole, whatever the error's own
-// Error() decided to say. So a call site logging a failure owns what that
-// failure's text carries: an issuer response body or a request URL pasted into
-// an error message is logged as written.
+// Redaction masks an attribute by its key, wherever in a record it sits, and
+// inside every string or error value it masks the secret parameters of any
+// URL and any JWT. It does not read the record's message, and it cannot
+// recognise a secret that has neither a telling name nor one of those shapes,
+// so a call site still owns what free text it logs.
 package diag
 
 import (
@@ -178,7 +176,17 @@ func (h redactingHandler) redact(attribute slog.Attr) slog.Attr {
 	if h.masked || Sensitive(attribute.Key) {
 		return slog.String(attribute.Key, Redacted)
 	}
-	if attribute.Value.Kind() != slog.KindGroup {
+	switch attribute.Value.Kind() {
+	case slog.KindString:
+		return slog.String(attribute.Key, maskText(attribute.Value.String()))
+	case slog.KindAny:
+		// An error renders as its text, so it is masked as text.
+		if err, ok := attribute.Value.Any().(error); ok {
+			return slog.String(attribute.Key, maskText(err.Error()))
+		}
+		return attribute
+	case slog.KindGroup:
+	default:
 		return attribute
 	}
 	group := attribute.Value.Group()
