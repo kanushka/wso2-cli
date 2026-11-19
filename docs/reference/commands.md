@@ -58,7 +58,7 @@ and how each refusal is reported.
 | `ws product update <product>` | Updates one product module. Naming a module is already an explicit target, so this does not prompt; `--dry-run` still reports what it would do without changing anything. A module the catalog publishes no version of on its followed channel — withdrawn, renamed, or moved to a channel this install no longer follows — is reported by name rather than called current, since the catalog cannot say whether the installed version is current when it does not publish the module at all; this does not change the exit status. |
 | `ws product update --all` | Built today: updates every installed product module that has a newer version on its followed channel, skipping a pinned one. Being unbounded, it prompts for confirmation before moving anything, unless the catalog says nothing would move, in which case it reports each product's outcome from that one catalog read without asking; `--yes` skips the prompt, `--dry-run` reports what it would do without changing anything, and `--no-input` (or `WSO2_NO_INPUT`) refuses rather than prompt. Refuses `shell.non_interactive` when it may not prompt and `--yes` was not given — either because `--no-input` or `WSO2_NO_INPUT` asked that nothing prompt, or because standard input is not a terminal; the refusal names the control that fired and offers the one way out that applies to it, and `shell.conflicting_arguments` for `--yes` with `--dry-run`. A module the catalog publishes no version of on its followed channel — withdrawn, renamed, or moved to a channel this install no longer follows — is reported by name rather than called current, since the catalog cannot say whether the installed version is current when it does not publish the module at all; this does not change the exit status, so a scheduled `--all` run does not start failing the moment one module goes unpublished upstream. |
 | `ws product remove <product>` | Built today: removes one installed module, leaving configuration and credentials alone. Prompts for confirmation after confirming the module is installed; `--yes` skips the prompt, `--dry-run` reports what it would remove without removing anything, and `--no-input` (or `WSO2_NO_INPUT`) refuses rather than prompt. Refuses `shell.module_not_installed` before any prompt when the module is not installed, `shell.non_interactive` when it may not prompt and `--yes` was not given — either because `--no-input` or `WSO2_NO_INPUT` asked that nothing prompt, or because standard input is not a terminal; the refusal names the control that fired and offers the one way out that applies to it, and `shell.conflicting_arguments` for `--yes` with `--dry-run`. |
-| `ws doctor` | Built today: checks that the context document is valid, that the OS secure store is reachable, and that the selected context has a stored session, and (the `defaults` check) whether any product record differs from what its installed product's descriptor would write now, reported `differs` without failing, since a product update changes nothing until a context is applied again. The finding states the difference in its detail and the commands that adopt the new values in its recovery. It does not report a scope list a context states empty on purpose (`scopes: []`, which the document keeps apart from an absent list), nor the grant a WSO2 Cloud context sets aside (ADR 0022). The context check's own detail names the document it checked — its path inside the shell's state root, which `WSO2_HOME` overrides — whichever way the check comes out; `ws context show` shows that same document whole. The session check covers the login record and every product record the context holds, a product's gateway record among them under its key (`apim/gateway`). It fails with `auth.login_required` and the `ws login` pointer when the context has no login session, since no product command can run without one. With the login session stored, it reports none and names the product records that have no session of their own, since each is established when a command first needs it; a session that is stored but cannot be read still fails. `--online` adds two more checks: that the OpenID configuration of every issuer the selected context names can be read — the check that finds a certificate this machine does not trust, refused as `auth.certificate_untrusted` with the same recovery a product command gives, or `auth.discovery_failed` for any other reason — and module catalog reachability; without it, `ws doctor` makes no network call. On an unconfigured machine, the context and secure-store checks report not-applicable, and the session check fails with `auth.login_required` and the setup commands, since no command can run there (ADR 0024); with contexts and none selected it fails with `auth.context_not_selected`, naming `ws context use`; on a context document that fails to decode or validate, the session check reports not-applicable too, because no credential reference can be resolved from it, while the secure-store check still runs since it never reads the document. The session check is not-applicable for a client-credentials context; such a context acquires access inline and holds no session to check. Exits 0 when every check passes, is not-applicable, reports none or differs, otherwise the exit class of the most severe failing check, in this rank: secure-store, then the document, then the session, then (only under `--online`) the issuer, then the catalog — a rank this command defines and not the numeric order of the exit classes those checks carry. Receipt, module integrity, compatibility, and protocol status are not built yet; see [architecture](../architecture.md#14-operational-behavior). |
+| `ws doctor` | Built today: checks that the context document is valid, that the OS secure store is reachable, and that the selected context has a stored session, and (the `defaults` check) whether any product record differs from what its installed product's descriptor would write now, reported `differs` without failing, since a product update changes nothing until a context is applied again. The finding states the difference in its detail and the commands that adopt the new values in its recovery. It does not report a scope list a context states empty on purpose (`scopes: []`, which the document keeps apart from an absent list), nor the grant a WSO2 Cloud context sets aside (ADR 0022). The context check's own detail names the document it checked — its path inside the shell's state root, which `WSO2_HOME` overrides — whichever way the check comes out; `ws context show` shows that same document whole. The session check covers the login record and every product record the context holds, a product's gateway record among them under its key (`apim/gateway`). It fails with `auth.login_required` and the `ws login` pointer when the context has no login session, since no product command can run without one. With the login session stored, it reports none and names the product records that have no session of their own, since each is established when a command first needs it; a session that is stored but cannot be read still fails. `--online` adds two more checks: that the OpenID configuration of every issuer the selected context names can be read — the check that finds a certificate this machine does not trust, refused as `auth.certificate_untrusted` with the same recovery a product command gives, or `auth.discovery_failed` for any other reason — and module catalog reachability; without it, `ws doctor` makes no network call. On an unconfigured machine, the context and secure-store checks report not-applicable, and the session check fails with `auth.login_required` and the setup commands, since no command can run there (ADR 0024); with contexts and none selected it fails with `auth.context_not_selected`, naming `ws context use`; on a context document that fails to decode or validate, the session check reports not-applicable too, because no credential reference can be resolved from it, while the secure-store check still runs since it never reads the document. The session check is not-applicable for a client-credentials context; such a context acquires access inline and holds no session to check. Exits 0 when every check passes, is not-applicable, reports none or differs, otherwise the exit class of the most severe failing check, in this rank: secure-store, then the document, then the session, then (only under `--online`) the issuer, then the catalog — a rank this command defines and not the numeric order of the exit classes those checks carry. When the newest earlier run (other than a `ws doctor`) failed, a `last-run` finding with status `notice` names its command, time, exit code and problem code, and its recovery names `WSO2_DEBUG=1` and the run log; it never decides the exit status, and it is absent when the newest run succeeded (see [Diagnostics](#diagnostics)). Receipt, module integrity, compatibility, and protocol status are not built yet; see [architecture](../architecture.md#14-operational-behavior). |
 
 `project` commands are intentionally not included yet. Product-specific
 projects, deployment, and runtime operations remain within their product
@@ -327,6 +327,40 @@ and the recovery `Pass --yes to proceed without a prompt, or drop --no-input
 to be asked.` Today `ws apim api delete`, `ws apim project delete` and `ws
 iam resource-server delete` ask.
 
+## Diagnostics
+
+`--verbose` writes what the shell attempted to standard error, never standard
+output, as slog text, or as JSON lines under `--output json`. Every shell
+command accepts it, before or after the command name, and on a product command
+line it is the shell's own, never forwarded to the module. `WSO2_DEBUG`, set to
+anything but empty, `0` or `false`, does the same for every invocation in the
+environment. A `--verbose` written on the line wins over the variable, so
+`--verbose=false` silences one command under `WSO2_DEBUG=1`. Attribute values
+that name a token, code, secret, password, API key or credential are written as
+`[redacted]` (ADR 0026).
+
+When diagnostics are on, a product module is handed `WSO2_DEBUG=1`, and its
+standard error is kept up to 256 KiB instead of 8 KiB. A module built against
+SDK v0.5.0 or later logs through `Request.Log` and `diag.Transport` there,
+through the same redaction; one built earlier writes what it always did.
+
+Every run is also recorded in `<state root>/cli/logs/wso2.log` (inside
+`WSO2_HOME` when set), which is private to its owner (`0600`, in a `0700`
+directory), JSON lines, and rotated at 1 MiB with two older files kept,
+`wso2.log.1` and `wso2.log.2`. Each run writes `a run started` (shell version,
+platform) and `a run ended` (the command in declared words such as `wso2
+context use`, exit code, problem code when it failed, duration), and nothing
+else: no argument, flag value, problem message, or context, organization or
+account name. Under `--verbose` or `WSO2_DEBUG`, the file also receives every
+diagnostic and every line the module wrote to standard error. A completion
+request writes nothing, and a file that cannot be written never fails a command.
+`ws doctor` points at the file when the last run failed.
+
+```sh
+WSO2_DEBUG=1 ws apim api list
+tail -n 20 ~/.wso2/cli/logs/wso2.log
+```
+
 ## Trusting a deployment's certificate
 
 Every self-hosted product serves TLS with a self-signed certificate on a fresh
@@ -369,9 +403,10 @@ lets a module stop carrying a `--scope` flag on every command.
 
 ## What a module process can see
 
-A product module runs with an environment built from nothing. Three things
+A product module runs with an environment built from nothing. Four things
 are added back: `WSO2_CA_FILE`; `WSO2_NO_INPUT=1` when `--no-input` or
-`WSO2_NO_INPUT` asked that nothing prompt; and every variable named
+`WSO2_NO_INPUT` asked that nothing prompt; `WSO2_DEBUG=1` when `--verbose` or
+`WSO2_DEBUG` turned diagnostics on; and every variable named
 `WSO2_<NAMESPACE>_*` for that module's namespace, upper-cased: `WSO2_IAM_`
 for `iam`. That is how a secret a command needs, such as an administrator
 password for a one-time bootstrap, reaches the module: the user exports it
