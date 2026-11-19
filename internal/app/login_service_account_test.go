@@ -197,6 +197,13 @@ func TestServiceAccountLoginRefusals(t *testing.T) {
 			status: exit.Usage, says: []string{"shell.conflicting_arguments"}},
 		{name: "with --only", args: []string{"--only", "apim"},
 			status: exit.Usage, says: []string{"shell.conflicting_arguments"}},
+		{name: "with --no-products", args: []string{"--no-products"},
+			status: exit.Usage, says: []string{"shell.conflicting_arguments"}},
+		{name: "with --client-id", args: []string{"--client-id", "other"},
+			status: exit.Usage, says: []string{"shell.conflicting_arguments"}},
+		{name: "secret with surrounding whitespace",
+			prepare: func(t *testing.T) { t.Setenv("WSO2_CLIENT_SECRET", " "+serviceAccountSecret+"\n") },
+			status:  exit.AuthPolicy, says: []string{"auth.credential_unavailable", "WSO2_CLIENT_SECRET"}},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -281,9 +288,18 @@ func TestAPlainLoginSaysItIgnoredTheServiceAccountVariables(t *testing.T) {
 	t.Setenv("WSO2_CLIENT_SECRET", "")
 	login.run(t, "login")
 	said := login.errOut.String()
-	if strings.Count(said, "--service-account") != 1 || !strings.Contains(said, "WSO2_CLIENT_ID") ||
-		strings.Contains(said, "WSO2_CLIENT_SECRET") {
+	if strings.Count(said, "--service-account") != 1 || !strings.Contains(said, "WSO2_CLIENT_ID is set") ||
+		!strings.Contains(said, "uses it") || strings.Contains(said, "WSO2_CLIENT_SECRET") {
 		t.Errorf("stderr does not say once that the set variable was ignored for --service-account:\n%s", said)
+	}
+	t.Setenv("WSO2_CLIENT_SECRET", serviceAccountSecret)
+	login.errOut.Reset()
+	if code := login.shell.Run([]string{"login", "--no-input"}); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
+	}
+	if said := login.errOut.String(); !strings.Contains(said, "WSO2_CLIENT_ID and WSO2_CLIENT_SECRET are set") ||
+		!strings.Contains(said, "uses them") {
+		t.Errorf("a login without a terminal does not say both variables were ignored:\n%s", said)
 	}
 	if strings.Contains(said, serviceAccountSecret) {
 		t.Errorf("the secret was printed:\n%s", said)
@@ -441,8 +457,9 @@ func TestTheServiceAccountLoginReplacesOnlyAServiceAccountContext(t *testing.T) 
 		"--client-secret-variable", "OTHER_SECRET"); code != exit.OK {
 		t.Fatalf("context create: exit %d, stderr %s", code, login.errOut)
 	}
-	if code := login.run("login", "--service-account", "--no-input", "--context", "machine"); code == exit.OK {
-		t.Fatalf("the login replaced a client-credentials context it did not write")
+	if code := login.run("login", "--service-account", "--no-input", "--context", "machine"); code != exit.Conflict ||
+		!strings.Contains(login.errOut.String(), "contexts.context_exists") {
+		t.Fatalf("exit %d, want %d with contexts.context_exists; stderr %s", code, exit.Conflict, login.errOut)
 	}
 	if found, _ := loadDocument(t, login.shell).Find("machine"); found.Login.ClientID != "other" {
 		t.Errorf("machine = %+v, want it left as it was", found.Login)
@@ -474,4 +491,108 @@ func TestATypedEnvironmentStillWritesTheContext(t *testing.T) {
 		t.Fatalf("exit %d, stderr %s", code, login.errOut)
 	}
 	cloudServiceAccountContext(t, login.shell)
+}
+
+func TestAPlainLoginOfTheServiceAccountContextSaysNothingOfTheVariables(t *testing.T) {
+	login := newServiceAccountLogin(t, fakeissuer.Options{})
+	if code := login.run("login", "--service-account", "--no-input"); code != exit.OK {
+		t.Fatalf("exit %d, stderr %s", code, login.errOut)
+	}
+	login.run("login", "--context", "cloud-dev-ci")
+	if strings.Contains(login.errOut.String(), "ignored") {
+		t.Errorf("a login of the service-account context said its variables were ignored:\n%s", login.errOut)
+	}
+}
+
+func TestAServiceAccountLoginToAnIssuerThatGivesNoAnswerExits68(t *testing.T) {
+	login := newServiceAccountLogin(t, fakeissuer.Options{})
+	writeCloudEnvironment(t, login.shell.StateRoot, "dev", cloudEnvironmentBody("http://127.0.0.1:1"))
+	if code := login.run("login", "--service-account", "--no-input"); code != exit.Unreachable {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.Unreachable, login.errOut)
+	}
+}
+
+func TestARefusedServiceAccountLoginIsOneJSONDocument(t *testing.T) {
+	login := newServiceAccountLogin(t, fakeissuer.Options{})
+	t.Setenv("WSO2_CLIENT_SECRET", "wrong-one")
+	if code := login.run("login", "--service-account", "--no-input", "-o", "json"); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(login.out.Bytes()))
+	var document struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := decoder.Decode(&document); err != nil || document.Error.Code != "auth.credential_unavailable" {
+		t.Fatalf("stdout is not the error document (%v):\n%s", err, login.out)
+	}
+	if decoder.More() {
+		t.Errorf("stdout holds more than one document:\n%s", login.out)
+	}
+}
+
+func TestServiceAccountOrganizationRefusals(t *testing.T) {
+	for name, byResource := range map[string]map[string]string{
+		"one product names none":       {"urn:wso2:cloud": ""},
+		"products name different ones": {"urn:wso2:cloud": "ou-other"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			login := newServiceAccountLogin(t, fakeissuer.Options{OUClaimByResource: byResource})
+			if code := login.run("login", "--service-account", "--no-input"); code != exit.AuthPolicy {
+				t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
+			}
+			if !strings.Contains(login.errOut.String(), "auth.organization_not_selected") {
+				t.Errorf("stderr does not name the organization:\n%s", login.errOut)
+			}
+			if _, found := loadDocument(t, login.shell).Find("cloud-dev-ci"); found {
+				t.Errorf("a refused login wrote the context")
+			}
+		})
+	}
+}
+
+func TestTheJSONNextNamesTheVariablesTheLoginRead(t *testing.T) {
+	login := newServiceAccountLogin(t, fakeissuer.Options{})
+	t.Setenv("WSO2_CLIENT_ID", "")
+	t.Setenv("WSO2_CLIENT_SECRET", "")
+	t.Setenv("CI_ID", "ci-client")
+	t.Setenv("CI_SECRET", serviceAccountSecret)
+	login.shell.Reader = strings.NewReader("")
+	if code := login.run("login", "--service-account", "--client-id-variable", "CI_ID",
+		"--client-secret-variable", "CI_SECRET", "-o", "json"); code != exit.OK {
+		t.Fatalf("exit %d, stderr %s", code, login.errOut)
+	}
+	var report struct {
+		Next []string `json:"next"`
+	}
+	if err := json.Unmarshal(login.out.Bytes(), &report); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, login.out)
+	}
+	if len(report.Next) != 1 || !strings.Contains(report.Next[0], "--client-id-variable CI_ID") ||
+		!strings.Contains(report.Next[0], "--client-secret-variable CI_SECRET") {
+		t.Errorf("next = %q, want the CI command with the variables it read", report.Next)
+	}
+}
+
+func TestTheServiceAccountLoginRefusesABrowserContextOfTheName(t *testing.T) {
+	login := newServiceAccountLogin(t, fakeissuer.Options{})
+	if code := login.run("context", "create", "cloud-dev", "--issuer", login.issuer.URL, "--client-id", "web"); code != exit.OK {
+		t.Fatalf("context create: exit %d, stderr %s", code, login.errOut)
+	}
+	if code := login.run("login", "--service-account", "--no-input", "--context", "cloud-dev"); code != exit.Conflict ||
+		!strings.Contains(login.errOut.String(), "contexts.context_exists") {
+		t.Fatalf("exit %d, want %d with contexts.context_exists; stderr %s", code, exit.Conflict, login.errOut)
+	}
+}
+
+func TestAWrongSecretNamesNoContextTheLoginHasNotWritten(t *testing.T) {
+	login := newServiceAccountLogin(t, fakeissuer.Options{})
+	t.Setenv("WSO2_CLIENT_SECRET", "wrong-one")
+	if code := login.run("login", "--service-account", "--no-input"); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
+	}
+	if said := login.errOut.String(); strings.Contains(said, "cloud-dev-ci") || !strings.Contains(said, "WSO2_CLIENT_SECRET") {
+		t.Errorf("the refusal names the unwritten context or not the variable:\n%s", said)
+	}
 }

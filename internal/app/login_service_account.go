@@ -42,7 +42,18 @@ const (
 	ServiceAccountSecretVariable = "WSO2_CLIENT_SECRET"
 )
 
-const serviceAccountCICommand = "wso2 login --service-account --no-input"
+// serviceAccountCICommand is the login CI runs, naming the variables this
+// one read when they are not the defaults, so it can be pasted as it is.
+func serviceAccountCICommand(flags loginFlags) string {
+	command := "wso2 login --service-account --no-input"
+	if flags.clientIDVariable != "" {
+		command += " --client-id-variable " + flags.clientIDVariable
+	}
+	if flags.clientSecretVariable != "" {
+		command += " --client-secret-variable " + flags.clientSecretVariable
+	}
+	return command
+}
 
 // serviceAccountContextName is the context a service-account login writes
 // when --context names none, beside the person's own cloud-<env>.
@@ -121,16 +132,11 @@ func (s Shell) loginServiceAccount(flags loginFlags) error {
 	if err != nil {
 		return err
 	}
-	if err := s.installCloudProducts(); err != nil {
-		return err
-	}
-	lookup := s.installedDescriptors()
-	installed := unrecordedCloudProducts(contexts.Context{}, lookup)
 
-	if gate.may && (os.Getenv(idVariable) == "" || os.Getenv(secretVariable) == "") {
+	if gate.may && (strings.TrimSpace(os.Getenv(idVariable)) == "" || strings.TrimSpace(os.Getenv(secretVariable)) == "") {
 		if _, err := fmt.Fprintf(s.Streams.Err, "Create a service account in the WSO2 Cloud console, give it "+
 			"roles for the products it should reach (%s), and enter its client id and secret.\n",
-			strings.Join(installed, ", ")); err != nil {
+			strings.Join(slices.Sorted(maps.Keys(cloudProducts)), ", ")); err != nil {
 			return err
 		}
 	}
@@ -147,6 +153,7 @@ func (s Shell) loginServiceAccount(flags loginFlags) error {
 	if err != nil {
 		return err
 	}
+	clientID.value = strings.TrimSpace(clientID.value)
 	typed := clientID.asked || secret.asked
 	if gate.may && !typed {
 		if _, err := fmt.Fprintf(s.Streams.Err, "Using the service account in %s and %s.\n",
@@ -155,6 +162,13 @@ func (s Shell) loginServiceAccount(flags loginFlags) error {
 		}
 	}
 
+	// Installed only once every question is answered, so one cancelled
+	// leaves this machine as it was.
+	if err := s.installCloudProducts(); err != nil {
+		return err
+	}
+	lookup := s.installedDescriptors()
+	installed := unrecordedCloudProducts(contexts.Context{}, lookup)
 	name := orDefault(flags.contextName, serviceAccountContextName(envName))
 	target, err := s.serviceAccountContext(environment, name, clientID.value, secretVariable, installed, lookup)
 	if err != nil {
@@ -163,11 +177,11 @@ func (s Shell) loginServiceAccount(flags loginFlags) error {
 	target.CloudEnvironment = envName
 	report, err := s.checkServiceAccount(target, envName, secret.value)
 	if err != nil {
-		return typedCredentialRefusal(err, typed)
+		return credentialRefusal(err, typed, idVariable, secretVariable)
 	}
 	if typed {
-		if _, err := fmt.Fprintln(s.Streams.Err, "Nothing was written on this machine: the client id and secret "+
-			"were typed, not set in the environment, so no command here could use them."); err != nil {
+		if _, err := fmt.Fprintln(s.Streams.Err, "No context was written: the client id and secret were typed, "+
+			"not set in the environment, so no command here could use them."); err != nil {
 			return err
 		}
 	} else {
@@ -184,7 +198,7 @@ func (s Shell) loginServiceAccount(flags loginFlags) error {
 		}
 	}
 	if gate.may {
-		report.next = "Run " + serviceAccountCICommand + " in CI."
+		report.next = "Run " + serviceAccountCICommand(flags) + " in CI."
 	}
 	return s.renderServiceAccountReport(flags, report, gate.may)
 }
@@ -193,7 +207,9 @@ func (s Shell) loginServiceAccount(flags loginFlags) error {
 // gate allows.
 func (s Shell) serviceAccountInput(variable string, gate promptGate,
 	ask func() (string, error)) (serviceAccountValue, error) {
-	if value := strings.TrimSpace(os.Getenv(variable)); value != "" {
+	// Passed on as set: a command sends the secret exactly as its variable
+	// holds it, and a login that trimmed it would pass where they fail.
+	if value := os.Getenv(variable); strings.TrimSpace(value) != "" {
 		return serviceAccountValue{value: value}, nil
 	}
 	if !gate.may {
@@ -295,7 +311,10 @@ func (s Shell) checkServiceAccount(target contexts.Context, env, secret string) 
 		}
 		if len(check.Granted) > 0 {
 			granted++
-			if report.Organization != "" && check.Organization != report.Organization {
+			switch {
+			case check.Organization == "":
+				return report, noOrganization(namespace)
+			case report.Organization != "" && check.Organization != report.Organization:
 				return report, problem.New(problem.CategoryAuthPolicy, "auth.organization_not_selected",
 					"the service account's access names more than one organization").
 					WithRecovery("Check the service account's organization in the WSO2 Cloud console, then " +
@@ -313,27 +332,38 @@ func (s Shell) checkServiceAccount(target contexts.Context, env, secret string) 
 			WithRecovery("Give the service account a role for the products it should reach in the WSO2 " +
 				"Cloud console, then run the command again.")
 	}
-	if report.Organization == "" {
-		return report, problem.New(problem.CategoryAuthPolicy, "auth.organization_not_selected",
-			"the service account's access names no organization").
-			WithRecovery("Configure the service account to name its organization in the tokens it is " +
-				"issued, then run the command again.")
-	}
 	return report, nil
 }
 
-// typedCredentialRefusal rewords a refused credential that was typed: the
-// broker's refusal names the variable and context it would have come from,
-// and neither holds it.
-func typedCredentialRefusal(err error, typed bool) error {
+// noOrganization refuses a service account whose access for namespace names
+// no organization, which every WSO2 Cloud product command needs.
+func noOrganization(namespace string) problem.Problem {
+	return problem.New(problem.CategoryAuthPolicy, "auth.organization_not_selected",
+		fmt.Sprintf("the service account's access for %s names no organization", namespace)).
+		WithRecovery("Configure the service account to name its organization in the tokens it is " +
+			"issued, then run the command again.")
+}
+
+// credentialRefusal rewords a refused credential for a login that has
+// written no context yet: the broker's refusal names the context it would
+// have come from. A typed credential names no variable either, since none
+// holds it.
+func credentialRefusal(err error, typed bool, idVariable, secretVariable string) error {
 	var refused problem.Problem
-	if !typed || !errors.As(err, &refused) || refused.Code != "auth.credential_unavailable" {
+	if !errors.As(err, &refused) || refused.Code != "auth.credential_unavailable" {
 		return err
 	}
+	if typed {
+		return problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable",
+			"the identity provider did not accept the client id and secret entered").
+			WithRecovery("Check the service account's client id and secret in the WSO2 Cloud console, then " +
+				"run the command again.")
+	}
 	return problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable",
-		"the identity provider did not accept the client id and secret entered").
-		WithRecovery("Check the service account's client id and secret in the WSO2 Cloud console, then run " +
-			"the command again.")
+		fmt.Sprintf("the identity provider did not accept the service account in %s and %s",
+			idVariable, secretVariable)).
+		WithRecovery(fmt.Sprintf("Set %s and %s to a service account's current client id and secret, then "+
+			"run the command again.", idVariable, secretVariable))
 }
 
 // recordGranted is target recording what the check found: each product's
@@ -406,10 +436,6 @@ func (s Shell) renderServiceAccountReport(flags loginFlags, report serviceAccoun
 	}
 	idVariable := orDefault(flags.clientIDVariable, ServiceAccountIDVariable)
 	secretVariable := orDefault(flags.clientSecretVariable, ServiceAccountSecretVariable)
-	command := serviceAccountCICommand
-	if flags.clientIDVariable != "" || flags.clientSecretVariable != "" {
-		command += " --client-id-variable " + idVariable + " --client-secret-variable " + secretVariable
-	}
 	_, err = fmt.Fprintln(s.Streams.Out, strings.Join([]string{
 		"",
 		"Set these in your CI, the secret as a masked secret:",
@@ -417,18 +443,18 @@ func (s Shell) renderServiceAccountReport(flags loginFlags, report serviceAccoun
 		"  " + idVariable + "=<the client id>",
 		"  " + secretVariable,
 		"Then run:",
-		"  " + output.Rename(command, output.NameOf(s.Streams.Out)),
+		"  " + output.Rename(serviceAccountCICommand(flags), output.NameOf(s.Streams.Out)),
 		fmt.Sprintf("CI also needs the %s environment file, at %s under the shell's state directory (%s).",
 			report.Environment, cloudEnvironmentPath("", report.Environment), state.RootEnvVar),
 	}, "\n"))
 	return err
 }
 
-// ignoredServiceAccountVariables says, once, that a plain interactive login
-// to WSO2 Cloud does not sign in as the service account its environment
-// holds.
-func (s Shell) ignoredServiceAccountVariables(flags loginFlags, selected contexts.Selection) error {
-	if may, _ := s.mayPrompt(flags.noInput); !may || !selected.Context.WSO2Cloud() {
+// ignoredServiceAccountVariables says, once, that a plain login to WSO2
+// Cloud does not sign in as the service account its environment holds,
+// unless the context it logs in to is a service account's own.
+func (s Shell) ignoredServiceAccountVariables(selected contexts.Selection) error {
+	if !selected.Context.WSO2Cloud() || selected.Context.Login.Kind == contexts.KindClientCredentials {
 		return nil
 	}
 	var set []string
@@ -441,12 +467,12 @@ func (s Shell) ignoredServiceAccountVariables(flags loginFlags, selected context
 		return nil
 	}
 	s.log.Debug("service-account variables ignored by a plain login", "variables", strings.Join(set, " "))
-	verb := "is"
+	verb, pronoun := "is", "it"
 	if len(set) > 1 {
-		verb = "are"
+		verb, pronoun = "are", "them"
 	}
-	_, err := fmt.Fprintf(s.Streams.Err, "%s %s set and ignored; %s uses it.\n",
-		strings.Join(set, " and "), verb, output.Rename("wso2 login --service-account", output.NameOf(s.Streams.Err)))
+	_, err := fmt.Fprintf(s.Streams.Err, "%s %s set and ignored; %s uses %s.\n", strings.Join(set, " and "),
+		verb, output.Rename("wso2 login --service-account", output.NameOf(s.Streams.Err)), pronoun)
 	return err
 }
 

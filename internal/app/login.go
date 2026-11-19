@@ -163,7 +163,7 @@ func (s Shell) login(flags loginFlags) error {
 	if err != nil {
 		return err
 	}
-	if err := s.ignoredServiceAccountVariables(flags, selected); err != nil {
+	if err := s.ignoredServiceAccountVariables(selected); err != nil {
 		return err
 	}
 	outcome, err := s.establishAndStore(selected, flags)

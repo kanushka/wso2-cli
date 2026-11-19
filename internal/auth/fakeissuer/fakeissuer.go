@@ -151,6 +151,9 @@ type Options struct {
 	// OUClaim is the ouId an access token names, as ThunderID stamps the
 	// organization unit a token was issued in. Empty mints none.
 	OUClaim string
+	// OUClaimByResource overrides OUClaim for a token bound to the named
+	// resource; an empty value mints none for it.
+	OUClaimByResource map[string]string
 	// Name, GivenName, and FamilyName are the OIDC standard name claims minted
 	// into the identity token when set, modeling the claims ThunderID's
 	// identity token carries alongside email. All three are empty by default:
@@ -1594,8 +1597,12 @@ func (i *Issuer) mintAccessTokenIn(ou *OrganizationUnit, subject string, scopes 
 		claims["org_id"] = i.opts.OrganizationClaim
 	}
 	withOrganizationUnit(claims, ou)
-	if i.opts.OUClaim != "" {
-		claims["ouId"] = i.opts.OUClaim
+	unit := i.opts.OUClaim
+	if byResource, found := i.opts.OUClaimByResource[resource]; found {
+		unit = byResource
+	}
+	if unit != "" {
+		claims["ouId"] = unit
 	}
 	token := i.sign(claims)
 	i.mutex.Lock()
