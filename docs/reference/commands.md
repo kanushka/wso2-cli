@@ -178,10 +178,10 @@ the browser rather than on standard input.
 When a question may be asked, it is asked on standard error, never standard
 output. On a terminal it is drawn as a form: options are picked with the arrow
 keys and Enter, an answer is checked as it is typed, and Ctrl+C or Esc cancels
-with `shell.cancelled`, having written nothing. Where standard input or
-standard error is not a terminal, and whenever `WSO2_ACCESSIBLE` is set to any
-non-empty value, the same questions are printed as numbered, line-oriented
-prompts, which suit a screen reader (ADR 0017).
+with `shell.cancelled`, having written nothing. Where standard error is not a
+terminal, and whenever `WSO2_ACCESSIBLE` is set to any non-empty value, the
+same questions are printed as numbered, line-oriented prompts, which suit a
+screen reader (ADR 0017).
 
 A browser or device login under `--no-input` is refused with
 `auth.non_interactive` and exit class `77`. Automation authenticates with a
