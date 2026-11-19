@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 
@@ -109,17 +110,7 @@ func (p linePrompter) Secret(title string) (string, error) {
 		return "", err
 	}
 	if file, ok := p.in.(*os.File); ok && term.IsTerminal(int(file.Fd())) {
-		typed, err := term.ReadPassword(int(file.Fd()))
-		if _, printErr := fmt.Fprintln(p.out); err == nil {
-			err = printErr
-		}
-		if err != nil {
-			return "", err
-		}
-		if answer := strings.TrimSpace(string(typed)); answer != "" {
-			return answer, nil
-		}
-		return "", ErrNoAnswer
+		return p.readHidden(int(file.Fd()))
 	}
 	answer, _, err := p.readLine()
 	if err != nil {
@@ -129,6 +120,46 @@ func (p linePrompter) Secret(title string) (string, error) {
 		return "", ErrNoAnswer
 	}
 	return answer, nil
+}
+
+// readHidden reads one line with echo off. Ctrl+C arrives as an interrupt,
+// not as input, while echo is off; the terminal is put back as it was before
+// the cancellation is returned, or the person's shell would be left with
+// echo off.
+func (p linePrompter) readHidden(fd int) (string, error) {
+	saved, err := term.GetState(fd)
+	if err != nil {
+		return "", err
+	}
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, os.Interrupt)
+	defer signal.Stop(interrupts)
+	type read struct {
+		typed []byte
+		err   error
+	}
+	done := make(chan read, 1)
+	go func() {
+		typed, err := term.ReadPassword(fd)
+		done <- read{typed: typed, err: err}
+	}()
+	select {
+	case <-interrupts:
+		_ = term.Restore(fd, saved)
+		_, _ = fmt.Fprintln(p.out)
+		return "", ErrAborted
+	case answer := <-done:
+		if _, err := fmt.Fprintln(p.out); err != nil && answer.err == nil {
+			answer.err = err
+		}
+		if answer.err != nil {
+			return "", answer.err
+		}
+		if typed := strings.TrimSpace(string(answer.typed)); typed != "" {
+			return typed, nil
+		}
+		return "", ErrNoAnswer
+	}
 }
 
 func (p linePrompter) Confirm(title string, fallback bool) (bool, error) {
