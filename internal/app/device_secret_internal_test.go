@@ -290,6 +290,10 @@ func TestAnEndedBrowserSessionDiscardsTheSecretAndFallsBack(t *testing.T) {
 		t.Errorf("login session kept secret=%v refresh=%v; want the secret discarded and the session kept",
 			stored.DeviceSecret != "", stored.RefreshToken != "")
 	}
+	if !strings.Contains(login.errOut.String(),
+		`Your earlier sign-in has ended; the "second" product needs the browser.`) {
+		t.Errorf("the fallback was not said:\n%s", login.errOut)
+	}
 
 	if err := login.shell.sessionEstablisher(selected, "second", false)(access); err != nil {
 		t.Fatalf("first use with a browser: %v", err)

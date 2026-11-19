@@ -80,7 +80,7 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 	now := time.Now()
 	if !login.DeviceSecretExpiresAt.IsZero() && !login.DeviceSecretExpiresAt.After(now.Add(deviceSecretMargin)) {
 		s.log.Debug("the device secret has expired", "credential_ref", loginRef)
-		return oauthflow.Result{}, false, discardDeviceSecret(store, loginRef)
+		return oauthflow.Result{}, false, s.endDeviceSecret(store, loginRef, access)
 	}
 	s.log.Debug("establishing a product session from the device secret",
 		"context", selected.Context.Name,
@@ -94,7 +94,7 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 	granted, err := auth.ExchangeDeviceSecret(ctx, nil, access, login.DeviceSecret, now)
 	if errors.Is(err, auth.ErrDeviceSecretSpent) {
 		s.log.Debug("the identity provider no longer accepts the device secret", "credential_ref", loginRef)
-		return oauthflow.Result{}, false, discardDeviceSecret(store, loginRef)
+		return oauthflow.Result{}, false, s.endDeviceSecret(store, loginRef, access)
 	}
 	if err != nil {
 		return oauthflow.Result{}, false, err
@@ -114,6 +114,17 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 	_, _ = fmt.Fprintf(s.Streams.Err, "Authorized the %q product from this sign-in, without the browser.\n",
 		access.Namespace)
 	return result, true, nil
+}
+
+// endDeviceSecret discards a device secret that can no longer be used, and
+// says that the product goes to the browser instead.
+func (s Shell) endDeviceSecret(store session.Store, loginRef string, access contexts.ProductAccess) error {
+	if err := discardDeviceSecret(store, loginRef); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(s.Streams.Err, "Your earlier sign-in has ended; the %q product needs the browser.\n",
+		access.Namespace)
+	return err
 }
 
 // discardDeviceSecret removes the device secret from the login session,
