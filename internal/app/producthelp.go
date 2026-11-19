@@ -120,7 +120,7 @@ func (s Shell) renderProductHelp(namespace string, declared parsetree.Tree,
 	// ends with the one command that moves them on from where this machine
 	// is. A command's page is about that command and names nothing else.
 	if len(found.Path) == 0 {
-		if next := s.productNextStep(namespace, found, descriptor); next != "" {
+		if next, _ := s.productNextStep(namespace, found, descriptor); next != "" {
 			fmt.Fprintf(&page, "\nNext  %s\n", output.Hint(s.Streams.Out, next))
 		}
 	}
@@ -190,12 +190,12 @@ func firstExample(declared parsetree.Tree, command commandtree.Command) (string,
 // one to run, from the state this machine records and nothing else: no module
 // is launched and nothing is asked of the network, so the page stays a help
 // page. Each step is the one that moves a reader to the next state, and the
-// last is the module's own first command — the root's declared example — or
-// its status command when it declares none.
+// last is the module's own first command — the root's declared example, also
+// returned whole as example — or its status command when it declares none.
 //
 // A state that cannot be read costs the page its next line, never the page.
 func (s Shell) productNextStep(namespace string, root commandtree.Command,
-	descriptor *modules.ProductDescriptor) string {
+	descriptor *modules.ProductDescriptor) (step, example string) {
 	loginProvider := descriptor != nil && descriptor.Provider != ""
 	setup := "Run wso2 context product add " + namespace + " --url <url> to record where the product runs."
 	if loginProvider {
@@ -204,37 +204,38 @@ func (s Shell) productNextStep(namespace string, root commandtree.Command,
 	}
 	selected, err := s.selection("")
 	if err != nil || selected.Context.Name == "" {
-		return setup
+		return setup, ""
 	}
 	if _, recorded := selected.Identity.Products[namespace]; !recorded {
-		return setup
+		return setup, ""
 	}
 	ready := "Run wso2 " + namespace + " status to see what to run first."
 	if examples := root.Examples(); len(examples) > 0 {
-		ready = "Run " + examples[0] + "."
+		example = examples[0]
+		ready = "Run " + example + "."
 	}
 	if selected.Identity.Auth.Kind == contexts.KindClientCredentials {
-		return ready
+		return ready, example
 	}
 	stateRoot, err := s.stateRoot()
 	if err != nil {
-		return ready
+		return ready, example
 	}
 	stored, err := (session.Store{StateRoot: stateRoot}).Load(selected.Identity.Auth.CredentialRef)
 	switch {
 	case err != nil && isNoSession(err):
-		return "Run wso2 login to log in to the " + selected.Context.Name + " context."
+		return "Run wso2 login to log in to the " + selected.Context.Name + " context.", ""
 	case err != nil:
 		// A secure store that cannot be asked is not a help page's to
 		// diagnose; wso2 doctor is.
-		return ready
+		return ready, example
 	case !sessionServes(stored, selected.Identity.Auth.Issuer):
-		return "Run wso2 login to log in to the " + selected.Context.Name + " context."
+		return "Run wso2 login to log in to the " + selected.Context.Name + " context.", ""
 	}
 	if state, _, _ := sessionExpiryState(stored, time.Now()); state == whoamiSessionExpired {
-		return "Run wso2 login to log in to the " + selected.Context.Name + " context again."
+		return "Run wso2 login to log in to the " + selected.Context.Name + " context again.", ""
 	}
-	return ready
+	return ready, example
 }
 
 // writeTable renders two aligned columns into the page being built.

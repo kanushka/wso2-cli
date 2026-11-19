@@ -168,7 +168,12 @@ func (s Shell) productHelpDocument(namespace string, declared parsetree.Tree, fo
 	}
 	document := helpDocument{Name: name, Products: []helpProductDocument{entry}}
 	if len(found.Path) == 0 {
-		if next := s.productNextStep(namespace, found, descriptor); next != "" {
+		// An example is a command as declared, which prose extraction could
+		// cut short at a value that reads as a word.
+		switch next, example := s.productNextStep(namespace, found, descriptor); {
+		case example != "":
+			document.Next = []string{output.Rename(example, name)}
+		case next != "":
 			document.Next = output.NextCommands(s.Streams.Out, next)
 		}
 	}

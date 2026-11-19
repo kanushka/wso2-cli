@@ -22,7 +22,10 @@ import (
 	"strings"
 	"testing"
 
+	keyring "github.com/zalando/go-keyring"
+
 	"github.com/wso2/wso2-cli/internal/app"
+	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/exit"
 	"github.com/wso2/wso2-cli/internal/modules/fixture"
 	"github.com/wso2/wso2-cli/internal/output"
@@ -322,5 +325,31 @@ func TestHelpJSONForAProductCarriesItsNextStep(t *testing.T) {
 	}
 	if strings.Contains(out.String(), `"next"`) {
 		t.Errorf("a command's page carries a next step:\n%s", out)
+	}
+}
+
+func TestHelpJSONCarriesAProductsRootExampleWhole(t *testing.T) {
+	keyring.MockInit()
+	shell, out, errOut := newLoginShell(t)
+	tree := guidedTree()
+	tree.Commands[0].Example = "  wso2 widget project list --sort in"
+	installFixture(t, shell, fixture.Module{Namespace: "reference", Version: "0.1.0", CommandTree: tree})
+	installLogin(t, shell, browserDoc("https://issuer.example.test"))
+	store := session.Store{StateRoot: shell.StateRoot}
+	if err := store.Save(credentialRef, session.Session{Issuer: "https://issuer.example.test", RefreshToken: "r"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := shell.Run([]string{"help", "reference", "-o", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	var document struct {
+		Next []string `json:"next"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &document); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if strings.Join(document.Next, "|") != "wso2 widget project list --sort in" {
+		t.Errorf("next = %q, want the root example whole", document.Next)
 	}
 }
