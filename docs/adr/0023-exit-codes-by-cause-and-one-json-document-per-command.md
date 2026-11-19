@@ -105,11 +105,15 @@ problem's guidance as written, left out when there is none; it is where a
 reader finds why each command is suggested. `next` holds the commands the
 recovery names, in the same shape as a success's `next`, so an agent reads one
 shape whichever way the command ended. It is always present, and empty when
-the recovery names no command. `exit` is the process exit status. A top-level
-`error` member is how a reader tells a failure from a success; no success
-document has one. A command that rendered a JSON report before failing, such as
-`ws doctor`, keeps its members and gains `error`; one that printed prose keeps
-it as `message`.
+the recovery names no command. `exit` is the process exit status.
+
+The exit status is what tells a failure from a success. A reader holding only
+the document tells them apart by a top-level `error` that is an object. The
+shell's own success documents have no `error` member, and a module result
+renders every field as a string, so a module field that happens to be named
+`error` is never an object. A command that rendered a JSON report before
+failing, such as `ws doctor`, keeps its members and gains `error`; one that
+printed prose keeps it as `message`.
 
 The same problem is still written to standard error as prose, because a person
 reading a CI log reads that stream, and a script that already reads it keeps
