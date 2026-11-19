@@ -60,7 +60,7 @@ func TestEveryOutputFlagInterpreterAgrees(t *testing.T) {
 				t.Fatalf("pflag accepted %v but the value is not an output mode", spelling)
 			}
 
-			line, err := parseProductArgs("reference", parsetree.Tree{}, append([]string{"status"}, spelling...))
+			line, err := parseProductArgs("reference", parsetree.Tree{}, append([]string{"status"}, spelling...), output.ModeTable)
 			if err != nil {
 				t.Fatalf("the namespace parser rejected %v: %v", spelling, err)
 			}

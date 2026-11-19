@@ -357,3 +357,32 @@ func TestHelpJSONCarriesAProductsRootExampleWhole(t *testing.T) {
 		t.Errorf("next = %q, want the root example whole", document.Next)
 	}
 }
+
+func TestASavedJSONPreferenceRendersAProductsHelpAsJSON(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	t.Setenv("WSO2_CONTEXT", "")
+	installFixture(t, shell, fixture.Module{Namespace: "widget", Version: "0.1.0", CommandTree: guidedTree()})
+	if code := shell.Run([]string{"config", "set", "output", "json"}); code != exit.OK {
+		t.Fatalf("config set output json: exit %d: %s", code, errOut)
+	}
+
+	out.Reset()
+	if code := shell.Run([]string{"widget", "--help"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	var page map[string]json.RawMessage
+	if err := json.Unmarshal(out.Bytes(), &page); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if _, wrapped := page["message"]; wrapped {
+		t.Errorf("the product's help was rendered as a table and wrapped:\n%s", out)
+	}
+
+	out.Reset()
+	if code := shell.Run([]string{"widget", "--help", "--output", "table"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if json.Valid(out.Bytes()) {
+		t.Errorf("--output table did not override the saved preference:\n%s", out)
+	}
+}

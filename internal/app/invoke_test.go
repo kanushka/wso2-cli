@@ -109,7 +109,7 @@ func TestAModuleThatDeclaresNoTreeIsParsedAsItAlwaysWas(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			line, err := parseProductArgs("reference", parsetree.Tree{}, test.args)
+			line, err := parseProductArgs("reference", parsetree.Tree{}, test.args, output.ModeTable)
 			if err != nil {
 				t.Fatalf("parsing %v failed: %v", test.args, err)
 			}
@@ -137,7 +137,7 @@ func TestAnUnsupportedOutputModeIsAUsageProblem(t *testing.T) {
 		{"status", "--output=yaml"},
 		{"status", "-o", "yaml"},
 	} {
-		_, err := parseProductArgs("reference", parsetree.Tree{}, args)
+		_, err := parseProductArgs("reference", parsetree.Tree{}, args, output.ModeTable)
 		if code := usageProblemCode(t, err); code != "shell.unknown_output_mode" {
 			t.Errorf("parsing %v gave problem %q, want %q", args, code, "shell.unknown_output_mode")
 		}
@@ -145,7 +145,7 @@ func TestAnUnsupportedOutputModeIsAUsageProblem(t *testing.T) {
 }
 
 func TestAnOutputFlagWithoutAValueIsAUsageProblem(t *testing.T) {
-	_, err := parseProductArgs("reference", parsetree.Tree{}, []string{"status", "--output"})
+	_, err := parseProductArgs("reference", parsetree.Tree{}, []string{"status", "--output"}, output.ModeTable)
 	if code := usageProblemCode(t, err); code != "shell.missing_flag_value" {
 		t.Errorf("problem code is %q, want %q", code, "shell.missing_flag_value")
 	}
@@ -160,7 +160,7 @@ func TestAnAttachedOutputFlagWithAnEmptyValueIsAUsageProblem(t *testing.T) {
 		{"status", "--output="},
 		{"status", "-o="},
 	} {
-		_, err := parseProductArgs("reference", parsetree.Tree{}, args)
+		_, err := parseProductArgs("reference", parsetree.Tree{}, args, output.ModeTable)
 		if code := usageProblemCode(t, err); code != "shell.unknown_output_mode" {
 			t.Errorf("parsing %v gave problem %q, want %q", args, code, "shell.unknown_output_mode")
 		}
@@ -181,7 +181,7 @@ func TestMissingContextFlagValue(t *testing.T) {
 		"the next option at the end of the line": {"status", "--context", "--output"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := parseProductArgs("reference", parsetree.Tree{}, args)
+			_, err := parseProductArgs("reference", parsetree.Tree{}, args, output.ModeTable)
 			if code := usageProblemCode(t, err); code != "shell.missing_flag_value" {
 				t.Errorf("problem code is %q, want %q", code, "shell.missing_flag_value")
 			}
@@ -229,7 +229,7 @@ func TestContextSelectionOrder(t *testing.T) {
 			shell := installSelectionDocument(t)
 			t.Setenv("WSO2_CONTEXT", testCase.env)
 
-			line, err := parseProductArgs("reference", parsetree.Tree{}, testCase.args)
+			line, err := parseProductArgs("reference", parsetree.Tree{}, testCase.args, output.ModeTable)
 			if err != nil {
 				t.Fatalf("parsing %v failed: %v", testCase.args, err)
 			}

@@ -59,7 +59,7 @@ func referenceTree() parsetree.Tree {
 // is refused.
 func parse(t *testing.T, tree parsetree.Tree, args ...string) productLine {
 	t.Helper()
-	line, err := parseProductArgs("reference", tree, args)
+	line, err := parseProductArgs("reference", tree, args, output.ModeTable)
 	if err != nil {
 		t.Fatalf("parsing %q: %v", args, err)
 	}
@@ -69,7 +69,7 @@ func parse(t *testing.T, tree parsetree.Tree, args ...string) productLine {
 // refusal reads a product line expecting a typed refusal.
 func refusal(t *testing.T, tree parsetree.Tree, args ...string) problem.Problem {
 	t.Helper()
-	_, err := parseProductArgs("reference", tree, args)
+	_, err := parseProductArgs("reference", tree, args, output.ModeTable)
 	var reported problem.Problem
 	if !errors.As(err, &reported) {
 		t.Fatalf("parsing %q returned %v, want a typed problem", args, err)

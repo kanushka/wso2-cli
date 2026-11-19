@@ -83,7 +83,7 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 	// The tree comes from the receipt the resolver already verified, and from
 	// nowhere else. See internal/parsetree.
 	declared := parsetree.FromReceipt(resolved.Receipt)
-	line, err := parseProductArgs(namespace, declared, args)
+	line, err := parseProductArgs(namespace, declared, args, s.preferredMode())
 	if err != nil {
 		return err
 	}
