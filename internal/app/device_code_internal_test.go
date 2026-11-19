@@ -17,6 +17,7 @@
 package app
 
 import (
+	"encoding/json"
 	"os"
 	"slices"
 	"strings"
@@ -194,5 +195,42 @@ func TestLogoutOfADeviceCodeContextPrintsTheSignOutPageInsteadOfOpeningIt(t *tes
 		if login.issuer.RefreshTokenLive(token) {
 			t.Error("a refresh token is still live at the provider after logout")
 		}
+	}
+}
+
+func TestLogoutOfADeviceCodeContextReportsTheSignOutPageInJSON(t *testing.T) {
+	login := newDeviceCodeLogin(t, fakeissuer.Options{DeviceSSO: true})
+	login.run(t, "login")
+	login.out.Reset()
+
+	login.run(t, "logout", "-o", "json")
+
+	var report struct {
+		BrowserSession string `json:"browserSession"`
+		SignOutURLs    string `json:"signOutUrls"`
+	}
+	if err := json.Unmarshal(login.out.Bytes(), &report); err != nil {
+		t.Fatalf("stdout is not one JSON document: %v\n%s", err, login.out)
+	}
+	if !strings.HasPrefix(report.BrowserSession, "sign-out printed") ||
+		!strings.HasPrefix(report.SignOutURLs, login.issuer.URL) ||
+		strings.Contains(report.SignOutURLs, "id_token_hint") {
+		t.Errorf("report = %+v, want the sign-out URL without the identity token", report)
+	}
+}
+
+func TestLogoutOfADeviceCodeContextPrintsTheSignOutPageUnderNoInput(t *testing.T) {
+	login := newDeviceCodeLogin(t, fakeissuer.Options{DeviceSSO: true})
+	login.run(t, "login")
+	login.errOut.Reset()
+	login.out.Reset()
+
+	login.run(t, "logout", "--no-input")
+
+	if !strings.Contains(login.errOut.String(), "On the device you signed in with, open this URL") {
+		t.Errorf("stderr does not print the sign-out URL:\n%s", login.errOut)
+	}
+	if !strings.Contains(login.out.String(), "sign-out printed") {
+		t.Errorf("the report does not say the sign-out was printed:\n%s", login.out)
 	}
 }
