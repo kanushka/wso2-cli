@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -31,6 +32,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/internal/preferences"
 	"github.com/wso2/wso2-cli/internal/version"
+	"github.com/wso2/wso2-cli/sdk/diag"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -225,7 +227,7 @@ func (s Shell) rootCommand() *cobra.Command {
 // The log is opened here because this is the first point at which the flags are
 // parsed and no command body has run yet: a failure inside the very first thing
 // a command does is still explained.
-func (s Shell) applyShellFlags(command *cobra.Command, _ []string) error {
+func (s Shell) applyShellFlags(command *cobra.Command, args []string) error {
 	// The preferences diagnostic used to be surfaced here, once per
 	// invocation. It moved to dispatch, before this and the product-namespace
 	// path fork apart (fix round 1, F1): this hook is Cobra's own
@@ -245,10 +247,29 @@ func (s Shell) applyShellFlags(command *cobra.Command, _ []string) error {
 	// The error is discarded rather than reported: it can only mean the flag is
 	// absent or is not a boolean, and both are this file's own mistake to make,
 	// not a user's to be told about.
-	if verbose, _ := command.Flags().GetBool(verboseFlag); verbose {
+	verbose, _ := command.Flags().GetBool(verboseFlag)
+	written := false
+	if flag := command.Flags().Lookup(verboseFlag); flag != nil && flag.Changed {
+		written = true
+		if s.invocation != nil {
+			s.invocation.verbose = &verbose
+		}
+	}
+	// The root dispatching a product namespace leaves WSO2_DEBUG to
+	// dispatchNamespace, because a --verbose=false written after the
+	// namespace has not been read yet and has to be able to win.
+	dispatching := !command.HasParent() && len(args) > 0
+	if written && verbose || !written && !dispatching && debugFromEnvironment() {
 		s.enableDiagnostics(command, mode)
 	}
 	return nil
+}
+
+// debugFromEnvironment reports whether WSO2_DEBUG asks for diagnostics. A
+// --verbose written anywhere on the line is consulted first and wins, because
+// it is what the person running the command can see and drop.
+func debugFromEnvironment() bool {
+	return diag.Requested(os.Getenv(diag.EnvVar))
 }
 
 // shellOutputMode reports the rendering this invocation asked for, refusing an
@@ -360,6 +381,24 @@ func (s Shell) enableDiagnostics(command *cobra.Command, mode output.Mode) {
 func takeVerbose(args []string) (remaining []string, asked bool, err error) {
 	remaining, asked, _, err = takeBoolFlag(args, verboseFlag)
 	return remaining, asked, err
+}
+
+// productVerbose takes --verbose from a product command line and decides
+// whether diagnostics are on: the last --verbose on the line, before or after
+// the namespace, and WSO2_DEBUG only when neither side wrote one.
+func (s Shell) productVerbose(args []string) (remaining []string, asked bool, err error) {
+	remaining, asked, written, err := takeBoolFlag(args, verboseFlag)
+	if err != nil {
+		return nil, false, err
+	}
+	switch {
+	case written:
+	case s.invocation != nil && s.invocation.verbose != nil:
+		asked = *s.invocation.verbose
+	default:
+		asked = debugFromEnvironment()
+	}
+	return remaining, asked, nil
 }
 
 // takeNoInput removes every spelling of --no-input from a product command

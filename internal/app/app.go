@@ -106,6 +106,10 @@ type invocationState struct {
 	// noInput is --no-input written anywhere a shell command parses it,
 	// including before the command name.
 	noInput bool
+	// verbose is --verbose written where a shell command parsed it, nil when
+	// it was not written, so a product namespace can tell an explicit
+	// --verbose=false from silence and let only silence defer to WSO2_DEBUG.
+	verbose *bool
 }
 
 // logUnderlyingCause writes what a refusal wraps beyond its rendered problem,
@@ -326,7 +330,7 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 	// its command tree the shell cannot tell a flag it should pass on from one
 	// the module owns, and a module that does not know the flag would refuse
 	// the whole command. See forwardToNamespace.
-	args, verbose, err := takeVerbose(args)
+	args, verbose, err := s.productVerbose(args)
 	if err != nil {
 		return err
 	}

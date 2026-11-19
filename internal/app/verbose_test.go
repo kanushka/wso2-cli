@@ -45,6 +45,7 @@ import (
 // where a script's operator looks for real trouble and a log the user did not
 // ask for is noise there.
 func TestWithoutVerboseNothingIsWritten(t *testing.T) {
+	t.Setenv("WSO2_DEBUG", "")
 	shell, out, errOut := newShell(t)
 	if code := shell.Run([]string{"version"}); code != exit.OK {
 		t.Fatalf("version failed: exit %d, stderr %s", code, errOut)
