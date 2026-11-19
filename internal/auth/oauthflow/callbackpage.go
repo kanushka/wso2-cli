@@ -178,13 +178,24 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 </html>
 `
 
-// render writes the page for one product. The product is the only value on the
-// page that does not come from this file, so it is escaped: it is read from the
-// context document, which the shell does not author.
-func (p callbackPage) render(product string) string {
+// render writes the page for the products a tab signed in to. Their names are
+// the only values on the page that do not come from this file, so they are
+// escaped: they are read from the context document, which the shell does not
+// author.
+func (p callbackPage) render(products ...string) string {
 	body := p.body
-	if p.productBody != "" && strings.TrimSpace(product) != "" {
-		body = fmt.Sprintf(p.productBody, "<strong>"+html.EscapeString(product)+"</strong>")
+	var named []string
+	for _, product := range products {
+		if strings.TrimSpace(product) != "" {
+			named = append(named, "<strong>"+html.EscapeString(product)+"</strong>")
+		}
+	}
+	if p.productBody != "" && len(named) > 0 {
+		list := named[len(named)-1]
+		if len(named) > 1 {
+			list = strings.Join(named[:len(named)-1], ", ") + " and " + list
+		}
+		body = fmt.Sprintf(p.productBody, list)
 	}
 	return fmt.Sprintf(callbackDocument, p.light, p.dark, p.icon, p.title, body, p.hint)
 }

@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"maps"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -52,14 +51,14 @@ var (
 
 // cloudLogin is a shell set to log in to the dev WSO2 Cloud environment,
 // against an issuer that binds every authorization to one resource server,
-// recording every authorization URL the login opens.
+// counting the times it opens the browser.
 type cloudLogin struct {
-	shell     app.Shell
-	out       *bytes.Buffer
-	errOut    *bytes.Buffer
-	issuer    *fakeissuer.Issuer
-	mutex     sync.Mutex
-	authorize []url.Values
+	shell  app.Shell
+	out    *bytes.Buffer
+	errOut *bytes.Buffer
+	issuer *fakeissuer.Issuer
+	mutex  sync.Mutex
+	opened int
 }
 
 func newCloudLogin(t *testing.T) *cloudLogin {
@@ -69,11 +68,9 @@ func newCloudLogin(t *testing.T) *cloudLogin {
 	shell, out, errOut := newLoginShell(t)
 	login := &cloudLogin{shell: shell, out: out, errOut: errOut, issuer: issuer}
 	login.shell.OpenBrowser = func(authURL string) error {
-		if parsed, err := url.Parse(authURL); err == nil {
-			login.mutex.Lock()
-			login.authorize = append(login.authorize, parsed.Query())
-			login.mutex.Unlock()
-		}
+		login.mutex.Lock()
+		login.opened++
+		login.mutex.Unlock()
 		go func() {
 			if response, err := http.Get(authURL); err == nil {
 				_ = response.Body.Close()
@@ -98,10 +95,8 @@ func (c *cloudLogin) run(t *testing.T, args ...string) {
 // authorizedScopes is the product scopes each authorization asked for, by the
 // resource it named.
 func (c *cloudLogin) authorizedScopes() map[string][]string {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
 	asked := map[string][]string{}
-	for _, query := range c.authorize {
+	for _, query := range c.issuer.Authorizations() {
 		var scopes []string
 		for _, scope := range strings.Fields(query.Get("scope")) {
 			if !slices.Contains([]string{"openid", "offline_access", "profile", "email"}, scope) {
@@ -164,6 +159,9 @@ func TestCloudLoginRecordsEveryInstalledCloudProductAndAuthorizesEach(t *testing
 	if len(asked) != 2 || !slices.Equal(asked[cloudShared], cloudAPIMScopes) ||
 		!slices.Equal(asked[cloudIAMURL], cloudIAMScopes) {
 		t.Errorf("authorizations asked for %v, want one per product with exactly its resource and scopes", asked)
+	}
+	if login.opened != 1 {
+		t.Errorf("the browser was opened %d times, want once for both products", login.opened)
 	}
 	store := session.Store{StateRoot: login.shell.StateRoot}
 	for ref, resource := range map[string]string{

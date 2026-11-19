@@ -202,9 +202,12 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 	if err != nil {
 		return loginOutcome{}, err
 	}
+	// One tab serves every authorization this login opens in the browser.
+	tab := oauthflow.NewTab()
+	defer tab.Close()
 	var outcome loginOutcome
 	for index, access := range accesses {
-		result, err := s.establishProduct(selected, access)
+		result, err := s.establishProduct(selected, access, tab)
 		if err != nil {
 			// The first access failing leaves nothing established yet, so
 			// there is nothing to report beside the error itself. A later
@@ -414,17 +417,19 @@ func checkDerivedResource(identity contexts.Account, access contexts.ProductAcce
 // It is what Accesses' every entry runs through, whether that entry is the
 // login session or a further product: each is one authorization and one
 // stored session, and nothing here needs to know which.
-func (s Shell) establishProduct(selected contexts.Selection, access contexts.ProductAccess) (oauthflow.Result, error) {
+func (s Shell) establishProduct(selected contexts.Selection, access contexts.ProductAccess,
+	tab *oauthflow.Tab) (oauthflow.Result, error) {
 	result, established, err := s.establishFromDeviceSecret(selected, access)
 	if err != nil || established {
 		return result, err
 	}
-	return s.establishThroughBrowser(selected, access)
+	return s.establishThroughBrowser(selected, access, tab)
 }
 
 // establishThroughBrowser runs one authorization in the browser and stores
 // the session it produced.
-func (s Shell) establishThroughBrowser(selected contexts.Selection, access contexts.ProductAccess) (oauthflow.Result, error) {
+func (s Shell) establishThroughBrowser(selected contexts.Selection, access contexts.ProductAccess,
+	tab *oauthflow.Tab) (oauthflow.Result, error) {
 	if err := checkDerivedResource(selected.Identity, access); err != nil {
 		return oauthflow.Result{}, err
 	}
@@ -443,7 +448,7 @@ func (s Shell) establishThroughBrowser(selected contexts.Selection, access conte
 		"client_id", access.ClientID,
 		"scopes", strings.Join(access.Scopes, " "),
 		"resource", access.Resource)
-	result, err := s.establishSession(selected, access)
+	result, err := s.establishSession(selected, access, tab)
 	if err != nil {
 		return oauthflow.Result{}, err
 	}
@@ -525,7 +530,8 @@ func (s Shell) storeSession(access contexts.ProductAccess, result oauthflow.Resu
 // result, so a user who redirects standard output still sees the URL or the
 // code the login cannot finish without, and the result stream carries only the
 // report.
-func (s Shell) establishSession(selected contexts.Selection, access contexts.ProductAccess) (oauthflow.Result, error) {
+func (s Shell) establishSession(selected contexts.Selection, access contexts.ProductAccess,
+	tab *oauthflow.Tab) (oauthflow.Result, error) {
 	if selected.Identity.Auth.Kind == contexts.KindOAuthDevice {
 		// A longer deadline than the browser login's, because a longer errand:
 		// the person has to reach another device, open a browser on it, and
@@ -559,6 +565,7 @@ func (s Shell) establishSession(selected contexts.Selection, access contexts.Pro
 		Resource:    access.Resource,
 		Label:       access.Namespace,
 		DeviceSSO:   asksForDeviceSecret(selected.Identity, access),
+		Tab:         tab,
 		OpenBrowser: s.OpenBrowser,
 		Out:         s.Streams.Err,
 	}.Run(ctx)

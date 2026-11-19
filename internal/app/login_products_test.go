@@ -89,8 +89,11 @@ func TestLoginEstablishesOneSessionPerProduct(t *testing.T) {
 	if !hasField(out.String(), "Status", "logged in") {
 		t.Fatalf("the report does not say the login succeeded:\n%s", out)
 	}
-	if got := strings.Count(errOut.String(), "Opened the browser"); got != 3 {
-		t.Fatalf("opened the browser %d times, want 3:\n%s", got, errOut)
+	if got := strings.Count(errOut.String(), "Opened the browser"); got != 1 {
+		t.Fatalf("opened the browser %d times, want once for all three authorizations:\n%s", got, errOut)
+	}
+	if got := strings.Count(errOut.String(), "in the same browser tab"); got != 2 {
+		t.Fatalf("%d authorizations continued in the tab, want 2:\n%s", got, errOut)
 	}
 }
 

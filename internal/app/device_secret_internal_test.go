@@ -223,14 +223,14 @@ func TestAWithheldScopeIsNamedForASessionFromTheDeviceSecret(t *testing.T) {
 	}
 }
 
-func TestAReusedBrowserSessionAuthorizesEachProductInTheBrowser(t *testing.T) {
+func TestAReusedBrowserSessionAuthorizesEachProductInOneBrowserTab(t *testing.T) {
 	login := newDeviceSecretLogin(t, fakeissuer.Options{DeviceSSO: true, ReusedBrowserSession: true},
 		contexts.ProviderThunder)
 
 	login.run(t, "login")
 
-	if got := login.browserOpens(); got != 2 {
-		t.Fatalf("opened the browser %d times, want once per product", got)
+	if got := login.browserOpens(); got != 1 {
+		t.Fatalf("opened the browser %d times, want once for both products", got)
 	}
 	if !login.askedForDeviceSecret() {
 		t.Error("the login did not ask for a device secret")
@@ -336,8 +336,8 @@ func TestOnlyAThunderIDProviderThatAdvertisesDeviceSSOIsAskedForASecret(t *testi
 			if login.askedForDeviceSecret() {
 				t.Error("the login asked for a device secret")
 			}
-			if got := login.browserOpens(); got != 2 {
-				t.Errorf("opened the browser %d times, want once per product", got)
+			if got := login.browserOpens(); got != 1 {
+				t.Errorf("opened the browser %d times, want once for both products", got)
 			}
 		})
 	}

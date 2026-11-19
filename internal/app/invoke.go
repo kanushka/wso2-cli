@@ -253,7 +253,7 @@ func (s Shell) sessionEstablisher(selection contexts.Selection, namespace string
 			access.Namespace, access.Issuer); err != nil {
 			return err
 		}
-		_, err := s.establishThroughBrowser(selection, access)
+		_, err := s.establishThroughBrowser(selection, access, nil)
 		return err
 	}
 }

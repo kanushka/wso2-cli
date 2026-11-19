@@ -172,6 +172,10 @@ type Options struct {
 	// already there: ThunderID then issues no device secret, whatever was
 	// asked for.
 	ReusedBrowserSession bool
+	// SilentRefusal is the error an authorization asking for prompt=none is
+	// answered with, as a provider with no sign-on to reuse answers
+	// login_required. Empty approves a silent authorization like any other.
+	SilentRefusal string
 	// RotateRefreshTokens issues a new refresh token on every refresh,
 	// invalidating the one presented.
 	RotateRefreshTokens bool
@@ -335,6 +339,8 @@ type Issuer struct {
 	// deviceSecrets are the device secrets issued, each live until the
 	// browser session it describes ends.
 	deviceSecrets map[string]bool
+	// authorizations records every authorization request's query, in order.
+	authorizations []url.Values
 }
 
 type codeGrant struct {
@@ -620,6 +626,9 @@ func negativeSerialCertificate(t *testing.T, key *rsa.PrivateKey) []byte {
 // login is one redirect-following request chain.
 func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
+	i.mutex.Lock()
+	i.authorizations = append(i.authorizations, query)
+	i.mutex.Unlock()
 	redirectURI := query.Get("redirect_uri")
 	switch {
 	case query.Get("client_id") == "":
@@ -647,6 +656,9 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 			"state":             {query.Get("state")},
 		}
 		http.Redirect(w, r, redirectURI+"?"+refusal.Encode(), http.StatusFound)
+	case i.opts.SilentRefusal != "" && query.Get("prompt") == "none":
+		refusal := url.Values{"error": {i.opts.SilentRefusal}, "state": {query.Get("state")}}
+		http.Redirect(w, r, redirectURI+"?"+refusal.Encode(), http.StatusFound)
 	default:
 		code := randomToken("code")
 		i.mutex.Lock()
@@ -662,6 +674,14 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		callback := url.Values{"code": {code}, "state": {query.Get("state")}}
 		http.Redirect(w, r, redirectURI+"?"+callback.Encode(), http.StatusFound)
 	}
+}
+
+// Authorizations is every authorization request's query, in the order they
+// arrived.
+func (i *Issuer) Authorizations() []url.Values {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	return slices.Clone(i.authorizations)
 }
 
 // acceptsRedirect reports whether the callback URL is one this issuer is

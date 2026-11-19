@@ -3,7 +3,7 @@
 **Status:** Accepted
 
 This amends ADR 0014 for WSO2 Cloud, whose identity provider is ThunderID,
-and records three decisions.
+and records four decisions.
 
 ## A WSO2 Cloud product is reached by its own authorization
 
@@ -75,8 +75,34 @@ A missing or expired secret, or one the provider refuses as no longer usable
 and the product is authorized in the browser as before, which `--no-input`
 refuses as before. Any other refusal is reported. ThunderID issues a secret
 only when the sign-in started a new sign-on, so a person already
-signed in to the provider in their browser gets none, and their login opens
-one authorization per product, as it did before this decision.
+signed in to the provider in their browser gets none, and their login runs
+one browser authorization per product, in one tab, as the next decision
+describes.
+
+## The browser authorizations of one login share one tab
+
+A login that authorizes several products in the browser opens the browser
+once. The shell's loopback callback for each authorization but the last is
+answered with a redirect to the next one's authorization URL, with its own
+PKCE verifier, state and nonce, and `prompt=none`, the OpenID Connect request
+not to show the person anything; only the last callback renders the
+signed-in page, naming every product. A provider that answers a silent
+authorization with `login_required`, `interaction_required`,
+`consent_required` or `account_selection_required` gets the same
+authorization again with no `prompt`, in the same tab. Any other refusal is
+reported, as it was.
+
+Before this, each authorization opened a tab of its own, each ending on its
+own signed-in page, so a person already signed in to WSO2 Cloud saw one tab
+per product for nothing they had to do. A silent authorization in a hidden
+frame, which is how a web page does this, needs a page to host the frame, and
+the shell has none; the redirect chain is the same thing in the one tab the
+login already has. The device secret stays the first choice: when there is
+one, no product after the first reaches the browser at all, and the chain
+covers the sign-on a person already had, for which ThunderID issues none.
+Nothing about this is specific to WSO2 Cloud, so every browser login with
+more than one authorization uses it. A product's first use by a command still
+opens a tab of its own, since nothing came before it.
 
 `wso2 logout` revokes each product session's refresh token itself and deletes
 every session entry, and the secret with the login session, before it opens
@@ -134,9 +160,11 @@ public client the shell registers there.
   every module a token carrying every product's scopes, which ADR 0014
   rejects.
 - **A browser authorization per product only, with no device secret.** It
-  works everywhere and is what a reused sign-on falls back to, but it
-  opens one tab per product on a fresh sign-in and cannot serve a product's
-  first use under `--no-input`.
+  works everywhere and is what a reused sign-on falls back to, but it cannot
+  serve a product's first use under `--no-input`.
+- **A tab per browser authorization.** What the shell did before; each tab
+  ended on its own signed-in page, which a person already signed in had
+  nothing to do in.
 - **Keeping the device secret in its own secure-store entry.** It would
   outlive a login session replaced by the next sign-in, and need its own
   deletion at logout; kept with the login session, every path that ends that

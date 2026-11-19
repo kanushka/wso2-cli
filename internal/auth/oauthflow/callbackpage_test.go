@@ -82,8 +82,7 @@ func fetchCallback(t *testing.T, label string, deadline time.Duration,
 }
 
 // TestAcceptedCallbackNamesTheProduct covers the page a person actually reaches
-// after signing in. One wso2 login opens this page once per product session, so
-// naming the product is what tells the second tab apart from the first.
+// after signing in, which names the products the tab authorized.
 func TestAcceptedCallbackNamesTheProduct(t *testing.T) {
 	var authorizationCode string
 	page := fetchCallback(t, "apim", 30*time.Second, func(code, state string) url.Values {
