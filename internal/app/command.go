@@ -241,6 +241,9 @@ func (s Shell) applyShellFlags(command *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if s.invocation != nil && command.HasParent() {
+		s.invocation.commandPath = command.CommandPath()
+	}
 	if flag := shellFlag(command, noInputFlag); s.invocation != nil && flag != nil && flag.Changed {
 		s.invocation.noInput, _ = strconv.ParseBool(flag.Value.String())
 	}

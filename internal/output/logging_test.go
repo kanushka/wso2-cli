@@ -77,3 +77,52 @@ func TestJSONOutputModeLogsJSON(t *testing.T) {
 		t.Fatalf("the record does not carry the attribute: %v", record)
 	}
 }
+
+func TestAnAttachedFileGetsRecordsButNoDiagnosticsUntilEnabled(t *testing.T) {
+	var file, stream bytes.Buffer
+	logger := NewLogger()
+	logger.AttachFile(&file, "invocation", "inv-1")
+	logger.Record("a run started", "shell_version", "1.0.0")
+	logger.Debug("a diagnostic")
+	logger.FileDebug("a module line")
+	if logger.Enabled() {
+		t.Fatal("attaching a file turned diagnostics on")
+	}
+	if strings.Contains(file.String(), "a diagnostic") || strings.Contains(file.String(), "a module line") {
+		t.Fatalf("a diagnostic reached the file without being asked for:\n%s", &file)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(file.Bytes(), &record); err != nil {
+		t.Fatalf("the file record is not one JSON line %q: %v", &file, err)
+	}
+	if record["msg"] != "a run started" || record["invocation"] != "inv-1" || record["shell_version"] != "1.0.0" {
+		t.Fatalf("the file record is %v", record)
+	}
+
+	logger.Enable(&stream, ModeTable)
+	logger.Debug("a diagnostic", "token", "t-must-never-appear")
+	logger.FileDebug("a module line")
+	logger.Record("a run ended")
+	for _, expected := range []string{"a diagnostic", "a module line", "a run ended", "[redacted]"} {
+		if !strings.Contains(file.String(), expected) {
+			t.Errorf("the file is missing %q:\n%s", expected, &file)
+		}
+	}
+	if strings.Contains(file.String(), "t-must-never-appear") {
+		t.Fatalf("the file carries a token:\n%s", &file)
+	}
+	if !strings.Contains(stream.String(), "a diagnostic") || !strings.Contains(stream.String(), "a run ended") {
+		t.Fatalf("the stream is missing what was logged:\n%s", &stream)
+	}
+	if strings.Contains(stream.String(), "a module line") || strings.Contains(stream.String(), "inv-1") {
+		t.Fatalf("a file-only record or attribute reached the stream:\n%s", &stream)
+	}
+}
+
+func TestRecordWithoutAFileOrStreamWritesNothing(t *testing.T) {
+	NewLogger().Record("a run started")
+	var absent *Logger
+	absent.Record("a run started")
+	absent.FileDebug("a module line")
+	absent.AttachFile(&bytes.Buffer{})
+}

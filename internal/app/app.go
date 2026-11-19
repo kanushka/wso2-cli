@@ -26,9 +26,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -40,6 +42,8 @@ import (
 	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/internal/parsetree"
 	"github.com/wso2/wso2-cli/internal/preferences"
+	"github.com/wso2/wso2-cli/internal/rpc"
+	"github.com/wso2/wso2-cli/internal/runlog"
 	"github.com/wso2/wso2-cli/internal/state"
 	"github.com/wso2/wso2-cli/internal/version"
 	"github.com/wso2/wso2-cli/sdk/problem"
@@ -52,6 +56,10 @@ type Shell struct {
 	// StateRoot is the shell-owned state root. When empty, it is resolved
 	// from the environment or the user home directory.
 	StateRoot string
+	// RunLog records every run in the state root's log file (internal/runlog).
+	// cmd/wso2/main.go turns it on; a Shell built in a test leaves it off
+	// unless the test is about the log.
+	RunLog bool
 	// Streams are the user-facing output destinations.
 	Streams output.Streams
 	// Name is the name the shell was invoked as, which every command the
@@ -106,6 +114,12 @@ type invocationState struct {
 	// noInput is --no-input written anywhere a shell command parses it,
 	// including before the command name.
 	noInput bool
+	// runID ties this run's records in the run log together.
+	runID string
+	// commandPath is the command this run resolved to, in declared words
+	// only: "wso2 context use", "wso2 apim apis list". An argument never
+	// becomes part of it, because the run log keeps it on every run.
+	commandPath string
 	// verbose is --verbose written where a shell command parsed it, nil when
 	// it was not written, so a product namespace can tell an explicit
 	// --verbose=false from silence and let only silence defer to WSO2_DEBUG.
@@ -142,6 +156,60 @@ func CommandNames() []string {
 
 // Run executes one invocation and returns the process exit code.
 func (s Shell) Run(args []string) exit.Code {
+	started := time.Now()
+	// Created before the command tree so that every closure the tree captures
+	// shares this log, and turned on later by --verbose or WSO2_DEBUG. Until
+	// then it writes nothing to stderr, which is what an invocation without
+	// either must produce.
+	s.log = output.NewLogger()
+	s.invocation = &invocationState{commandPath: output.SourceName}
+	defer s.openRunLog(args)()
+	s.log.Record(runlog.StartedMessage,
+		"shell_version", version.Shell(),
+		"platform", version.Platform())
+	status, code := s.run(args)
+	ended := []any{
+		runlog.KeyCommand, s.invocation.commandPath,
+		runlog.KeyExitCode, int(status),
+	}
+	if code != "" {
+		ended = append(ended, runlog.KeyProblem, code)
+	}
+	s.log.Record(runlog.EndedMessage, append(ended, "duration_ms", time.Since(started).Milliseconds())...)
+	return status
+}
+
+// openRunLog attaches the state root's run log, and returns what closes it.
+//
+// A log that cannot be opened never fails the command it would have
+// described; the reason is written once diagnostics are on. A completion
+// request is never recorded, because it runs on every Tab.
+func (s Shell) openRunLog(args []string) func() {
+	if !s.RunLog || len(args) > 0 && isCompletionRequest(args[0]) {
+		return func() {}
+	}
+	root, err := s.stateRoot()
+	if err != nil {
+		return func() {}
+	}
+	runID, err := rpc.NewInvocationID()
+	if err != nil {
+		s.log.FileUnavailable(err)
+		return func() {}
+	}
+	file, err := runlog.Open(root)
+	if err != nil {
+		s.log.FileUnavailable(err)
+		return func() {}
+	}
+	s.invocation.runID = runID
+	s.log.AttachFile(file, runlog.KeyInvocation, runID, "pid", os.Getpid())
+	return func() { _ = file.Close() }
+}
+
+// run executes one invocation and reports its exit code and, when it failed,
+// the problem's code.
+func (s Shell) run(args []string) (exit.Code, string) {
 	s.Streams.Out = output.Named(s.Streams.Out, s.Name)
 	s.Streams.Err = output.Named(s.Streams.Err, s.Name)
 	// Under --output json, standard output is one JSON document whatever the
@@ -166,7 +234,7 @@ func (s Shell) Run(args []string) exit.Code {
 		written = true
 	}
 	if err == nil {
-		return exit.OK
+		return exit.OK, ""
 	}
 
 	var typed problem.Problem
@@ -180,7 +248,7 @@ func (s Shell) Run(args []string) exit.Code {
 	if asJSON && !written {
 		_ = output.FailureDocument(stdout, printed.Bytes(), typed, int(status))
 	}
-	return status
+	return status, typed.Code
 }
 
 // requestedMode reads the rendering a command line asks for before anything
@@ -216,11 +284,12 @@ func printsCompletionScript(args []string) bool {
 }
 
 func (s Shell) dispatch(args []string) (err error) {
-	// Created before the command tree so that every closure the tree captures
-	// shares this log, and turned on later by --verbose. Until then it writes
-	// nothing, which is what an invocation without the flag must produce.
-	s.log = output.NewLogger()
-	s.invocation = &invocationState{}
+	if s.log == nil {
+		s.log = output.NewLogger()
+	}
+	if s.invocation == nil {
+		s.invocation = &invocationState{commandPath: output.SourceName}
+	}
 	defer func() { s.logUnderlyingCause(err) }()
 
 	// Trust is widened before anything reaches the network, because the first
@@ -365,6 +434,7 @@ func (s Shell) dispatchNamespace(root *cobra.Command, namespace string, args []s
 		}
 		return s.unknownNamespace(root, namespace, namespaces)
 	}
+	s.invocation.commandPath = output.SourceName + " " + namespace
 
 	identity, err := s.identity()
 	if err != nil {

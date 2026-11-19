@@ -116,6 +116,11 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 		return undeclaredModuleHelp(namespace)
 	}
 	command, arguments := line.command, line.arguments
+	// Only a declared tree tells a command word from an argument; without one
+	// the namespace alone is recorded.
+	if declared.Declared() && s.invocation != nil {
+		s.invocation.commandPath = strings.Join(append([]string{output.SourceName, namespace}, command...), " ")
+	}
 	mode, contextName := line.mode, line.contextName
 	selection, err := s.selection(contextName)
 	if err != nil {
@@ -221,6 +226,9 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 	// Diagnostics are rendered whatever the outcome, because what a module
 	// wrote before failing is usually the only explanation of why.
 	output.ModuleDiagnostics(s.Streams.Err, namespace, outcome.Diagnostics.Lines(), outcome.Diagnostics.Truncated)
+	for _, line := range outcome.Diagnostics.Lines() {
+		s.log.FileDebug("a module wrote a diagnostic", "namespace", namespace, "line", line)
+	}
 
 	if invokeErr != nil {
 		return invokeErr
