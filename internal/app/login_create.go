@@ -73,8 +73,11 @@ func (s Shell) loginCreating(flags loginFlags) error {
 	// costs the user a refusal instead of a browser round trip they then find
 	// out was pointless. The write repeats the check against the document it
 	// actually holds the lock on, which is the answer that decides anything.
-	selected, err := planLogin(document, name, flags.issuer, clientID)
+	selected, err := planDeviceLogin(document, name, flags, clientID)
 	if err != nil {
+		return err
+	}
+	if err := checkDeviceFlag(flags, selected.Context); err != nil {
 		return err
 	}
 	// Asked for the same reason, and with more at stake: a document this shell
@@ -102,7 +105,7 @@ func (s Shell) loginCreating(flags loginFlags) error {
 
 	written := loginWrite{Context: name, Assigned: assigned}
 	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
-		planned, err := planLogin(document, name, flags.issuer, clientID)
+		planned, err := planDeviceLogin(document, name, flags, clientID)
 		if err != nil {
 			return document, err
 		}
@@ -260,6 +263,19 @@ func refuseNonIssuerURL(issuer string) error {
 				"URL is never used. The value is not repeated here, in case it holds a secret.")
 	}
 	return nil
+}
+
+// planDeviceLogin is planLogin, with a context it creates signing in by
+// device code when --device asks for one.
+func planDeviceLogin(document contexts.Document, name string, flags loginFlags,
+	clientID string) (contexts.Selection, error) {
+	selected, err := planLogin(document, name, flags.issuer, clientID)
+	if err != nil || !flags.device || declaresContext(document, name) {
+		return selected, err
+	}
+	selected.Context.Login.Kind = contexts.KindOAuthDevice
+	selected.Identity = selected.Context.Account()
+	return selected, nil
 }
 
 // planLogin resolves what this login authenticates as, and refuses a name that

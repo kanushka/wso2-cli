@@ -17,6 +17,7 @@
 package app
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -115,4 +116,56 @@ func userCodeOnItsOwnLine(text string) bool {
 		}
 	}
 	return false
+}
+
+func TestLoginDeviceRefusesAContextThatSignsInThroughTheBrowser(t *testing.T) {
+	login := newDeviceSecretLogin(t, fakeissuer.Options{DeviceSSO: true, DeviceInterval: 1}, contexts.ProviderThunder)
+
+	if code := login.shell.Run([]string{"login", "--device"}); code != 64 {
+		t.Fatalf("login --device exit %d, want 64; stderr %s", code, login.errOut)
+	}
+	for _, want := range []string{"shell.invalid_argument", "kind: oauth-device", "wso2 context edit"} {
+		if !strings.Contains(login.errOut.String(), want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, login.errOut)
+		}
+	}
+	if login.browserOpens() != 0 || len(login.issuer.DeviceAuthorizations()) != 0 {
+		t.Error("the refused login reached the identity provider")
+	}
+}
+
+func TestLoginDeviceOnADeviceCodeContextSignsIn(t *testing.T) {
+	login := newDeviceCodeLogin(t, fakeissuer.Options{DeviceSSO: true})
+
+	login.run(t, "login", "--device")
+
+	if got := len(login.issuer.DeviceAuthorizations()); got != 1 {
+		t.Errorf("%d device authorizations, want one", got)
+	}
+}
+
+func TestLoginDeviceWithURLCreatesADeviceCodeContext(t *testing.T) {
+	login := newDeviceCodeLogin(t, fakeissuer.Options{})
+	if err := os.Remove(contexts.Path(login.shell.StateRoot)); err != nil {
+		t.Fatal(err)
+	}
+
+	login.run(t, "login", "--url", login.issuer.URL, "--client-id", "wso2-cli", "--context", "remote", "--device")
+
+	created, found := loadContextDocument(t, login.shell).Find("remote")
+	if !found || created.Login.Kind != contexts.KindOAuthDevice {
+		t.Fatalf("created context %+v, want kind %s", created.Login, contexts.KindOAuthDevice)
+	}
+	if got := len(login.issuer.DeviceAuthorizations()); got != 1 {
+		t.Errorf("%d device authorizations, want the sign-in's", got)
+	}
+}
+
+func loadContextDocument(t *testing.T, shell Shell) contexts.Document {
+	t.Helper()
+	document, err := contexts.Load(shell.StateRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return document
 }

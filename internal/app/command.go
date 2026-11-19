@@ -705,6 +705,8 @@ func (s Shell) loginCommand() *cobra.Command {
 		"Authorize only the named product.")
 	command.Flags().BoolVar(&flags.noProducts, "no-products", false,
 		"Authorize only the login session, not the products.")
+	command.Flags().BoolVar(&flags.device, "device", false,
+		"Sign in with a device code. Recorded on a context this login creates.")
 	declareContextFlag(command.Flags())
 	return command
 }

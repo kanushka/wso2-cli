@@ -87,6 +87,9 @@ type loginFlags struct {
 	// noProducts is --no-products: authorize the login session alone, and no
 	// product beside it.
 	noProducts bool
+	// device is --device: a context this login creates signs in with a
+	// device code. On a context that exists it must agree with its kind.
+	device bool
 	// chooseOrganization asks the provider to sign the person in again, where
 	// WSO2 Cloud offers its organization picker, and runs every authorization
 	// after the first in the organization that sign-in was issued in.
@@ -145,6 +148,9 @@ func (s Shell) login(flags loginFlags) error {
 	if err != nil {
 		return err
 	}
+	if err := checkDeviceFlag(flags, selected.Context); err != nil {
+		return err
+	}
 	outcome, err := s.establishAndStore(selected, flags)
 	if err != nil {
 		return err
@@ -153,6 +159,21 @@ func (s Shell) login(flags loginFlags) error {
 		return err
 	}
 	return output.NextStep(s.Streams.Out, s.loginNext(selected, outcome))
+}
+
+// checkDeviceFlag refuses --device on a context that signs in another way.
+// The context's kind is the setting; a flag that overrode it for one login
+// would leave the next one signing in differently with nothing to say why.
+func checkDeviceFlag(flags loginFlags, context contexts.Context) error {
+	if !flags.device || context.Login.Kind == contexts.KindOAuthDevice {
+		return nil
+	}
+	return problem.New(problem.CategoryUsage, "shell.invalid_argument",
+		fmt.Sprintf("--device asks for a device-code sign-in, and the %q context signs in with kind %s",
+			context.Name, context.Login.Kind)).
+		WithRecovery(fmt.Sprintf("Run wso2 context edit and set kind: oauth-device in the login of the %q "+
+			"context to sign in with a device code from now on, or run wso2 login without --device.",
+			context.Name))
 }
 
 // loginOutcome is what one wso2 login established: the first authorization's

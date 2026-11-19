@@ -109,6 +109,9 @@ func (s Shell) loginCloud(flags loginFlags, root string, document contexts.Docum
 	if err != nil {
 		return flags, err
 	}
+	if flags.device {
+		context.Login.Kind = contexts.KindOAuthDevice
+	}
 	context.CloudEnvironment = env
 	context, err = withCloudProducts(context, environment, unrecordedCloudProducts(context, lookup), lookup)
 	if err != nil {

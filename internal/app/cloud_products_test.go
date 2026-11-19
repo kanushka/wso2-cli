@@ -541,3 +541,26 @@ func TestACloudLoginUnderJSONWritesOneDocument(t *testing.T) {
 		t.Errorf("the progress line is not on standard error:\n%s", login.errOut)
 	}
 }
+
+func TestCloudLoginWithDeviceRecordsADeviceCodeContext(t *testing.T) {
+	login := newCloudLoginWith(t, fakeissuer.Options{DeviceInterval: 1})
+	installCloudAPIM(t, login.shell)
+	installCloudIAM(t, login.shell)
+
+	login.run(t, "login", "--device")
+
+	if kind := cloudContext(t, login.shell).Login.Kind; kind != contexts.KindOAuthDevice {
+		t.Errorf("the Cloud context signs in with %q, want %q", kind, contexts.KindOAuthDevice)
+	}
+	if login.opened != 0 {
+		t.Errorf("a device-code login opened the browser %d times", login.opened)
+	}
+	if got := len(login.issuer.DeviceAuthorizations()); got != 1 {
+		t.Errorf("%d device authorizations, want the sign-in alone, every product from its secret", got)
+	}
+	stored, err := session.Store{StateRoot: login.shell.StateRoot}.Load(
+		contexts.ProductSessionRef(cloudContext(t, login.shell).CredentialRef, "iam"))
+	if err != nil || stored.EstablishedBy != session.EstablishedByDeviceSecret {
+		t.Errorf("iam session %+v, %v; want it from the device secret", stored.EstablishedBy, err)
+	}
+}

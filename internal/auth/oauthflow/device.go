@@ -195,7 +195,7 @@ func (d DeviceLogin) present(authorization *oauth2.DeviceAuthResponse) error {
 	// read aloud, and RFC 8628 makes it optional, so a login must not depend on
 	// a deployment publishing one.
 	if authorization.VerificationURIComplete != "" {
-		_, _ = fmt.Fprintf(d.out(), "Or open this link, which carries the code:\n\n    %s\n\n",
+		_, _ = fmt.Fprintf(d.out(), "Or open this link, which fills in the code for you to confirm:\n\n    %s\n\n",
 			output.Subtle(d.out(), authorization.VerificationURIComplete))
 	}
 	_, _ = fmt.Fprint(d.out(), "Waiting for you to approve this login...\n")
