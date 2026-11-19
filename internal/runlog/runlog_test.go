@@ -38,7 +38,7 @@ func TestOpenCreatesAPrivateDirectoryAndFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	if _, err := file.Write([]byte("{}\n")); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestOpenNarrowsAnExistingFileToItsOwner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	assertMode(t, Path(root), 0o600)
 }
 
@@ -77,7 +77,7 @@ func TestOpenNarrowsAnExistingDirectoryToItsOwner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	assertMode(t, filepath.Dir(Path(root)), 0o700)
 }
 
@@ -95,7 +95,7 @@ func TestAFullFileRotatesAndOnlyTheNewestAreKept(t *testing.T) {
 				t.Fatalf("Write: %v", err)
 			}
 		}
-		file.Close()
+		_ = file.Close()
 	}
 	file, err := Open(root)
 	if err != nil {
@@ -104,7 +104,7 @@ func TestAFullFileRotatesAndOnlyTheNewestAreKept(t *testing.T) {
 	if _, err := file.Write([]byte("newest\n")); err != nil {
 		t.Fatal(err)
 	}
-	file.Close()
+	_ = file.Close()
 
 	entries, err := os.ReadDir(filepath.Dir(Path(root)))
 	if err != nil {
