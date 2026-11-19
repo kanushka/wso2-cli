@@ -35,13 +35,29 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"time"
 
 	keyring "github.com/zalando/go-keyring"
 
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
+
+// secureStore is the OS secure store; a test stands in a store of its own.
+var secureStore backend = osSecureStore{}
+
+type backend interface {
+	Get(service, user string) (string, error)
+	Set(service, user, password string) error
+	Delete(service, user string) error
+}
+
+type osSecureStore struct{}
+
+func (osSecureStore) Get(service, user string) (string, error) { return keyring.Get(service, user) }
+func (osSecureStore) Set(service, user, password string) error {
+	return keyring.Set(service, user, password)
+}
+func (osSecureStore) Delete(service, user string) error { return keyring.Delete(service, user) }
 
 // Service is the OS secure store service name every session entry lives under.
 const Service = "wso2-cli"
@@ -167,43 +183,50 @@ const rootDigestBytes = 8
 // entry is retired by the next Save or Delete under the same reference.
 func (s Store) Load(ref string) (Session, error) {
 	name := s.EntryName(ref)
-	value, err := keyring.Get(Service, name)
-	switch {
-	case errors.Is(err, keyring.ErrNotFound):
-		return Session{}, loginRequired("no stored login session exists for the selected context",
-			"Run wso2 login to establish a session for this context.")
-	case err != nil:
-		return Session{}, keyringUnavailable(err)
-	}
-	var stored entry
-	if json.Unmarshal([]byte(value), &stored) != nil {
-		return Session{}, unreadable()
-	}
-	session := stored.Session
-	if stored.Generation == "" {
-		// An entry an earlier shell wrote keeps the refresh token and device
-		// secret inline and the two identity tokens in unmarked side entries.
-		// The other side entries are not its own, and are never read with it.
-		for _, suffix := range []string{accessTokenSuffix, idTokenSuffix} {
-			if field := session.largeValues()[suffix]; *field == "" {
-				*field = s.sideEntry(name + suffix)
+	previous := ""
+	for range loadAttempts {
+		value, err := secureStore.Get(Service, name)
+		switch {
+		case errors.Is(err, keyring.ErrNotFound):
+			return Session{}, loginRequired("no stored login session exists for the selected context",
+				"Run wso2 login to establish a session for this context.")
+		case err != nil:
+			return Session{}, keyringUnavailable(err)
+		case value == previous:
+			// A stale or foreign entry is indistinguishable from no session.
+			return Session{}, unreadable()
+		}
+		var stored entry
+		if json.Unmarshal([]byte(value), &stored) != nil {
+			return Session{}, unreadable()
+		}
+		session := stored.Session
+		if stored.Generation == "" {
+			// An entry an earlier shell wrote keeps the refresh token and
+			// device secret inline and the two identity tokens in unmarked
+			// side entries.
+			for _, suffix := range []string{accessTokenSuffix, idTokenSuffix} {
+				if field := session.largeValues()[suffix]; *field == "" {
+					*field = s.sideEntry(name + suffix)
+				}
+			}
+		} else {
+			for suffix, field := range session.largeValues() {
+				*field = s.sideEntry(sideKey(name, suffix, stored.Generation))
 			}
 		}
-	} else {
-		for suffix, field := range session.largeValues() {
-			// A side value another save wrote, one that failed partway or
-			// an earlier shell's, belongs to another session: it is left out.
-			if generation, side, ok := strings.Cut(s.sideEntry(name+suffix), ":"); ok && generation == stored.Generation {
-				*field = side
-			}
+		if session.RefreshToken != "" {
+			return session, nil
 		}
+		// A save may have moved the entry to a new generation, and retired
+		// the side entries this one names, between the two reads.
+		previous = value
 	}
-	if session.RefreshToken == "" {
-		// A stale or foreign entry is indistinguishable from no session.
-		return Session{}, unreadable()
-	}
-	return session, nil
+	return Session{}, unreadable()
 }
+
+// loadAttempts bounds how often Load follows an entry that saves keep moving.
+const loadAttempts = 3
 
 func unreadable() problem.Problem {
 	return loginRequired("the stored login session for the selected context cannot be read",
@@ -235,7 +258,7 @@ func (v *Session) largeValues() map[string]*string {
 // sideEntry reads one side entry, empty when there is none. A backend that
 // cannot be asked shows up on the session entry itself, which was read first.
 func (s Store) sideEntry(key string) string {
-	value, err := keyring.Get(Service, key)
+	value, err := secureStore.Get(Service, key)
 	if err != nil {
 		return ""
 	}
@@ -252,7 +275,7 @@ func (s Store) sideEntry(key string) string {
 // exists but cannot be used is a fault — so existence is its own question,
 // asked before Load judges usability.
 func (s Store) Stored(ref string) (bool, error) {
-	_, err := keyring.Get(Service, s.EntryName(ref))
+	_, err := secureStore.Get(Service, s.EntryName(ref))
 	switch {
 	case err == nil:
 		return true, nil
@@ -282,7 +305,7 @@ const ProbeCredentialRef = "probe.reachability"
 // nothing to probe with, only whether the backend can be asked. Any other
 // error means the backend itself, not the key, could not be reached.
 func (s Store) Probe() error {
-	_, err := keyring.Get(Service, ProbeCredentialRef)
+	_, err := secureStore.Get(Service, ProbeCredentialRef)
 	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
 		return keyringUnavailable(err)
 	}
@@ -311,35 +334,35 @@ func (s Store) Save(ref string, value Session) error {
 		return keyringUnavailable(err)
 	}
 	name := s.EntryName(ref)
-	if err := keyring.Set(Service, name, string(data)); err != nil {
-		return keyringUnavailable(err)
-	}
+	replaced := s.sideKeysOf(name, s.generationOf(name))
+	var written []string
 	for suffix, field := range value.largeValues() {
 		if *field == "" {
-			err = keyring.Delete(Service, name+suffix)
-			if errors.Is(err, keyring.ErrNotFound) {
-				err = nil
-			}
-		} else {
-			err = keyring.Set(Service, name+suffix, generation+":"+*field)
+			continue
 		}
-		if err != nil {
-			// Best effort: the entry already names a generation the side
-			// entries do not all carry, so Load would refuse it anyway.
-			for _, key := range append(sideKeys(name), name) {
-				_ = keyring.Delete(Service, key)
-			}
+		key := sideKey(name, suffix, generation)
+		if err := secureStore.Set(Service, key, *field); err != nil {
+			discard(written)
 			return keyringUnavailable(err)
 		}
+		written = append(written, key)
 	}
+	// The entry is the one write a read sees switch from the previous
+	// session to this one: until it lands, the previous side entries stand.
+	if err := secureStore.Set(Service, name, string(data)); err != nil {
+		discard(written)
+		return keyringUnavailable(err)
+	}
+	discard(replaced)
 	retireLegacyEntry(ref)
 	return nil
 }
 
 // entry is what the session entry holds: the session without its large
-// values, and the generation of the save that wrote it. Each side entry that
-// save wrote carries the same generation, so Load pairs the entry only with
-// its own side entries. An entry without one is an earlier shell's.
+// values, and the generation of the save that wrote it. That save's side
+// entries are keyed by the same generation, so a later save writes its own
+// beside them and replaces the entry in one write. An entry without one is an
+// earlier shell's.
 type entry struct {
 	Session
 	Generation string `json:"generation,omitempty"`
@@ -353,12 +376,43 @@ func newGeneration() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-func sideKeys(name string) []string {
-	keys := make([]string, len(sideSuffixes))
-	for i, suffix := range sideSuffixes {
-		keys[i] = name + suffix
+func sideKey(name, suffix, generation string) string {
+	return name + suffix + "." + generation
+}
+
+// generationOf is the generation the stored entry names, empty when there is
+// none or it cannot be read.
+func (s Store) generationOf(name string) string {
+	value, err := secureStore.Get(Service, name)
+	if err != nil {
+		return ""
+	}
+	var stored entry
+	if json.Unmarshal([]byte(value), &stored) != nil {
+		return ""
+	}
+	return stored.Generation
+}
+
+// sideKeysOf are every side entry an entry of that generation may own,
+// with the unmarked ones an earlier shell kept.
+func (s Store) sideKeysOf(name, generation string) []string {
+	var keys []string
+	for _, suffix := range sideSuffixes {
+		keys = append(keys, name+suffix)
+		if generation != "" {
+			keys = append(keys, sideKey(name, suffix, generation))
+		}
 	}
 	return keys
+}
+
+// discard removes side entries, best effort: what the caller is told is
+// decided by the session entry.
+func discard(keys []string) {
+	for _, key := range keys {
+		_ = secureStore.Delete(Service, key)
+	}
 }
 
 // retireLegacyEntry removes what a shell before this one stored under the bare
@@ -368,7 +422,7 @@ func sideKeys(name string) []string {
 // written or removed, and that is the answer the caller gets.
 func retireLegacyEntry(ref string) {
 	for _, suffix := range append(sideSuffixes, "") {
-		_ = keyring.Delete(Service, ref+suffix)
+		_ = secureStore.Delete(Service, ref+suffix)
 	}
 }
 
@@ -394,13 +448,13 @@ func (s Store) Delete(ref string) (bool, error) {
 	// ended is the session entry's answer, and a side entry left behind
 	// would be a token on the machine that nothing can reach any more.
 	name := s.EntryName(ref)
-	for _, suffix := range sideSuffixes {
-		if err := keyring.Delete(Service, name+suffix); err != nil && !errors.Is(err, keyring.ErrNotFound) {
+	for _, key := range s.sideKeysOf(name, s.generationOf(name)) {
+		if err := secureStore.Delete(Service, key); err != nil && !errors.Is(err, keyring.ErrNotFound) {
 			return false, keyringUnavailable(err)
 		}
 	}
 	retireLegacyEntry(ref)
-	err := keyring.Delete(Service, name)
+	err := secureStore.Delete(Service, name)
 	switch {
 	case err == nil:
 		return true, nil

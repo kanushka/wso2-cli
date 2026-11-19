@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -508,6 +509,7 @@ func TestASessionWrittenBeforeStrategiesExistedStillLoads(t *testing.T) {
 func TestLargeTokensLiveInSideEntries(t *testing.T) {
 	keyring.MockInit()
 	store := session.Store{StateRoot: t.TempDir()}
+	written := recordWrites(t)
 	saved := session.Session{Issuer: "https://apim.example", RefreshToken: "rt", AccessToken: "at", IDToken: "idt"}
 	if err := store.Save("thunder.apim", saved); err != nil {
 		t.Fatal(err)
@@ -537,8 +539,7 @@ func TestLargeTokensLiveInSideEntries(t *testing.T) {
 	if removed, err := store.Delete("thunder.apim"); err != nil || !removed {
 		t.Fatalf("delete: %v %v", removed, err)
 	}
-	name := store.EntryName("thunder.apim")
-	for _, key := range []string{name, name + "#access", name + "#id"} {
+	for _, key := range written.keys {
 		if _, err := keyring.Get(session.Service, key); err == nil {
 			t.Fatalf("%s survived delete", key)
 		}
@@ -638,6 +639,7 @@ func TestEntryNameIsTheReferenceScopedToTheRoot(t *testing.T) {
 func TestAFullLoginSessionFitsTheMacOSSecureStore(t *testing.T) {
 	keyring.MockInit()
 	store := session.Store{StateRoot: t.TempDir()}
+	written := recordWrites(t)
 	scopes := make([]string, 24)
 	for i := range scopes {
 		scopes[i] = fmt.Sprintf("ap:rest_api:deployment:%02d", i)
@@ -665,11 +667,13 @@ func TestAFullLoginSessionFitsTheMacOSSecureStore(t *testing.T) {
 	if err := store.Save("cloud-dev", saved); err != nil {
 		t.Fatal(err)
 	}
-	name := store.EntryName("cloud-dev")
-	for _, key := range []string{name, name + "#access", name + "#id", name + "#refresh", name + "#device"} {
+	if len(written.keys) != 5 {
+		t.Errorf("the save wrote %d entries, want the session entry and four side entries", len(written.keys))
+	}
+	for _, key := range written.keys {
 		value, err := keyring.Get(session.Service, key)
 		if err != nil {
-			continue
+			t.Fatal(err)
 		}
 		if n := macOSSetCommandLength(session.Service, key, value); n > 4096 {
 			t.Errorf("%s needs a %d-byte secure-store command, over macOS's 4096", key, n)
@@ -683,7 +687,7 @@ func TestAFullLoginSessionFitsTheMacOSSecureStore(t *testing.T) {
 	if removed, err := store.Delete("cloud-dev"); err != nil || !removed {
 		t.Fatalf("delete: %v %v", removed, err)
 	}
-	for _, key := range []string{name + "#refresh", name + "#device"} {
+	for _, key := range written.keys {
 		if _, err := keyring.Get(session.Service, key); err == nil {
 			t.Errorf("%s survived delete", key)
 		}
@@ -801,3 +805,76 @@ func TestAnEarlierShellsInlineEntryIsSplitOnTheNextSave(t *testing.T) {
 		t.Fatalf("loaded %+v, %v", again, err)
 	}
 }
+
+// pausingStore is the OS secure store with a pause before every write, in
+// which another invocation reads.
+type pausingStore struct{ pause func() }
+
+func (p pausingStore) Get(service, user string) (string, error) { return keyring.Get(service, user) }
+
+func (p pausingStore) Set(service, user, password string) error {
+	p.pause()
+	return keyring.Set(service, user, password)
+}
+
+func (p pausingStore) Delete(service, user string) error {
+	p.pause()
+	return keyring.Delete(service, user)
+}
+
+// A read in the middle of a save finds one whole session, the earlier one or
+// the new one, and never none.
+func TestAReadDuringASaveFindsOneWholeSession(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	earlier := session.Session{Issuer: "https://is.example", RefreshToken: "rt-a", AccessToken: "at-a", IDToken: "idt-a", DeviceSecret: "ds-a"}
+	later := session.Session{Issuer: "https://is.example", RefreshToken: "rt-b", AccessToken: "at-b", IDToken: "idt-b"}
+	if err := store.Save("cloud-dev", earlier); err != nil {
+		t.Fatal(err)
+	}
+	pauses := 0
+	defer session.UseSecureStore(pausingStore{pause: func() {
+		pauses++
+		loaded, err := store.Load("cloud-dev")
+		switch {
+		case err != nil:
+			t.Errorf("pause %d: %v", pauses, err)
+		case loaded.RefreshToken == "rt-a" && (loaded.AccessToken != "at-a" || loaded.DeviceSecret != "ds-a"),
+			loaded.RefreshToken == "rt-b" && (loaded.AccessToken != "at-b" || loaded.DeviceSecret != ""):
+			t.Errorf("pause %d: a mix of two sessions: %+v", pauses, loaded)
+		}
+	}})()
+
+	if err := store.Save("cloud-dev", later); err != nil {
+		t.Fatal(err)
+	}
+	if pauses == 0 {
+		t.Fatal("the save wrote nothing")
+	}
+	if loaded, err := store.Load("cloud-dev"); err != nil || loaded.RefreshToken != "rt-b" || loaded.DeviceSecret != "" {
+		t.Fatalf("after the save: %+v, %v", loaded, err)
+	}
+}
+
+// recorded is every key a test's saves wrote.
+type recorded struct{ keys []string }
+
+func recordWrites(t *testing.T) *recorded {
+	t.Helper()
+	written := &recorded{}
+	t.Cleanup(session.UseSecureStore(recordingStore{written}))
+	return written
+}
+
+type recordingStore struct{ written *recorded }
+
+func (r recordingStore) Get(service, user string) (string, error) { return keyring.Get(service, user) }
+
+func (r recordingStore) Set(service, user, password string) error {
+	if !slices.Contains(r.written.keys, user) {
+		r.written.keys = append(r.written.keys, user)
+	}
+	return keyring.Set(service, user, password)
+}
+
+func (r recordingStore) Delete(service, user string) error { return keyring.Delete(service, user) }
