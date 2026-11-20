@@ -106,11 +106,11 @@ func (p linePrompter) Input(title, fallback string, validate func(string) error)
 // Secret reads without echo when the input is a terminal. Any other reader
 // was handed in on purpose and is read as a line.
 func (p linePrompter) Secret(title string) (string, error) {
+	if file, ok := p.in.(*os.File); ok && term.IsTerminal(int(file.Fd())) {
+		return p.readHidden(int(file.Fd()), title)
+	}
 	if _, err := fmt.Fprint(p.out, title+": "); err != nil {
 		return "", err
-	}
-	if file, ok := p.in.(*os.File); ok && term.IsTerminal(int(file.Fd())) {
-		return p.readHidden(int(file.Fd()))
 	}
 	answer, _, err := p.readLine()
 	if err != nil {
@@ -122,13 +122,23 @@ func (p linePrompter) Secret(title string) (string, error) {
 	return answer, nil
 }
 
-// readHidden reads one line with echo off. Ctrl+C arrives as an interrupt,
-// not as input, while echo is off; the terminal is put back as it was before
-// the cancellation is returned, or the person's shell would be left with
-// echo off.
-func (p linePrompter) readHidden(fd int) (string, error) {
+// readHidden asks title and reads one line with echo off. Ctrl+C arrives as
+// an interrupt, not as input, while echo is off; the terminal is put back as
+// it was before the cancellation is returned, or the person's shell would be
+// left with echo off.
+func (p linePrompter) readHidden(fd int, title string) (string, error) {
 	saved, err := term.GetState(fd)
 	if err != nil {
+		return "", err
+	}
+	// Off before the prompt shows: term.ReadPassword turns echo off only once
+	// it starts reading, and a secret pasted the moment the prompt appears
+	// would be echoed in between.
+	if err := echoOff(fd); err != nil {
+		return "", err
+	}
+	defer func() { _ = term.Restore(fd, saved) }()
+	if _, err := fmt.Fprint(p.out, title+": "); err != nil {
 		return "", err
 	}
 	interrupts := make(chan os.Signal, 1)
@@ -145,7 +155,6 @@ func (p linePrompter) readHidden(fd int) (string, error) {
 	}()
 	select {
 	case <-interrupts:
-		_ = term.Restore(fd, saved)
 		_, _ = fmt.Fprintln(p.out)
 		return "", ErrAborted
 	case answer := <-done:
