@@ -190,3 +190,17 @@ func mismatchProblem(named string) problem.Problem {
 		"If that is expected, set login.issuerId in the selected context to the issuer the provider "+
 			"names, then retry. Otherwise check the issuer of the selected context.")
 }
+
+// OrganizationEndpoint is a discovered ThunderID endpoint of one organization
+// unit, /ou/<id> ahead of its path, which issues what it answers in that
+// organization whichever one the caller would otherwise land in. It is false
+// for an endpoint that is not an absolute URL.
+func OrganizationEndpoint(endpoint, organization string) (string, bool) {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Host == "" {
+		return "", false
+	}
+	parsed.Path = "/ou/" + url.PathEscape(organization) + parsed.Path
+	parsed.RawPath = ""
+	return parsed.String(), true
+}

@@ -14,20 +14,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package oauthflow
+package oidcdiscovery_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/wso2/wso2-cli/internal/auth/oidcdiscovery"
+)
 
 func TestOrganizationEndpointPrefixesTheAuthorizationPath(t *testing.T) {
 	for authorization, want := range map[string]string{
 		"https://id.example/oauth2/authorize":   "https://id.example/ou/ou-1/oauth2/authorize",
 		"https://id.example:8090/authorize?x=1": "https://id.example:8090/ou/ou-1/authorize?x=1",
 	} {
-		if got, ok := organizationEndpoint(authorization, "ou-1"); !ok || got != want {
-			t.Errorf("organizationEndpoint(%q) = %q, want %q", authorization, got, want)
+		if got, ok := oidcdiscovery.OrganizationEndpoint(authorization, "ou-1"); !ok || got != want {
+			t.Errorf("OrganizationEndpoint(%q) = %q, want %q", authorization, got, want)
 		}
 	}
-	if _, ok := organizationEndpoint("/oauth2/authorize", "ou-1"); ok {
+	if _, ok := oidcdiscovery.OrganizationEndpoint("/oauth2/authorize", "ou-1"); ok {
 		t.Error("a relative endpoint yielded an organization endpoint")
 	}
 }
