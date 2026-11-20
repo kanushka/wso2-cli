@@ -8,10 +8,10 @@
   },
   "capabilities": {
     "authAudiences": ["integration-management"],
-    "authScopes": [],
+    "authScopes": ["cloud:project:read", "cloud:project:create", "ipaas:environment:read", "ipaas:deployment-pipeline:read", "ipaas:integration:read", "ipaas:integration:build", "ipaas:integration:deploy", "ipaas:repository:read", "ipaas:observability:log-read"],
     "product": {
       "audience": "resource",
-      "scopes": [],
+      "scopes": ["cloud:project:read", "cloud:project:create", "ipaas:environment:read", "ipaas:deployment-pipeline:read", "ipaas:integration:read", "ipaas:integration:build", "ipaas:integration:deploy", "ipaas:repository:read", "ipaas:observability:log-read"],
       "grant": "exchange",
       "gateway": {
         "audience": "resource"

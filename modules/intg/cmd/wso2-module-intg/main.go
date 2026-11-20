@@ -84,14 +84,15 @@ func main() {
 // moduleOptions describe this module to the SDK.
 //
 // The audience here and in module.json must stay equal: the shell intersects a
-// runtime request with what the module declared at installation. No scopes are
-// declared, because the product is reached by token exchange and authorized by
-// the organization claims of the token rather than by scopes.
+// runtime request with what the module declared at installation. AuthScopes
+// are the WSO2 Cloud permissions the commands ask for, which module.json also
+// states as the product's scopes.
 func moduleOptions() module.Options {
 	return module.Options{
 		Namespace:     Namespace,
 		Version:       moduleVersion,
 		AuthAudiences: []string{IntegrationAudience},
+		AuthScopes:    declaredScopes,
 	}
 }
 

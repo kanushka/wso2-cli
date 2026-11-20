@@ -27,14 +27,22 @@ import (
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
+// declaredScopes are the WSO2 Cloud permissions the Integration Platform API
+// checks on the calls these commands make, as module.json declares them. The
+// API refuses a token that lacks the one a call needs, naming it.
+var declaredScopes = []string{
+	"cloud:project:read", "cloud:project:create",
+	"ipaas:environment:read", "ipaas:deployment-pipeline:read",
+	"ipaas:integration:read", "ipaas:integration:build", "ipaas:integration:deploy",
+	"ipaas:repository:read", "ipaas:observability:log-read",
+}
+
 // clientFor asks the shell for access to the Integration Platform API and
 // builds the client that calls it.
 //
-// No scopes are named. On WSO2 Cloud the shell reaches this product by
-// exchanging the login session's token at ThunderID for one bound to the
-// API's resource server, and the API authorizes from the organization claims
-// that token carries rather than from scopes. Leaving them empty asks for
-// exactly what the context's product record consents to.
+// It names no scope, so the shell grants the product record's full set: a
+// product session is one scope set, renewed as a whole, and narrowing it per
+// command would end it for the next one.
 func clientFor(ctx context.Context, request module.Request) (platform.Client, error) {
 	if request.Context.Endpoint == "" {
 		return platform.Client{}, problem.New(problem.CategoryUsage, "intg.product_not_recorded",
