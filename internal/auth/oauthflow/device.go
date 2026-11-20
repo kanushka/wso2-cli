@@ -130,7 +130,7 @@ func (d DeviceLogin) Run(ctx context.Context) (Result, error) {
 		d.logRefusal("the identity provider refused the device authorization", err)
 		return Result{}, deviceAuthorizationRefused(err)
 	}
-	authorization.Interval = usableInterval(authorization.Interval)
+	authorization.Interval = usableInterval(authorization.Interval) + pollMarginSeconds
 	if err := d.present(authorization); err != nil {
 		return Result{}, err
 	}
@@ -197,6 +197,11 @@ const (
 	// deployment asked: an interval this long means the code expires before a
 	// single poll either way.
 	maxPollIntervalSeconds = 3600
+	// pollMarginSeconds is added to the interval because a deployment may
+	// measure it between arrivals with no tolerance, as ThunderID does: polls
+	// on an exact ticker then arrive a few milliseconds early after network
+	// jitter, and each is answered slow_down.
+	pollMarginSeconds = 1
 )
 
 // usableInterval replaces a polling interval this shell cannot act on.
