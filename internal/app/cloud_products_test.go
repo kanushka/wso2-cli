@@ -269,6 +269,33 @@ func TestCloudLoginLeavesAProductEditedByHandAlone(t *testing.T) {
 	}
 }
 
+// A module updated to declare other permissions reaches a record the Cloud
+// login wrote itself on the next login, which says so in one line.
+func TestCloudLoginRefreshesTheScopesOfARecordItWroteItself(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudAPIM(t, login.shell)
+	login.run(t, "login")
+	if err := contexts.Update(login.shell.StateRoot, func(document contexts.Document) (contexts.Document, error) {
+		target, _ := document.Find("cloud-dev")
+		apim := target.Products["apim"]
+		apim.Scopes = []string{}
+		target.Products = map[string]contexts.Product{"apim": apim}
+		return document.Put(target), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	login.errOut.Reset()
+	login.run(t, "login")
+
+	if scopes := cloudContext(t, login.shell).Products["apim"].Scopes; !slices.Equal(scopes, cloudAPIMScopes) {
+		t.Errorf("apim scopes = %q, want the installed module's %q", scopes, cloudAPIMScopes)
+	}
+	if !strings.Contains(login.errOut.String(), `Updated the "apim" product's permissions on the "cloud-dev" context`) {
+		t.Errorf("the refresh is not announced:\n%s", login.errOut)
+	}
+}
+
 func TestCloudLoginRecordsNothingOutsideTheCloudProducts(t *testing.T) {
 	login := newCloudLogin(t)
 	installCloudAPIM(t, login.shell)
