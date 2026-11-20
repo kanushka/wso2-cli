@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -55,24 +56,40 @@ var (
 // against an issuer that binds every authorization to one resource server,
 // counting the times it opens the browser.
 type cloudLogin struct {
-	shell  app.Shell
-	out    *bytes.Buffer
-	errOut *bytes.Buffer
-	issuer *fakeissuer.Issuer
-	mutex  sync.Mutex
-	opened int
+	shell     app.Shell
+	out       *bytes.Buffer
+	errOut    *bytes.Buffer
+	issuer    *fakeissuer.Issuer
+	mutex     sync.Mutex
+	opened    int
+	authorize []url.Values
+	// paths are the paths of the authorization URLs, in the order opened.
+	paths []string
 }
 
 func newCloudLogin(t *testing.T) *cloudLogin {
 	t.Helper()
+	return newCloudLoginWith(t, fakeissuer.Options{})
+}
+
+// newCloudLoginWith is newCloudLogin against an issuer with further options.
+func newCloudLoginWith(t *testing.T, opts fakeissuer.Options) *cloudLogin {
+	t.Helper()
 	keyring.MockInit()
-	issuer := fakeissuer.New(t, fakeissuer.Options{Host: "localhost", RequireResource: true})
+	opts.Host, opts.RequireResource = "localhost", true
+	issuer := fakeissuer.New(t, opts)
 	shell, out, errOut := newLoginShell(t)
 	login := &cloudLogin{shell: shell, out: out, errOut: errOut, issuer: issuer}
 	login.shell.OpenBrowser = func(authURL string) error {
 		login.mutex.Lock()
 		login.opened++
 		login.mutex.Unlock()
+		if parsed, err := url.Parse(authURL); err == nil {
+			login.mutex.Lock()
+			login.authorize = append(login.authorize, parsed.Query())
+			login.paths = append(login.paths, parsed.Path)
+			login.mutex.Unlock()
+		}
 		go func() {
 			if response, err := http.Get(authURL); err == nil {
 				_ = response.Body.Close()

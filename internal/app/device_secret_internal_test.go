@@ -218,8 +218,11 @@ func TestAWithheldScopeIsNamedForASessionFromTheDeviceSecret(t *testing.T) {
 
 	login.run(t, "login")
 
-	if !strings.Contains(login.errOut.String(), `left out second:write from the "second" product's session`) {
-		t.Errorf("stderr does not name the withheld scope:\n%s", login.errOut)
+	if !strings.Contains(login.out.String(), "second (without second:write)") {
+		t.Errorf("the login report does not name the withheld scope:\n%s", login.out)
+	}
+	if strings.Contains(login.errOut.String(), "left out") {
+		t.Errorf("the withheld scope is named twice, on stderr as well:\n%s", login.errOut)
 	}
 }
 
@@ -344,5 +347,80 @@ func TestOnlyAThunderIDProviderThatAdvertisesDeviceSSOIsAskedForASecret(t *testi
 				t.Errorf("opened the browser %d times, want once for both products", got)
 			}
 		})
+	}
+}
+
+// Each way the device secret stops serving says so in one plain line before
+// the browser is needed instead.
+func TestADeviceSecretThatStopsServingSaysTheBrowserIsNeeded(t *testing.T) {
+	home := fakeissuer.OrganizationUnit{ID: "7f21c4aa-9b2d-4e8f-8c3a-be7a00000001", Name: "Home", Handle: "home"}
+	other := fakeissuer.OrganizationUnit{ID: "7f21c4aa-9b2d-4e8f-8c3a-be7a00000002", Name: "Other", Handle: "other"}
+	for name, tc := range map[string]struct {
+		options fakeissuer.Options
+		stop    func(t *testing.T, login *deviceSecretLogin, selected *contexts.Selection)
+		want    string
+	}{
+		"spent": {
+			options: fakeissuer.Options{DeviceSSO: true},
+			stop: func(_ *testing.T, login *deviceSecretLogin, _ *contexts.Selection) {
+				login.issuer.EndBrowserSession()
+			},
+			want: `Your earlier sign-in has ended; the "second" product needs the browser.`,
+		},
+		"expired": {
+			options: fakeissuer.Options{DeviceSSO: true},
+			stop: func(t *testing.T, login *deviceSecretLogin, _ *contexts.Selection) {
+				store := session.Store{StateRoot: login.shell.StateRoot}
+				stored := login.load(t, deviceRef)
+				stored.DeviceSecretExpiresAt = time.Now().Add(-time.Minute)
+				if err := store.Save(deviceRef, stored); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: `Your earlier sign-in has ended; the "second" product needs the browser.`,
+		},
+		"another organization": {
+			options: fakeissuer.Options{DeviceSSO: true, OrganizationUnits: []fakeissuer.OrganizationUnit{home, other}},
+			stop: func(_ *testing.T, _ *deviceSecretLogin, selected *contexts.Selection) {
+				selected.Context.Organization = other.ID
+			},
+			want: `Your earlier sign-in is in another organization; the "second" product needs the browser.`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			login := newDeviceSecretLogin(t, tc.options, contexts.ProviderThunder)
+			login.run(t, "login", "--only", "first")
+			selected := login.selection(t)
+			tc.stop(t, login, &selected)
+			login.errOut.Reset()
+
+			access, _ := selected.Identity.Access("second")
+			_ = login.shell.sessionEstablisher(selected, "second", true)(access)
+			if !strings.Contains(login.errOut.String(), tc.want) {
+				t.Errorf("stderr does not say %q:\n%s", tc.want, login.errOut)
+			}
+		})
+	}
+}
+
+// A device secret a newer login stored in its place is not the one being
+// discarded, and stays.
+func TestDiscardingADeviceSecretKeepsOneANewerLoginStored(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := store.Save("cloud-dev", session.Session{RefreshToken: "rt", DeviceSecret: "ds-newer"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := discardDeviceSecret(store, "cloud-dev", "ds-earlier"); err != nil {
+		t.Fatal(err)
+	}
+	if stored, err := store.Load("cloud-dev"); err != nil || stored.DeviceSecret != "ds-newer" {
+		t.Fatalf("after discarding another secret: %q, %v", stored.DeviceSecret, err)
+	}
+	if err := discardDeviceSecret(store, "cloud-dev", "ds-newer"); err != nil {
+		t.Fatal(err)
+	}
+	if stored, err := store.Load("cloud-dev"); err != nil || stored.DeviceSecret != "" || stored.RefreshToken != "rt" {
+		t.Fatalf("after discarding the stored secret: %+v, %v", stored, err)
 	}
 }

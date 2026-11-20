@@ -48,30 +48,39 @@ var errNotABearerToken = errors.New("auth: the access token is not a readable JW
 // that verified here would be asserting a second time what it already knows,
 // while still leaving the only check that matters to the audience.
 func bearerClaims(token string) (bearerFacts, error) {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return bearerFacts{}, errNotABearerToken
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	payload, err := jwtPayload(token)
 	if err != nil {
-		return bearerFacts{}, errNotABearerToken
+		return bearerFacts{}, err
 	}
 	var claims struct {
-		Audience any    `json:"aud"`
-		Scope    string `json:"scope"`
-		Expires  int64  `json:"exp"`
+		Audience any     `json:"aud"`
+		Scope    *string `json:"scope"`
+		Expires  int64   `json:"exp"`
 	}
 	if json.Unmarshal(payload, &claims) != nil {
 		return bearerFacts{}, errNotABearerToken
 	}
-	facts := bearerFacts{
-		Audiences: audienceList(claims.Audience),
-		Scopes:    strings.Fields(claims.Scope),
+	facts := bearerFacts{Audiences: audienceList(claims.Audience)}
+	if claims.Scope != nil {
+		facts.Scopes = strings.Fields(*claims.Scope)
 	}
 	if claims.Expires > 0 {
 		facts.ExpiresAt = time.Unix(claims.Expires, 0).UTC()
 	}
 	return facts, nil
+}
+
+// jwtPayload is a JWT's decoded payload, its signature unchecked.
+func jwtPayload(token string) ([]byte, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil, errNotABearerToken
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, errNotABearerToken
+	}
+	return payload, nil
 }
 
 // GrantedScopes is what an authorization issued: the token response's scope

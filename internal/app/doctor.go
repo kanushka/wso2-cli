@@ -57,12 +57,10 @@ const (
 
 // The outcomes a check reports.
 //
-// none is the session check's word for a configured context nobody is logged
-// in to. That state needed a fourth word because the other three each say
-// something untrue of it: pass claims a session exists, fail claims the
-// machine is broken when being logged out is the state a confirmed
-// wso2 logout deliberately leaves behind, and not-applicable claims the check
-// could not be asked, when in fact it ran and established the absence.
+// none is the session check's word for products with no session of their
+// own while the login session stands: each is established when a command
+// first needs it, so pass would claim a session that does not exist and fail
+// a fault that is not one. A context with no login session at all fails.
 const (
 	statusPass          = "pass"
 	statusFail          = "fail"
@@ -206,11 +204,18 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 	default:
 		findings = append(findings, passFinding(checkContext,
 			nameDocument("the context document is valid", documentPath)))
-		if notes := driftNotes(document, s.installedDescriptors()); len(notes) > 0 {
+		if drifts := recordDrifts(document, s.installedDescriptors()); len(drifts) > 0 {
+			facts := make([]string, len(drifts))
+			adopt := make([]string, len(drifts))
+			for i, drift := range drifts {
+				facts[i], adopt[i] = drift.fact, drift.adopt
+			}
+			// The commands are in the recovery, which is renamed to the name
+			// the shell was invoked as; the detail is data and is not.
 			findings = append(findings, doctorFinding{Check: checkDefaults, Status: statusDiffers,
-				Detail: strings.Join(notes, " "),
-				Recovery: "Re-apply the context file with wso2 context apply -f <file> --dry-run to see " +
-					"the change, then without --dry-run to adopt it."})
+				Detail: strings.Join(facts, " ") + " If that was set deliberately, nothing needs doing.",
+				Recovery: "To adopt the new values, run " + strings.Join(adopt, "; ") +
+					", or apply the context file again with wso2 context apply -f <file>."})
 		} else {
 			findings = append(findings, passFinding(checkDefaults,
 				"every product record matches what its installed product would write"))
@@ -251,11 +256,18 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 		findings = append(findings, notApplicableFinding(checkSession,
 			"the context document could not be read, so no credential reference could be resolved"))
 	case len(document.Contexts) == 0:
-		findings = append(findings, notApplicableFinding(checkSession,
-			"no context is configured, so there is no session to check"))
+		// Nothing can run on a machine with no context, so the check fails
+		// rather than calling the absence not-applicable (ADR 0024).
+		typed := problem.New(problem.CategoryAuthPolicy, "auth.login_required",
+			"no context is configured, so nothing is signed in").WithRecovery(contextSetupHint)
+		failures[checkSession] = typed
+		findings = append(findings, failFinding(checkSession, typed))
 	case contextName == "" && document.DefaultContext == "":
-		findings = append(findings, notApplicableFinding(checkSession,
-			"no context is selected, so there is no session to check"))
+		typed := problem.New(problem.CategoryAuthPolicy, "auth.context_not_selected",
+			"no context is selected, so no command has a sign-in to run with").
+			WithRecovery("Run wso2 context use <name> to select one; wso2 context list shows them.")
+		failures[checkSession] = typed
+		findings = append(findings, failFinding(checkSession, typed))
 	default:
 		chosen, selErr := document.Select(contextName)
 		if selErr != nil {
@@ -294,11 +306,25 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 					missing = nil
 					break
 				}
+				if !stored && access.SessionRef == selected.Identity.LoginAccess().SessionRef {
+					// No login session means no product command can run, so
+					// the check fails, with the class a command refused for
+					// no login exits with.
+					typed := problem.New(problem.CategoryAuthPolicy, "auth.login_required",
+						fmt.Sprintf("the %q context is not logged in: no login session is stored for it",
+							selected.Context.Name)).
+						WithRecovery("Run wso2 login to log in.")
+					failures[checkSession] = typed
+					findings = append(findings, failFinding(checkSession, typed))
+					missing = nil
+					break
+				}
 				if !stored {
-					// A product nobody is logged in to is a normal state, not
-					// a health fault: a confirmed wso2 logout leaves exactly
-					// this machine behind. Only absence is normal; an entry
-					// that exists but cannot be read still fails.
+					// A product session is established when a command first
+					// needs it, so a product without one while the login
+					// session stands is a state, not a fault. Only absence
+					// is normal; an entry that exists but cannot be read
+					// still fails.
 					missing = append(missing, name)
 					continue
 				}

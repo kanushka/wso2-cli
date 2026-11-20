@@ -80,7 +80,7 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 	now := time.Now()
 	if !login.DeviceSecretExpiresAt.IsZero() && !login.DeviceSecretExpiresAt.After(now.Add(deviceSecretMargin)) {
 		s.log.Debug("the device secret has expired", "credential_ref", loginRef)
-		return oauthflow.Result{}, false, s.endDeviceSecret(store, loginRef, access)
+		return oauthflow.Result{}, false, s.endDeviceSecret(store, loginRef, login.DeviceSecret, access)
 	}
 	s.log.Debug("establishing a product session from the device secret",
 		"context", selected.Context.Name,
@@ -94,12 +94,15 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 	granted, err := auth.ExchangeDeviceSecret(ctx, nil, access, login.DeviceSecret, now)
 	if errors.Is(err, auth.ErrDeviceSecretSpent) {
 		s.log.Debug("the identity provider no longer accepts the device secret", "credential_ref", loginRef)
-		return oauthflow.Result{}, false, s.endDeviceSecret(store, loginRef, access)
+		return oauthflow.Result{}, false, s.endDeviceSecret(store, loginRef, login.DeviceSecret, access)
 	}
 	if err != nil {
 		return oauthflow.Result{}, false, err
 	}
-	extra := map[string]any{"scope": strings.Join(granted.Granted, " ")}
+	extra := map[string]any{}
+	if granted.Granted != nil {
+		extra["scope"] = strings.Join(granted.Granted, " ")
+	}
 	if granted.RefreshTokenExpiresIn > 0 {
 		extra["refresh_token_expires_in"] = float64(granted.RefreshTokenExpiresIn)
 	}
@@ -107,6 +110,19 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 		AccessToken: granted.AccessToken, RefreshToken: granted.RefreshToken, Expiry: granted.ExpiresAt,
 	}).WithExtra(extra)
 	result := oauthflow.Result{Token: token, Subject: login.Subject, Name: login.Name, Email: login.Email}
+	if checkIssuedIn(selected.Context, result) != nil {
+		// The sign-on the secret describes is in another organization, and
+		// so will every later exchange be; the browser authorization names
+		// the one the context does.
+		s.log.Debug("the device secret answers in another organization", "credential_ref", loginRef)
+		s.revokeUnused(access, result)
+		if err := discardDeviceSecret(store, loginRef, login.DeviceSecret); err != nil {
+			return oauthflow.Result{}, false, err
+		}
+		_, err := fmt.Fprintf(s.Streams.Err, "Your earlier sign-in is in another organization; the %q product "+
+			"needs the browser.\n", access.Namespace)
+		return oauthflow.Result{}, false, err
+	}
 	if err := s.storeSession(access, result, session.EstablishedByDeviceSecret); err != nil {
 		return oauthflow.Result{}, false, err
 	}
@@ -118,8 +134,8 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 
 // endDeviceSecret discards a device secret that can no longer be used, and
 // says that the product goes to the browser instead.
-func (s Shell) endDeviceSecret(store session.Store, loginRef string, access contexts.ProductAccess) error {
-	if err := discardDeviceSecret(store, loginRef); err != nil {
+func (s Shell) endDeviceSecret(store session.Store, loginRef, secret string, access contexts.ProductAccess) error {
+	if err := discardDeviceSecret(store, loginRef, secret); err != nil {
 		return err
 	}
 	_, err := fmt.Fprintf(s.Streams.Err, "Your earlier sign-in has ended; the %q product needs the browser.\n",
@@ -128,8 +144,9 @@ func (s Shell) endDeviceSecret(store session.Store, loginRef string, access cont
 }
 
 // discardDeviceSecret removes the device secret from the login session,
-// keeping the session itself.
-func discardDeviceSecret(store session.Store, loginRef string) error {
+// keeping the session itself. A secret a newer login stored in its place is
+// not the one that failed, and stays.
+func discardDeviceSecret(store session.Store, loginRef, secret string) error {
 	return store.WithLock(loginRef, func() error {
 		stored, err := store.Load(loginRef)
 		if isNoSession(err) {
@@ -137,6 +154,9 @@ func discardDeviceSecret(store session.Store, loginRef string) error {
 		}
 		if err != nil {
 			return err
+		}
+		if stored.DeviceSecret != secret {
+			return nil
 		}
 		stored.DeviceSecret, stored.DeviceSecretExpiresAt = "", time.Time{}
 		return store.Save(loginRef, stored)

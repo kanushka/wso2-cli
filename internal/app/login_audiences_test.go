@@ -43,6 +43,7 @@ const (
 func twoAudienceDoc(issuerURL string) contexts.Document {
 	document := browserDoc(issuerURL)
 	document.Contexts[0].Login.Provider = contexts.ProviderThunder
+	document.Contexts[0].Organization = ""
 	document.Contexts[0].Products = map[string]contexts.Product{
 		"first":  {Endpoint: "https://first.example", Audience: firstAudience, Scopes: []string{"first:read"}},
 		"second": {Endpoint: "https://second.example", Audience: secondAudience, Scopes: []string{"second:read", "second:write"}},
@@ -132,31 +133,27 @@ func TestOneLoginReachesTwoProductsWithDifferentAudiences(t *testing.T) {
 // no role for with a token that leaves it out. The login still succeeds, and
 // says on standard error which permissions each product went without. The
 // session keeps the scope set its record asks for, which is what binds it to
-// the record. The module's command is where the shortfall is enforced: the
-// shell authorizes the product once more, and refuses when the second
-// authorization is answered the same way.
+// the record, and records what was granted beside it. The module's command
+// is where the shortfall is enforced: a request naming no scope is given what
+// was granted, and one naming the withheld scope is refused by name, without
+// authorizing the product again, which could not bring it.
 func TestAWithheldScopeSurfacesAtTheCommandNotTheLogin(t *testing.T) {
 	keyring.MockInit()
 	issuer := fakeissuer.New(t, fakeissuer.Options{
 		RequireResource: true, WithheldScopes: []string{"second:write"},
 	})
-	shell, _, errOut := newLoginShell(t)
+	shell, out, errOut := newLoginShell(t)
 	installLogin(t, shell, twoAudienceDoc(issuer.URL))
 	followBrowser(&shell)
 
 	if code := shell.Run([]string{"login"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
-	lines := strings.Split(strings.TrimSpace(errOut.String()), "\n")
-	var warned []string
-	for _, line := range lines {
-		if strings.Contains(line, "left out") {
-			warned = append(warned, line)
-		}
+	if !strings.Contains(out.String(), "second (without second:write)") || strings.Contains(out.String(), "second:read") {
+		t.Errorf("the Products line does not name second:write alone for the second product:\n%s", out)
 	}
-	if len(warned) != 1 || !strings.Contains(warned[0], "second:write") || !strings.Contains(warned[0], `"second"`) ||
-		strings.Contains(warned[0], "second:read") {
-		t.Errorf("want one line naming the second product and second:write alone, got %q in:\n%s", warned, errOut)
+	if strings.Contains(errOut.String(), "left out") {
+		t.Errorf("the withheld scope is named twice, on stderr as well:\n%s", errOut)
 	}
 	stored, err := session.Store{StateRoot: shell.StateRoot}.Load(contexts.ProductSessionRef(credentialRef, "second"))
 	if err != nil {
@@ -166,15 +163,26 @@ func TestAWithheldScopeSurfacesAtTheCommandNotTheLogin(t *testing.T) {
 		t.Fatalf("stored scopes %v; the login was expected to record what it asked for", stored.Scopes)
 	}
 
-	broker := productBroker(t, shell, issuer, "second")
-	reauthorized := 0
-	broker.EstablishSession = func(contexts.ProductAccess) error { reauthorized++; return nil }
-	_, err = broker.Acquire(auth.Request{Audience: secondAudience})
-	var refused auth.Denial
-	if !errors.As(err, &refused) || refused.Problem.Code != "auth.narrowing_unavailable" {
-		t.Fatalf("Acquire = %v, want auth.narrowing_unavailable", err)
+	if !slices.Contains(stored.Granted, "second:read") || slices.Contains(stored.Granted, "second:write") {
+		t.Fatalf("stored granted scopes %v, want what the provider issued", stored.Granted)
 	}
-	if reauthorized != 1 {
-		t.Errorf("the product was authorized again %d times, want once", reauthorized)
+
+	reauthorized := 0
+	broker := productBroker(t, shell, issuer, "second")
+	broker.EstablishSession = func(contexts.ProductAccess) error { reauthorized++; return nil }
+	if _, err := broker.Acquire(auth.Request{Audience: secondAudience}); err != nil {
+		t.Fatalf("a request naming no scope was refused instead of given what was granted: %v", err)
+	}
+
+	broker = productBroker(t, shell, issuer, "second")
+	broker.EstablishSession = func(contexts.ProductAccess) error { reauthorized++; return nil }
+	_, err = broker.Acquire(auth.Request{Audience: secondAudience, Scopes: []string{"second:write"}})
+	var refused auth.Denial
+	if !errors.As(err, &refused) || refused.Problem.Code != "auth.scope_not_granted" ||
+		!strings.Contains(refused.Problem.Message, "second:write") {
+		t.Fatalf("Acquire = %v, want auth.scope_not_granted naming second:write", err)
+	}
+	if reauthorized != 0 {
+		t.Errorf("the product was authorized again %d times; a withheld scope is not one a sign-in brings", reauthorized)
 	}
 }

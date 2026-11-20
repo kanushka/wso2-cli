@@ -117,7 +117,8 @@ func (s sessionSource) mint(request Request, now time.Time) (Grant, error) {
 	if err := s.ensureSession(); err != nil {
 		return Grant{}, err
 	}
-	granted, err := s.mintUnderLock(request, now)
+	asked := request
+	granted, request, err := s.mintUnderLock(asked, now)
 	var again reauthorize
 	if !errors.As(err, &again) {
 		return granted, err
@@ -130,15 +131,86 @@ func (s sessionSource) mint(request Request, now time.Time) (Grant, error) {
 	if err := s.establish(); err != nil {
 		return Grant{}, s.orRenewalNeedsBrowser(request, err)
 	}
-	granted, err = s.mintUnderLock(request, now)
+	granted, request, err = s.mintUnderLock(asked, now)
 	if errors.As(err, &again) {
 		return Grant{}, s.notAuthorizedForProduct(request)
 	}
 	return granted, err
 }
 
+// withinGrant holds a request on a resource-bound session to what the
+// sign-in was granted, before any call to the issuer. A scope the sign-in
+// asked for and was not granted is refused by name, since only an
+// administrator giving the user a role can bring it, and signing in again
+// before that cannot; a request that named no scope is narrowed to what was
+// granted. A scope the record does not carry was refused before this, by
+// checkProduct.
+//
+// It applies to a session established for this product's own resource and
+// scopes, and only once the session says what it was granted; an older one is
+// renewed and proved as before.
+func (s sessionSource) withinGrant(request Request) (Request, error) {
+	if !s.resourceBound || (s.strategy != contexts.StrategyDirect && s.strategy != contexts.StrategySibling) {
+		return request, nil
+	}
+	stored, err := s.sessions.Load(s.ref)
+	if err != nil || stored.Granted == nil || !scopeSetsEqual(stored.Scopes, s.scopes) {
+		// A record changed since the sign-in is authorized afresh by renew,
+		// which asks for its new scopes; what this sign-in was granted says
+		// nothing about those.
+		return request, nil
+	}
+	if request.recordScopes {
+		var held []string
+		for _, scope := range request.Scopes {
+			if slices.Contains(stored.Granted, scope) {
+				held = append(held, scope)
+			}
+		}
+		if len(held) > 0 {
+			request.Scopes = held
+			return request, nil
+		}
+	}
+	if withheld := scopesOutside(request.Scopes, stored.Granted); len(withheld) > 0 {
+		return request, denial("auth.scope_not_granted",
+			fmt.Sprintf("the %q module needs %s, which the login asked for and the identity provider did "+
+				"not grant, because this user's roles do not carry it", s.namespace, scopeList(withheld)),
+			fmt.Sprintf("Ask an administrator of %s to give this user a role that carries %s on %q. "+
+				"Logging in again will not add it until then; afterwards, %s.",
+				s.issuer, scopeList(withheld), s.audience, s.reestablish()))
+	}
+	return request, nil
+}
+
+// reestablish is the command that authorizes this session afresh.
+func (s sessionSource) reestablish() string {
+	return reestablishCommand(s.strategy, s.contextName, s.product)
+}
+
+// reestablishCommand is the command that authorizes a product's session
+// afresh: the product's own login, or, for the session the login product
+// shares with the login, a logout and a login.
+func reestablishCommand(strategy, contextName, product string) string {
+	if strategy == contexts.StrategyDirect {
+		return fmt.Sprintf("run wso2 logout --context %s and wso2 login --context %s", contextName, contextName)
+	}
+	return fmt.Sprintf("run wso2 login --only %s --context %s", product, contextName)
+}
+
+// scopesOutside are the scopes in requested that held does not carry.
+func scopesOutside(requested, held []string) []string {
+	var outside []string
+	for _, scope := range requested {
+		if !slices.Contains(held, scope) {
+			outside = append(outside, scope)
+		}
+	}
+	return outside
+}
+
 // notAuthorizedForProduct is the refusal for a product whose issuer signed
-// the user in again and still issued none of the permissions asked for.
+// the user in again and still did not issue all the permissions asked for.
 //
 // It replaces the narrowing refusal at this point because the narrowing is
 // no longer the news: the issuer was given every chance to grant the
@@ -153,7 +225,7 @@ func (s sessionSource) notAuthorizedForProduct(request Request) error {
 		recovery = s.narrowing(request).recovery
 	}
 	return denial("auth.narrowing_unavailable",
-		fmt.Sprintf("the %q product's identity provider signed this user in again but issued none of "+
+		fmt.Sprintf("the %q product's identity provider signed this user in again but did not issue all of "+
 			"the permissions the module asked for (%s), so the user is not authorized for the product",
 			s.namespace, scopeList(request.Scopes)),
 		recovery)
@@ -230,9 +302,16 @@ func (s sessionSource) orSessionRequired(err error) error {
 }
 
 // mintUnderLock derives access under the session's rotation lock.
-func (s sessionSource) mintUnderLock(request Request, now time.Time) (Grant, error) {
+func (s sessionSource) mintUnderLock(asked Request, now time.Time) (Grant, Request, error) {
 	var granted Grant
+	request := asked
 	err := s.sessions.WithLock(s.ref, func() error {
+		// The grant is read under the lock, so a sign-in that replaced the
+		// session while this waited decides what the request is held to.
+		var err error
+		if request, err = s.withinGrant(asked); err != nil {
+			return err
+		}
 		issued, err := s.derive(request, now)
 		if err != nil {
 			return err
@@ -241,20 +320,35 @@ func (s sessionSource) mintUnderLock(request Request, now time.Time) (Grant, err
 		return nil
 	})
 	if err != nil {
-		return Grant{}, err
+		return Grant{}, request, err
 	}
-	return granted, nil
+	return granted, request, nil
 }
 
 // ensureSession establishes the product's own session when it is absent,
-// before the rotation lock is taken: a browser round trip must not hold the
-// lock other invocations wait on.
+// outside the rotation lock: a browser round trip must not hold the lock other
+// invocations wait on.
 func (s sessionSource) ensureSession() error {
 	if s.establish == nil {
 		return nil
 	}
 	_, err := s.sessions.Load(s.ref)
 	if err == nil || !isLoginRequired(err) {
+		return err
+	}
+	// Another invocation may be saving the session under the lock, and a
+	// read in the middle of that save finds none. It is read again once the
+	// lock is free, and established only when it is still missing.
+	missing := false
+	err = s.sessions.WithLock(s.ref, func() error {
+		_, err := s.sessions.Load(s.ref)
+		missing = isLoginRequired(err)
+		if missing {
+			return nil
+		}
+		return err
+	})
+	if err != nil || !missing {
 		return err
 	}
 	return s.orSessionRequired(s.establish())

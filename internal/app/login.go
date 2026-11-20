@@ -87,6 +87,10 @@ type loginFlags struct {
 	// noProducts is --no-products: authorize the login session alone, and no
 	// product beside it.
 	noProducts bool
+	// chooseOrganization asks the provider to sign the person in again, where
+	// WSO2 Cloud offers its organization picker, and runs every authorization
+	// after the first in the organization that sign-in was issued in.
+	chooseOrganization bool
 }
 
 // login establishes the selected context's interactive session.
@@ -145,7 +149,10 @@ func (s Shell) login(flags loginFlags) error {
 	if err != nil {
 		return err
 	}
-	return s.reportLogin(selected, outcome)
+	if err := s.reportLogin(selected, outcome); err != nil {
+		return err
+	}
+	return output.NextStep(s.Streams.Out, s.loginNext(selected, outcome))
 }
 
 // loginOutcome is what one wso2 login established: the first authorization's
@@ -157,6 +164,13 @@ func (s Shell) login(flags loginFlags) error {
 type loginOutcome struct {
 	first       oauthflow.Result
 	established []contexts.ProductAccess
+	// withheld are the scopes each established session asked for and was not
+	// granted, by session reference.
+	withheld map[string][]string
+	// exchanged says whether the context's exchanged records count as ready
+	// once the login session is: they run no authorization of their own, and
+	// a login narrowed with --only or --no-products did not ask about them.
+	exchanged bool
 }
 
 // establishAndStore runs every authorization this login is asked for and
@@ -204,8 +218,11 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 	}
 	// One tab serves every authorization this login opens in the browser.
 	tab := oauthflow.NewTab()
+	if flags.chooseOrganization {
+		tab = oauthflow.NewSignInTab()
+	}
 	defer tab.Close()
-	var outcome loginOutcome
+	outcome := loginOutcome{withheld: map[string][]string{}, exchanged: flags.only == "" && !flags.noProducts}
 	for index, access := range accesses {
 		result, err := s.establishProduct(selected, access, tab)
 		if err != nil {
@@ -221,33 +238,34 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 		}
 		if index == 0 {
 			outcome.first = result
+			if flags.chooseOrganization && selected.Context.WSO2Cloud() {
+				chosen := issuedIn(result).ID
+				if chosen == "" {
+					return loginOutcome{}, problem.New(problem.CategoryAuthPolicy, "auth.organization_not_selected",
+						"the identity provider issued the sign-in in no organization").
+						WithRecovery("Run wso2 org use <organization-id>, or wso2 org use with no argument " +
+							"and choose an organization in the browser.")
+				}
+				// Pinned, so the rest cannot land in another organization
+				// unnoticed: checkIssuedIn refuses one that does.
+				selected.Context.Organization = chosen
+			}
 		}
 		outcome.established = append(outcome.established, access)
+		outcome.withheld[access.SessionRef] = withheldScopes(access, result)
 	}
 	return outcome, nil
 }
 
 // reportWithheldScopes says, on the diagnostic stream, which of the scopes an
-// authorization asked for it was not granted. A provider such as ThunderID
+// authorization a command ran was not granted; a login names them on its
+// Products line instead. A provider such as ThunderID
 // answers a scope the user holds no role for by leaving it out of an
 // otherwise successful grant, and the login is not refused for it: the
 // product may serve commands that need only the rest. An issuer that states
 // no scopes at all says nothing either way, so nothing is reported.
 func (s Shell) reportWithheldScopes(access contexts.ProductAccess, result oauthflow.Result) {
-	if result.Token == nil {
-		return
-	}
-	responseScope, _ := result.Token.Extra("scope").(string)
-	granted := auth.GrantedScopes(responseScope, result.Token.AccessToken)
-	if len(granted) == 0 {
-		return
-	}
-	var withheld []string
-	for _, scope := range access.Scopes {
-		if !slices.Contains(granted, scope) {
-			withheld = append(withheld, scope)
-		}
-	}
+	withheld := withheldScopes(access, result)
 	if len(withheld) == 0 {
 		return
 	}
@@ -255,6 +273,40 @@ func (s Shell) reportWithheldScopes(access contexts.ProductAccess, result oauthf
 	_, _ = fmt.Fprintf(s.Streams.Err, "The identity provider left out %s from %s, usually because "+
 		"this user's role does not carry them; commands that need them will be refused.\n",
 		strings.Join(withheld, ", "), withheldLabel(access))
+}
+
+// grantedScopes are the scopes an authorization issued, or nil when it
+// stated none.
+func grantedScopes(result oauthflow.Result) []string {
+	if result.Token == nil {
+		return nil
+	}
+	responseScope, stated := result.Token.Extra("scope").(string)
+	if granted := auth.GrantedScopes(responseScope, result.Token.AccessToken); granted != nil {
+		return granted
+	}
+	if stated {
+		// A response that states an empty scope granted none of them, which is
+		// not the same as one that says nothing.
+		return []string{}
+	}
+	return nil
+}
+
+// withheldScopes are the scopes access asked for that the authorization did
+// not grant, or nil when it granted them all or stated nothing.
+func withheldScopes(access contexts.ProductAccess, result oauthflow.Result) []string {
+	granted := grantedScopes(result)
+	if granted == nil {
+		return nil
+	}
+	var withheld []string
+	for _, scope := range access.Scopes {
+		if !slices.Contains(granted, scope) {
+			withheld = append(withheld, scope)
+		}
+	}
+	return withheld
 }
 
 func withheldLabel(access contexts.ProductAccess) string {
@@ -313,7 +365,39 @@ func extendIncompleteLoginRecovery(err error, established []contexts.ProductAcce
 	if reported.Recovery != "" {
 		recovery = reported.Recovery + " " + recovery
 	}
-	return reported.WithRecovery(recovery)
+	return withRecovery(err, reported, recovery)
+}
+
+// withRecovery is err with the problem it carries given another recovery.
+// The errors wrapped beside the problem are kept, so the diagnostic log still
+// names them.
+func withRecovery(err error, reported problem.Problem, recovery string) error {
+	updated := reported.WithRecovery(recovery)
+	causes := causesBeside(err)
+	if len(causes) == 0 {
+		return updated
+	}
+	return fmt.Errorf("%w: %w", updated, errors.Join(causes...))
+}
+
+// causesBeside are the errors wrapped alongside the problem in err's chain.
+func causesBeside(err error) []error {
+	if _, isProblem := err.(problem.Problem); isProblem {
+		return nil
+	}
+	switch wrapper := err.(type) {
+	case interface{ Unwrap() []error }:
+		var causes []error
+		for _, wrapped := range wrapper.Unwrap() {
+			if _, isProblem := wrapped.(problem.Problem); !isProblem {
+				causes = append(causes, wrapped)
+			}
+		}
+		return causes
+	case interface{ Unwrap() error }:
+		return causesBeside(wrapper.Unwrap())
+	}
+	return nil
 }
 
 // loginAccesses is what this login authorizes: every session by default, the
@@ -462,6 +546,10 @@ func (s Shell) establishThroughBrowser(selected contexts.Selection, access conte
 				"then run wso2 login again.")
 	}
 
+	if err := checkIssuedIn(selected.Context, result); err != nil {
+		s.revokeUnused(access, result)
+		return oauthflow.Result{}, err
+	}
 	// The token itself is never logged, here or anywhere: what a reader needs
 	// is that the issuer answered and when the access it granted runs out.
 	s.log.Debug("the login completed",
@@ -472,7 +560,7 @@ func (s Shell) establishThroughBrowser(selected contexts.Selection, access conte
 }
 
 // storeSession stores what one authorization produced as access's session,
-// and says which of the scopes it asked for it was not granted.
+// with the scopes it was granted.
 func (s Shell) storeSession(access contexts.ProductAccess, result oauthflow.Result, establishedBy string) error {
 	root, err := s.stateRoot()
 	if err != nil {
@@ -507,6 +595,7 @@ func (s Shell) storeSession(access contexts.ProductAccess, result oauthflow.Resu
 			Resource:         access.Resource,
 			Audience:         access.Audience,
 			Bound:            true,
+			Granted:          grantedScopes(result),
 			DeviceSecret:     result.DeviceSecret,
 			// The secret is stored as returned and its expiry read without
 			// verifying it: only the provider that signed it ever checks it.
@@ -514,11 +603,7 @@ func (s Shell) storeSession(access contexts.ProductAccess, result oauthflow.Resu
 			EstablishedBy:         establishedBy,
 		})
 	})
-	if err != nil {
-		return err
-	}
-	s.reportWithheldScopes(access, result)
-	return nil
+	return err
 }
 
 // establishSession runs the login mode the selected account's kind names, for
@@ -558,35 +643,128 @@ func (s Shell) establishSession(selected contexts.Selection, access contexts.Pro
 	ctx, cancel := context.WithTimeout(context.Background(), loginDeadline)
 	defer cancel()
 	return oauthflow.Login{
-		Issuer:      access.Issuer,
-		IssuerID:    access.IssuerID,
-		ClientID:    access.ClientID,
-		Scopes:      access.Scopes,
-		Resource:    access.Resource,
-		Label:       access.Namespace,
-		DeviceSSO:   asksForDeviceSecret(selected.Identity, access),
-		Tab:         tab,
-		OpenBrowser: s.OpenBrowser,
-		Out:         s.Streams.Err,
+		Issuer:       access.Issuer,
+		IssuerID:     access.IssuerID,
+		ClientID:     access.ClientID,
+		Scopes:       access.Scopes,
+		Resource:     access.Resource,
+		Label:        access.Namespace,
+		DeviceSSO:    asksForDeviceSecret(selected.Identity, access),
+		Organization: cloudOrganization(selected.Context),
+		Tab:          tab,
+		OpenBrowser:  s.OpenBrowser,
+		Out:          s.Streams.Err,
 	}.Run(ctx)
 }
 
 // reportLogin states which context the login was for, who it proved you are,
-// and that you are now logged in. What each product was reached by is wso2
-// whoami -o json's to say; the login keeps to the three facts a person asks.
+// the organization it was issued in, which products are ready, and that you
+// are now logged in. What each product was reached by is wso2 whoami -o
+// json's to say.
 //
-// Every value here came out of a verified identity token or the context
-// document. None of it is token material, and there is deliberately nothing in
-// the report a caller could authenticate with.
+// Every value here came out of a verified identity token, the token response
+// or the context document. None of it is token material.
 func (s Shell) reportLogin(selected contexts.Selection, outcome loginOutcome) error {
 	if _, err := fmt.Fprintln(s.Streams.Out); err != nil {
 		return err
 	}
-	return output.Fields(s.Streams.Out, [][2]string{
+	fields := [][2]string{
 		{"Context", selected.Context.Name},
 		{"Email", signedInAs(outcome.first.Email, outcome.first.Name, outcome.first.Subject)},
-		{"Status", "logged in"},
-	})
+	}
+	if organization := issuedIn(outcome.first); !organization.IsZero() {
+		fields = append(fields, [2]string{"Organization", organization.Label()})
+	}
+	products := "none"
+	if ready := readyProducts(selected.Identity, outcome); len(ready) > 0 {
+		labels := make([]string, len(ready))
+		for i, product := range ready {
+			labels[i] = product.label()
+		}
+		products = strings.Join(labels, ", ")
+	}
+	fields = append(fields, [2]string{"Products", products}, [2]string{"Status", "logged in"})
+	return output.Fields(s.Streams.Out, fields)
+}
+
+// loginNext names the command that moves a person on from the login: the
+// first ready product's status, or how to add a product when none is.
+func (s Shell) loginNext(selected contexts.Selection, outcome loginOutcome) string {
+	flag := s.contextFlag(selected.Context.Name)
+	if ready := readyProducts(selected.Identity, outcome); len(ready) > 0 {
+		return "Run wso2 " + ready[0].namespace + " status" + flag + " to see what to run first."
+	}
+	if len(selected.Identity.Products) > 0 {
+		return "Run wso2 login" + flag + " to authorize the products the context records."
+	}
+	if selected.Context.WSO2Cloud() {
+		return "Run wso2 product install <product>, then wso2 login" + flag + " to record it on this context."
+	}
+	return "Run wso2 context product add <product> --url <url>" + flag + " to record where a product runs."
+}
+
+// contextFlag is the --context a next step needs to act on the named
+// context: none when a command without one already does.
+func (s Shell) contextFlag(name string) string {
+	if current, err := s.selection(""); err == nil && current.Context.Name == name {
+		return ""
+	}
+	return " --context " + name
+}
+
+// readyProduct is one product a login left ready, with the scopes it asked
+// for and was not granted.
+type readyProduct struct {
+	namespace string
+	withheld  []string
+}
+
+func (p readyProduct) label() string {
+	if len(p.withheld) == 0 {
+		return p.namespace
+	}
+	return p.namespace + " (without " + strings.Join(p.withheld, ", ") + ")"
+}
+
+// readyProducts are the products the context records whose session this login
+// established, or which are reached through the login session it established,
+// in the order the context records them. A gateway record counts toward its
+// product.
+func readyProducts(identity contexts.Account, outcome loginOutcome) []readyProduct {
+	established := map[string]bool{}
+	for _, access := range outcome.established {
+		established[access.SessionRef] = true
+	}
+	loginReady := established[identity.LoginAccess().SessionRef]
+	var ready []readyProduct
+	index := map[string]int{}
+	for _, key := range identity.RecordKeys() {
+		access, ok := identity.Access(key)
+		if !ok {
+			continue
+		}
+		reached := established[access.SessionRef] ||
+			(access.Strategy == contexts.StrategyExchanged && loginReady && outcome.exchanged)
+		if !reached {
+			continue
+		}
+		namespace := key
+		if product, gateway := contexts.SplitGatewayKey(key); gateway {
+			namespace = product
+		}
+		at, seen := index[namespace]
+		if !seen {
+			at = len(ready)
+			index[namespace] = at
+			ready = append(ready, readyProduct{namespace: namespace})
+		}
+		for _, scope := range outcome.withheld[access.SessionRef] {
+			if !slices.Contains(ready[at].withheld, scope) {
+				ready[at].withheld = append(ready[at].withheld, scope)
+			}
+		}
+	}
+	return ready
 }
 
 // signedInAs names the signed-in person in one value: the email when the

@@ -48,6 +48,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -144,6 +145,23 @@ type Login struct {
 	// discovery document lists the device_sso scope. The secret describes the
 	// sign-on the sign-in started, and is issued only when one was.
 	DeviceSSO bool
+	// Organization is the ThunderID organization unit the sign-in is for,
+	// by id. The authorization and the code exchange then go to that
+	// organization's own endpoints, the discovered ones with /ou/<id> ahead
+	// of their paths, which issue the session in it whichever organization
+	// the browser session is in.
+	Organization string
+}
+
+// organizationEndpoint is an endpoint of one organization unit.
+func organizationEndpoint(endpoint, organization string) (string, bool) {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Host == "" {
+		return "", false
+	}
+	parsed.Path = "/ou/" + url.PathEscape(organization) + parsed.Path
+	parsed.RawPath = ""
+	return parsed.String(), true
 }
 
 // scopeDeviceSSO asks ThunderID for a device secret.
@@ -262,6 +280,19 @@ func (l Login) Run(ctx context.Context) (Result, error) {
 	// credentials this shell does not have.
 	endpoint := provider.Endpoint()
 	endpoint.AuthStyle = oauth2.AuthStyleInParams
+	if l.Organization != "" {
+		authURL, authOK := organizationEndpoint(endpoint.AuthURL, l.Organization)
+		tokenURL, tokenOK := organizationEndpoint(endpoint.TokenURL, l.Organization)
+		if !authOK || !tokenOK {
+			// The root endpoints would issue the session in whichever
+			// organization the browser session is in.
+			return Result{}, oidcdiscovery.Failed(
+				"the identity provider's authorization or token endpoint is not an absolute URL, so the "+
+					"organization's own endpoints cannot be derived from it",
+				"Check the provider's OpenID configuration, then retry.")
+		}
+		endpoint.AuthURL, endpoint.TokenURL = authURL, tokenURL
+	}
 	config := oauth2.Config{
 		ClientID:    l.ClientID,
 		Endpoint:    endpoint,
@@ -381,6 +412,8 @@ func (l Login) authorize(ctx context.Context, tab *Tab, config oauth2.Config, pa
 	}
 	if silent {
 		authOptions = append(authOptions, oauth2.SetAuthURLParam("prompt", "none"))
+	} else if tab.takeSignIn() {
+		authOptions = append(authOptions, oauth2.SetAuthURLParam("prompt", "login"))
 	}
 	waiting := tab.expect(state, l.Resource, silent)
 	defer tab.forget(waiting)

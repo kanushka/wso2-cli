@@ -17,12 +17,16 @@
 package session_test
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -506,6 +510,7 @@ func TestASessionWrittenBeforeStrategiesExistedStillLoads(t *testing.T) {
 func TestLargeTokensLiveInSideEntries(t *testing.T) {
 	keyring.MockInit()
 	store := session.Store{StateRoot: t.TempDir()}
+	written := recordWrites(t)
 	saved := session.Session{Issuer: "https://apim.example", RefreshToken: "rt", AccessToken: "at", IDToken: "idt"}
 	if err := store.Save("thunder.apim", saved); err != nil {
 		t.Fatal(err)
@@ -535,8 +540,7 @@ func TestLargeTokensLiveInSideEntries(t *testing.T) {
 	if removed, err := store.Delete("thunder.apim"); err != nil || !removed {
 		t.Fatalf("delete: %v %v", removed, err)
 	}
-	name := store.EntryName("thunder.apim")
-	for _, key := range []string{name, name + "#access", name + "#id"} {
+	for _, key := range written.keys {
 		if _, err := keyring.Get(session.Service, key); err == nil {
 			t.Fatalf("%s survived delete", key)
 		}
@@ -626,5 +630,491 @@ func TestEntryNameIsTheReferenceScopedToTheRoot(t *testing.T) {
 	}
 	if again := store.EntryName("thunder"); again != name {
 		t.Errorf("the entry name is not stable: %q then %q", name, again)
+	}
+}
+
+// A login session from a fresh ThunderID sign-in carries three JSON web
+// tokens and a device secret. Each keychain value must still fit the 4096-byte
+// command macOS's secure-store tool accepts, which go-keyring builds by
+// base64-encoding the value behind a prefix.
+func TestAFullLoginSessionFitsTheMacOSSecureStore(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	written := recordWrites(t)
+	scopes := make([]string, 24)
+	for i := range scopes {
+		scopes[i] = fmt.Sprintf("ap:rest_api:deployment:%02d", i)
+	}
+	saved := session.Session{
+		Issuer:                "https://platform-idp-development.gateway.dev.cloud.wso2.com",
+		RefreshToken:          tokenOfLength(1600),
+		AccessToken:           tokenOfLength(2200),
+		IDToken:               tokenOfLength(2000),
+		DeviceSecret:          tokenOfLength(1800),
+		ExpiresAt:             time.Now(),
+		SessionExpiresAt:      time.Now(),
+		DeviceSecretExpiresAt: time.Now(),
+		Subject:               "0d5e8b1c-3f4a-4c2e-9a1b-ac0e00000001",
+		Name:                  "A Person With A Rather Long Display Name",
+		Email:                 "a.person.with.a.long.address@example.com",
+		Strategy:              "direct",
+		ClientID:              "WSO2_CLI",
+		Scopes:                scopes,
+		Granted:               append([]string{"openid", "profile", "email", "device_sso"}, scopes...),
+		Resource:              "https://apim.example.test/api/am/publisher",
+		Audience:              "https://apim.example.test/api/am/publisher",
+		Bound:                 true,
+	}
+	if err := store.Save("cloud-dev", saved); err != nil {
+		t.Fatal(err)
+	}
+	if len(written.keys) != 6 {
+		t.Errorf("the save wrote %d entries, want the pending marker, the session entry and four side entries",
+			len(written.keys))
+	}
+	for _, key := range written.keys {
+		value, err := keyring.Get(session.Service, key)
+		if err != nil && strings.HasSuffix(key, "#pending") {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := macOSSetCommandLength(session.Service, key, value); n > 4096 {
+			t.Errorf("%s needs a %d-byte secure-store command, over macOS's 4096", key, n)
+		}
+	}
+	loaded, err := store.Load("cloud-dev")
+	if err != nil || loaded.RefreshToken != saved.RefreshToken || loaded.DeviceSecret != saved.DeviceSecret ||
+		loaded.AccessToken != saved.AccessToken || loaded.IDToken != saved.IDToken {
+		t.Fatalf("the session did not round-trip: %v", err)
+	}
+	if removed, err := store.Delete("cloud-dev"); err != nil || !removed {
+		t.Fatalf("delete: %v %v", removed, err)
+	}
+	for _, key := range written.keys {
+		if _, err := keyring.Get(session.Service, key); err == nil {
+			t.Errorf("%s survived delete", key)
+		}
+	}
+}
+
+// The backend's own answer stays reachable through the error chain for the
+// diagnostic log, though the rendered problem leaves it out.
+func TestAnUnavailableBackendKeepsItsOwnError(t *testing.T) {
+	backend := errors.New("data passed to Set was too big")
+	keyring.MockInitWithError(backend)
+	store := session.Store{StateRoot: t.TempDir()}
+	err := store.Save("acme-cloud-login", session.Session{RefreshToken: "rt-1"})
+	assertProblemCode(t, err, "auth.keyring_unavailable")
+	if !errors.Is(err, backend) {
+		t.Errorf("the backend's error is not in the chain: %v", err)
+	}
+}
+
+func tokenOfLength(n int) string {
+	return strings.Repeat("a", n/3) + "." + strings.Repeat("b", n/3) + "." + strings.Repeat("c", n-2*(n/3)-2)
+}
+
+// macOSSetCommandLength mirrors go-keyring's darwin Set, which refuses a
+// command over 4096 bytes.
+func macOSSetCommandLength(service, account, value string) int {
+	quoted := "go-keyring-base64:" + base64.StdEncoding.EncodeToString([]byte(value))
+	return len(fmt.Sprintf("add-generic-password -U -s '%s' -a '%s' -w '%s'\n", service, account, quoted))
+}
+
+// A save that wrote the session entry and failed before all its side entries
+// leaves the entry naming a generation the side entries do not carry; the
+// side entries of the earlier save, perhaps another person's or another
+// organization's, are not read with it.
+func TestASaveThatFailedPartwayLeavesNoSession(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	earlier := session.Session{Issuer: "https://is.example", RefreshToken: "rt-a", AccessToken: "at-a", DeviceSecret: "ds-a"}
+	if err := store.Save("cloud-dev", earlier); err != nil {
+		t.Fatal(err)
+	}
+	name := store.EntryName("cloud-dev")
+	raw, err := keyring.Get(session.Service, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var written map[string]any
+	if err := json.Unmarshal([]byte(raw), &written); err != nil {
+		t.Fatal(err)
+	}
+	written["subject"] = "someone-else"
+	written["generation"] = "0000000000000000"
+	later, _ := json.Marshal(written)
+	if err := keyring.Set(session.Service, name, string(later)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.Load("cloud-dev")
+	assertProblemCode(t, err, "auth.login_required")
+}
+
+// An earlier shell keeps the refresh token and device secret inline and the
+// identity tokens in unmarked side entries, and its logout removes only those.
+// The side entries it does not know of are never read with its entry.
+func TestAnEarlierShellsEntryReadsOnlyTheSideEntriesItOwns(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := store.Save("cloud-dev", session.Session{RefreshToken: "rt-new", DeviceSecret: "ds-new"}); err != nil {
+		t.Fatal(err)
+	}
+	name := store.EntryName("cloud-dev")
+	for key, value := range map[string]string{
+		name:             `{"issuer":"https://is.example","refreshToken":"rt-old"}`,
+		name + "#access": "at-old",
+		name + "#id":     "idt-old",
+	} {
+		if err := keyring.Set(session.Service, key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	loaded, err := store.Load("cloud-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.RefreshToken != "rt-old" || loaded.DeviceSecret != "" || loaded.AccessToken != "at-old" || loaded.IDToken != "idt-old" {
+		t.Fatalf("loaded %+v", loaded)
+	}
+}
+
+// An earlier shell's inline entry moves into side entries on the next save.
+func TestAnEarlierShellsInlineEntryIsSplitOnTheNextSave(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	name := store.EntryName("cloud-dev")
+	if err := keyring.Set(session.Service, name, `{"issuer":"https://is.example","refreshToken":"rt","accessToken":"at","deviceSecret":"ds"}`); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load("cloud-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save("cloud-dev", loaded); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := keyring.Get(session.Service, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{`"rt"`, `"at"`, `"ds"`} {
+		if strings.Contains(raw, value) {
+			t.Errorf("the entry still carries %s inline: %s", value, raw)
+		}
+	}
+	again, err := store.Load("cloud-dev")
+	if err != nil || again.RefreshToken != "rt" || again.AccessToken != "at" || again.DeviceSecret != "ds" {
+		t.Fatalf("loaded %+v, %v", again, err)
+	}
+}
+
+// pausingStore is the OS secure store with a pause before every write, in
+// which another invocation reads.
+type pausingStore struct{ pause func() }
+
+func (p pausingStore) Get(service, user string) (string, error) { return keyring.Get(service, user) }
+
+func (p pausingStore) Set(service, user, password string) error {
+	p.pause()
+	return keyring.Set(service, user, password)
+}
+
+func (p pausingStore) Delete(service, user string) error {
+	p.pause()
+	return keyring.Delete(service, user)
+}
+
+// A read in the middle of a save finds one whole session, the earlier one or
+// the new one, and never none.
+func TestAReadDuringASaveFindsOneWholeSession(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	earlier := session.Session{Issuer: "https://is.example", RefreshToken: "rt-a", AccessToken: "at-a", IDToken: "idt-a", DeviceSecret: "ds-a"}
+	later := session.Session{Issuer: "https://is.example", RefreshToken: "rt-b", AccessToken: "at-b", IDToken: "idt-b"}
+	if err := store.Save("cloud-dev", earlier); err != nil {
+		t.Fatal(err)
+	}
+	pauses := 0
+	defer session.UseSecureStore(pausingStore{pause: func() {
+		pauses++
+		loaded, err := store.Load("cloud-dev")
+		switch {
+		case err != nil:
+			t.Errorf("pause %d: %v", pauses, err)
+		case loaded.RefreshToken == "rt-a" && (loaded.AccessToken != "at-a" || loaded.DeviceSecret != "ds-a"),
+			loaded.RefreshToken == "rt-b" && (loaded.AccessToken != "at-b" || loaded.DeviceSecret != ""):
+			t.Errorf("pause %d: a mix of two sessions: %+v", pauses, loaded)
+		}
+	}})()
+
+	if err := store.Save("cloud-dev", later); err != nil {
+		t.Fatal(err)
+	}
+	if pauses == 0 {
+		t.Fatal("the save wrote nothing")
+	}
+	if loaded, err := store.Load("cloud-dev"); err != nil || loaded.RefreshToken != "rt-b" || loaded.DeviceSecret != "" {
+		t.Fatalf("after the save: %+v, %v", loaded, err)
+	}
+}
+
+// recorded is every key a test's saves wrote.
+type recorded struct{ keys []string }
+
+func recordWrites(t *testing.T) *recorded {
+	t.Helper()
+	written := &recorded{}
+	t.Cleanup(session.UseSecureStore(recordingStore{written}))
+	return written
+}
+
+type recordingStore struct{ written *recorded }
+
+func (r recordingStore) Get(service, user string) (string, error) { return keyring.Get(service, user) }
+
+func (r recordingStore) Set(service, user, password string) error {
+	if !slices.Contains(r.written.keys, user) {
+		r.written.keys = append(r.written.keys, user)
+	}
+	return keyring.Set(service, user, password)
+}
+
+func (r recordingStore) Delete(service, user string) error { return keyring.Delete(service, user) }
+
+// crashingStore dies, as the process would, on the write of one key, and
+// records the keys it wrote before.
+type crashingStore struct {
+	at      string
+	written *recorded
+}
+
+func (c crashingStore) Get(service, user string) (string, error) { return keyring.Get(service, user) }
+
+func (c crashingStore) Set(service, user, password string) error {
+	if user == c.at {
+		panic("crashed")
+	}
+	c.written.keys = append(c.written.keys, user)
+	return keyring.Set(service, user, password)
+}
+
+func (c crashingStore) Delete(service, user string) error { return keyring.Delete(service, user) }
+
+// crashBeforeTheEntry runs a save that dies after its side entries and before
+// its session entry, into the keys it wrote.
+func crashBeforeTheEntry(t *testing.T, store session.Store, ref string, value session.Session, written *recorded) {
+	t.Helper()
+	restore := session.UseSecureStore(crashingStore{at: store.EntryName(ref), written: written})
+	defer restore()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("the save did not reach its session entry")
+		}
+	}()
+	_ = store.Save(ref, value)
+}
+
+// A save that died before its session entry leaves tokens nothing reads; the
+// next save or delete of that reference removes them.
+func TestTheTokensOfASaveThatDiedAreRemovedByTheNextSaveOrDelete(t *testing.T) {
+	for name, next := range map[string]func(store session.Store) error{
+		"delete": func(store session.Store) error { _, err := store.Delete("cloud-dev"); return err },
+		"save": func(store session.Store) error {
+			return store.Save("cloud-dev", session.Session{RefreshToken: "rt-c"})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			keyring.MockInit()
+			store := session.Store{StateRoot: t.TempDir()}
+			if err := store.Save("cloud-dev", session.Session{RefreshToken: "rt-a", DeviceSecret: "ds-a"}); err != nil {
+				t.Fatal(err)
+			}
+			var abandoned recorded
+			crashBeforeTheEntry(t, store, "cloud-dev", session.Session{RefreshToken: "rt-b", DeviceSecret: "ds-b"}, &abandoned)
+			if len(abandoned.keys) == 0 {
+				t.Fatal("the save that died wrote nothing")
+			}
+
+			if err := next(store); err != nil {
+				t.Fatal(err)
+			}
+			for _, key := range abandoned.keys {
+				if value, err := keyring.Get(session.Service, key); err == nil && strings.Contains(value, "-b") {
+					t.Errorf("%s from the save that died survived", key)
+				}
+			}
+		})
+	}
+}
+
+// hookedStore is the OS secure store that runs a hook after every read.
+type hookedStore struct{ after func(user string) }
+
+func (h hookedStore) Get(service, user string) (string, error) {
+	value, err := keyring.Get(service, user)
+	h.after(user)
+	return value, err
+}
+
+func (h hookedStore) Set(service, user, password string) error {
+	return keyring.Set(service, user, password)
+}
+
+func (h hookedStore) Delete(service, user string) error { return keyring.Delete(service, user) }
+
+// A save that lands while a read is collecting the side entries does not leave
+// that read holding part of the earlier session.
+func TestAReadThatASaveOvertakesFindsOneWholeSession(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	earlier := session.Session{Issuer: "https://is.example", RefreshToken: "rt-a", AccessToken: "at-a", IDToken: "idt-a", DeviceSecret: "ds-a"}
+	later := session.Session{Issuer: "https://is.example", RefreshToken: "rt-b", AccessToken: "at-b", IDToken: "idt-b", DeviceSecret: "ds-b"}
+	if err := store.Save("cloud-dev", earlier); err != nil {
+		t.Fatal(err)
+	}
+	overtaken := false
+	defer session.UseSecureStore(hookedStore{after: func(user string) {
+		if overtaken || !strings.Contains(user, "#refresh.") {
+			return
+		}
+		overtaken = true
+		restore := session.UseSecureStore(hookedStore{after: func(string) {}})
+		defer restore()
+		if err := store.Save("cloud-dev", later); err != nil {
+			t.Error(err)
+		}
+	}})()
+
+	loaded, err := store.Load("cloud-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !overtaken {
+		t.Fatal("no save overtook the read")
+	}
+	if !reflect.DeepEqual(loaded, earlier) && !reflect.DeepEqual(loaded, later) {
+		t.Fatalf("loaded a mix of two sessions: %+v", loaded)
+	}
+}
+
+// failingStore is the OS secure store with reads of one key failing.
+type failingStore struct{ failing func(user string) bool }
+
+func (f failingStore) Get(service, user string) (string, error) {
+	if f.failing(user) {
+		return "", errors.New("the secure store did not answer")
+	}
+	return keyring.Get(service, user)
+}
+
+func (f failingStore) Set(service, user, password string) error {
+	return keyring.Set(service, user, password)
+}
+
+func (f failingStore) Delete(service, user string) error { return keyring.Delete(service, user) }
+
+func TestASideEntryTheStoreCannotReadIsReportedAsTheStore(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := store.Save("cloud-dev", session.Session{RefreshToken: "rt", AccessToken: "at"}); err != nil {
+		t.Fatal(err)
+	}
+	defer session.UseSecureStore(failingStore{failing: func(user string) bool { return strings.Contains(user, "#refresh.") }})()
+
+	_, err := store.Load("cloud-dev")
+	assertProblemCode(t, err, "auth.keyring_unavailable")
+}
+
+// A save or delete that cannot read the entry it replaces changes nothing,
+// rather than leave that entry's side entries behind.
+func TestAnEntryTheStoreCannotReadIsLeftAsItWas(t *testing.T) {
+	for name, change := range map[string]func(store session.Store) error{
+		"delete": func(store session.Store) error { _, err := store.Delete("cloud-dev"); return err },
+		"save":   func(store session.Store) error { return store.Save("cloud-dev", session.Session{RefreshToken: "rt-b"}) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			keyring.MockInit()
+			store := session.Store{StateRoot: t.TempDir()}
+			earlier := session.Session{RefreshToken: "rt-a", AccessToken: "at-a"}
+			if err := store.Save("cloud-dev", earlier); err != nil {
+				t.Fatal(err)
+			}
+			name := store.EntryName("cloud-dev")
+			restore := session.UseSecureStore(failingStore{failing: func(user string) bool { return user == name }})
+
+			err := change(store)
+			restore()
+			assertProblemCode(t, err, "auth.keyring_unavailable")
+			if loaded, err := store.Load("cloud-dev"); err != nil || !reflect.DeepEqual(loaded, earlier) {
+				t.Fatalf("after the refused %s: %+v, %v", name, loaded, err)
+			}
+		})
+	}
+}
+
+func TestASecondReadOfTheEntryTheStoreCannotAnswerIsReportedAsTheStore(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := store.Save("cloud-dev", session.Session{RefreshToken: "rt"}); err != nil {
+		t.Fatal(err)
+	}
+	name := store.EntryName("cloud-dev")
+	reads := 0
+	defer session.UseSecureStore(failingStore{failing: func(user string) bool {
+		if user != name {
+			return false
+		}
+		reads++
+		return reads == 2
+	}})()
+
+	_, err := store.Load("cloud-dev")
+	assertProblemCode(t, err, "auth.keyring_unavailable")
+}
+
+// deleteFailingStore is the OS secure store with deletes of some keys failing.
+type deleteFailingStore struct{ failing func(user string) bool }
+
+func (d deleteFailingStore) Get(service, user string) (string, error) {
+	return keyring.Get(service, user)
+}
+
+func (d deleteFailingStore) Set(service, user, password string) error {
+	return keyring.Set(service, user, password)
+}
+
+func (d deleteFailingStore) Delete(service, user string) error {
+	if d.failing(user) {
+		return errors.New("the secure store did not answer")
+	}
+	return keyring.Delete(service, user)
+}
+
+// A save that cannot remove a dead save's tokens keeps the marker that names
+// them, so a later save still can.
+func TestTokensADeadSaveLeftStayFindableUntilTheyAreRemoved(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := store.Save("cloud-dev", session.Session{RefreshToken: "rt-a"}); err != nil {
+		t.Fatal(err)
+	}
+	var abandoned recorded
+	crashBeforeTheEntry(t, store, "cloud-dev", session.Session{RefreshToken: "rt-b", DeviceSecret: "ds-b"}, &abandoned)
+
+	restore := session.UseSecureStore(deleteFailingStore{failing: func(user string) bool { return strings.Contains(user, "#device.") }})
+	err := store.Save("cloud-dev", session.Session{RefreshToken: "rt-c"})
+	restore()
+	assertProblemCode(t, err, "auth.keyring_unavailable")
+
+	if err := store.Save("cloud-dev", session.Session{RefreshToken: "rt-c"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range abandoned.keys {
+		if value, err := keyring.Get(session.Service, key); err == nil && strings.Contains(value, "-b") {
+			t.Errorf("%s from the save that died survived", key)
+		}
 	}
 }

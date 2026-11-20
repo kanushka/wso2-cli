@@ -41,6 +41,9 @@ type Tab struct {
 	// waited records that a page was ever held, so a later login that finds
 	// none knows the tab it would have continued in has ended.
 	waited bool
+	// signIn asks the provider to sign the person in again on the tab's
+	// first authorization, instead of answering from its own browser session.
+	signIn bool
 }
 
 // heldPage is an accepted callback whose response waits for the tab's next
@@ -57,6 +60,20 @@ var holdLimit = time.Minute
 
 // NewTab starts a tab no login has used yet.
 func NewTab() *Tab { return &Tab{} }
+
+// NewSignInTab starts a tab whose first authorization asks the provider to
+// sign the person in again (prompt=login), so a provider that offers a choice
+// at sign-in, such as ThunderID's organization picker, shows it.
+func NewSignInTab() *Tab { return &Tab{signIn: true} }
+
+// takeSignIn reports whether this authorization asks for a sign-in, once.
+func (t *Tab) takeSignIn() bool {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+	signIn := t.signIn
+	t.signIn = false
+	return signIn
+}
 
 // bind takes a loopback port for the tab, the first time a login uses it.
 func (t *Tab) bind(ports []int) error {

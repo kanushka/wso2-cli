@@ -534,7 +534,7 @@ func (c contextDocumentReport) renderTable(w io.Writer) error {
 		return err
 	}
 	for _, note := range c.Notes {
-		if _, err := fmt.Fprintf(w, "\n%s\n", note); err != nil {
+		if _, err := fmt.Fprintf(w, "\n%s\n", output.Hint(w, note)); err != nil {
 			return err
 		}
 	}

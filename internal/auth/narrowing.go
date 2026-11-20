@@ -285,10 +285,11 @@ func resourceBoundRecovery(scopes []string, audience, contextName, namespace str
 	for _, scope := range slices.Sorted(slices.Values(scopes)) {
 		permissions = append(permissions, "--permission "+scope)
 	}
-	reestablish := fmt.Sprintf("run wso2 login --only %s", namespace)
+	strategy := contexts.StrategySibling
 	if loginProduct {
-		reestablish = fmt.Sprintf("run wso2 logout --context %s and wso2 login --context %s", contextName, contextName)
+		strategy = contexts.StrategyDirect
 	}
+	reestablish := reestablishCommand(strategy, contextName, namespace)
 	return fmt.Sprintf("On this deployment a session carries only the permissions of roles the signed-in "+
 		"user or the client holds on the %q resource server, and this one was minted without them. "+
 		"Ask an administrator to grant one: wso2 iam role create <role> --resource-server <name> %s "+

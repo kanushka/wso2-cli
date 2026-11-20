@@ -53,6 +53,10 @@ type Request struct {
 	// Resource is the resource identifier of the API the access is for, read
 	// only with contexts.APIRecord.
 	Resource string
+	// recordScopes marks Scopes as filled in from the record because the
+	// module named none: such a request asks for whatever the record allows,
+	// so a session source may narrow it to what the sign-in was granted.
+	recordScopes bool
 }
 
 // Grant is the access the shell issues.
@@ -175,6 +179,7 @@ func (b *Broker) Acquire(request Request) (Grant, error) {
 	if len(request.Scopes) == 0 {
 		_, scopes := b.recorded(request)
 		request.Scopes = slices.Clone(scopes)
+		request.recordScopes = true
 	}
 	if err := b.checkDeclared(request); err != nil {
 		return Grant{}, err

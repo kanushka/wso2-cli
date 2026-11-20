@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -67,6 +68,9 @@ const (
 	// browserSessionPrinted: no browser could be opened; the sign-out URLs
 	// were printed for the user to open.
 	browserSessionPrinted = "sign-out printed"
+	// browserSessionNotOpened: no browser could be opened, and the output
+	// mode left no place to print the sign-out URLs.
+	browserSessionNotOpened = "sign-out not opened"
 )
 
 // logout ends every session the selected context's identity holds: the login
@@ -184,10 +188,10 @@ func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.Product
 	}
 	// Providers in the order their sessions were listed, so the output is
 	// stable and the login provider's page opens first. The report names
-	// each issuer a page was opened at, so a sign-out that did not take
-	// can be traced to the provider that was or was not asked.
-	opened := browserSessionOpened
-	var openedAt []string
+	// each issuer with what became of its page, so a sign-out that did not
+	// take can be traced to the provider that was or was not asked.
+	missed := browserSessionOpened
+	var openedAt, missedAt []string
 	seen := map[string]bool{}
 	for _, access := range accesses {
 		key := access.Issuer + " " + access.ClientID
@@ -207,24 +211,55 @@ func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.Product
 			s.log.Debug("no sign-out page for a provider", "issuer", access.Issuer)
 			continue
 		}
-		// The URL is an instruction, not a result, so it goes to the
-		// diagnostic stream; under a machine-readable output mode that stream
-		// carries only structured lines, and the URL travels as one.
-		if flags.mode == output.ModeJSON {
-			s.log.Debug("opening a sign-out page", "issuer", access.Issuer, "url", target)
-		} else if _, err := fmt.Fprintf(s.Streams.Err, "Open this URL to end the browser session at %s:\n%s\n",
-			access.Issuer, target); err != nil {
+		if err := s.openBrowser(target); err == nil {
+			s.log.Debug("opened a sign-out page", "issuer", access.Issuer)
+			openedAt = append(openedAt, access.Issuer)
+			continue
+		}
+		missedAt = append(missedAt, access.Issuer)
+		// A printed URL can end up in a terminal's scrollback or a pasted
+		// bug report, so it names the client without the identity token;
+		// the provider may then ask to confirm the sign-out. It goes to the
+		// diagnostic stream, which under a machine-readable output mode
+		// carries only structured lines.
+		printed := withoutTokenHint(target)
+		if flags.mode == output.ModeJSON || printed == "" {
+			s.log.Debug("a sign-out page not opened", "issuer", access.Issuer, "url", printed)
+			if missed != browserSessionPrinted {
+				missed = browserSessionNotOpened
+			}
+			continue
+		}
+		missed = browserSessionPrinted
+		if _, err := fmt.Fprintf(s.Streams.Err,
+			"The browser did not open. Open this URL to end the browser session at %s; it may ask you to "+
+				"confirm:\n%s\n",
+			access.Issuer, printed); err != nil {
 			return browserSessionPrinted
 		}
-		if err := s.openBrowser(target); err != nil {
-			opened = browserSessionPrinted
-		}
-		openedAt = append(openedAt, access.Issuer)
 	}
-	if len(openedAt) == 0 {
+	var report []string
+	if len(openedAt) > 0 {
+		report = append(report, browserSessionOpened+" at "+strings.Join(openedAt, ", "))
+	}
+	if len(missedAt) > 0 {
+		report = append(report, missed+" at "+strings.Join(missedAt, ", "))
+	}
+	if len(report) == 0 {
 		return browserSessionUnaffected
 	}
-	return opened + " at " + strings.Join(openedAt, ", ")
+	return strings.Join(report, "; ")
+}
+
+func withoutTokenHint(target string) string {
+	parsed, err := url.Parse(target)
+	if err != nil {
+		return ""
+	}
+	query := parsed.Query()
+	query.Del("id_token_hint")
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 // openBrowser opens a URL the way login does: through the test seam when one
@@ -416,11 +451,20 @@ func logoutNotes(ended logoutOutcome) []string {
 			"session's refresh token, so its own copy of the session may remain usable until it "+
 			"expires.")
 	}
+	opened := strings.HasPrefix(ended.browserSession, browserSessionOpened)
+	printed := strings.Contains(ended.browserSession, browserSessionPrinted)
+	missed := strings.Contains(ended.browserSession, browserSessionNotOpened)
 	switch {
-	case strings.HasPrefix(ended.browserSession, browserSessionOpened):
+	case opened && printed:
+		notes = append(notes, "Not every sign-out page opened in the browser; open the printed sign-out "+
+			"URL to end the rest, or a later login may not prompt for credentials.")
+	case opened && missed:
+		notes = append(notes, "Not every sign-out page opened in the browser, so a later login may not "+
+			"prompt for credentials.")
+	case opened:
 		notes = append(notes, "Each identity provider's sign-out page was opened in the browser, "+
 			"so the next login prompts for credentials again.")
-	case strings.HasPrefix(ended.browserSession, browserSessionPrinted):
+	case printed:
 		notes = append(notes, "No browser could be opened; open the printed sign-out URLs to end "+
 			"the identity providers' browser sessions, or a later login may not prompt for credentials.")
 	case ended.browserSession == browserSessionKept:
@@ -431,8 +475,7 @@ func logoutNotes(ended logoutOutcome) []string {
 	// ended. The identity provider's own sign-on is outside the shell's
 	// control, though, and some providers end the user's other refresh
 	// tokens with it; that is said rather than claimed either way.
-	if strings.HasPrefix(ended.browserSession, browserSessionOpened) ||
-		strings.HasPrefix(ended.browserSession, browserSessionPrinted) {
+	if opened || printed {
 		notes = append(notes, "Only this context's sessions were ended. Ending the browser sign-on may "+
 			"also end other sessions the identity provider issued to you, depending on the provider.")
 	}

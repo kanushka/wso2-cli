@@ -572,7 +572,8 @@ func TestAResourceBoundSiblingRefusalPointsAtLoginOnly(t *testing.T) {
 		t.Fatalf("code = %q, want auth.narrowing_unavailable", refusal.Problem.Code)
 	}
 	for _, want := range []string{
-		`"https://localhost:8090/mcp"`, "--permission system --assign-user <username>", "wso2 login --only scim",
+		`"https://localhost:8090/mcp"`, "--permission system --assign-user <username>",
+		"wso2 login --only scim --context " + broker.Selection.Context.Name,
 	} {
 		if !containsText(refusal.Problem.Recovery, want) {
 			t.Errorf("recovery %q does not say %q", refusal.Problem.Recovery, want)

@@ -277,7 +277,7 @@ func resolveProduct(namespace string, descriptor *modules.ProductDescriptor, spe
 		Endpoint: spec.URL, Audience: spec.Audience, Scopes: spec.Scopes, Grant: spec.Grant,
 		ClientIDVariable: spec.ClientIDVariable, ClientSecretVariable: spec.ClientSecretVariable,
 	}
-	if onWSO2Cloud(target) {
+	if target.WSO2Cloud() {
 		return resolveCloudProduct(namespace, descriptor, spec, target, product)
 	}
 	if descriptor == nil {

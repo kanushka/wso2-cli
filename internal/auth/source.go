@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/wso2/wso2-cli/internal/auth/session"
@@ -226,13 +227,30 @@ func (b *Broker) checkProduct(request Request) error {
 			if !slices.Contains(product.Scopes, scope) {
 				return denial("auth.product_not_configured",
 					fmt.Sprintf("the %q module asked for the %q permission, which this context's %q "+
-						"product does not carry", b.namespace(), scope, b.namespace()),
-					fmt.Sprintf("Add the permission once the deployment grants it: wso2 context product add "+
-						"%s --url <url> --scopes <list> --replace, then retry the command.", b.namespace()))
+						"product does not carry, so no login asked for it", b.namespace(), scope, b.namespace()),
+					b.unrecordedScopeRecovery(scope))
 			}
 		}
 	}
 	return nil
+}
+
+// unrecordedScopeRecovery is the way back from a request for a scope the
+// product record does not carry: record it, then, for a session the login
+// authorizes, log in again so the authorization asks for it.
+func (b *Broker) unrecordedScopeRecovery(scope string) string {
+	product := b.Selection.Identity.Products[b.Namespace]
+	record := fmt.Sprintf("Run wso2 context product add %s --url %s --scopes %s --replace --context %s",
+		b.namespace(), product.Endpoint, strings.Join(append(slices.Clone(product.Scopes), scope), ","),
+		b.Selection.Context.Name)
+	access, _ := b.Selection.Identity.Access(b.Namespace)
+	kind := b.Selection.Identity.Auth.Kind
+	if (kind != contexts.KindOAuthBrowser && kind != contexts.KindOAuthDevice) ||
+		access.Strategy == contexts.StrategyExchanged {
+		return record + ", then retry the command."
+	}
+	return fmt.Sprintf("%s, then %s so the login asks for it.", record,
+		reestablishCommand(access.Strategy, b.Selection.Context.Name, b.namespace()))
 }
 
 // checkInvocable refuses the api record where nothing can answer it: the
@@ -318,12 +336,35 @@ func (b *Broker) checkHomeTenant() error {
 	if organization == "" || organization == b.Selection.Identity.Auth.Tenant {
 		return nil
 	}
+	if b.Selection.Context.WSO2Cloud() {
+		return b.checkLoggedInOrganization(organization)
+	}
 	return denial("auth.organization_switch_unsupported",
 		fmt.Sprintf("the %q context targets the %q organization, and this release cannot switch its "+
 			"session out of its home tenant",
 			b.Selection.Context.Name, organization),
 		"Select a context that stays in its home tenant, or create a context whose home tenant is "+
 			"the organization you are targeting and log in to it.")
+}
+
+// checkLoggedInOrganization refuses a WSO2 Cloud context whose login session
+// was issued in another organization than the one it records, as after the
+// organization is edited by hand: the context's sessions would act in an
+// organization nobody named. A context with no login session, or whose token
+// names no organization, is left to the refusals that follow.
+func (b *Broker) checkLoggedInOrganization(organization string) error {
+	stored, err := session.Store{StateRoot: b.StateRoot}.Load(b.Selection.Identity.Auth.CredentialRef)
+	if err != nil {
+		return nil
+	}
+	issued := TokenOrganization(stored.IDToken, stored.AccessToken)
+	if issued.ID == "" || issued.ID == organization {
+		return nil
+	}
+	return denial("auth.organization_mismatch",
+		fmt.Sprintf("the %q context names the %q organization, and its login was issued in %q",
+			b.Selection.Context.Name, organization, issued.Label()),
+		fmt.Sprintf("Run wso2 org use %s to log in to the organization the context names.", organization))
 }
 
 // developmentSource admits the architecture proof's fixture credential.

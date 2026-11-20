@@ -35,6 +35,7 @@ import (
 func thunderDoc(loginIssuer, productIssuer string) contexts.Document {
 	document := browserDoc(loginIssuer)
 	document.Contexts[0].Login.Provider = contexts.ProviderThunder
+	document.Contexts[0].Organization = ""
 	document.Contexts[0].Products = map[string]contexts.Product{
 		"iam": {Endpoint: loginIssuer, Audience: "https://localhost:8090/mcp", Scopes: []string{"system"}},
 		"gateway": {Endpoint: "https://gw.example", Audience: "http://localhost:18080/mockapi",

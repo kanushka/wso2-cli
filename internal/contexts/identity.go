@@ -239,8 +239,10 @@ type Product struct {
 	Endpoint string `json:"url"`
 	// Audience is the token audience the product's services accept.
 	Audience string `json:"audience,omitempty"`
-	// Scopes are the permissions the shell may request for this product.
-	Scopes []string `json:"scopes,omitempty"`
+	// Scopes are the permissions the shell may request for this product. An
+	// empty list is kept as stated, apart from an absent one, so a context
+	// that asks for no scope on purpose says so.
+	Scopes []string `json:"scopes,omitzero"`
 	// Grant says how access for this product is obtained from the identity's
 	// session when the product's issuer is not the identity's. Absent, the
 	// session itself is narrowed to the product, as it always was.
@@ -295,7 +297,7 @@ type Gateway struct {
 	Audience string `json:"audience,omitempty"`
 	// Scopes are the API's own permissions, the scope set a gateway session
 	// is authorized for.
-	Scopes []string `json:"scopes,omitempty"`
+	Scopes []string `json:"scopes,omitzero"`
 }
 
 // GrantJWTBearer presents an identity token from the session to the product's
