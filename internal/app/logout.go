@@ -188,10 +188,10 @@ func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.Product
 	}
 	// Providers in the order their sessions were listed, so the output is
 	// stable and the login provider's page opens first. The report names
-	// each issuer a page was opened at, so a sign-out that did not take
-	// can be traced to the provider that was or was not asked.
-	opened := browserSessionOpened
-	var openedAt []string
+	// each issuer with what became of its page, so a sign-out that did not
+	// take can be traced to the provider that was or was not asked.
+	missed := browserSessionOpened
+	var openedAt, missedAt []string
 	seen := map[string]bool{}
 	for _, access := range accesses {
 		key := access.Issuer + " " + access.ClientID
@@ -211,11 +211,12 @@ func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.Product
 			s.log.Debug("no sign-out page for a provider", "issuer", access.Issuer)
 			continue
 		}
-		openedAt = append(openedAt, access.Issuer)
 		if err := s.openBrowser(target); err == nil {
 			s.log.Debug("opened a sign-out page", "issuer", access.Issuer)
+			openedAt = append(openedAt, access.Issuer)
 			continue
 		}
+		missedAt = append(missedAt, access.Issuer)
 		// A printed URL can end up in a terminal's scrollback or a pasted
 		// bug report, so it names the client without the identity token;
 		// the provider may then ask to confirm the sign-out. It goes to the
@@ -224,12 +225,12 @@ func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.Product
 		printed := withoutTokenHint(target)
 		if flags.mode == output.ModeJSON || printed == "" {
 			s.log.Debug("a sign-out page not opened", "issuer", access.Issuer, "url", printed)
-			if opened != browserSessionPrinted {
-				opened = browserSessionNotOpened
+			if missed != browserSessionPrinted {
+				missed = browserSessionNotOpened
 			}
 			continue
 		}
-		opened = browserSessionPrinted
+		missed = browserSessionPrinted
 		if _, err := fmt.Fprintf(s.Streams.Err,
 			"The browser did not open. Open this URL to end the browser session at %s; it may ask you to "+
 				"confirm:\n%s\n",
@@ -237,10 +238,17 @@ func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.Product
 			return browserSessionPrinted
 		}
 	}
-	if len(openedAt) == 0 {
+	var report []string
+	if len(openedAt) > 0 {
+		report = append(report, browserSessionOpened+" at "+strings.Join(openedAt, ", "))
+	}
+	if len(missedAt) > 0 {
+		report = append(report, missed+" at "+strings.Join(missedAt, ", "))
+	}
+	if len(report) == 0 {
 		return browserSessionUnaffected
 	}
-	return opened + " at " + strings.Join(openedAt, ", ")
+	return strings.Join(report, "; ")
 }
 
 func withoutTokenHint(target string) string {

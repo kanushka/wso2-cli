@@ -231,3 +231,28 @@ func browserSessionLine(report string) string {
 	}
 	return ""
 }
+
+// When one provider's page opens and another's does not, the report names each
+// outcome at its own provider.
+func TestLogoutReportsEachProvidersSignOutAtThatProvider(t *testing.T) {
+	keyring.MockInit()
+	login := fakeissuer.New(t, fakeissuer.Options{RequireResource: true})
+	product := fakeissuer.New(t, fakeissuer.Options{Audience: "apim-cli"})
+	shell, out, errOut := newShell(t)
+	t.Setenv("WSO2_CONTEXT", "")
+	t.Setenv("WSO2_NO_INPUT", "")
+	seedSignedInSessions(t, shell, login, product)
+	shell.OpenBrowser = func(target string) error {
+		if strings.HasPrefix(target, product.URL) {
+			return errors.New("no browser")
+		}
+		return nil
+	}
+	if code := shell.Run([]string{"logout", "-o", "json"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	want := `"sign-out opened at ` + login.URL + `; sign-out not opened at ` + product.URL + `"`
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("report:\n%s\nwant %s", out, want)
+	}
+}
