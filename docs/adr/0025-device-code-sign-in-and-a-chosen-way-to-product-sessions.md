@@ -26,9 +26,14 @@ account is the existing `client-credentials` kind, which has no login.
 
 `ws login --device` writes `oauth-device` on a context that login creates:
 the WSO2 Cloud first run under `WSO2_CLOUD_ENV`, a login with `--url`, and
-the setup wizard. Each records the kind only once the sign-in has succeeded,
-so a provider that refuses the device code leaves a context that still signs
-in. On a context that exists, the kind decides, and `--device` on one that
+the setup wizard. A login with `--url` and the wizard write nothing until the
+sign-in succeeds. The WSO2 Cloud first run writes its context before the
+sign-in, so it writes the kind with it: a sign-in that is denied, expires or
+is interrupted leaves a context that `ws login --device` can retry, where one
+left signing in through the browser would refuse the flag and strand a
+person with no browser. Only a provider that does not allow the grant
+(`unauthorized_client`) gets `oauth-browser` written back, so the context
+still signs in. On a context that exists, the kind decides, and `--device` on one that
 signs in another way is refused with `shell.invalid_argument`, naming
 `ws context edit` and the member to change, before a WSO2 Cloud login
 installs or records anything for it. A flag that overrode the
@@ -156,13 +161,21 @@ that device first when the page does not ask. Only the organization already
 signed in to has a known name or handle, so the one to choose is named by id.
 
 A sign-in whose tokens name no organization says nothing about where the page
-signed in, so the check that lets such a token through elsewhere would record
-an organization nobody confirmed. `ws org use <id>` on a device-code context
-refuses it with `auth.organization_unconfirmed`, ends what it established and
-keeps the previous organization. ThunderID's device grant answers that way
-today (thunder-id/thunderid#6991): its tokens carry no user attributes, so
-until it is fixed a device-code context switches organization only through a
-browser sign-in. The sign-in itself still succeeds and says so in one plain
+signed in, so the check that lets such a token through elsewhere would store
+a session, and record an organization, nobody confirmed. On a device-code
+context that records an organization, `ws login` and `ws org use <id>` refuse
+it with `auth.organization_unconfirmed` and revoke it; `ws org use` keeps the
+previous organization. The recovery names the organization to choose on the
+page, after `ws logout` and the sign-out address it prints for that device,
+since the page asks only on a full sign-in and a retry would otherwise land
+where the browser is already signed in; or `kind: oauth-browser`, whose
+sign-in goes to the organization itself. The same recovery answers a device
+secret that answers in another organization than the context records.
+ThunderID's device grant names no organization today
+(thunder-id/thunderid#6991): its tokens carry no user attributes, so until it
+is fixed a device-code context that records an organization signs in, and
+switches organization, only through a browser sign-in. A context that records
+none still signs in, and says so in one plain
 line, "The sign-in service didn't say who you are or which organization
 you're in, so some details may not show.", with the missing claims under
 `--verbose`.
