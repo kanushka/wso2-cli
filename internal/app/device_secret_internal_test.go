@@ -595,7 +595,7 @@ func TestARefusalForAContextThatIsNotSelectedNamesIt(t *testing.T) {
 	if code := login.shell.Run([]string{"login", "--context", "cloud", "--device"}); code != 64 {
 		t.Fatalf("login --device exit %d, want 64; stderr %s", code, login.errOut)
 	}
-	if !strings.Contains(login.errOut.String(), "wso2 login --context cloud without --device") {
+	if !strings.Contains(login.errOut.String(), "without --device, run `wso2 login --context cloud`.") {
 		t.Errorf("the --device refusal does not name the context:\n%s", login.errOut)
 	}
 }

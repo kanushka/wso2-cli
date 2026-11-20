@@ -211,7 +211,7 @@ func (s Shell) checkDeviceFlag(flags loginFlags, context contexts.Context) error
 		fmt.Sprintf("--device asks for a device-code sign-in, and the %q context signs in with kind %s",
 			context.Name, context.Login.Kind)).
 		WithRecovery(fmt.Sprintf("Run wso2 context edit and set kind: oauth-device in the login of the %q "+
-			"context to sign in with a device code from now on, or run wso2 login%s without --device.",
+			"context to sign in with a device code from now on, or, without --device, run wso2 login%s.",
 			context.Name, s.contextArgument(context.Name)))
 }
 
