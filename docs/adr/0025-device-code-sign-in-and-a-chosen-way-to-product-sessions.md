@@ -155,6 +155,18 @@ sign-in, so the instructions print the provider's sign-out address to open on
 that device first when the page does not ask. Only the organization already
 signed in to has a known name or handle, so the one to choose is named by id.
 
+A sign-in whose tokens name no organization says nothing about where the page
+signed in, so the check that lets such a token through elsewhere would record
+an organization nobody confirmed. `ws org use <id>` on a device-code context
+refuses it with `auth.organization_unconfirmed`, ends what it established and
+keeps the previous organization. ThunderID's device grant answers that way
+today (thunder-id/thunderid#6991): its tokens carry no user attributes, so
+until it is fixed a device-code context switches organization only through a
+browser sign-in. The sign-in itself still succeeds and says so in one plain
+line, "The sign-in service didn't say who you are or which organization
+you're in, so some details may not show.", with the missing claims under
+`--verbose`.
+
 `ws logout` on a device-code context revokes and deletes every session as
 before, and prints each provider's sign-out address instead of opening it: the
 provider's browser session is on whichever device approved the code, not on
@@ -213,6 +225,10 @@ exchange.
   `auth.device_secret_unavailable` and opened nothing. WSO2 Cloud's
   authentication flow keeps one, and its Device Grant flow must call that
   flow.
+- The device grant's tokens carry no user attributes: the identity token
+  names the subject alone and the access token no `ouId`, where the
+  authorization code grant for the same application, user and flow carries
+  `email`, `name` and `ouId` (thunder-id/thunderid#6991).
 - Polling on the exact advertised interval drew `slow_down` on both sign-ins
   tried; with the one-second margin, a sign-in that polled for half a minute
   drew none. Against the test issuer, a poll on the exact interval arrived
