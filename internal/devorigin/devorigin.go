@@ -128,7 +128,68 @@ func Install(ctx context.Context, request Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	return serveAndInstall(ctx, declaration, version, archive, request.StateRoot, request.Shell)
+}
 
+// PrebuiltRequest is one install of a module archive built elsewhere, such as
+// one carried in a test bundle, for the shell the archive was built for.
+type PrebuiltRequest struct {
+	// Declaration is the module's own declaration, read from its module.json.
+	Declaration catalog.Declaration
+	// Version is the version the archive was built as.
+	Version string
+	// Archive is the archive Pack produced for Shell.Platform.
+	Archive []byte
+	// StateRoot is the WSO2 state root to install into.
+	StateRoot string
+	// Shell is the identity of the shell that will launch the module.
+	Shell modules.ShellIdentity
+}
+
+// InstallPrebuilt installs a module archive built earlier, exactly as Install
+// installs a fresh build: from a catalog generated for it and served on
+// loopback, by the ordinary installer, with the archive's own size and digest
+// checked and the version pinned.
+//
+// It is how a test bundle installs its module on a machine that has neither
+// the repository nor a Go toolchain. Like Install, it is contributor tooling:
+// nothing a released shell contains reaches it.
+func InstallPrebuilt(ctx context.Context, request PrebuiltRequest) (Result, error) {
+	if request.StateRoot == "" {
+		return Result{}, fmt.Errorf("devorigin: no state root was given to install into")
+	}
+	version, err := normalizeVersion(request.Version)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := launchable(request.Declaration, request.Shell); err != nil {
+		return Result{}, err
+	}
+	if len(request.Archive) == 0 {
+		return Result{}, fmt.Errorf("devorigin: no archive was given for the %s module", request.Declaration.Namespace)
+	}
+	return serveAndInstall(ctx, request.Declaration, version, request.Archive, request.StateRoot, request.Shell)
+}
+
+// Pack builds the named module of a checkout for one platform and packs the
+// archive a release would publish for it, under the given version.
+func Pack(repositoryRoot, namespace, version string, platform modules.Platform) (catalog.Declaration, []byte, error) {
+	normalized, err := normalizeVersion(version)
+	if err != nil {
+		return catalog.Declaration{}, nil, err
+	}
+	declaration, err := declarationFor(repositoryRoot, namespace)
+	if err != nil {
+		return catalog.Declaration{}, nil, err
+	}
+	archive, err := pack(repositoryRoot, declaration, normalized, platform)
+	return declaration, archive, err
+}
+
+// serveAndInstall publishes archive in a catalog served on loopback for the
+// length of the install, and installs it from there into stateRoot.
+func serveAndInstall(ctx context.Context, declaration catalog.Declaration, version string, archive []byte,
+	stateRoot string, shell modules.ShellIdentity) (Result, error) {
 	// The listener is bound before the catalog is generated because a published
 	// artifact URL is absolute and therefore carries the port, and the port is
 	// only known once something is listening. Serving does not begin here: the
@@ -140,7 +201,7 @@ func Install(ctx context.Context, request Request) (Result, error) {
 	}
 	origin := "http://" + listener.Addr().String()
 
-	handler, err := documents(declaration, version, origin, archive, request.Shell.Platform)
+	handler, err := documents(declaration, version, origin, archive, shell.Platform)
 	if err != nil {
 		_ = listener.Close()
 		return Result{}, err
@@ -157,11 +218,11 @@ func Install(ctx context.Context, request Request) (Result, error) {
 		_ = server.Close()
 	}()
 
-	store := modules.NewStore(state.ModuleStore(request.StateRoot))
+	store := modules.NewStore(state.ModuleStore(stateRoot))
 	installer := install.Installer{
 		Store:  store,
 		Client: catalog.Client{Origin: origin, HTTP: &http.Client{}},
-		Shell:  request.Shell,
+		Shell:  shell,
 	}
 	installed, err := installer.Run(ctx, install.Request{
 		Namespace: declaration.Namespace,

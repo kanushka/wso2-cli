@@ -233,6 +233,30 @@ handler that asks for access it was never given fails loudly.
 Point `Context.Endpoint` at an `httptest` server and you can cover your
 product client with no deployment and no account.
 
+## Share a test build
+
+To let someone try your module before it is released, build a test bundle:
+one zip per platform holding a shell built from your checkout, your module
+packed the way a release packs it, and an installer. The person installing it
+needs no repository, no Go toolchain and no published catalog: the installer
+serves a catalog on loopback for the length of the install, so the module is
+installed and verified exactly as a released one would be.
+
+```sh
+go run ./cmd/wso2-bundle -namespace abc
+# with contexts to record at install, from an input file:
+go run ./cmd/wso2-bundle -namespace abc -context abc-contexts.yaml -context-name abc-dev
+```
+
+The zips and a checksum file land in `dist/bundles`. Each holds a `README.txt`
+for the person installing it: unpack, run `./install` (`.\install.exe` on
+Windows), and put the printed directory on `PATH`. Versions default to
+prerelease test versions stamped with the build time; `-module-version` and
+`-shell-version` set them, and `-platforms` chooses the targets.
+
+A bundle is not a release. Nothing updates it: a newer build is a newer zip,
+installed over the old one.
+
 ## 6. Release it
 
 Check that a shell that actually exists can launch your module:

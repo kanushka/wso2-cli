@@ -127,6 +127,60 @@ func TestAnInstalledModuleIsIndistinguishableFromAPublishedOne(t *testing.T) {
 
 // A prerelease version keeps a developer's own build off the stable channel, so
 // nobody following stable can ever be offered it.
+// An archive packed on one machine installs on another the way a fresh build
+// does: the same receipt, pinned to the version it was packed as, and verified
+// against its own digest. That is what a test bundle relies on.
+func TestAPrebuiltArchiveInstallsLikeAFreshBuild(t *testing.T) {
+	stateRoot := t.TempDir()
+	shell := compatibleShell(t)
+
+	declaration, archive, err := devorigin.Pack(repositoryRoot(t), referenceNamespace, "0.1.0-test.1", shell.Platform)
+	if err != nil {
+		t.Fatalf("packing the example module failed: %v", err)
+	}
+	result, err := devorigin.InstallPrebuilt(context.Background(), devorigin.PrebuiltRequest{
+		Declaration: declaration,
+		Version:     "0.1.0-test.1",
+		Archive:     archive,
+		StateRoot:   stateRoot,
+		Shell:       shell,
+	})
+	if err != nil {
+		t.Fatalf("installing the prebuilt archive failed: %v", err)
+	}
+
+	store := modules.NewStore(state.ModuleStore(stateRoot))
+	receipt, err := modules.ReadReceipt(store.ReceiptPath(referenceNamespace, result.Version))
+	if err != nil {
+		t.Fatalf("reading the module receipt failed: %v", err)
+	}
+	if err := receipt.Validate(); err != nil {
+		t.Errorf("the module receipt is not valid: %v", err)
+	}
+	if receipt.ModuleVersion != "0.1.0-test.1" {
+		t.Errorf("the receipt records version %q, want the packed one", receipt.ModuleVersion)
+	}
+	if policy, err := store.ReadPolicy(referenceNamespace); err != nil || policy.PinnedVersion != "0.1.0-test.1" {
+		t.Errorf("the policy is %+v (%v), want it pinned to the packed version", policy, err)
+	}
+}
+
+func TestAPrebuiltInstallWithNoArchiveIsRefused(t *testing.T) {
+	shell := compatibleShell(t)
+	declaration, _, err := devorigin.Pack(repositoryRoot(t), referenceNamespace, "", shell.Platform)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = devorigin.InstallPrebuilt(context.Background(), devorigin.PrebuiltRequest{
+		Declaration: declaration, StateRoot: t.TempDir(), Shell: shell,
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "no archive") {
+		t.Errorf("an install with no archive returned %v, want it refused", err)
+	}
+}
+
 func TestTheDefaultVersionLandsOnThePrereleaseChannel(t *testing.T) {
 	parsed, err := semver.Parse(devorigin.DefaultVersion)
 	if err != nil {
