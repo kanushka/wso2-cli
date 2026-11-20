@@ -1272,8 +1272,9 @@ func (i *Issuer) issueDeviceTokens(w http.ResponseWriter, scopes []string, clien
 	// authorization request, and the shell sends none, so a session established
 	// this way is bound by the registration's audience like every session was
 	// before resource indicators existed.
+	ou := i.homeOrganizationUnit()
 	response := map[string]any{
-		"access_token": i.mintAccessTokenFor("user-1", scopes, ""),
+		"access_token": i.mintAccessTokenIn(ou, "user-1", scopes, ""),
 		"token_type":   "Bearer",
 		"expires_in":   300,
 		"scope":        strings.Join(scopes, " "),
@@ -1281,7 +1282,7 @@ func (i *Issuer) issueDeviceTokens(w http.ResponseWriter, scopes []string, clien
 	if !i.opts.OmitDeviceRefreshToken {
 		refreshToken := randomToken("rt")
 		i.mutex.Lock()
-		i.refreshTokens[refreshToken] = refreshRecord{scopes: scopes}
+		i.refreshTokens[refreshToken] = refreshRecord{scopes: scopes, ou: ou}
 		i.mutex.Unlock()
 		response["refresh_token"] = refreshToken
 	}

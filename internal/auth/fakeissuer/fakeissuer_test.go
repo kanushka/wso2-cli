@@ -1368,3 +1368,27 @@ func TestADeviceSecretSessionRenewsInItsOrganization(t *testing.T) {
 		t.Errorf("the renewed token names ouId %q, want ou-home", got)
 	}
 }
+
+// A session obtained by the device authorization grant renews in the
+// organization it was issued in.
+func TestADeviceCodeSessionRenewsInItsOrganization(t *testing.T) {
+	issuer := fakeissuer.New(t, fakeissuer.Options{
+		Audience:          "reference-status",
+		OrganizationUnits: []fakeissuer.OrganizationUnit{{ID: "ou-home", Name: "Home", Handle: "home"}},
+	})
+	granted, status := pollDevice(t, issuer, text(deviceAuthorize(t, issuer), "device_code"))
+	if status != http.StatusOK {
+		t.Fatalf("the device grant answered %d: %v", status, granted)
+	}
+	if got := claimFromToken(t, text(granted, "access_token"), "ouId"); got != "ou-home" {
+		t.Fatalf("the issued token names ouId %q, want ou-home", got)
+	}
+
+	renewed, status := refresh(t, issuer, text(granted, "refresh_token"), "")
+	if status != http.StatusOK {
+		t.Fatalf("the refresh answered %d: %v", status, renewed)
+	}
+	if got := claimFromToken(t, text(renewed, "access_token"), "ouId"); got != "ou-home" {
+		t.Errorf("the renewed token names ouId %q, want ou-home", got)
+	}
+}
