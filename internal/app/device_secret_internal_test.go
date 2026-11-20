@@ -599,3 +599,63 @@ func TestARefusalForAContextThatIsNotSelectedNamesIt(t *testing.T) {
 		t.Errorf("the --device refusal does not name the context:\n%s", login.errOut)
 	}
 }
+
+func TestARecoveryNamesTheContextWhenWSO2ContextWouldSelectAnother(t *testing.T) {
+	login := newDeviceSecretLogin(t, fakeissuer.Options{DeviceSSO: true, ReusedBrowserSession: true},
+		contexts.ProviderThunder)
+	t.Setenv("WSO2_CONTEXT", "elsewhere")
+
+	if code := login.shell.Run([]string{"login", "--context", "cloud"}); code != 77 {
+		t.Fatalf("login exit %d, want 77; stderr %s", code, login.errOut)
+	}
+	if !strings.Contains(login.errOut.String(), "wso2 logout --context cloud") {
+		t.Errorf("the recovery runs against what WSO2_CONTEXT selects:\n%s", login.errOut)
+	}
+}
+
+func TestAnEstablisherSettlesProductSessionsOnce(t *testing.T) {
+	login := newDeviceSecretLogin(t, fakeissuer.Options{DeviceSSO: true}, contexts.ProviderThunder)
+	login.selfHosted(t)
+	unsettled := login.selection(t)
+	login.run(t, "login", "--only", "first")
+	access, _ := unsettled.Identity.Access("second")
+	establish := login.shell.sessionEstablisher(unsettled, "second", false)
+
+	before := login.issuer.DiscoveryRequests()
+	if err := establish(access); err != nil {
+		t.Fatal(err)
+	}
+	first := login.issuer.DiscoveryRequests() - before
+	if err := establish(access); err != nil {
+		t.Fatal(err)
+	}
+	if second := login.issuer.DiscoveryRequests() - before - first; second >= first {
+		t.Errorf("the second establishment read discovery %d times, the first %d: it settled again", second, first)
+	}
+}
+
+func TestSettlingKeepsTheProductSessionsAnotherWriterRecorded(t *testing.T) {
+	login := newDeviceSecretLogin(t, fakeissuer.Options{}, contexts.ProviderThunder)
+	login.selfHosted(t)
+	stale := login.selection(t)
+	document, err := contexts.Load(login.shell.StateRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	context, _ := document.Find("cloud")
+	context.Login.ProductSessions = contexts.ProductSessionsExchange
+	if err := contexts.Save(login.shell.StateRoot, document.Put(context)); err != nil {
+		t.Fatal(err)
+	}
+
+	settled, err := login.shell.settleProductSessions(stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := settled.Context.Login.ProductSessions; got != contexts.ProductSessionsExchange {
+		t.Errorf("settled productSessions %q, want the recorded %q", got, contexts.ProductSessionsExchange)
+	}
+	if strings.Contains(login.errOut.String(), browserProductsNotice) {
+		t.Errorf("the browser notice was said for a context that records exchange:\n%s", login.errOut)
+	}
+}

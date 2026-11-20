@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -230,19 +231,27 @@ func (s Shell) settleProductSessions(selected contexts.Selection) (contexts.Sele
 		return selected, err
 	}
 	name := selected.Context.Name
+	recorded := false
 	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
 		found, ok := document.Find(name)
-		if !ok || found.Login.ProductSessions != "" {
+		if ok && found.Login.ProductSessions != "" {
+			// Another writer recorded one first, and a recorded value decides.
+			method, recorded = found.Login.ProductSessions, false
 			return document, nil
 		}
-		found.Login.ProductSessions = method
+		if !ok {
+			return document, nil
+		}
+		found.Login.ProductSessions, recorded = method, true
 		return document.Put(found), nil
 	})
 	if err != nil {
 		return selected, s.explainWriteRefusal(root, err)
 	}
-	s.log.Debug("recorded how products get their sessions", "context", name, "product_sessions", method)
-	if method == contexts.ProductSessionsBrowser {
+	if recorded {
+		s.log.Debug("recorded how products get their sessions", "context", name, "product_sessions", method)
+	}
+	if recorded && method == contexts.ProductSessionsBrowser {
 		if _, err := fmt.Fprintln(s.Streams.Err, browserProductsNotice); err != nil {
 			return selected, err
 		}
@@ -260,8 +269,15 @@ func (s Shell) contextArgument(name string) string {
 	if err != nil {
 		return ""
 	}
-	document, err := contexts.Load(root)
-	if err != nil || document.DefaultContext == name {
+	selectedByDefault := os.Getenv("WSO2_CONTEXT")
+	if selectedByDefault == "" {
+		document, err := contexts.Load(root)
+		if err != nil {
+			return ""
+		}
+		selectedByDefault = document.DefaultContext
+	}
+	if selectedByDefault == name {
 		return ""
 	}
 	return " --context " + name
