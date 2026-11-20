@@ -64,6 +64,7 @@ func CheckClientGrant(ctx context.Context, client *http.Client, selection contex
 		audience:       access.Audience,
 		secret:         secret,
 		secretVariable: selection.Identity.Auth.ClientSecretVariable,
+		organization:   clientOrganization(selection.Context, false),
 		client:         client,
 	}
 	issued, err := source.grant(ctx, access.Scopes)

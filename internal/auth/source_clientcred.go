@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wso2/wso2-cli/internal/auth/oidcdiscovery"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -71,6 +72,10 @@ type clientCredentialsSource struct {
 	// secretVariable is where the secret came from. It reaches the user and
 	// never the module: the name is the answer to "where is the credential?".
 	secretVariable string
+	// organization is the ThunderID organization unit the grant is presented
+	// in, at its own token endpoint, so the token is issued there and nowhere
+	// else. It is empty for the issuer's root endpoint.
+	organization string
 	// client serves the issuer traffic.
 	client *http.Client
 }
@@ -100,6 +105,18 @@ func (s clientCredentialsSource) grant(ctx context.Context, scopes []string) (to
 	endpoint, err := tokenEndpoint(ctx, s.client, s.issuer, s.issuerID)
 	if err != nil {
 		return tokenResponse{}, err
+	}
+	if s.organization != "" {
+		organizationEndpoint, ok := oidcdiscovery.OrganizationEndpoint(endpoint, s.organization)
+		if !ok {
+			// The root endpoint would issue the token in whichever
+			// organization the client is registered in.
+			return tokenResponse{}, Denial{Problem: oidcdiscovery.Failed(
+				"the identity provider's token endpoint is not an absolute URL, so the organization's own "+
+					"endpoint cannot be derived from it",
+				"Check the provider's OpenID configuration, then retry.")}
+		}
+		endpoint = organizationEndpoint
 	}
 	form := url.Values{
 		"grant_type": {"client_credentials"},

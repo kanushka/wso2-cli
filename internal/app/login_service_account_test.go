@@ -283,6 +283,10 @@ func TestTheServiceAccountContextGrantsWhatTheAccountHolds(t *testing.T) {
 	if len(grants) != 1 || grants[0].Get("scope") != "ap:api:view" || grants[0].Get("resource") != "urn:wso2:cloud" {
 		t.Errorf("grants = %v, want one for apim's granted scope at its resource", grants)
 	}
+	if len(grants) == 1 && grants[0].Get("ou") != ciOrganization.ID {
+		t.Errorf("the command's grant went to organization %q, want the recorded %q's own endpoint",
+			grants[0].Get("ou"), ciOrganization.ID)
+	}
 }
 
 func TestAPlainLoginSaysItIgnoredTheServiceAccountVariables(t *testing.T) {

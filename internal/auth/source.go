@@ -423,7 +423,8 @@ func (b *Broker) inlineSource(request Request) (source, error) {
 	// the grant's public client, which is then presented with a secret it
 	// was registered with.
 	ownRecord := request.Record != contexts.GatewayRecord
-	if ownRecord && product.ClientSecretVariable != "" {
+	ownCredential := ownRecord && product.ClientSecretVariable != ""
+	if ownCredential {
 		clientID = ""
 		if product.Grant != nil {
 			clientID = product.Grant.ClientID
@@ -462,8 +463,20 @@ func (b *Broker) inlineSource(request Request) (source, error) {
 		audience:       access.Audience,
 		secret:         secret,
 		secretVariable: secretVariable,
+		organization:   clientOrganization(b.Selection.Context, ownCredential),
 		client:         b.httpClient(),
 	}, nil
+}
+
+// clientOrganization is the organization a WSO2 Cloud context's own machine
+// client is issued tokens in: the one it records, as its browser sessions
+// are. A product's own credential is another registration, issued wherever
+// it is registered.
+func clientOrganization(c contexts.Context, productCredential bool) string {
+	if !c.WSO2Cloud() || productCredential {
+		return ""
+	}
+	return c.Organization
 }
 
 // httpClient is what reaches an issuer. It defaults to the process-wide client
