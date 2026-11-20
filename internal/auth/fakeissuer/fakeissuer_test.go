@@ -1328,3 +1328,43 @@ func TestATokenRequestWithAMalformedBodyIsRefused(t *testing.T) {
 		t.Fatalf("a malformed token request answered %d, want 400", response.StatusCode)
 	}
 }
+
+// A session obtained from a device secret renews in the organization it was
+// issued in.
+func TestADeviceSecretSessionRenewsInItsOrganization(t *testing.T) {
+	issuer := fakeissuer.New(t, fakeissuer.Options{
+		Audience: "reference-status", DeviceSSO: true,
+		OrganizationUnits: []fakeissuer.OrganizationUnit{{ID: "ou-home", Name: "Home", Handle: "home"}},
+	})
+	proof := newPKCE(t)
+	code := authorize(t, issuer, proof.challenge, "openid offline_access device_sso reference:status:read", "s")
+	login, status := token(t, issuer, url.Values{
+		"grant_type": {"authorization_code"}, "code": {code}, "code_verifier": {proof.verifier},
+		"redirect_uri": {"http://127.0.0.1:10425/callback"}, "client_id": {"client-123"},
+	})
+	if status != http.StatusOK || text(login, "device_secret") == "" {
+		t.Fatalf("the sign-in answered %d with no device secret: %v", status, login)
+	}
+	exchanged, status := token(t, issuer, url.Values{
+		"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
+		"subject_token":      {text(login, "device_secret")},
+		"subject_token_type": {"urn:ietf:params:oauth:token-type:jwt"},
+		"resource":           {"https://api.example"},
+		"scope":              {"reference:status:read"},
+		"client_id":          {"client-456"},
+	})
+	if status != http.StatusOK {
+		t.Fatalf("the device secret exchange answered %d: %v", status, exchanged)
+	}
+	if got := claimFromToken(t, text(exchanged, "access_token"), "ouId"); got != "ou-home" {
+		t.Fatalf("the exchanged token names ouId %q, want ou-home", got)
+	}
+
+	renewed, status := refresh(t, issuer, text(exchanged, "refresh_token"), "")
+	if status != http.StatusOK {
+		t.Fatalf("the refresh answered %d: %v", status, renewed)
+	}
+	if got := claimFromToken(t, text(renewed, "access_token"), "ouId"); got != "ou-home" {
+		t.Errorf("the renewed token names ouId %q, want ou-home", got)
+	}
+}

@@ -973,12 +973,13 @@ func (i *Issuer) deviceSecretGrant(w http.ResponseWriter, r *http.Request) {
 	}
 	resource := r.PostForm.Get("resource")
 	scopes := i.withoutWithheld(splitScopes(r.PostForm.Get("scope")))
+	ou := i.homeOrganizationUnit()
 	refreshToken := randomToken("rt")
 	i.mutex.Lock()
-	i.refreshTokens[refreshToken] = refreshRecord{scopes: scopes, resource: resource}
+	i.refreshTokens[refreshToken] = refreshRecord{scopes: scopes, resource: resource, ou: ou}
 	i.mutex.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token":      i.mintAccessTokenFor("user-1", scopes, resource),
+		"access_token":      i.mintAccessTokenIn(ou, "user-1", scopes, resource),
 		"refresh_token":     refreshToken,
 		"issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
 		"token_type":        "Bearer",
