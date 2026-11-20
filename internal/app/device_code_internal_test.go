@@ -265,3 +265,46 @@ func TestTheDeviceSecretReachesNeitherJSONNorVerboseOutput(t *testing.T) {
 		t.Errorf("the verbose output has no exchange lines to search:\n%s", login.errOut)
 	}
 }
+
+var deviceHomeUnit = fakeissuer.OrganizationUnit{ID: "a1b2c3d4-0000-4000-8000-000000000001", Name: "Home",
+	Handle: "home"}
+
+func TestADeviceCodeSignInThatNamesNoUserOrOrganizationSaysSoOnce(t *testing.T) {
+	login := newDeviceCodeLogin(t, fakeissuer.Options{DeviceSSO: true, OrganizationUnits: []fakeissuer.OrganizationUnit{
+		deviceHomeUnit}, DeviceWithoutUserAttributes: true})
+
+	login.run(t, "login")
+
+	stderr := login.errOut.String()
+	if got := strings.Count(stderr, unnamedSignInNotice); got != 1 {
+		t.Errorf("stderr says the notice %d times, want once:\n%s", got, stderr)
+	}
+	if strings.Contains(stderr, "6991") || strings.Contains(stderr, "ouId") {
+		t.Errorf("the notice names an issue or a claim without --verbose:\n%s", stderr)
+	}
+}
+
+func TestADeviceCodeSignInThatNamesNoUserOrOrganizationLogsWhatWasMissingUnderVerbose(t *testing.T) {
+	login := newDeviceCodeLogin(t, fakeissuer.Options{DeviceSSO: true, OrganizationUnits: []fakeissuer.OrganizationUnit{
+		deviceHomeUnit}, DeviceWithoutUserAttributes: true})
+
+	login.run(t, "--verbose", "login")
+
+	stderr := login.errOut.String()
+	for _, want := range []string{"email name ouId", "thunder-id/thunderid#6991"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("the verbose output does not say %q:\n%s", want, stderr)
+		}
+	}
+}
+
+func TestADeviceCodeSignInThatNamesTheUserAndOrganizationSaysNothingMore(t *testing.T) {
+	login := newDeviceCodeLogin(t, fakeissuer.Options{DeviceSSO: true, OrganizationUnits: []fakeissuer.OrganizationUnit{
+		deviceHomeUnit}})
+
+	login.run(t, "login")
+
+	if strings.Contains(login.errOut.String(), unnamedSignInNotice) {
+		t.Errorf("a sign-in that named the user and organization printed the notice:\n%s", login.errOut)
+	}
+}

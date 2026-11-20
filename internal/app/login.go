@@ -628,8 +628,43 @@ func (s Shell) establishThroughBrowser(selected contexts.Selection, access conte
 	establishedBy := ""
 	if signsInWithDeviceCode(selected.Identity, access) {
 		establishedBy = session.EstablishedByDeviceCode
+		if err := s.noticeUnnamedSignIn(selected.Identity, result); err != nil {
+			return oauthflow.Result{}, err
+		}
 	}
 	return result, s.storeSession(access, result, establishedBy)
+}
+
+// unnamedSignInNotice is said once when a device-code sign-in at ThunderID
+// names neither the user nor the organization it is in.
+const unnamedSignInNotice = "The sign-in service didn't say who you are or which organization you're in, " +
+	"so some details may not show."
+
+// noticeUnnamedSignIn says unnamedSignInNotice when a device-code sign-in at
+// ThunderID names no email or name, or no organization, as its device grant
+// does today (thunder-id/thunderid#6991). The sign-in still counts.
+func (s Shell) noticeUnnamedSignIn(identity contexts.Account, result oauthflow.Result) error {
+	if !signsInAtThunderID(identity) {
+		return nil
+	}
+	noUser, noOrganization := result.Email == "" && result.Name == "", issuedIn(result).ID == ""
+	if !noUser && !noOrganization {
+		return nil
+	}
+	var missing []string
+	if result.Email == "" {
+		missing = append(missing, "email")
+	}
+	if result.Name == "" {
+		missing = append(missing, "name")
+	}
+	if noOrganization {
+		missing = append(missing, "ouId")
+	}
+	s.log.Debug("the device-code sign-in named no user or organization",
+		"missing_claims", strings.Join(missing, " "), "see", "thunder-id/thunderid#6991")
+	_, err := fmt.Fprintln(s.Streams.Err, unnamedSignInNotice)
+	return err
 }
 
 // signsInWithDeviceCode reports whether access is authorized by a device

@@ -288,6 +288,10 @@ type Options struct {
 	// Whether Asgardeo and Identity Server return one from this grant is not
 	// measured, so both answers are modeled rather than assumed. See issue #42.
 	OmitDeviceIDToken bool
+	// DeviceWithoutUserAttributes answers the device grant with tokens that
+	// name the subject alone: no email, name or organization unit, as
+	// ThunderID's device grant does (thunder-id/thunderid#6991).
+	DeviceWithoutUserAttributes bool
 	// OmitDeviceRefreshToken answers the device grant without a refresh token,
 	// modeling an application that was never granted offline access. A session
 	// is a refresh token, so this is the answer that produces a login with
@@ -1308,8 +1312,12 @@ func (i *Issuer) deviceGrant(w http.ResponseWriter, r *http.Request) {
 // cannot supply.
 func (i *Issuer) issueDeviceTokens(w http.ResponseWriter, grant deviceGrant) {
 	scopes, clientID := grant.scopes, grant.clientID
+	tokenOU := grant.ou
+	if i.opts.DeviceWithoutUserAttributes {
+		tokenOU = nil
+	}
 	response := map[string]any{
-		"access_token": i.mintAccessTokenIn(grant.ou, "user-1", scopes, grant.resource),
+		"access_token": i.mintAccessTokenIn(tokenOU, "user-1", scopes, grant.resource),
 		"token_type":   "Bearer",
 		"expires_in":   300,
 		"scope":        strings.Join(scopes, " "),
@@ -1330,6 +1338,11 @@ func (i *Issuer) issueDeviceTokens(w http.ResponseWriter, grant deviceGrant) {
 			audience = i.opts.DeviceIDTokenAudience
 		}
 		response["id_token"] = i.mintIDTokenIn(grant.ou, audience, "", scopes)
+		if i.opts.DeviceWithoutUserAttributes {
+			now := time.Now()
+			response["id_token"] = i.sign(map[string]any{"iss": i.Identifier(), "sub": "user-1", "aud": audience,
+				"exp": now.Add(5 * time.Minute).Unix(), "iat": now.Unix()})
+		}
 	}
 	writeJSON(w, http.StatusOK, response)
 }
