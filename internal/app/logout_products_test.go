@@ -18,6 +18,7 @@ package app_test
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/exit"
+	"github.com/wso2/wso2-cli/internal/runlog"
 )
 
 func TestLogoutEndsEveryProductSession(t *testing.T) {
@@ -281,5 +283,45 @@ func TestALogoutWhosePagesFaredDifferentlySaysToOpenThePrintedOne(t *testing.T) 
 	}
 	if !strings.Contains(out.String(), "open the printed sign-out URL") {
 		t.Errorf("the report does not point at the printed URL:\n%s", out)
+	}
+}
+
+// The end-session URL carries the identity token as id_token_hint, and
+// diagnostics reach the run log as well as stderr, so neither may hold it,
+// whether the page opened or was not.
+func TestVerboseLogoutKeepsTheIdentityTokenOutOfDiagnosticsAndTheRunLog(t *testing.T) {
+	keyring.MockInit()
+	login := fakeissuer.New(t, fakeissuer.Options{RequireResource: true})
+	product := fakeissuer.New(t, fakeissuer.Options{Audience: "apim-cli"})
+	shell, _, errOut := newShell(t)
+	shell.RunLog = true
+	t.Setenv("WSO2_CONTEXT", "")
+	t.Setenv("WSO2_NO_INPUT", "")
+	seedSignedInSessions(t, shell, login, product)
+	shell.OpenBrowser = func(target string) error {
+		if strings.HasPrefix(target, product.URL) {
+			return errors.New("no browser")
+		}
+		return nil
+	}
+	if code := shell.Run([]string{"logout", "--verbose", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	for _, diagnostic := range []string{"opened a sign-out page", "a sign-out page not opened"} {
+		if !strings.Contains(errOut.String(), diagnostic) {
+			t.Fatalf("the %q diagnostic is gone, so this test proves less:\n%s", diagnostic, errOut)
+		}
+	}
+	written, err := os.ReadFile(runlog.Path(shell.StateRoot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{"idt-login", "idt-apim"} {
+		if strings.Contains(errOut.String(), token) {
+			t.Errorf("stderr carries %s:\n%s", token, errOut)
+		}
+		if strings.Contains(string(written), token) {
+			t.Errorf("the run log carries %s:\n%s", token, written)
+		}
 	}
 }
