@@ -35,7 +35,7 @@ func TestExtendedRecoveriesKeepTheWrappedCause(t *testing.T) {
 			"the OS secure store is not available to the shell").WithRecovery("Enable the OS keychain."), backend)
 	}
 	for name, extended := range map[string]error{
-		"org use": orgUseUnfinished(refusal(), "cloud-dev", ""),
+		"org use": orgUseUnfinished(refusal(), "cloud-dev", "", nil),
 		"login": extendIncompleteLoginRecovery(refusal(),
 			[]contexts.ProductAccess{{Namespace: "apim"}}, contexts.ProductAccess{Namespace: "iam"}),
 	} {
@@ -49,5 +49,30 @@ func TestExtendedRecoveriesKeepTheWrappedCause(t *testing.T) {
 		if strings.Count(extended.Error(), "auth.keyring_unavailable") != 1 {
 			t.Errorf("%s: the refusal repeats itself: %v", name, extended)
 		}
+	}
+}
+
+// An organization switch whose cleanup failed does not say every session ended.
+func TestAnOrgUseWhoseCleanupFailedSaysSessionsMayRemain(t *testing.T) {
+	refusal := problem.New(problem.CategoryAuthPolicy, "auth.login_failed", "the sign-in failed")
+	cleanup := errors.New("the secure store did not answer")
+
+	for name, tc := range map[string]struct {
+		cleanup error
+		want    string
+	}{
+		"ended":     {want: "its login and product sessions have ended"},
+		"not ended": {cleanup: cleanup, want: "wso2 logout --context cloud-dev"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			extended := orgUseUnfinished(refusal, "cloud-dev", "", tc.cleanup)
+			var reported problem.Problem
+			if !errors.As(extended, &reported) || !strings.Contains(reported.Recovery, tc.want) {
+				t.Fatalf("recovery = %q, want %q", reported.Recovery, tc.want)
+			}
+			if tc.cleanup != nil && (strings.Contains(reported.Recovery, "product sessions have ended") || !errors.Is(extended, cleanup)) {
+				t.Errorf("a failed cleanup was reported as done or left the chain: %v", extended)
+			}
+		})
 	}
 }

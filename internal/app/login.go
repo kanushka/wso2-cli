@@ -152,7 +152,7 @@ func (s Shell) login(flags loginFlags) error {
 	if err := s.reportLogin(selected, outcome); err != nil {
 		return err
 	}
-	return output.NextStep(s.Streams.Out, loginNext(selected, outcome))
+	return output.NextStep(s.Streams.Out, s.loginNext(selected, outcome))
 }
 
 // loginOutcome is what one wso2 login established: the first authorization's
@@ -678,17 +678,27 @@ func (s Shell) reportLogin(selected contexts.Selection, outcome loginOutcome) er
 
 // loginNext names the command that moves a person on from the login: the
 // first ready product's status, or how to add a product when none is.
-func loginNext(selected contexts.Selection, outcome loginOutcome) string {
+func (s Shell) loginNext(selected contexts.Selection, outcome loginOutcome) string {
+	flag := s.contextFlag(selected.Context.Name)
 	if ready := readyProducts(selected.Identity, outcome); len(ready) > 0 {
-		return "Run wso2 " + ready[0].namespace + " status to see what to run first."
+		return "Run wso2 " + ready[0].namespace + " status" + flag + " to see what to run first."
 	}
 	if len(selected.Identity.Products) > 0 {
-		return "Run wso2 login to authorize the products the context records."
+		return "Run wso2 login" + flag + " to authorize the products the context records."
 	}
 	if selected.Context.WSO2Cloud() {
-		return "Run wso2 product install <product>, then wso2 login to record it on this context."
+		return "Run wso2 product install <product>, then wso2 login" + flag + " to record it on this context."
 	}
-	return "Run wso2 context product add <product> --url <url> to record where a product runs."
+	return "Run wso2 context product add <product> --url <url>" + flag + " to record where a product runs."
+}
+
+// contextFlag is the --context a next step needs to act on the named
+// context: none when a command without one already does.
+func (s Shell) contextFlag(name string) string {
+	if current, err := s.selection(""); err == nil && current.Context.Name == name {
+		return ""
+	}
+	return " --context " + name
 }
 
 // readyProduct is one product a login left ready, with the scopes it asked

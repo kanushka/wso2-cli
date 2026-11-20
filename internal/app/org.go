@@ -475,14 +475,12 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 	}
 	if err != nil {
 		// Whatever this login established is in an organization the context
-		// does not record, so it goes too. Failing to end it changes nothing
-		// about the refusal the person needs.
-		_ = endAll()
-		return orgUseUnfinished(err, name, selected.Context.Organization)
+		// does not record, so it goes too.
+		return orgUseUnfinished(err, name, selected.Context.Organization, endAll())
 	}
 	if mode == output.ModeJSON {
 		return encodeJSONWithNext(s.Streams.Out, orgSelection{Context: name, Organization: id},
-			loginNext(switching, outcome))
+			s.loginNext(switching, outcome))
 	}
 	label := strconv.Quote(id)
 	if issued := issuedIn(outcome.first); !issued.IsZero() {
@@ -494,7 +492,7 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 	if err := s.reportLogin(switching, outcome); err != nil {
 		return err
 	}
-	return output.NextStep(s.Streams.Out, loginNext(switching, outcome))
+	return output.NextStep(s.Streams.Out, s.loginNext(switching, outcome))
 }
 
 // recordOrganization writes a context's organization, selecting the context
@@ -523,10 +521,10 @@ func (s Shell) recordOrganization(root, name, organization string) error {
 // orgUseUnfinished says, on a switch whose login failed, where the context
 // stands: the previous organization still recorded, its sessions ended, and
 // the login that restores them.
-func orgUseUnfinished(err error, name, previous string) error {
+func orgUseUnfinished(err error, name, previous string, cleanup error) error {
 	var reported problem.Problem
 	if !errors.As(err, &reported) {
-		return err
+		return errors.Join(err, cleanup)
 	}
 	recorded := fmt.Sprintf("still names the %q organization", previous)
 	if previous == "" {
@@ -534,10 +532,18 @@ func orgUseUnfinished(err error, name, previous string) error {
 	}
 	note := fmt.Sprintf("The %q context %s; its login and product sessions have ended, and wso2 login "+
 		"restores them.", name, recorded)
+	if cleanup != nil {
+		note = fmt.Sprintf("The %q context %s; some of its sessions may not have ended, so run wso2 logout "+
+			"--context %s, then wso2 login --context %s.", name, recorded, name, name)
+	}
 	if reported.Recovery != "" {
 		note = reported.Recovery + " " + note
 	}
-	return withRecovery(err, reported, note)
+	extended := withRecovery(err, reported, note)
+	if cleanup != nil {
+		return fmt.Errorf("%w: %w", extended, cleanup)
+	}
+	return extended
 }
 
 // reportOrgUse reports the organization a context now names.

@@ -642,3 +642,42 @@ func requireRefusal(t *testing.T, rendered, code string) {
 		t.Fatalf("the problem %q states no recovery:\n%s", code, rendered)
 	}
 }
+
+// The next step names the context a login acted on when a command without
+// --context would act on another.
+func TestLoginNamesTheContextInItsNextStepOnlyWhenItIsNotTheSelectedOne(t *testing.T) {
+	for name, tc := range map[string]struct {
+		args []string
+		want string
+	}{
+		"the selected context": {args: []string{"login"}, want: "Run `wso2 reference status` to see"},
+		"another context": {args: []string{"login", "--context", "acme-prod"},
+			want: "Run `wso2 reference status --context acme-prod` to see"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			keyring.MockInit()
+			issuer := fakeissuer.New(t, fakeissuer.Options{Audience: "reference-status"})
+			shell, out, errOut := newLoginShell(t)
+			document := browserDoc(issuer.URL)
+			prod := document.Contexts[0]
+			prod.Name, prod.CredentialRef = "acme-prod", credentialRef+"-prod"
+			document.Contexts = append(document.Contexts, prod)
+			installLogin(t, shell, document)
+			shell.OpenBrowser = func(authURL string) error {
+				go func() {
+					if response, err := http.Get(authURL); err == nil {
+						_ = response.Body.Close()
+					}
+				}()
+				return nil
+			}
+
+			if code := shell.Run(tc.args); code != exit.OK {
+				t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
+			}
+			if !strings.Contains(out.String(), tc.want) {
+				t.Errorf("stdout = %q, want %q", out.String(), tc.want)
+			}
+		})
+	}
+}

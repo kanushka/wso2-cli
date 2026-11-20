@@ -146,7 +146,7 @@ func (s Shell) loginCreating(flags loginFlags) error {
 		// reportLoginWrite has just named the command that records one.
 		return nil
 	}
-	return output.NextStep(s.Streams.Out, loginNext(selected, result))
+	return output.NextStep(s.Streams.Out, s.loginNext(selected, result))
 }
 
 // explainUnboundLogin words the way out of a creating login an issuer refused
