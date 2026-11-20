@@ -205,6 +205,7 @@ func TestAProductAuthorizedAgainIsHeldToItsNewGrant(t *testing.T) {
 func TestARequestIsHeldToTheGrantCurrentWhenItRenews(t *testing.T) {
 	const otherScope = "other"
 	deployment := seedBrowserSession(t, fakeissuer.Options{RequireResource: true, RefreshScopeMode: "ignore"})
+	serializeKeyring(t)
 	broker := siblingBroker(t, deployment)
 	product := broker.Selection.Identity.Products[siblingNamespace]
 	product.Scopes = []string{siblingScope, otherScope}
