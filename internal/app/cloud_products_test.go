@@ -651,6 +651,25 @@ func TestLoginDeviceOnACloudBrowserContextChangesNothingHoweverItIsReached(t *te
 	}
 }
 
+func TestACloudFirstRunWithDeviceThatIsDeniedCanBeRetriedWithDevice(t *testing.T) {
+	login := newCloudLoginWith(t, fakeissuer.Options{DeviceInterval: 1, DeviceOutcome: "deny"})
+	installCloudAPIM(t, login.shell)
+
+	if code := login.shell.Run([]string{"login", "--device"}); code == exit.OK {
+		t.Fatal("a denied device-code sign-in succeeded")
+	}
+	if kind := cloudContext(t, login.shell).Login.Kind; kind != contexts.KindOAuthDevice {
+		t.Errorf("a denied first run left the Cloud context signing in with %q", kind)
+	}
+	login.errOut.Reset()
+	if code := login.shell.Run([]string{"login", "--device"}); code == exit.Usage {
+		t.Errorf("the retry with --device was refused:\n%s", login.errOut)
+	}
+	if got := len(login.issuer.DeviceAuthorizations()); got != 2 {
+		t.Errorf("%d device authorizations, want the retry to start a second", got)
+	}
+}
+
 func TestAFailedCloudFirstRunWithDeviceLeavesNoDeviceCodeContext(t *testing.T) {
 	login := newCloudLoginWith(t, fakeissuer.Options{DeviceInterval: 1, DeviceUnauthorizedClient: true})
 	installCloudAPIM(t, login.shell)

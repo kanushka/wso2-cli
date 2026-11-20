@@ -146,8 +146,7 @@ func (s Shell) login(flags loginFlags) error {
 	}
 	// --device is checked against the context before a Cloud login installs
 	// or records anything for it, so a refusal changes nothing.
-	byDeviceOnceSignedIn := flags.device && flags.cloudCreated
-	if selected, err := s.selection(flags.contextName); err == nil && !byDeviceOnceSignedIn {
+	if selected, err := s.selection(flags.contextName); err == nil && !flags.cloudCreated {
 		if err := s.checkDeviceFlag(flags, selected.Context); err != nil {
 			return err
 		}
@@ -159,20 +158,15 @@ func (s Shell) login(flags loginFlags) error {
 	if err != nil {
 		return err
 	}
-	if byDeviceOnceSignedIn {
-		// Recorded only after the sign-in succeeds, so a provider that refuses
-		// the device code leaves a context that still signs in.
-		selected.Context.Login.Kind = contexts.KindOAuthDevice
-		selected.Identity = selected.Context.Account()
-	}
 	outcome, err := s.establishAndStore(selected, flags)
+	var notAllowed oauthflow.DeviceGrantNotAllowed
+	if err != nil && flags.device && flags.cloudCreated && errors.As(err, &notAllowed) {
+		if restored := s.recordKind(selected.Context.Name, contexts.KindOAuthBrowser); restored != nil {
+			return errors.Join(err, restored)
+		}
+	}
 	if err != nil {
 		return err
-	}
-	if byDeviceOnceSignedIn {
-		if err := s.recordDeviceKind(selected.Context.Name); err != nil {
-			return err
-		}
 	}
 	if err := s.reportLogin(selected, outcome); err != nil {
 		return err
@@ -180,8 +174,8 @@ func (s Shell) login(flags loginFlags) error {
 	return output.NextStep(s.Streams.Out, s.loginNext(selected, outcome))
 }
 
-// recordDeviceKind records that a context signs in with a device code.
-func (s Shell) recordDeviceKind(name string) error {
+// recordKind records how a context signs in.
+func (s Shell) recordKind(name, kind string) error {
 	root, err := s.stateRoot()
 	if err != nil {
 		return err
@@ -191,7 +185,7 @@ func (s Shell) recordDeviceKind(name string) error {
 		if !ok {
 			return document, nil
 		}
-		found.Login.Kind = contexts.KindOAuthDevice
+		found.Login.Kind = kind
 		return document.Put(found), nil
 	})
 	if err != nil {

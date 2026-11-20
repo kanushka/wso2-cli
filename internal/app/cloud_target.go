@@ -113,6 +113,12 @@ func (s Shell) loginCloud(flags loginFlags, root string, document contexts.Docum
 		return flags, err
 	}
 	context.CloudEnvironment = env
+	if flags.device {
+		// Written with the context, so a sign-in that fails or is interrupted
+		// leaves one that --device can retry. A provider that does not allow
+		// the grant gets the browser kind back after its refusal.
+		context.Login.Kind = contexts.KindOAuthDevice
+	}
 	context, err = withCloudProducts(context, environment, unrecordedCloudProducts(context, lookup), lookup)
 	if err != nil {
 		return flags, err

@@ -32,6 +32,7 @@ import (
 
 	"github.com/wso2/wso2-cli/internal/auth/oidcdiscovery"
 	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
 // DeviceLogin runs one RFC 8628 Device Authorization Grant login.
@@ -372,15 +373,25 @@ func (d DeviceLogin) logRefusal(message string, err error) {
 // would not start. unauthorized_client is told apart because its way out is
 // the context's own setting: the client is not registered for the grant, so
 // retrying cannot help and a browser sign-in can.
+// DeviceGrantNotAllowed is a provider's unauthorized_client answer to a
+// device authorization: the application is not registered for the grant, so
+// no retry gets past it. It unwraps to the problem it is reported as.
+type DeviceGrantNotAllowed struct{ problem problem.Problem }
+
+func (d DeviceGrantNotAllowed) Error() string { return d.problem.Error() }
+
+// Unwrap is the problem the refusal is reported as.
+func (d DeviceGrantNotAllowed) Unwrap() error { return d.problem }
+
 func deviceAuthorizationRefused(err error) error {
 	var refusal *oauth2.RetrieveError
 	if errors.As(err, &refusal) && refusal.ErrorCode == "unauthorized_client" {
-		return notCompleted(
+		return DeviceGrantNotAllowed{problem: notCompleted(
 			"the OAuth application this context signs in as is not registered for the device "+
 				"authorization grant (unauthorized_client)",
 			"Run wso2 context edit and set kind: oauth-browser in the selected context's login to sign "+
 				"in through the browser, or ask the identity provider's administrator to allow the device "+
-				"code grant for the application.")
+				"code grant for the application.")}
 	}
 	return notCompleted(
 		"the identity provider would not start a device authorization for this login",
