@@ -212,16 +212,11 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 		launcher.DiagnosticLimit = rpc.DebugDiagnosticLimit
 	}
 	outcome, invokeErr := launcher.Invoke(context.Background(), rpc.Invocation{
-		Namespace:  namespace,
-		Command:    command,
-		Arguments:  arguments,
-		OutputMode: contractOutputMode(mode),
-		Context: rpc.InvocationContext{
-			Name:            selection.Context.Name,
-			OrganizationID:  selection.Context.Organization,
-			Endpoint:        selection.Identity.Products[namespace].Endpoint,
-			GatewayEndpoint: gatewayEndpoint(selection.Identity, namespace),
-		},
+		Namespace:   namespace,
+		Command:     command,
+		Arguments:   arguments,
+		OutputMode:  contractOutputMode(mode),
+		Context:     invocationContext(selection, namespace),
 		Interactive: false,
 		// A command that waits on the product declares how long it needs. It
 		// is read from the receipt, which is pinned to the executable about to
@@ -449,4 +444,17 @@ func credentialVariables(identity contexts.Account) []string {
 // tree at all.
 func declaredTimeout(command commandtree.Command) time.Duration {
 	return time.Duration(command.TimeoutSeconds) * time.Second
+}
+
+// invocationContext is what a module is told about the selected context: its
+// name, organization and project, and where the product and its gateway are.
+// Every member is a location or a default, never a permission.
+func invocationContext(selection contexts.Selection, namespace string) rpc.InvocationContext {
+	return rpc.InvocationContext{
+		Name:            selection.Context.Name,
+		OrganizationID:  selection.Context.Organization,
+		Endpoint:        selection.Identity.Products[namespace].Endpoint,
+		GatewayEndpoint: gatewayEndpoint(selection.Identity, namespace),
+		Project:         selection.Context.Project,
+	}
 }

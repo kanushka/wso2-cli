@@ -68,6 +68,11 @@ type Context struct {
 	// records one beside the product; empty otherwise. A handler calls it
 	// with access acquired for RecordGateway.
 	GatewayEndpoint string
+	// Project is the project the selected context narrows to within the
+	// organization, empty when it names none. It is a default for a command
+	// that acts within a project, which a flag of the module's own should
+	// still be able to override. A shell older than this field sends none.
+	Project string
 }
 
 // Request is one command invocation as the shell described it.
@@ -291,6 +296,7 @@ func runCommand(
 			OrganizationID:  invoke.GetContext().GetOrganizationId(),
 			Endpoint:        invoke.GetContext().GetEndpoint(),
 			GatewayEndpoint: invoke.GetContext().GetGatewayEndpoint(),
+			Project:         invoke.GetContext().GetProject(),
 		},
 		Access: broker,
 		Prompt: prompt,

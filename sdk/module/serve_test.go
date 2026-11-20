@@ -104,7 +104,7 @@ func TestTheInvocationReachesTheHandlerIntact(t *testing.T) {
 			Arguments:  []string{"--since", "1h"},
 			OutputMode: module.OutputModeJSON,
 			Context: module.Context{Name: "default", OrganizationID: "acme",
-				Endpoint: "https://product.example", GatewayEndpoint: "https://gw.example"},
+				Endpoint: "https://product.example", GatewayEndpoint: "https://gw.example", Project: "orders"},
 			InvocationID: "inv-42",
 		})
 
@@ -118,7 +118,8 @@ func TestTheInvocationReachesTheHandlerIntact(t *testing.T) {
 		t.Errorf("the handler saw output mode %q, want %q", seen.OutputMode, module.OutputModeJSON)
 	}
 	if seen.Context.Name != "default" || seen.Context.OrganizationID != "acme" ||
-		seen.Context.Endpoint != "https://product.example" || seen.Context.GatewayEndpoint != "https://gw.example" {
+		seen.Context.Endpoint != "https://product.example" || seen.Context.GatewayEndpoint != "https://gw.example" ||
+		seen.Context.Project != "orders" {
 		t.Errorf("the handler saw context %+v, want the invocation context", seen.Context)
 	}
 	if seen.InvocationID != "inv-42" {

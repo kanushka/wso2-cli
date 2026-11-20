@@ -182,6 +182,10 @@ message InvocationContext {
   // beside the product. Like endpoint it is a location, not a permission: a
   // module calls it with access brokered for the gateway record.
   string gateway_endpoint = 4;
+  // project is the project within the organization the selected context
+  // narrows to, empty when it names none. Like the rest of the context it is
+  // a default for the module to act within, not a permission.
+  string project = 5;
 }
 
 // AcquireAccess asks the shell's broker for access to one audience.

@@ -184,6 +184,7 @@ type Context struct {
 	OrganizationID  string
 	Endpoint        string
 	GatewayEndpoint string
+	Project         string
 }
 ```
 
@@ -192,7 +193,11 @@ call, never that the module may: access still comes from the broker.
 `GatewayEndpoint` is the product's gateway URL when the context records one
 beside the product, and empty otherwise; a handler calls it with access asked
 for as `module.RecordGateway`. `OrganizationID` is empty when no context is
-selected.
+selected. `Project` is the project the context narrows to, set with
+`ws context create --project` or a context file's `project`, and empty when it
+names none. It is a default for a command that acts within a project: let a
+flag of the module's own override it. A shell older than the field sends none,
+so a module still needs that flag. In tests, set `testkit.Invocation.Context`.
 
 ### What a request deliberately does not carry
 

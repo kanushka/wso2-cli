@@ -242,6 +242,7 @@ func exchange(toModule io.WriteCloser, fromModule io.Reader, options module.Opti
 				OrganizationId:  invocation.Context.OrganizationID,
 				Endpoint:        invocation.Context.Endpoint,
 				GatewayEndpoint: invocation.Context.GatewayEndpoint,
+				Project:         invocation.Context.Project,
 			},
 		}},
 	}); err != nil {

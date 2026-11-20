@@ -120,6 +120,9 @@ type InvocationContext struct {
 	// GatewayEndpoint is the product's gateway, when the identity records
 	// one beside the product. A location like Endpoint, and empty otherwise.
 	GatewayEndpoint string
+	// Project is the project the context narrows to within the
+	// organization, empty when it names none.
+	Project string
 }
 
 // Invocation is one product command as the shell resolved it.

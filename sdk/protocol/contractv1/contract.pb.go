@@ -782,8 +782,12 @@ type InvocationContext struct {
 	// beside the product. Like endpoint it is a location, not a permission: a
 	// module calls it with access brokered for the gateway record.
 	GatewayEndpoint string `protobuf:"bytes,4,opt,name=gateway_endpoint,json=gatewayEndpoint,proto3" json:"gateway_endpoint,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// project is the project within the organization the selected context
+	// narrows to, empty when it names none. Like the rest of the context it is
+	// a default for the module to act within, not a permission.
+	Project       string `protobuf:"bytes,5,opt,name=project,proto3" json:"project,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *InvocationContext) Reset() {
@@ -840,6 +844,13 @@ func (x *InvocationContext) GetEndpoint() string {
 func (x *InvocationContext) GetGatewayEndpoint() string {
 	if x != nil {
 		return x.GatewayEndpoint
+	}
+	return ""
+}
+
+func (x *InvocationContext) GetProject() string {
+	if x != nil {
+		return x.Project
 	}
 	return ""
 }
@@ -1148,8 +1159,8 @@ func (*Confirmed) Descriptor() ([]byte, []int) {
 //
 // The problem is the shell's, not the module's: the shell owns prompting
 // policy, so it also owns the failure class, the stable code, and the recovery
-// guidance, which names the same command with --yes when a prompt was
-// forbidden. A module returns it unchanged.
+// guidance, which names --yes when a prompt was forbidden, exactly as for the
+// shell's own destructive commands. A module returns it unchanged.
 type ConfirmationRefused struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Problem       *Problem               `protobuf:"bytes,1,opt,name=problem,proto3" json:"problem,omitempty"`
@@ -1576,12 +1587,13 @@ const file_wso2_cli_module_v1_contract_proto_rawDesc = "" +
 	"\acontext\x18\x06 \x01(\v2%.wso2.cli.module.v1.InvocationContextR\acontext\"]\n" +
 	"\x10InvocationPolicy\x12'\n" +
 	"\x0fdeadline_millis\x18\x01 \x01(\rR\x0edeadlineMillis\x12 \n" +
-	"\vinteractive\x18\x02 \x01(\bR\vinteractive\"\x97\x01\n" +
+	"\vinteractive\x18\x02 \x01(\bR\vinteractive\"\xb1\x01\n" +
 	"\x11InvocationContext\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
 	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12\x1a\n" +
 	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12)\n" +
-	"\x10gateway_endpoint\x18\x04 \x01(\tR\x0fgatewayEndpoint\"w\n" +
+	"\x10gateway_endpoint\x18\x04 \x01(\tR\x0fgatewayEndpoint\x12\x18\n" +
+	"\aproject\x18\x05 \x01(\tR\aproject\"w\n" +
 	"\rAcquireAccess\x12\x1a\n" +
 	"\baudience\x18\x01 \x01(\tR\baudience\x12\x16\n" +
 	"\x06scopes\x18\x02 \x03(\tR\x06scopes\x12\x16\n" +

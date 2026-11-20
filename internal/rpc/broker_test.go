@@ -298,6 +298,24 @@ func TestTheResourceAnAccessRequestNamesReachesTheBroker(t *testing.T) {
 	}
 }
 
+func TestTheProjectReachesTheModuleWithTheInvocation(t *testing.T) {
+	var toModule bytes.Buffer
+	invocation := statusInvocation()
+	invocation.Context.Project = "orders"
+	if _, err := testSession().Run(&toModule, moduleStream(t, conformingHello(), statusResult()), invocation); err != nil {
+		t.Fatalf("Run returned %v", err)
+	}
+	var invoked *contractv1.Invoke
+	for _, envelope := range shellMessages(t, &toModule) {
+		if envelope.GetInvoke() != nil {
+			invoked = envelope.GetInvoke()
+		}
+	}
+	if invoked == nil || invoked.GetContext().GetProject() != "orders" {
+		t.Fatalf("the invoke carried %+v, want the project", invoked.GetContext())
+	}
+}
+
 func TestTheGatewayEndpointReachesTheModuleWithTheInvocation(t *testing.T) {
 	var toModule bytes.Buffer
 	session := testSession()
