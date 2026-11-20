@@ -101,7 +101,7 @@ authorize.
 | `contexts[].type` | `cloud` or `onprem`. Selects defaults and wording, never structure, except that a `cloud` context signing in with `thunder` sets aside a product descriptor's grant ([WSO2 Cloud environments](commands.md#wso2-cloud-environments)). Required here; `context apply` derives it from the issuer when an input file omits it. |
 | `contexts[].cloudEnvironment` | The WSO2 Cloud environment a Cloud context was written for, such as `dev`, read by every login of the context to record the Cloud products installed. `ws login` writes it; a context applied from a file has none. Optional. |
 | `contexts[].credentialRef` | The name this context's sessions are stored under in the OS secure store: the login session under the reference, and each product's own under `<ref>.<product>`. **Required** for `oauth-browser`, `oauth-device` and `pat`; **not allowed** for `client-credentials`. Unique across the document; it stays when the context is renamed, so no session moves. |
-| `login.kind` | `oauth-browser` for a person at a browser, `oauth-device` for a context that can only be established without one, `client-credentials` for CI. `pat` is named by the schema but not implemented in this release. |
+| `login.kind` | How the context signs in: `oauth-browser` in a browser on this machine, `oauth-device` with a device code typed on any device with a browser, `client-credentials` for CI. `pat` is named by the schema but not implemented in this release. `ws login --device` writes `oauth-device` on a context that login creates. |
 | `login.issuer` | The issuer, verbatim from its discovery document. Must be `https`; plain `http` is accepted only on a loopback host (`localhost`, `127.0.0.0/8`, `::1`), because the shell sends credentials to it. The same rule applies to a grant's own issuer and to every endpoint the issuer's discovery document names — a plaintext one is refused as `auth.discovery_failed`. |
 | `login.issuerId` | The issuer identifier the provider names in its discovery document and its tokens, when that is not `login.issuer`, such as `example-idp`. Optional; absent means the provider names `login.issuer`, which is the rule. `login.issuer` stays the URL the configuration is read from and what sessions are bound to. Allowed on `oauth-browser`, `oauth-device` and `client-credentials` logins only, and never on a product grant. Refused when empty, when it contains whitespace, or when it equals `login.issuer` (a trailing `/` aside); one that is an `http` or `https` URL follows `login.issuer`'s `https`-or-loopback rule, while a URN or any other scheme is taken as an identifier. See [A provider that names another issuer](#a-provider-that-names-another-issuer). |
 | `login.clientId` | The registered public client. |
@@ -110,6 +110,7 @@ authorize.
 | `login.narrowing` | `scoped-refresh` or `token-resource`; wins over `provider` when given. Optional. |
 | `login.product` | The product the login authorization runs for. **Required** once the context reaches a direct product, so recording another product can never move the login from under the sessions already stored. |
 | `login.clientSecretVariable` | `client-credentials` only. The **name** of an environment variable holding the secret, never the secret. |
+| `login.productSessions` | On a `thunder` context, how each product after the sign-in gets its own session: `exchange` trades the sign-in's device secret for it, with no browser; `browser` authorizes each in the browser on this machine, in one tab. When absent, the first login (or the first command that needs a product) records one from the provider's discovery document: `exchange` when it lists `device_sso`, and on WSO2 Cloud; `browser` otherwise, saying so in one line. A stated value is never changed. Nothing falls back from one to the other: when `exchange` has no usable secret the product is refused with `auth.device_secret_unavailable`. Allowed on `oauth-browser` and `oauth-device` logins only, and has no effect off `thunder`. |
 | `products.<namespace>` | What this context may reach for one module. The namespace follows the same character rules as a context name. |
 | `products.<namespace>.url` | The product's base URL. **Required**, and must be an absolute `https` URL with a host; plain `http` is accepted only on a loopback host (`localhost`, `127.0.0.0/8`, `::1`), because the access token for the product is sent to it. A plaintext one is refused as `contexts.document_malformed`. |
 | `products.<namespace>.audience` | What the issued token's `aud` claim must carry. Not compared against the audience a module asks for by its own logical name — this is the concrete string *this* deployment stamps into `aud`. |
@@ -310,8 +311,16 @@ contexts:
 
 Every other field means exactly what it means for `oauth-browser`. Apply
 writes the `credentialRef` the sessions are stored under, as it does for
-`oauth-browser`. Thunder-backed products advertise no
-device grant and refuse this kind outright.
+`oauth-browser`.
+
+On a `thunder` context the device-code sign-in asks for what the browser
+sign-in asks for: the login product's scopes, its resource (the `resource`
+parameter that names the API the tokens are for), and a device secret when the
+provider offers one, so the other products follow
+`login.productSessions` as they would after a browser sign-in. The OAuth
+application must be registered for the device code grant; a provider that
+answers `unauthorized_client` is reported as such. WSO2 Cloud's `ws login
+--device` on a first run writes this kind for you.
 
 ## CI: authenticate without a login
 

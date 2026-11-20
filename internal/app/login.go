@@ -87,6 +87,12 @@ type loginFlags struct {
 	// noProducts is --no-products: authorize the login session alone, and no
 	// product beside it.
 	noProducts bool
+	// device is --device: a context this login creates signs in with a
+	// device code. On a context that exists it must agree with its kind.
+	device bool
+	// cloudCreated says this login wrote the WSO2 Cloud context it signs in
+	// to, whose kind --device sets once the sign-in has succeeded.
+	cloudCreated bool
 	// chooseOrganization asks the provider to sign the person in again, where
 	// WSO2 Cloud offers its organization picker, and runs every authorization
 	// after the first in the organization that sign-in was issued in.
@@ -138,6 +144,13 @@ func (s Shell) login(flags loginFlags) error {
 			"wso2 login takes --client-id only with --url, which names the issuer the client is registered with").
 			WithRecovery(loginUsageRecovery)
 	}
+	// --device is checked against the context before a Cloud login installs
+	// or records anything for it, so a refusal changes nothing.
+	if selected, err := s.selection(flags.contextName); err == nil && !flags.cloudCreated {
+		if err := s.checkDeviceFlag(flags, selected.Context); err != nil {
+			return err
+		}
+	}
 	if err := s.prepareCloudLogin(flags); err != nil {
 		return err
 	}
@@ -146,6 +159,12 @@ func (s Shell) login(flags loginFlags) error {
 		return err
 	}
 	outcome, err := s.establishAndStore(selected, flags)
+	var notAllowed oauthflow.DeviceGrantNotAllowed
+	if err != nil && flags.device && flags.cloudCreated && errors.As(err, &notAllowed) {
+		if restored := s.recordKind(selected.Context.Name, contexts.KindOAuthBrowser); restored != nil {
+			return errors.Join(err, restored)
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -153,6 +172,41 @@ func (s Shell) login(flags loginFlags) error {
 		return err
 	}
 	return output.NextStep(s.Streams.Out, s.loginNext(selected, outcome))
+}
+
+// recordKind records how a context signs in.
+func (s Shell) recordKind(name, kind string) error {
+	root, err := s.stateRoot()
+	if err != nil {
+		return err
+	}
+	err = contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
+		found, ok := document.Find(name)
+		if !ok {
+			return document, nil
+		}
+		found.Login.Kind = kind
+		return document.Put(found), nil
+	})
+	if err != nil {
+		return s.explainWriteRefusal(root, err)
+	}
+	return nil
+}
+
+// checkDeviceFlag refuses --device on a context that signs in another way.
+// The context's kind is the setting; a flag that overrode it for one login
+// would leave the next one signing in differently with nothing to say why.
+func (s Shell) checkDeviceFlag(flags loginFlags, context contexts.Context) error {
+	if !flags.device || context.Login.Kind == contexts.KindOAuthDevice {
+		return nil
+	}
+	return problem.New(problem.CategoryUsage, "shell.invalid_argument",
+		fmt.Sprintf("--device asks for a device-code sign-in, and the %q context signs in with kind %s",
+			context.Name, context.Login.Kind)).
+		WithRecovery(fmt.Sprintf("Run wso2 context edit and set kind: oauth-device in the login of the %q "+
+			"context to sign in with a device code from now on, or, without --device, run wso2 login%s.",
+			context.Name, s.contextArgument(context.Name)))
 }
 
 // loginOutcome is what one wso2 login established: the first authorization's
@@ -212,6 +266,10 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 				"--client-secret-variable <VARIABLE>, where the variable holds the client secret.")
 	}
 
+	selected, err := s.settleProductSessions(selected)
+	if err != nil {
+		return loginOutcome{}, err
+	}
 	accesses, err := s.loginAccesses(selected, flags)
 	if err != nil {
 		return loginOutcome{}, err
@@ -362,6 +420,11 @@ func extendIncompleteLoginRecovery(err error, established []contexts.ProductAcce
 	resume := fmt.Sprintf("Run wso2 login --only %s to retry just that product; "+
 		"the sessions already established are kept.", failed.Namespace)
 	recovery := sentence + " " + resume
+	// Retrying the product alone presents the same secret again; only a fresh
+	// sign-in or the setting helps, and the refusal already names both.
+	if reported.Code == deviceSecretUnavailableCode {
+		recovery = sentence
+	}
 	if reported.Recovery != "" {
 		recovery = reported.Recovery + " " + recovery
 	}
@@ -550,13 +613,69 @@ func (s Shell) establishThroughBrowser(selected contexts.Selection, access conte
 		s.revokeUnused(access, result)
 		return oauthflow.Result{}, err
 	}
+	if signsInWithDeviceCode(selected.Identity, access) {
+		if err := s.checkConfirmedIn(selected.Context, result); err != nil {
+			s.revokeUnused(access, result)
+			return oauthflow.Result{}, err
+		}
+	}
 	// The token itself is never logged, here or anywhere: what a reader needs
 	// is that the issuer answered and when the access it granted runs out.
 	s.log.Debug("the login completed",
 		"subject", result.Subject,
 		"access_expires_at", result.Token.Expiry.UTC().Format(time.RFC3339),
 		"credential_ref", access.SessionRef)
-	return result, s.storeSession(access, result, "")
+	establishedBy := ""
+	if signsInWithDeviceCode(selected.Identity, access) {
+		establishedBy = session.EstablishedByDeviceCode
+		if err := s.noticeUnnamedSignIn(selected.Identity, result); err != nil {
+			return oauthflow.Result{}, err
+		}
+	}
+	return result, s.storeSession(access, result, establishedBy)
+}
+
+// unnamedSignInNotice is said once when a device-code sign-in at ThunderID
+// names neither the user nor the organization it is in.
+const unnamedSignInNotice = "The sign-in service didn't say who you are or which organization you're in, " +
+	"so some details may not show."
+
+// noticeUnnamedSignIn says unnamedSignInNotice when a device-code sign-in at
+// ThunderID names no email or name, or no organization, as its device grant
+// does today (thunder-id/thunderid#6991). The sign-in still counts.
+func (s Shell) noticeUnnamedSignIn(identity contexts.Account, result oauthflow.Result) error {
+	if !signsInAtThunderID(identity) {
+		return nil
+	}
+	noUser, noOrganization := result.Email == "" && result.Name == "", issuedIn(result).ID == ""
+	if !noUser && !noOrganization {
+		return nil
+	}
+	var missing []string
+	if result.Email == "" {
+		missing = append(missing, "email")
+	}
+	if result.Name == "" {
+		missing = append(missing, "name")
+	}
+	if noOrganization {
+		missing = append(missing, "ouId")
+	}
+	s.log.Debug("the device-code sign-in named no user or organization",
+		"missing_claims", strings.Join(missing, " "), "see", "thunder-id/thunderid#6991")
+	_, err := fmt.Fprintln(s.Streams.Err, unnamedSignInNotice)
+	return err
+}
+
+// signsInWithDeviceCode reports whether access is authorized by a device
+// code. At ThunderID that is the sign-in alone on a device-code context: its
+// other products follow the productSessions setting, which has no device-code
+// value. Elsewhere every authorization of such a context is one.
+func signsInWithDeviceCode(identity contexts.Account, access contexts.ProductAccess) bool {
+	if identity.Auth.Kind != contexts.KindOAuthDevice {
+		return false
+	}
+	return !signsInAtThunderID(identity) || access.SessionRef == identity.LoginAccess().SessionRef
 }
 
 // storeSession stores what one authorization produced as access's session,
@@ -617,7 +736,7 @@ func (s Shell) storeSession(access contexts.ProductAccess, result oauthflow.Resu
 // report.
 func (s Shell) establishSession(selected contexts.Selection, access contexts.ProductAccess,
 	tab *oauthflow.Tab) (oauthflow.Result, error) {
-	if selected.Identity.Auth.Kind == contexts.KindOAuthDevice {
+	if signsInWithDeviceCode(selected.Identity, access) {
 		// A longer deadline than the browser login's, because a longer errand:
 		// the person has to reach another device, open a browser on it, and
 		// type a code, where a browser login's user is already looking at the
@@ -625,19 +744,18 @@ func (s Shell) establishSession(selected contexts.Selection, access contexts.Pro
 		// almost always to something shorter.
 		ctx, cancel := context.WithTimeout(context.Background(), deviceLoginDeadline)
 		defer cancel()
-		// No resource indicator here, and that is not an oversight. The only
-		// deployment this shell knows that decides the audience at
-		// authorization time is Thunder, and Thunder registers no device grant
-		// at all — so a device identity against such a deployment is refused at
-		// discovery, before an indicator could matter. A deployment that
-		// requires one and offers a device grant would need this branch to
-		// carry it too.
+		// No organization: ThunderID serves the device grant only at its
+		// plain endpoints, so the sign-in lands where the verification page
+		// takes the person, and checkIssuedIn holds it to the context's.
 		return oauthflow.DeviceLogin{
-			Issuer:   access.Issuer,
-			IssuerID: access.IssuerID,
-			ClientID: access.ClientID,
-			Scopes:   access.Scopes,
-			Out:      s.Streams.Err,
+			Issuer:    access.Issuer,
+			IssuerID:  access.IssuerID,
+			ClientID:  access.ClientID,
+			Scopes:    access.Scopes,
+			Resource:  access.Resource,
+			DeviceSSO: asksForDeviceSecret(selected.Identity, access),
+			Out:       s.Streams.Err,
+			Log:       s.log,
 		}.Run(ctx)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), loginDeadline)

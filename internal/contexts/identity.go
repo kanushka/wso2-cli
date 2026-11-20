@@ -59,6 +59,16 @@ var legalKinds = map[string]bool{
 	KindClientCredentials: true, KindPAT: true,
 }
 
+// How a product with a session of its own at the login issuer gets it.
+const (
+	// ProductSessionsExchange trades the login session's device secret for
+	// each product's session, with no browser.
+	ProductSessionsExchange = "exchange"
+	// ProductSessionsBrowser authorizes each product in the browser, chained
+	// in the login's one tab.
+	ProductSessionsBrowser = "browser"
+)
+
 // The identity providers a document may name.
 //
 // Naming one is how a document says what it points at, which is what the person
@@ -231,6 +241,15 @@ func (a AccountAuth) Derivation() string {
 		return derivation
 	}
 	return DerivationScopedRefresh
+}
+
+// ProductSessionMethod is how a product with a session of its own at the
+// login issuer gets it: the stated value, else the exchange.
+func (a AccountAuth) ProductSessionMethod() string {
+	if a.ProductSessions == "" {
+		return ProductSessionsExchange
+	}
+	return a.ProductSessions
 }
 
 // Product is one product service reachable under an identity.
@@ -499,8 +518,16 @@ func (a AccountAuth) validate(identity string) error {
 		return malformed(fmt.Sprintf(
 			"declares a derivation for the %s that this shell does not implement", identity))
 	}
+	if a.ProductSessions != "" && a.ProductSessions != ProductSessionsExchange &&
+		a.ProductSessions != ProductSessionsBrowser {
+		return malformed(fmt.Sprintf("declares product sessions for the %s that this shell does not "+
+			"implement; use %q or %q", identity, ProductSessionsExchange, ProductSessionsBrowser))
+	}
 	if !legalKinds[a.Kind] {
 		return malformed(fmt.Sprintf("declares an authentication kind for the %s that this shell does not read", identity))
+	}
+	if a.ProductSessions != "" && a.Kind != KindOAuthBrowser && a.Kind != KindOAuthDevice {
+		return malformed(fmt.Sprintf("declares product sessions on the %s, whose kind holds no session", identity))
 	}
 	switch a.Kind {
 	case KindOAuthBrowser, KindOAuthDevice:

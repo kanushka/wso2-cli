@@ -101,6 +101,32 @@ func issuedIn(result oauthflow.Result) auth.Organization {
 	return auth.TokenOrganization(result.IDToken, accessToken)
 }
 
+// checkConfirmedIn refuses a device-code sign-in that names no organization
+// on a context that records one. checkIssuedIn lets such a token through, but
+// the verification page may have signed in to any organization, so storing it
+// would act in one nobody confirmed (thunder-id/thunderid#6991).
+func (s Shell) checkConfirmedIn(c contexts.Context, result oauthflow.Result) error {
+	want := cloudOrganization(c)
+	if want == "" || issuedIn(result).ID != "" {
+		return nil
+	}
+	return problem.New(problem.CategoryAuthPolicy, "auth.organization_unconfirmed",
+		fmt.Sprintf("the organization %s could not be confirmed: the sign-in service did not say which "+
+			"organization this sign-in is in", want)).
+		WithRecovery(s.chooseOrganizationRecovery(c.Name, want) + " Or run wso2 context edit and set kind: " +
+			"oauth-browser in the login of the context; a browser sign-in is sent to the organization itself.")
+}
+
+// chooseOrganizationRecovery tells a device-code context's person how to land
+// a sign-in in the organization the context records: the page asks only on a
+// full sign-in, so the browser's sign-on on that device is ended first.
+func (s Shell) chooseOrganizationRecovery(name, organization string) string {
+	again := s.contextArgument(name)
+	return fmt.Sprintf("Run wso2 logout%s, open the sign-out URL it prints on the device you signed in with, "+
+		"then run wso2 login%s and on the sign-in page choose the organization whose id is %s.",
+		again, again, organization)
+}
+
 // checkIssuedIn refuses a session issued in another organization than the
 // one a WSO2 Cloud context names, before it is stored: commands would
 // otherwise act in an organization nobody chose. A token naming none is let
@@ -111,9 +137,13 @@ func checkIssuedIn(c contexts.Context, result oauthflow.Result) error {
 	if want == "" || got.ID == "" || got.ID == want {
 		return nil
 	}
+	where := "in the browser"
+	if c.Login.Kind == contexts.KindOAuthDevice {
+		where = "on the sign-in page"
+	}
 	return problem.New(problem.CategoryAuthPolicy, "auth.organization_mismatch",
 		fmt.Sprintf("the identity provider issued this login in the %q organization, not in %q, which "+
 			"the %q context names", got.Label(), want, c.Name)).
 		WithRecovery("Run wso2 org use <organization-id> with an organization this user belongs " +
-			"to, or wso2 org use with no argument to choose one in the browser.")
+			"to, or wso2 org use with no argument to choose one " + where + ".")
 }

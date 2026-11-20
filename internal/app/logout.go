@@ -164,7 +164,8 @@ func (s Shell) logout(flags logoutFlags) error {
 		products = append(products, access.Namespace+" "+state)
 	}
 	ended.productSessions = products
-	ended.browserSession = s.endBrowserSessions(flags, accesses, signOuts)
+	ended.browserSession, ended.signOutURLs = s.endBrowserSessions(flags, accesses, signOuts,
+		selected.Context.Login.Kind == contexts.KindOAuthDevice)
 
 	return s.reportLogout(flags.mode, selected, ended)
 }
@@ -178,14 +179,19 @@ func (s Shell) logout(flags logoutFlags) error {
 // It is best effort, like revocation (ADR 0010): the page is opened and its
 // outcome is not observable from here. Nothing opens under --keep-browser-
 // session, under --no-input or WSO2_NO_INPUT, or when nothing was stored.
+// printOnly prints each page instead of opening it, for a device-code context:
+// the browser session is on whichever device approved the code, not here.
+// Printing asks nothing of anyone, so it happens under --no-input too, and
+// under JSON the addresses are returned for the report.
 func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.ProductAccess,
-	signOuts map[string]oauthflow.EndSession) string {
+	signOuts map[string]oauthflow.EndSession, printOnly bool) (string, []string) {
 	if len(signOuts) == 0 {
-		return browserSessionUnaffected
+		return browserSessionUnaffected, nil
 	}
-	if flags.keepBrowser || s.nonInteractiveControl(false) != "" {
-		return browserSessionKept
+	if flags.keepBrowser || (!printOnly && s.nonInteractiveControl(false) != "") {
+		return browserSessionKept, nil
 	}
+	var reported []string
 	// Providers in the order their sessions were listed, so the output is
 	// stable and the login provider's page opens first. The report names
 	// each issuer with what became of its page, so a sign-out that did not
@@ -211,10 +217,12 @@ func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.Product
 			s.log.Debug("no sign-out page for a provider", "issuer", access.Issuer)
 			continue
 		}
-		if err := s.openBrowser(target); err == nil {
-			s.log.Debug("opened a sign-out page", "issuer", access.Issuer)
-			openedAt = append(openedAt, access.Issuer)
-			continue
+		if !printOnly {
+			if err := s.openBrowser(target); err == nil {
+				s.log.Debug("opened a sign-out page", "issuer", access.Issuer)
+				openedAt = append(openedAt, access.Issuer)
+				continue
+			}
 		}
 		missedAt = append(missedAt, access.Issuer)
 		// A printed URL can end up in a terminal's scrollback or a pasted
@@ -223,6 +231,11 @@ func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.Product
 		// diagnostic stream, which under a machine-readable output mode
 		// carries only structured lines.
 		printed := withoutTokenHint(target)
+		if printOnly && flags.mode == output.ModeJSON && printed != "" {
+			reported = append(reported, printed)
+			missed = browserSessionPrinted
+			continue
+		}
 		if flags.mode == output.ModeJSON || printed == "" {
 			s.log.Debug("a sign-out page not opened", "issuer", access.Issuer, "url", printed)
 			if missed != browserSessionPrinted {
@@ -231,11 +244,14 @@ func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.Product
 			continue
 		}
 		missed = browserSessionPrinted
+		lead := "The browser did not open. Open this URL"
+		if printOnly {
+			lead = "On the device you signed in with, open this URL"
+		}
 		if _, err := fmt.Fprintf(s.Streams.Err,
-			"The browser did not open. Open this URL to end the browser session at %s; it may ask you to "+
-				"confirm:\n%s\n",
-			access.Issuer, printed); err != nil {
-			return browserSessionPrinted
+			"%s to end the browser session at %s; it may ask you to confirm:\n%s\n",
+			lead, access.Issuer, printed); err != nil {
+			return browserSessionPrinted, reported
 		}
 	}
 	var report []string
@@ -246,9 +262,9 @@ func (s Shell) endBrowserSessions(flags logoutFlags, accesses []contexts.Product
 		report = append(report, missed+" at "+strings.Join(missedAt, ", "))
 	}
 	if len(report) == 0 {
-		return browserSessionUnaffected
+		return browserSessionUnaffected, nil
 	}
-	return strings.Join(report, "; ")
+	return strings.Join(report, "; "), reported
 }
 
 func withoutTokenHint(target string) string {
@@ -371,6 +387,9 @@ type logoutOutcome struct {
 	// browserSession is one of the browserSession* outcomes: what happened
 	// to the providers' own sign-on sessions.
 	browserSession string
+	// signOutURLs are the sign-out pages a device-code context's JSON report
+	// carries, since there is nowhere else to print them.
+	signOutURLs []string
 }
 
 // isNoSession reports whether the error is the store saying there is nothing
@@ -410,6 +429,9 @@ func (s Shell) reportLogout(mode output.Mode, selected contexts.Selection,
 		// into this command that is not automatically true, and the table
 		// note that explains it does not reach a JSON caller.
 		With("browserSession", "Browser session", ended.browserSession)
+	if len(ended.signOutURLs) > 0 {
+		reported = reported.With("signOutUrls", "Sign-out URLs", strings.Join(ended.signOutURLs, " "))
+	}
 
 	if mode == output.ModeJSON {
 		return output.Report(s.Streams.Out, mode, reported)

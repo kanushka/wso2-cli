@@ -43,6 +43,8 @@ const (
 func twoAudienceDoc(issuerURL string) contexts.Document {
 	document := browserDoc(issuerURL)
 	document.Contexts[0].Login.Provider = contexts.ProviderThunder
+	// A local ThunderID issues no device secret.
+	document.Contexts[0].Login.ProductSessions = contexts.ProductSessionsBrowser
 	document.Contexts[0].Organization = ""
 	document.Contexts[0].Products = map[string]contexts.Product{
 		"first":  {Endpoint: "https://first.example", Audience: firstAudience, Scopes: []string{"first:read"}},

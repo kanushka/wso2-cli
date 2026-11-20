@@ -63,8 +63,9 @@ func TestOrgUseOnCloudSignsInAgainForTheOtherOrganization(t *testing.T) {
 		t.Errorf("org use opened the browser %d times, want one tab", opened)
 	}
 	chained := login.issuer.AuthorizationPaths()[before:]
-	if len(chained) < 2 {
-		t.Errorf("org use authorized %d times in the tab, want the login and iam: %v", len(chained), chained)
+	if len(chained) != 1 {
+		t.Errorf("org use authorized %d times in the tab, want the login alone, iam from its device secret: %v",
+			len(chained), chained)
 	}
 	for _, path := range chained {
 		if path != "/ou/"+betaUnit.ID+"/authorize" {
@@ -226,6 +227,7 @@ func TestACloudContextEditedToAnotherOrganizationIsRefusedAtTheBroker(t *testing
 // same tab at that organization's endpoint, without a prompt.
 func TestOrgUseOnCloudWithNoArgumentLetsThePersonChooseInTheBrowser(t *testing.T) {
 	login := newSignedInCloudOrgsWith(t, fakeissuer.Options{ChosenOrganizationUnit: betaUnit.ID})
+	useProductSessions(t, login.shell, contexts.ProductSessionsBrowser)
 	before := len(login.issuer.AuthorizationPaths())
 
 	login.run(t, "org", "use")
@@ -339,5 +341,168 @@ func TestOrgUseOnCloudUnderJSONIsOneDocumentWithItsNextStep(t *testing.T) {
 	if document.Organization != betaUnit.ID || len(document.Next) == 0 ||
 		!strings.HasSuffix(document.Next[0], " status") {
 		t.Errorf("document = %+v, want the organization and the status of the first ready product as next", document)
+	}
+}
+
+func useProductSessions(t *testing.T, shell app.Shell, method string) {
+	t.Helper()
+	context := cloudContext(t, shell)
+	context.Login.ProductSessions = method
+	if err := contexts.Save(shell.StateRoot, loadDocument(t, shell).Put(context)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func newSignedInCloudOrgsByDevice(t *testing.T) *cloudLogin {
+	t.Helper()
+	login := newCloudLoginWith(t, fakeissuer.Options{OrganizationUnits: cloudOrgs, RefreshScopeMode: "honor",
+		DeviceInterval: 1})
+	installCloudAPIM(t, login.shell)
+	installCloudIAM(t, login.shell)
+	login.run(t, "login", "--device")
+	login.errOut.Reset()
+	return login
+}
+
+func TestOrgUseOnADeviceCodeCloudContextRecordsTheOrganizationChosenOnThePage(t *testing.T) {
+	login := newSignedInCloudOrgsByDevice(t)
+	login.issuer.ChooseOrganizationUnit(betaUnit.ID)
+
+	login.run(t, "org", "use", betaUnit.ID)
+
+	if got := cloudContext(t, login.shell).Organization; got != betaUnit.ID {
+		t.Errorf("context organization = %q, want %q", got, betaUnit.ID)
+	}
+	if login.opened != 0 {
+		t.Errorf("org use on a device-code context opened the browser %d times", login.opened)
+	}
+	if !strings.Contains(login.errOut.String(), "choose the organization whose id is "+betaUnit.ID) {
+		t.Errorf("the instructions do not say which organization to choose:\n%s", login.errOut)
+	}
+	if !strings.Contains(login.errOut.String(), "open this URL there first to sign out of WSO2 Cloud:\n"+
+		login.issuer.URL) {
+		t.Errorf("the instructions do not print the sign-out URL:\n%s", login.errOut)
+	}
+	stored, err := session.Store{StateRoot: login.shell.StateRoot}.Load(
+		contexts.ProductSessionRef(cloudContext(t, login.shell).CredentialRef, "iam"))
+	if err != nil || auth.TokenOrganization(stored.AccessToken).ID != betaUnit.ID {
+		t.Errorf("iam session %v acts in %q, want %q", err, auth.TokenOrganization(stored.AccessToken).ID, betaUnit.ID)
+	}
+}
+
+func TestOrgUseOnADeviceCodeCloudContextRefusesASignInInAnotherOrganization(t *testing.T) {
+	login := newSignedInCloudOrgsByDevice(t)
+	before := cloudContext(t, login.shell).Organization
+
+	if code := login.shell.Run([]string{"org", "use", betaUnit.ID}); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
+	}
+	if !strings.Contains(login.errOut.String(), "auth.organization_mismatch") ||
+		!strings.Contains(login.errOut.String(), "choose one on the sign-in page") {
+		t.Errorf("refusal:\n%s", login.errOut)
+	}
+	if got := cloudContext(t, login.shell).Organization; got != before {
+		t.Errorf("context organization = %q, want the previous %q kept", got, before)
+	}
+}
+
+func TestOrgUseOnADeviceCodeCloudContextRefusesASignInThatNamesNoOrganization(t *testing.T) {
+	login := newSignedInCloudOrgsByDevice(t)
+	login.issuer.ChooseOrganizationUnit(betaUnit.ID)
+	login.run(t, "org", "use", betaUnit.ID)
+	before := cloudContext(t, login.shell).Organization
+	login.issuer.ChooseOrganizationUnit("unlisted")
+	login.errOut.Reset()
+
+	if code := login.shell.Run([]string{"org", "use", cloudOrgs[0].ID}); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
+	}
+	for _, want := range []string{"auth.organization_unconfirmed", "could not be confirmed",
+		fmt.Sprintf("still names the %q organization", before)} {
+		if !strings.Contains(login.errOut.String(), want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, login.errOut)
+		}
+	}
+	if got := cloudContext(t, login.shell).Organization; got != before {
+		t.Errorf("context organization = %q, want the previous %q kept", got, before)
+	}
+	store := session.Store{StateRoot: login.shell.StateRoot}
+	if _, err := store.Load(cloudContext(t, login.shell).CredentialRef); err == nil {
+		t.Error("the unconfirmed sign-in's session was kept")
+	}
+}
+
+func TestALoginOfADeviceCodeCloudContextThatNamesNoOrganizationIsRefusedAndRevoked(t *testing.T) {
+	login := newCloudLoginWith(t, fakeissuer.Options{OrganizationUnits: cloudOrgs, RefreshScopeMode: "honor",
+		DeviceInterval: 1, DeviceSSO: true, DeviceWithoutUserAttributes: true})
+	installCloudAPIM(t, login.shell)
+	installCloudIAM(t, login.shell)
+	login.run(t, "login", "--device")
+	context := cloudContext(t, login.shell)
+	context.Organization = acmeUnit.ID
+	if err := contexts.Save(login.shell.StateRoot, loadDocument(t, login.shell).Put(context)); err != nil {
+		t.Fatal(err)
+	}
+	login.run(t, "logout", "--keep-browser-session")
+	live := login.issuer.LiveRefreshTokens()
+	login.errOut.Reset()
+
+	if code := login.shell.Run([]string{"login"}); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
+	}
+	for _, want := range []string{"auth.organization_unconfirmed", "could not be confirmed",
+		"choose the organization whose id is " + acmeUnit.ID, "kind: oauth-browser"} {
+		if !strings.Contains(login.errOut.String(), want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, login.errOut)
+		}
+	}
+	if got := login.issuer.LiveRefreshTokens(); got != live {
+		t.Errorf("%d refresh tokens live after the refused sign-in, want the %d before it", got, live)
+	}
+	if _, err := (session.Store{StateRoot: login.shell.StateRoot}).Load(context.CredentialRef); err == nil {
+		t.Error("the unconfirmed sign-in was stored")
+	}
+	if got := cloudContext(t, login.shell).Organization; got != acmeUnit.ID {
+		t.Errorf("context organization = %q, want %q kept", got, acmeUnit.ID)
+	}
+}
+
+func TestALoginOfADeviceCodeCloudContextInAnotherOrganizationIsRefusedAndRevoked(t *testing.T) {
+	login := newSignedInCloudOrgsByDevice(t)
+	login.issuer.ChooseOrganizationUnit(betaUnit.ID)
+	login.run(t, "org", "use", betaUnit.ID)
+	login.issuer.ChooseOrganizationUnit(cloudOrgs[0].ID)
+	live := login.issuer.LiveRefreshTokens()
+	login.errOut.Reset()
+
+	if code := login.shell.Run([]string{"login"}); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
+	}
+	if !strings.Contains(login.errOut.String(), "auth.organization_mismatch") ||
+		!strings.Contains(login.errOut.String(), "on the sign-in page") {
+		t.Errorf("refusal:\n%s", login.errOut)
+	}
+	if got := login.issuer.LiveRefreshTokens(); got != live {
+		t.Errorf("%d refresh tokens live after the refused sign-in, want the %d before it", got, live)
+	}
+	if got := cloudContext(t, login.shell).Organization; got != betaUnit.ID {
+		t.Errorf("context organization = %q, want %q kept", got, betaUnit.ID)
+	}
+}
+
+func TestOrgUseWithNoArgumentOnADeviceCodeCloudContextRecordsWhatTheSignInChose(t *testing.T) {
+	login := newSignedInCloudOrgsByDevice(t)
+	login.issuer.ChooseOrganizationUnit(betaUnit.ID)
+
+	login.run(t, "org", "use")
+
+	if got := cloudContext(t, login.shell).Organization; got != betaUnit.ID {
+		t.Errorf("context organization = %q, want the chosen %q", got, betaUnit.ID)
+	}
+	if !strings.Contains(login.errOut.String(), "choose the organization to switch to") {
+		t.Errorf("the instructions do not ask to choose:\n%s", login.errOut)
+	}
+	if login.opened != 0 {
+		t.Errorf("opened the browser %d times", login.opened)
 	}
 }

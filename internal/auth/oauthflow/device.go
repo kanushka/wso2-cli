@@ -17,17 +17,22 @@
 package oauthflow
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
+	"sync"
 
 	oidc "github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
 	"github.com/wso2/wso2-cli/internal/auth/oidcdiscovery"
 	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
 // DeviceLogin runs one RFC 8628 Device Authorization Grant login.
@@ -55,6 +60,16 @@ type DeviceLogin struct {
 	// Scopes are the permissions to request beyond openid and offline_access —
 	// the identity's product scope union.
 	Scopes []string
+	// Resource is the RFC 8707 resource indicator the authorization names,
+	// for a provider such as ThunderID that binds a session to one resource
+	// server when it is authorized. Empty sends none.
+	Resource string
+	// DeviceSSO asks ThunderID for a device secret beside the tokens, when the
+	// discovery document lists the device_sso scope, as Login.DeviceSSO does.
+	DeviceSSO bool
+	// Log receives the provider's own error and description under --verbose.
+	// The refusal shown to the person never repeats them.
+	Log *output.Logger
 	// HTTPClient serves discovery, the device authorization request, and the
 	// polling. It defaults to http.DefaultClient.
 	HTTPClient *http.Client
@@ -100,25 +115,83 @@ func (d DeviceLogin) Run(ctx context.Context) (Result, error) {
 	// one. Saying so explicitly also spares every request the library's probe
 	// with HTTP Basic credentials this shell does not have.
 	endpoint.AuthStyle = oauth2.AuthStyleInParams
-	config := oauth2.Config{ClientID: d.ClientID, Endpoint: endpoint, Scopes: d.scopes()}
-
-	authorization, err := config.DeviceAuth(ctx)
-	if err != nil {
-		return Result{}, notCompleted(
-			"the identity provider would not start a device authorization for this login",
-			"Confirm the client identifier in the selected context, and that its OAuth application is "+
-				"registered for the device authorization grant, then retry wso2 login.")
+	var capabilities struct {
+		ScopesSupported []string `json:"scopes_supported"`
 	}
-	authorization.Interval = usableInterval(authorization.Interval)
+	_ = provider.Claims(&capabilities)
+	config := oauth2.Config{ClientID: d.ClientID, Endpoint: endpoint,
+		Scopes: d.scopes(d.DeviceSSO && slices.Contains(capabilities.ScopesSupported, scopeDeviceSSO))}
+	var options []oauth2.AuthCodeOption
+	if d.Resource != "" {
+		options = append(options, oauth2.SetAuthURLParam("resource", d.Resource))
+	}
+
+	authorization, err := config.DeviceAuth(ctx, options...)
+	if err != nil {
+		d.logRefusal("the identity provider refused the device authorization", err)
+		return Result{}, deviceAuthorizationRefused(err)
+	}
+	authorization.Interval = usableInterval(authorization.Interval) + pollMarginSeconds
 	if err := d.present(authorization); err != nil {
 		return Result{}, err
 	}
 
-	token, err := config.DeviceAccessToken(ctx, authorization)
+	token, err := config.DeviceAccessToken(d.noticingSlowDown(ctx, endpoint.TokenURL), authorization)
 	if err != nil {
+		d.logRefusal("the device authorization ended without tokens", err)
 		return Result{}, approvalFailed(err)
 	}
 	return d.identify(ctx, provider, token)
+}
+
+// slowDownNotice is said once when the provider asks for slower polling,
+// which x/oauth2 acts on without telling anyone.
+const slowDownNotice = "The sign-in service asked the shell to check less often, so it is waiting a " +
+	"little longer between checks."
+
+// noticingSlowDown is ctx with an HTTP client that says slowDownNotice the
+// first time the token endpoint answers slow_down.
+func (d DeviceLogin) noticingSlowDown(ctx context.Context, tokenURL string) context.Context {
+	client := *d.httpClient()
+	base := client.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	client.Transport = &slowDownNoticer{base: base, tokenURL: tokenURL, out: d.out()}
+	return oidc.ClientContext(ctx, &client)
+}
+
+// slowDownInspectLimit bounds how much of a refused token response is read to
+// tell slow_down apart; the client reading it after has its own limit.
+const slowDownInspectLimit = 64 << 10
+
+type slowDownNoticer struct {
+	base     http.RoundTripper
+	tokenURL string
+	out      io.Writer
+	said     sync.Once
+}
+
+func (n *slowDownNoticer) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := n.base.RoundTrip(request)
+	if err != nil || response.StatusCode != http.StatusBadRequest || request.URL.String() != n.tokenURL {
+		return response, err
+	}
+	body, readErr := io.ReadAll(io.LimitReader(response.Body, slowDownInspectLimit+1))
+	response.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(body), response.Body), response.Body}
+	if readErr != nil || len(body) > slowDownInspectLimit {
+		return response, nil
+	}
+	var answer struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(body, &answer) == nil && answer.Error == "slow_down" {
+		n.said.Do(func() { _, _ = fmt.Fprintln(n.out, slowDownNotice) })
+	}
+	return response, nil
 }
 
 const (
@@ -131,6 +204,11 @@ const (
 	// deployment asked: an interval this long means the code expires before a
 	// single poll either way.
 	maxPollIntervalSeconds = 3600
+	// pollMarginSeconds is added to the interval because a deployment may
+	// measure it between arrivals with no tolerance, as ThunderID does: polls
+	// on an exact ticker then arrive a few milliseconds early after network
+	// jitter, and each is answered slow_down.
+	pollMarginSeconds = 1
 )
 
 // usableInterval replaces a polling interval this shell cannot act on.
@@ -181,7 +259,7 @@ func (d DeviceLogin) present(authorization *oauth2.DeviceAuthResponse) error {
 	// read aloud, and RFC 8628 makes it optional, so a login must not depend on
 	// a deployment publishing one.
 	if authorization.VerificationURIComplete != "" {
-		_, _ = fmt.Fprintf(d.out(), "Or open this link, which carries the code:\n\n    %s\n\n",
+		_, _ = fmt.Fprintf(d.out(), "Or open this link, which fills in the code for you to confirm:\n\n    %s\n\n",
 			output.Subtle(d.out(), authorization.VerificationURIComplete))
 	}
 	_, _ = fmt.Fprint(d.out(), "Waiting for you to approve this login...\n")
@@ -214,7 +292,8 @@ func (d DeviceLogin) present(authorization *oauth2.DeviceAuthResponse) error {
 func (d DeviceLogin) identify(
 	ctx context.Context, provider *oidc.Provider, token *oauth2.Token,
 ) (Result, error) {
-	result := Result{Token: token}
+	deviceSecret, _ := token.Extra("device_secret").(string)
+	result := Result{Token: token, DeviceSecret: deviceSecret}
 	raw, _ := token.Extra("id_token").(string)
 	if raw == "" {
 		return result, nil
@@ -282,8 +361,48 @@ func approvalFailed(err error) error {
 
 // scopes asks for the same permissions a browser login asks for, so a session
 // established either way narrows down to the same product access afterwards.
-func (d DeviceLogin) scopes() []string {
-	return Login{Scopes: d.Scopes}.scopes(false)
+func (d DeviceLogin) scopes(deviceSSO bool) []string {
+	return Login{Scopes: d.Scopes}.scopes(deviceSSO)
+}
+
+func (d DeviceLogin) logRefusal(message string, err error) {
+	var refusal *oauth2.RetrieveError
+	if errors.As(err, &refusal) {
+		d.Log.Debug(message, "provider_error", refusal.ErrorCode,
+			"provider_error_description", refusal.ErrorDescription)
+		return
+	}
+	d.Log.Debug(message, "error", err.Error())
+}
+
+// deviceAuthorizationRefused reports a device authorization the provider
+// would not start. unauthorized_client is told apart because its way out is
+// the context's own setting: the client is not registered for the grant, so
+// retrying cannot help and a browser sign-in can.
+// DeviceGrantNotAllowed is a provider's unauthorized_client answer to a
+// device authorization: the application is not registered for the grant, so
+// no retry gets past it. It unwraps to the problem it is reported as.
+type DeviceGrantNotAllowed struct{ problem problem.Problem }
+
+func (d DeviceGrantNotAllowed) Error() string { return d.problem.Error() }
+
+// Unwrap is the problem the refusal is reported as.
+func (d DeviceGrantNotAllowed) Unwrap() error { return d.problem }
+
+func deviceAuthorizationRefused(err error) error {
+	var refusal *oauth2.RetrieveError
+	if errors.As(err, &refusal) && refusal.ErrorCode == "unauthorized_client" {
+		return DeviceGrantNotAllowed{problem: notCompleted(
+			"the OAuth application this context signs in as is not registered for the device "+
+				"authorization grant (unauthorized_client)",
+			"Run wso2 context edit and set kind: oauth-browser in the selected context's login to sign "+
+				"in through the browser, or ask the identity provider's administrator to allow the device "+
+				"code grant for the application.")}
+	}
+	return notCompleted(
+		"the identity provider would not start a device authorization for this login",
+		"Confirm the client identifier in the selected context, and that its OAuth application is "+
+			"registered for the device authorization grant, then retry wso2 login.")
 }
 
 // httpClient wraps the caller's client so a key set is read for its keys and

@@ -125,7 +125,7 @@ func (s Shell) resolveLoginTarget(flags loginFlags) (loginFlags, error) {
 // login is about to.
 func (s Shell) askNewLoginTarget(flags loginFlags) (loginFlags, error) {
 	answers, err := s.setUpContext(flags.command, flags.contextName,
-		contextCreateFlags{noInput: flags.noInput}, true, false)
+		contextCreateFlags{noInput: flags.noInput, device: flags.device}, true, false)
 	if err != nil {
 		return flags, err
 	}

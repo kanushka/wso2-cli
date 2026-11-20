@@ -346,7 +346,46 @@ func TestADeviceLoginHonoursTheAdvertisedIntervalAndBacksOffWhenTold(t *testing.
 			"interval was not increased by the five seconds RFC 8628 requires",
 			gap, advertised+increment)
 	}
+	// The longer wait changes what the person sees happen, so it is said once,
+	// in plain words: no error code and no protocol term.
+	stderr := deployment.errOut.String()
+	if got := strings.Count(stderr, slowDownNotice); got != 1 {
+		t.Errorf("stderr says %q %d times, want once:\n%s", slowDownNotice, got, stderr)
+	}
+	if strings.Contains(stderr, "slow_down") {
+		t.Errorf("stderr names the protocol answer:\n%s", stderr)
+	}
 }
+
+func TestADeviceLoginPollsAMarginAfterTheAdvertisedInterval(t *testing.T) {
+	// A deployment that measures the interval between arrivals with no
+	// tolerance answers slow_down to a poll a few milliseconds early, so polls
+	// on the exact interval draw one after ordinary network jitter.
+	deployment := deviceDeployment(t, fakeissuer.Options{
+		RefreshScopeMode:   "honor",
+		DeviceInterval:     1,
+		DevicePendingPolls: 1,
+		DeviceOutcome:      "approve",
+	})
+
+	if code := deployment.shell.Run([]string{"login"}); code != exit.OK {
+		t.Fatalf("wso2 login exited %d\nstderr:\n%s", code, deployment.errOut)
+	}
+	polls := deployment.issuer.DevicePolls()
+	if len(polls) != 2 {
+		t.Fatalf("the deployment was polled %d times, want 2 (one pending, one approved)", len(polls))
+	}
+	const advertised, margin = time.Second, time.Second
+	if gap := polls[1].Sub(polls[0]); gap < advertised+margin/2 {
+		t.Errorf("the second poll came %v after the first, want about %v: no margin over the "+
+			"advertised interval", gap, advertised+margin)
+	}
+	if stderr := deployment.errOut.String(); strings.Contains(stderr, slowDownNotice) {
+		t.Errorf("stderr says the shell was asked to slow down:\n%s", stderr)
+	}
+}
+
+const slowDownNotice = "The sign-in service asked the shell to check less often, so it is waiting a little longer between checks."
 
 func TestAHostileAdvertisedIntervalRefusesRatherThanCrashes(t *testing.T) {
 	// RFC 8628 lets the deployment set the polling interval, and nothing stops

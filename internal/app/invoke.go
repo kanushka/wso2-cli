@@ -254,6 +254,11 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 // states it; auth.BrowserUnavailable carries the one fact only the shell has.
 func (s Shell) sessionEstablisher(selection contexts.Selection, namespace string, noInput bool) func(contexts.ProductAccess) error {
 	return func(access contexts.ProductAccess) error {
+		settled, err := s.settleProductSessions(selection)
+		if err != nil {
+			return err
+		}
+		selection = settled
 		// A device secret needs no browser, so it is tried before the gate
 		// that refuses one.
 		if result, established, err := s.establishFromDeviceSecret(selection, access); err != nil || established {

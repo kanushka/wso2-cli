@@ -90,7 +90,10 @@ func (s Shell) loginCloud(flags loginFlags, root string, document contexts.Docum
 	}
 	name := cloudContextName(env)
 	flags.contextName = name
-	if declaresContext(document, name) {
+	if existing, found := document.Find(name); found {
+		if err := s.checkDeviceFlag(flags, existing); err != nil {
+			return flags, err
+		}
 		flags.cloudEnv = env
 		if document.DefaultContext == name {
 			return flags, nil
@@ -110,11 +113,17 @@ func (s Shell) loginCloud(flags loginFlags, root string, document contexts.Docum
 		return flags, err
 	}
 	context.CloudEnvironment = env
+	if flags.device {
+		// Written with the context, so a sign-in that fails or is interrupted
+		// leaves one that --device can retry. A provider that does not allow
+		// the grant gets the browser kind back after its refusal.
+		context.Login.Kind = contexts.KindOAuthDevice
+	}
 	context, err = withCloudProducts(context, environment, unrecordedCloudProducts(context, lookup), lookup)
 	if err != nil {
 		return flags, err
 	}
-	flags.cloudPrepared = true
+	flags.cloudPrepared, flags.cloudCreated = true, true
 	return flags, s.selectContext(root, name, &context)
 }
 
@@ -222,6 +231,7 @@ func (e cloudEnvironment) context(name string) (contexts.Context, error) {
 		Type: contexts.TypeCloud,
 		Login: contexts.Login{
 			Kind: contexts.KindOAuthBrowser, Issuer: e.Issuer, ClientID: clientID, Provider: contexts.ProviderThunder,
+			ProductSessions: contexts.ProductSessionsExchange,
 		},
 	}
 	if err := input.validate(); err != nil {

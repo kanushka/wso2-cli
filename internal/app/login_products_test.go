@@ -35,6 +35,8 @@ import (
 func thunderDoc(loginIssuer, productIssuer string) contexts.Document {
 	document := browserDoc(loginIssuer)
 	document.Contexts[0].Login.Provider = contexts.ProviderThunder
+	// A local ThunderID issues no device secret.
+	document.Contexts[0].Login.ProductSessions = contexts.ProductSessionsBrowser
 	document.Contexts[0].Organization = ""
 	document.Contexts[0].Products = map[string]contexts.Product{
 		"iam": {Endpoint: loginIssuer, Audience: "https://localhost:8090/mcp", Scopes: []string{"system"}},

@@ -77,6 +77,10 @@ func newCloudLoginWith(t *testing.T, opts fakeissuer.Options) *cloudLogin {
 	t.Helper()
 	keyring.MockInit()
 	opts.Host, opts.RequireResource = "localhost", true
+	// WSO2 Cloud's ThunderID offers device_sso and, on dev since 2026-11-19,
+	// issues a device secret on a reused browser sign-on too.
+	// ReusedBrowserSession models an environment not yet on that build.
+	opts.DeviceSSO = true
 	issuer := fakeissuer.New(t, opts)
 	shell, out, errOut := newLoginShell(t)
 	login := &cloudLogin{shell: shell, out: out, errOut: errOut, issuer: issuer}
@@ -175,9 +179,10 @@ func TestCloudLoginRecordsEveryInstalledCloudProductAndAuthorizesEach(t *testing
 	}
 
 	asked := login.authorizedScopes()
-	if len(asked) != 2 || !slices.Equal(asked[cloudShared], cloudAPIMScopes) ||
-		!slices.Equal(asked[cloudIAMURL], cloudIAMScopes) {
-		t.Errorf("authorizations asked for %v, want one per product with exactly its resource and scopes", asked)
+	if len(asked) != 1 || !slices.Equal(slices.DeleteFunc(asked[cloudShared], func(scope string) bool {
+		return scope == "device_sso"
+	}), cloudAPIMScopes) {
+		t.Errorf("authorizations asked for %v, want the sign-in alone with apim's resource and scopes", asked)
 	}
 	if login.opened != 1 {
 		t.Errorf("the browser was opened %d times, want once for both products", login.opened)
@@ -190,6 +195,11 @@ func TestCloudLoginRecordsEveryInstalledCloudProductAndAuthorizesEach(t *testing
 		stored, err := store.Load(ref)
 		if err != nil || stored.Resource != resource {
 			t.Errorf("session %s = %+v, %v; want one bound to %s", ref, stored, err, resource)
+		}
+		if resource == cloudIAMURL && (!slices.Equal(stored.Scopes, cloudIAMScopes) ||
+			stored.EstablishedBy != session.EstablishedByDeviceSecret) {
+			t.Errorf("iam session scopes %v established by %q, want %v from the device secret",
+				stored.Scopes, stored.EstablishedBy, cloudIAMScopes)
 		}
 	}
 
@@ -527,7 +537,147 @@ func TestACloudLoginUnderJSONWritesOneDocument(t *testing.T) {
 	if decoder.More() {
 		t.Errorf("standard output holds more than one document")
 	}
-	if !strings.Contains(login.errOut.String(), `Authorizing the "iam" product in the same browser tab.`) {
+	if !strings.Contains(login.errOut.String(), `Authorized the "iam" product from this sign-in, without the browser.`) {
 		t.Errorf("the progress line is not on standard error:\n%s", login.errOut)
+	}
+}
+
+func TestCloudLoginWithDeviceRecordsADeviceCodeContext(t *testing.T) {
+	login := newCloudLoginWith(t, fakeissuer.Options{DeviceInterval: 1})
+	installCloudAPIM(t, login.shell)
+	installCloudIAM(t, login.shell)
+
+	login.run(t, "login", "--device")
+
+	if kind := cloudContext(t, login.shell).Login.Kind; kind != contexts.KindOAuthDevice {
+		t.Errorf("the Cloud context signs in with %q, want %q", kind, contexts.KindOAuthDevice)
+	}
+	if login.opened != 0 {
+		t.Errorf("a device-code login opened the browser %d times", login.opened)
+	}
+	if got := len(login.issuer.DeviceAuthorizations()); got != 1 {
+		t.Errorf("%d device authorizations, want the sign-in alone, every product from its secret", got)
+	}
+	stored, err := session.Store{StateRoot: login.shell.StateRoot}.Load(
+		contexts.ProductSessionRef(cloudContext(t, login.shell).CredentialRef, "iam"))
+	if err != nil || stored.EstablishedBy != session.EstablishedByDeviceSecret {
+		t.Errorf("iam session %+v, %v; want it from the device secret", stored.EstablishedBy, err)
+	}
+}
+
+func TestCloudLoginWithDeviceOnABrowserContextChangesNothing(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudAPIM(t, login.shell)
+	login.run(t, "login")
+	login.run(t, "context", "create", "other", "--issuer", login.issuer.URL, "--client-id", "x", "--use")
+	if got := loadDocument(t, login.shell).DefaultContext; got != "other" {
+		t.Fatalf("setup: default context %q", got)
+	}
+
+	if code := login.shell.Run([]string{"login", "--device"}); code != exit.Usage {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.Usage, login.errOut)
+	}
+	if got := loadDocument(t, login.shell).DefaultContext; got != "other" {
+		t.Errorf("a refused login selected %q as the current context", got)
+	}
+}
+
+func TestACloudSignInThatHandsOutNoSecretSaysWhyAndHowOn(t *testing.T) {
+	login := newCloudLoginWith(t, fakeissuer.Options{ReusedBrowserSession: true})
+	installCloudAPIM(t, login.shell)
+	installCloudIAM(t, login.shell)
+
+	if code := login.shell.Run([]string{"login"}); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
+	}
+	refusal := login.errOut.String()
+	for _, want := range []string{"auth.device_secret_unavailable", "no shared sign-in",
+		"already signed in", "wso2 logout", "wso2 login", "productSessions: browser"} {
+		if !strings.Contains(refusal, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, refusal)
+		}
+	}
+	if strings.Contains(refusal, "sign in again") {
+		t.Errorf("the refusal suggests a sign-in that would hand out nothing again:\n%s", refusal)
+	}
+	if login.opened != 1 {
+		t.Errorf("opened the browser %d times, want the sign-in alone", login.opened)
+	}
+	if got := cloudContext(t, login.shell).Login.ProductSessions; got != contexts.ProductSessionsExchange {
+		t.Errorf("a Cloud context recorded productSessions %q, want exchange", got)
+	}
+}
+
+func TestLoginDeviceOnACloudBrowserContextChangesNothingHoweverItIsReached(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		args   []string
+		env    string
+		reader string
+	}{
+		"selected by default":   {args: []string{"login", "--device", "--no-input"}},
+		"named by --context":    {args: []string{"login", "--device", "--context", "cloud-dev"}},
+		"named by WSO2_CONTEXT": {args: []string{"login", "--device"}, env: "cloud-dev"},
+		"picked in the chooser": {args: []string{"login", "--device"}, reader: "\n\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			login := newCloudLogin(t)
+			installCloudAPIM(t, login.shell)
+			login.run(t, "login")
+			// Installed after the login, so a login that prepared the context
+			// would record it.
+			installCloudIAM(t, login.shell)
+			t.Setenv(app.CloudEnvVar, "")
+			t.Setenv("WSO2_CONTEXT", testCase.env)
+			if testCase.reader != "" {
+				login.shell.Reader = strings.NewReader(testCase.reader)
+			}
+			path := contexts.Path(login.shell.StateRoot)
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if code := login.shell.Run(testCase.args); code != exit.Usage {
+				t.Fatalf("exit %d, want %d; stderr %s", code, exit.Usage, login.errOut)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(after) != string(before) {
+				t.Errorf("a refused login changed the context document:\n%s", after)
+			}
+		})
+	}
+}
+
+func TestACloudFirstRunWithDeviceThatIsDeniedCanBeRetriedWithDevice(t *testing.T) {
+	login := newCloudLoginWith(t, fakeissuer.Options{DeviceInterval: 1, DeviceOutcome: "deny"})
+	installCloudAPIM(t, login.shell)
+
+	if code := login.shell.Run([]string{"login", "--device"}); code == exit.OK {
+		t.Fatal("a denied device-code sign-in succeeded")
+	}
+	if kind := cloudContext(t, login.shell).Login.Kind; kind != contexts.KindOAuthDevice {
+		t.Errorf("a denied first run left the Cloud context signing in with %q", kind)
+	}
+	login.errOut.Reset()
+	if code := login.shell.Run([]string{"login", "--device"}); code == exit.Usage {
+		t.Errorf("the retry with --device was refused:\n%s", login.errOut)
+	}
+	if got := len(login.issuer.DeviceAuthorizations()); got != 2 {
+		t.Errorf("%d device authorizations, want the retry to start a second", got)
+	}
+}
+
+func TestAFailedCloudFirstRunWithDeviceLeavesNoDeviceCodeContext(t *testing.T) {
+	login := newCloudLoginWith(t, fakeissuer.Options{DeviceInterval: 1, DeviceUnauthorizedClient: true})
+	installCloudAPIM(t, login.shell)
+
+	if code := login.shell.Run([]string{"login", "--device"}); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
+	}
+	if kind := cloudContext(t, login.shell).Login.Kind; kind != contexts.KindOAuthBrowser {
+		t.Errorf("a failed device-code sign-in left the Cloud context signing in with %q", kind)
 	}
 }

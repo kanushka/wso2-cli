@@ -209,11 +209,11 @@ func TestAContextRecordsNoCredentialValue(t *testing.T) {
 	}
 	// provider and narrowing say which deployment this is and how access is
 	// derived from it, product names which product the login is run for, and
-	// issuerId the identifier the provider names. All are names of behaviour,
-	// not locations of secrets.
+	// issuerId the identifier the provider names, productSessions how products
+	// get their sessions. All are names of behaviour, not locations of secrets.
 	allowedLogin := []string{
 		"kind", "issuer", "issuerId", "clientId", "tenant", "provider", "narrowing", "clientSecretVariable",
-		"product",
+		"productSessions", "product",
 	}
 	// grant says where a product's access is derived and which public client
 	// asks for it: an issuer, a client identifier and scope names, no secret.

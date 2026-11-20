@@ -140,3 +140,11 @@ is not.
 - **Keep the organization's handle on the context.** The authorization
   endpoint takes the id, and nothing resolves a handle the shell has not
   already seen in a token.
+
+## Amendment (ADR 0025)
+
+A device-code sign-in cannot go to an organization's own endpoints, since
+ThunderID serves the device grant at its plain endpoints only. It is checked
+against the context's organization after it is issued, and `ws org use` on a
+device-code context tells the person which organization to choose on the
+verification page.
