@@ -1124,8 +1124,9 @@ func (i *Issuer) clientCredentialsGrant(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	// The client is issued tokens in the first of OrganizationUnits, as if
-	// registered there; an /ou endpoint issues them in the one it names, and
-	// knows no client in an organization outside them, as WSO2 Cloud answers.
+	// registered there and shared to the rest; an /ou endpoint issues them in
+	// the one it names, and refuses one outside them with unauthorized_client,
+	// as ThunderID answers for an organization the client is not shared to.
 	ou := i.homeOrganizationUnit()
 	if id := r.PathValue("ou"); id != "" {
 		recorded.Set("ou", id)
@@ -1135,9 +1136,12 @@ func (i *Issuer) clientCredentialsGrant(w http.ResponseWriter, r *http.Request) 
 	i.clientGrants = append(i.clientGrants, recorded)
 	i.mutex.Unlock()
 	if clientID == "" || clientSecret == "" ||
-		(i.opts.ClientSecret != "" && clientSecret != i.opts.ClientSecret) ||
-		(r.PathValue("ou") != "" && ou == nil) {
+		(i.opts.ClientSecret != "" && clientSecret != i.opts.ClientSecret) {
 		oauthError(w, http.StatusUnauthorized, "invalid_client")
+		return
+	}
+	if r.PathValue("ou") != "" && ou == nil {
+		oauthError(w, http.StatusBadRequest, "unauthorized_client")
 		return
 	}
 	resource := r.PostForm.Get("resource")

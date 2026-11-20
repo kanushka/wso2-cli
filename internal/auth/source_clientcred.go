@@ -180,6 +180,19 @@ func (s clientCredentialsSource) refusedGrant(err error, sent string) error {
 				"to a current secret for this context's OAuth client, then retry the command.",
 				s.secretVariable),
 		}
+	case errors.As(err, &refusal) && refusal.unauthorizedGrant() && s.organization != "":
+		// ThunderID's answer for an organization the client is not shared
+		// to, which is more likely here than a client registered without
+		// the grant, since the same client is issued tokens elsewhere.
+		return Denial{
+			Problem: problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable",
+				fmt.Sprintf("the identity provider will not issue the client the %q context names access "+
+					"in the %q organization", s.contextName, s.organization)).
+				WithRecovery("Share the client with that organization, or select a context in one it is " +
+					"shared with, then retry the command."),
+			Guidance: fmt.Sprintf("The identity provider will not issue this context's OAuth client access "+
+				"in the %q organization. Share the client with it, then retry the command.", s.organization),
+		}
 	case errors.Is(err, errNoAccessToken):
 		return denial("auth.discovery_failed",
 			fmt.Sprintf("the identity provider's token response for the %q module carried no access token",
