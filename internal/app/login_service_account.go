@@ -36,10 +36,13 @@ import (
 
 // The variables a WSO2 Cloud service account is read from unless
 // --client-id-variable and --client-secret-variable name others. The context
-// records the secret's variable, never its value.
+// records the secret's variable, never its value. The organization variable,
+// when set, names the organization to sign in to instead of the one the
+// service account is registered in.
 const (
-	ServiceAccountIDVariable     = "WSO2_CLIENT_ID"
-	ServiceAccountSecretVariable = "WSO2_CLIENT_SECRET"
+	ServiceAccountIDVariable           = "WSO2_CLIENT_ID"
+	ServiceAccountSecretVariable       = "WSO2_CLIENT_SECRET"
+	ServiceAccountOrganizationVariable = "WSO2_ORGANIZATION"
 )
 
 // serviceAccountCICommand is the login CI runs, naming the variables this
@@ -67,6 +70,8 @@ type serviceAccountReport struct {
 	Organization string                  `json:"organization"`
 	Products     []serviceAccountProduct `json:"products"`
 	next         string
+	// named is whether ServiceAccountOrganizationVariable picked Organization.
+	named bool
 }
 
 // serviceAccountProduct is what one product's grant carried. A product the
@@ -132,6 +137,10 @@ func (s Shell) loginServiceAccount(flags loginFlags) error {
 	if err != nil {
 		return err
 	}
+	organization, err := namedOrganization()
+	if err != nil {
+		return err
+	}
 
 	if gate.may && (strings.TrimSpace(os.Getenv(idVariable)) == "" || strings.TrimSpace(os.Getenv(secretVariable)) == "") {
 		if _, err := fmt.Fprintf(s.Streams.Err, "Create a service account in the WSO2 Cloud console, give it "+
@@ -175,9 +184,13 @@ func (s Shell) loginServiceAccount(flags loginFlags) error {
 		return err
 	}
 	target.CloudEnvironment = envName
+	// Recorded before the check, so its grants go to the organization's own
+	// endpoint as every later command's will.
+	target.Organization = organization
+	target.Login.Tenant = organization
 	report, err := s.checkServiceAccount(target, envName, secret.value)
 	if err != nil {
-		return credentialRefusal(err, typed, idVariable, secretVariable)
+		return credentialRefusal(err, typed, idVariable, secretVariable, organization)
 	}
 	if typed {
 		if _, err := fmt.Fprintln(s.Streams.Err, "No context was written: the client id and secret were typed, "+
@@ -201,6 +214,20 @@ func (s Shell) loginServiceAccount(flags loginFlags) error {
 		report.next = "Run " + serviceAccountCICommand(flags) + " in CI."
 	}
 	return s.renderServiceAccountReport(flags, report, gate.may)
+}
+
+// namedOrganization is the organization ServiceAccountOrganizationVariable
+// names, empty when it is not set.
+func namedOrganization() (string, error) {
+	organization := strings.TrimSpace(os.Getenv(ServiceAccountOrganizationVariable))
+	if organization != "" && !organizationUnitID.MatchString(organization) {
+		return "", problem.New(problem.CategoryUsage, "shell.invalid_argument",
+			fmt.Sprintf("%s is %q, which is not an organization id", ServiceAccountOrganizationVariable,
+				organization)).
+			WithRecovery(fmt.Sprintf("Set %s to the id of an organization the service account belongs to, "+
+				"or unset it to sign in to the one it is registered in.", ServiceAccountOrganizationVariable))
+	}
+	return organization, nil
 }
 
 // serviceAccountInput reads variable, or asks when it is not set and the
@@ -279,10 +306,13 @@ func (s Shell) serviceAccountContext(e cloudEnvironment, name, clientID, secretV
 // would, and reports what each carried. A product the service account holds
 // no permission for, or that the identity provider will not issue for, is
 // named on standard error and reported with nothing granted; the login is
-// refused only when that is every product.
+// refused only when that is every product. A target that already records an
+// organization was issued its tokens at that organization's endpoint, so a
+// token that names none was issued there too.
 func (s Shell) checkServiceAccount(target contexts.Context, env, secret string) (serviceAccountReport, error) {
 	selection := contexts.Selection{Context: target, Identity: target.Account()}
-	report := serviceAccountReport{Environment: env}
+	named := target.Organization
+	report := serviceAccountReport{Environment: env, Organization: named, named: named != ""}
 	ctx, cancel := context.WithTimeout(context.Background(), loginDeadline)
 	defer cancel()
 	granted := 0
@@ -312,15 +342,22 @@ func (s Shell) checkServiceAccount(target contexts.Context, env, secret string) 
 		if len(check.Granted) > 0 {
 			granted++
 			switch {
-			case check.Organization == "":
+			case check.Organization == "" && named == "":
 				return report, noOrganization(namespace)
-			case report.Organization != "" && check.Organization != report.Organization:
+			case named != "" && check.Organization != "" && check.Organization != named:
+				return report, problem.New(problem.CategoryAuthPolicy, "auth.organization_mismatch",
+					fmt.Sprintf("the identity provider issued the service account's access for %s in the %q "+
+						"organization, not in %q, which %s names", namespace, check.Organization, named,
+						ServiceAccountOrganizationVariable)).
+					WithRecovery(fmt.Sprintf("Set %s to an organization the service account belongs to, or "+
+						"unset it, then run the command again.", ServiceAccountOrganizationVariable))
+			case report.Organization != "" && check.Organization != "" && check.Organization != report.Organization:
 				return report, problem.New(problem.CategoryAuthPolicy, "auth.organization_not_selected",
 					"the service account's access names more than one organization").
 					WithRecovery("Check the service account's organization in the WSO2 Cloud console, then " +
 						"run the command again.")
 			}
-			report.Organization = check.Organization
+			report.Organization = orDefault(check.Organization, named)
 		}
 		report.Products = append(report.Products, serviceAccountProduct{
 			Namespace: namespace, Scopes: orEmpty(check.Granted), Withheld: check.Withheld,
@@ -347,11 +384,20 @@ func noOrganization(namespace string) problem.Problem {
 // credentialRefusal rewords a refused credential for a login that has
 // written no context yet: the broker's refusal names the context it would
 // have come from. A typed credential names no variable either, since none
-// holds it.
-func credentialRefusal(err error, typed bool, idVariable, secretVariable string) error {
+// holds it. In an organization ServiceAccountOrganizationVariable names, the
+// identity provider answers a client registered elsewhere the same way as a
+// wrong secret, so the refusal names both.
+func credentialRefusal(err error, typed bool, idVariable, secretVariable, organization string) error {
 	var refused problem.Problem
 	if !errors.As(err, &refused) || refused.Code != "auth.credential_unavailable" {
 		return err
+	}
+	if organization != "" {
+		return problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable",
+			fmt.Sprintf("the identity provider did not accept the service account in the %q organization %s "+
+				"names", organization, ServiceAccountOrganizationVariable)).
+			WithRecovery(fmt.Sprintf("Set %s to an organization the service account belongs to, and check its "+
+				"client id and secret, then run the command again.", ServiceAccountOrganizationVariable))
 	}
 	if typed {
 		return problem.New(problem.CategoryAuthPolicy, "auth.credential_unavailable",
@@ -436,17 +482,22 @@ func (s Shell) renderServiceAccountReport(flags loginFlags, report serviceAccoun
 	}
 	idVariable := orDefault(flags.clientIDVariable, ServiceAccountIDVariable)
 	secretVariable := orDefault(flags.clientSecretVariable, ServiceAccountSecretVariable)
-	_, err = fmt.Fprintln(s.Streams.Out, strings.Join([]string{
+	lines := []string{
 		"",
 		"Set these in your CI, the secret as a masked secret:",
 		"  " + CloudEnvVar + "=" + report.Environment,
-		"  " + idVariable + "=<the client id>",
-		"  " + secretVariable,
+	}
+	if report.named {
+		lines = append(lines, "  "+ServiceAccountOrganizationVariable+"="+report.Organization)
+	}
+	_, err = fmt.Fprintln(s.Streams.Out, strings.Join(append(lines,
+		"  "+idVariable+"=<the client id>",
+		"  "+secretVariable,
 		"Then run:",
-		"  " + output.Rename(serviceAccountCICommand(flags), output.NameOf(s.Streams.Out)),
+		"  "+output.Rename(serviceAccountCICommand(flags), output.NameOf(s.Streams.Out)),
 		fmt.Sprintf("CI also needs the %s environment file, at %s under the shell's state directory (%s).",
 			report.Environment, cloudEnvironmentPath("", report.Environment), state.RootEnvVar),
-	}, "\n"))
+	), "\n"))
 	return err
 }
 

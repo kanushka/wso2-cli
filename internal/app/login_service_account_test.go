@@ -72,6 +72,7 @@ func newServiceAccountLoginWith(t *testing.T, options fakeissuer.Options, apimMa
 	t.Setenv(app.CloudEnvVar, "dev")
 	t.Setenv("WSO2_CLIENT_ID", "ci-client")
 	t.Setenv("WSO2_CLIENT_SECRET", serviceAccountSecret)
+	t.Setenv("WSO2_ORGANIZATION", "")
 	writeCloudEnvironment(t, shell.StateRoot, "dev", cloudEnvironmentBody(issuer.URL))
 	installFixture(t, shell, fixture.Module{Namespace: "apim", Version: "0.1.0",
 		Product: &modules.ProductDescriptor{
@@ -602,5 +603,88 @@ func TestAWrongSecretNamesNoContextTheLoginHasNotWritten(t *testing.T) {
 	}
 	if said := login.errOut.String(); strings.Contains(said, "cloud-dev-ci") || !strings.Contains(said, "WSO2_CLIENT_SECRET") {
 		t.Errorf("the refusal names the unwritten context or not the variable:\n%s", said)
+	}
+}
+
+func TestWSO2OrganizationPicksTheServiceAccountsOrganization(t *testing.T) {
+	login := newServiceAccountLogin(t, fakeissuer.Options{})
+	t.Setenv("WSO2_ORGANIZATION", otherOrganization.ID)
+	if code := login.run("login", "--service-account", "--no-input", "-o", "json"); code != exit.OK {
+		t.Fatalf("exit %d, stderr %s", code, login.errOut)
+	}
+	for _, grant := range login.issuer.ClientGrants() {
+		if grant.Get("ou") != otherOrganization.ID {
+			t.Errorf("a login grant went to organization %q, want %q's own endpoint", grant.Get("ou"),
+				otherOrganization.ID)
+		}
+	}
+	written, _ := loadDocument(t, login.shell).Find("cloud-dev-ci")
+	if written.Organization != otherOrganization.ID || written.Login.Tenant != otherOrganization.ID {
+		t.Errorf("organization = %q, tenant = %q, want the one WSO2_ORGANIZATION names",
+			written.Organization, written.Login.Tenant)
+	}
+	var report struct {
+		Organization string `json:"organization"`
+	}
+	if err := json.Unmarshal(login.out.Bytes(), &report); err != nil || report.Organization != otherOrganization.ID {
+		t.Errorf("report organization = %q (%v), want %q", report.Organization, err, otherOrganization.ID)
+	}
+}
+
+func TestANamedOrganizationNeedNotBeNamedInTheToken(t *testing.T) {
+	login := newServiceAccountLogin(t, fakeissuer.Options{
+		OUClaimByResource: map[string]string{"urn:wso2:cloud": "", "https://api-development.gateway.dev.cloud.example/iam/v1": ""},
+	})
+	t.Setenv("WSO2_ORGANIZATION", otherOrganization.ID)
+	if code := login.run("login", "--service-account", "--no-input"); code != exit.OK {
+		t.Fatalf("exit %d, stderr %s", code, login.errOut)
+	}
+	if written, _ := loadDocument(t, login.shell).Find("cloud-dev-ci"); written.Organization != otherOrganization.ID {
+		t.Errorf("organization = %q, want %q", written.Organization, otherOrganization.ID)
+	}
+}
+
+func TestWSO2OrganizationRefusals(t *testing.T) {
+	for name, tc := range map[string]struct {
+		organization string
+		byResource   map[string]string
+		code         exit.Code
+		want         []string
+	}{
+		"not an organization id": {organization: "ci", code: exit.Usage,
+			want: []string{"shell.invalid_argument", "WSO2_ORGANIZATION"}},
+		"an organization the client is not in": {organization: "11111111-2222-4333-8444-555555555555",
+			code: exit.AuthPolicy, want: []string{"auth.credential_unavailable", "WSO2_ORGANIZATION"}},
+		"a token issued in another organization": {organization: otherOrganization.ID,
+			byResource: map[string]string{"urn:wso2:cloud": ciOrganization.ID}, code: exit.AuthPolicy,
+			want: []string{"auth.organization_mismatch", "WSO2_ORGANIZATION"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			login := newServiceAccountLogin(t, fakeissuer.Options{OUClaimByResource: tc.byResource})
+			t.Setenv("WSO2_ORGANIZATION", tc.organization)
+			if code := login.run("login", "--service-account", "--no-input"); code != tc.code {
+				t.Fatalf("exit %d, want %d; stderr %s", code, tc.code, login.errOut)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(login.errOut.String(), want) {
+					t.Errorf("stderr does not say %q:\n%s", want, login.errOut)
+				}
+			}
+			if _, found := loadDocument(t, login.shell).Find("cloud-dev-ci"); found {
+				t.Errorf("a refused login wrote the context")
+			}
+		})
+	}
+}
+
+func TestTheServiceAccountWizardNamesTheOrganizationForCI(t *testing.T) {
+	login := newServiceAccountLogin(t, fakeissuer.Options{})
+	t.Setenv("WSO2_ORGANIZATION", otherOrganization.ID)
+	login.shell.Reader = strings.NewReader("")
+	if code := login.run("login", "--service-account"); code != exit.OK {
+		t.Fatalf("exit %d, stderr %s", code, login.errOut)
+	}
+	if want := "WSO2_ORGANIZATION=" + otherOrganization.ID; !strings.Contains(login.out.String(), want) {
+		t.Errorf("stdout does not say %q:\n%s", want, login.out)
 	}
 }
