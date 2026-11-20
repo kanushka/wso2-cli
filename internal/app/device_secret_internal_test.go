@@ -402,3 +402,25 @@ func TestADeviceSecretThatStopsServingSaysTheBrowserIsNeeded(t *testing.T) {
 		})
 	}
 }
+
+// A device secret a newer login stored in its place is not the one being
+// discarded, and stays.
+func TestDiscardingADeviceSecretKeepsOneANewerLoginStored(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := store.Save("cloud-dev", session.Session{RefreshToken: "rt", DeviceSecret: "ds-newer"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := discardDeviceSecret(store, "cloud-dev", "ds-earlier"); err != nil {
+		t.Fatal(err)
+	}
+	if stored, err := store.Load("cloud-dev"); err != nil || stored.DeviceSecret != "ds-newer" {
+		t.Fatalf("after discarding another secret: %q, %v", stored.DeviceSecret, err)
+	}
+	if err := discardDeviceSecret(store, "cloud-dev", "ds-newer"); err != nil {
+		t.Fatal(err)
+	}
+	if stored, err := store.Load("cloud-dev"); err != nil || stored.DeviceSecret != "" || stored.RefreshToken != "rt" {
+		t.Fatalf("after discarding the stored secret: %+v, %v", stored, err)
+	}
+}
