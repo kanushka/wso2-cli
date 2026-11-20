@@ -271,6 +271,11 @@ func TestDoctorNamesAnUnwritableRunLogFile(t *testing.T) {
 	if err := os.WriteFile(logFile, nil, 0o400); err != nil {
 		t.Fatal(err)
 	}
+	// A privileged process, root in a container among them, writes past 0400.
+	if probe, err := os.OpenFile(logFile, os.O_WRONLY, 0); err == nil {
+		_ = probe.Close()
+		t.Skip("this process can write a 0400 file, so the mode is not enforced")
+	}
 	shell.Run([]string{"doctor", "--output", "json"})
 	finding := decodeDoctorReport(t, out.Bytes()).findingFor(t, "run-log")
 	if !strings.Contains(finding.Detail, logFile) {
