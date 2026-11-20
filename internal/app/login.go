@@ -373,20 +373,31 @@ func extendIncompleteLoginRecovery(err error, established []contexts.ProductAcce
 // names them.
 func withRecovery(err error, reported problem.Problem, recovery string) error {
 	updated := reported.WithRecovery(recovery)
-	joined, ok := err.(interface{ Unwrap() []error })
-	if !ok {
-		return updated
-	}
-	causes := []error{}
-	for _, wrapped := range joined.Unwrap() {
-		if _, isProblem := wrapped.(problem.Problem); !isProblem {
-			causes = append(causes, wrapped)
-		}
-	}
+	causes := causesBeside(err)
 	if len(causes) == 0 {
 		return updated
 	}
 	return fmt.Errorf("%w: %w", updated, errors.Join(causes...))
+}
+
+// causesBeside are the errors wrapped alongside the problem in err's chain.
+func causesBeside(err error) []error {
+	if _, isProblem := err.(problem.Problem); isProblem {
+		return nil
+	}
+	switch wrapper := err.(type) {
+	case interface{ Unwrap() []error }:
+		var causes []error
+		for _, wrapped := range wrapper.Unwrap() {
+			if _, isProblem := wrapped.(problem.Problem); !isProblem {
+				causes = append(causes, wrapped)
+			}
+		}
+		return causes
+	case interface{ Unwrap() error }:
+		return causesBeside(wrapper.Unwrap())
+	}
+	return nil
 }
 
 // loginAccesses is what this login authorizes: every session by default, the

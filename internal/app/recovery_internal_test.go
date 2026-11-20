@@ -36,6 +36,8 @@ func TestExtendedRecoveriesKeepTheWrappedCause(t *testing.T) {
 	}
 	for name, extended := range map[string]error{
 		"org use": orgUseUnfinished(refusal(), "cloud-dev", "", nil),
+		"org use, wrapped once more": orgUseUnfinished(fmt.Errorf("saving the session: %w", refusal()),
+			"cloud-dev", "", nil),
 		"login": extendIncompleteLoginRecovery(refusal(),
 			[]contexts.ProductAccess{{Namespace: "apim"}}, contexts.ProductAccess{Namespace: "iam"}),
 	} {
