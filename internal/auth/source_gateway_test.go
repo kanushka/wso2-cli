@@ -236,6 +236,7 @@ func TestAMachineIdentityMintsTheGatewayInlineFromItsOwnClient(t *testing.T) {
 // save is in flight.
 func TestASessionBeingSavedUnderTheLockIsNotEstablishedAgain(t *testing.T) {
 	deployment := seedBrowserSession(t, fakeissuer.Options{RequireResource: true})
+	serializeKeyring(t)
 	broker := gatewayBroker(t, deployment)
 	var established atomic.Int32
 	broker.EstablishSession = func(contexts.ProductAccess) error {
