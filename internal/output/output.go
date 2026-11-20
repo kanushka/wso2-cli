@@ -120,9 +120,17 @@ func Problem(w io.Writer, p problem.Problem) {
 
 // writeProblem renders one problem under the given severity label.
 func writeProblem(w io.Writer, severity string, p problem.Problem) {
-	_, _ = fmt.Fprintf(w, "%s: %s (%s)\n", severity, Rename(p.Message, NameOf(w)), p.Code)
+	label := severity + ":"
+	if ColorEnabled(w) {
+		style := warningStyle
+		if severity == "error" {
+			style = errorStyle
+		}
+		label = style + label + resetStyle
+	}
+	_, _ = fmt.Fprintf(w, "%s %s (%s)\n", label, Rename(p.Message, NameOf(w)), p.Code)
 	if p.Recovery != "" {
-		_, _ = fmt.Fprintf(w, "  %s\n", Hint(w, p.Recovery))
+		_, _ = fmt.Fprintf(w, "\n  %s\n", Hint(w, p.Recovery))
 	}
 }
 
