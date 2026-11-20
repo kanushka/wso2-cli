@@ -451,11 +451,20 @@ func logoutNotes(ended logoutOutcome) []string {
 			"session's refresh token, so its own copy of the session may remain usable until it "+
 			"expires.")
 	}
+	opened := strings.HasPrefix(ended.browserSession, browserSessionOpened)
+	printed := strings.Contains(ended.browserSession, browserSessionPrinted)
+	missed := strings.Contains(ended.browserSession, browserSessionNotOpened)
 	switch {
-	case strings.HasPrefix(ended.browserSession, browserSessionOpened):
+	case opened && printed:
+		notes = append(notes, "Not every sign-out page opened in the browser; open the printed sign-out "+
+			"URL to end the rest, or a later login may not prompt for credentials.")
+	case opened && missed:
+		notes = append(notes, "Not every sign-out page opened in the browser, so a later login may not "+
+			"prompt for credentials.")
+	case opened:
 		notes = append(notes, "Each identity provider's sign-out page was opened in the browser, "+
 			"so the next login prompts for credentials again.")
-	case strings.HasPrefix(ended.browserSession, browserSessionPrinted):
+	case printed:
 		notes = append(notes, "No browser could be opened; open the printed sign-out URLs to end "+
 			"the identity providers' browser sessions, or a later login may not prompt for credentials.")
 	case ended.browserSession == browserSessionKept:
@@ -466,8 +475,7 @@ func logoutNotes(ended logoutOutcome) []string {
 	// ended. The identity provider's own sign-on is outside the shell's
 	// control, though, and some providers end the user's other refresh
 	// tokens with it; that is said rather than claimed either way.
-	if strings.HasPrefix(ended.browserSession, browserSessionOpened) ||
-		strings.HasPrefix(ended.browserSession, browserSessionPrinted) {
+	if opened || printed {
 		notes = append(notes, "Only this context's sessions were ended. Ending the browser sign-on may "+
 			"also end other sessions the identity provider issued to you, depending on the provider.")
 	}
