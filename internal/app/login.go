@@ -613,6 +613,12 @@ func (s Shell) establishThroughBrowser(selected contexts.Selection, access conte
 		s.revokeUnused(access, result)
 		return oauthflow.Result{}, err
 	}
+	if signsInWithDeviceCode(selected.Identity, access) {
+		if err := s.checkConfirmedIn(selected.Context, result); err != nil {
+			s.revokeUnused(access, result)
+			return oauthflow.Result{}, err
+		}
+	}
 	// The token itself is never logged, here or anywhere: what a reader needs
 	// is that the issuer answered and when the access it granted runs out.
 	s.log.Debug("the login completed",

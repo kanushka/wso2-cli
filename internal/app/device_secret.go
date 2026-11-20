@@ -139,6 +139,15 @@ func (s Shell) establishFromDeviceSecret(selected contexts.Selection, access con
 		// so will every later exchange be.
 		s.log.Debug("the device secret answers in another organization", "credential_ref", loginRef)
 		s.revokeUnused(access, result)
+		if identity.Auth.Kind == contexts.KindOAuthDevice {
+			if err := discardDeviceSecret(store, loginRef, login.DeviceSecret); err != nil {
+				return oauthflow.Result{}, true, err
+			}
+			return oauthflow.Result{}, true, deviceSecretUnavailable(access.Namespace,
+				"the device secret answers in another organization than the context records",
+				s.chooseOrganizationRecovery(selected.Context.Name, selected.Context.Organization)+" Or "+
+					browserSetting(selected.Context.Name)+".")
+		}
 		return discarded("the device secret answers in another organization than the context records")
 	}
 	if err := s.storeSession(access, result, session.EstablishedByDeviceSecret); err != nil {

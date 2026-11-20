@@ -432,6 +432,41 @@ func TestOrgUseOnADeviceCodeCloudContextRefusesASignInThatNamesNoOrganization(t 
 	}
 }
 
+func TestALoginOfADeviceCodeCloudContextThatNamesNoOrganizationIsRefusedAndRevoked(t *testing.T) {
+	login := newCloudLoginWith(t, fakeissuer.Options{OrganizationUnits: cloudOrgs, RefreshScopeMode: "honor",
+		DeviceInterval: 1, DeviceSSO: true, DeviceWithoutUserAttributes: true})
+	installCloudAPIM(t, login.shell)
+	installCloudIAM(t, login.shell)
+	login.run(t, "login", "--device")
+	context := cloudContext(t, login.shell)
+	context.Organization = acmeUnit.ID
+	if err := contexts.Save(login.shell.StateRoot, loadDocument(t, login.shell).Put(context)); err != nil {
+		t.Fatal(err)
+	}
+	login.run(t, "logout", "--keep-browser-session")
+	live := login.issuer.LiveRefreshTokens()
+	login.errOut.Reset()
+
+	if code := login.shell.Run([]string{"login"}); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
+	}
+	for _, want := range []string{"auth.organization_unconfirmed", "could not be confirmed",
+		"choose the organization whose id is " + acmeUnit.ID, "kind: oauth-browser"} {
+		if !strings.Contains(login.errOut.String(), want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, login.errOut)
+		}
+	}
+	if got := login.issuer.LiveRefreshTokens(); got != live {
+		t.Errorf("%d refresh tokens live after the refused sign-in, want the %d before it", got, live)
+	}
+	if _, err := (session.Store{StateRoot: login.shell.StateRoot}).Load(context.CredentialRef); err == nil {
+		t.Error("the unconfirmed sign-in was stored")
+	}
+	if got := cloudContext(t, login.shell).Organization; got != acmeUnit.ID {
+		t.Errorf("context organization = %q, want %q kept", got, acmeUnit.ID)
+	}
+}
+
 func TestALoginOfADeviceCodeCloudContextInAnotherOrganizationIsRefusedAndRevoked(t *testing.T) {
 	login := newSignedInCloudOrgsByDevice(t)
 	login.issuer.ChooseOrganizationUnit(betaUnit.ID)

@@ -501,11 +501,6 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 	switching := selected
 	switching.Context.Organization = id
 	outcome, err := s.establishAndStore(switching, loginFlags{contextName: name, chooseOrganization: id == ""})
-	if err == nil && byDeviceCode && id != "" && issuedIn(outcome.first).ID == "" {
-		// checkIssuedIn lets a token naming no organization through, which
-		// here would record an organization nobody checked.
-		err = organizationUnconfirmed(id)
-	}
 	if err == nil && id == "" {
 		id = issuedIn(outcome.first).ID
 		switching.Context.Organization = id
@@ -533,16 +528,6 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 		return err
 	}
 	return output.NextStep(s.Streams.Out, s.loginNext(switching, outcome))
-}
-
-// organizationUnconfirmed refuses a device-code switch whose sign-in named no
-// organization: the page may have signed in to another one than id.
-func organizationUnconfirmed(id string) error {
-	return problem.New(problem.CategoryAuthPolicy, "auth.organization_unconfirmed",
-		fmt.Sprintf("the organization %s could not be confirmed: the sign-in service did not say which "+
-			"organization this sign-in is in", id)).
-		WithRecovery("Run wso2 context edit and set kind: oauth-browser in the login of this context, then " +
-			"run wso2 org use " + id + " again; a browser sign-in is sent to the organization itself.")
 }
 
 // recordOrganization writes a context's organization, selecting the context

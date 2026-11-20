@@ -101,6 +101,32 @@ func issuedIn(result oauthflow.Result) auth.Organization {
 	return auth.TokenOrganization(result.IDToken, accessToken)
 }
 
+// checkConfirmedIn refuses a device-code sign-in that names no organization
+// on a context that records one. checkIssuedIn lets such a token through, but
+// the verification page may have signed in to any organization, so storing it
+// would act in one nobody confirmed (thunder-id/thunderid#6991).
+func (s Shell) checkConfirmedIn(c contexts.Context, result oauthflow.Result) error {
+	want := cloudOrganization(c)
+	if want == "" || issuedIn(result).ID != "" {
+		return nil
+	}
+	return problem.New(problem.CategoryAuthPolicy, "auth.organization_unconfirmed",
+		fmt.Sprintf("the organization %s could not be confirmed: the sign-in service did not say which "+
+			"organization this sign-in is in", want)).
+		WithRecovery(s.chooseOrganizationRecovery(c.Name, want) + " Or run wso2 context edit and set kind: " +
+			"oauth-browser in the login of the context; a browser sign-in is sent to the organization itself.")
+}
+
+// chooseOrganizationRecovery tells a device-code context's person how to land
+// a sign-in in the organization the context records: the page asks only on a
+// full sign-in, so the browser's sign-on on that device is ended first.
+func (s Shell) chooseOrganizationRecovery(name, organization string) string {
+	again := s.contextArgument(name)
+	return fmt.Sprintf("Run wso2 logout%s, open the sign-out URL it prints on the device you signed in with, "+
+		"then run wso2 login%s and on the sign-in page choose the organization whose id is %s.",
+		again, again, organization)
+}
+
 // checkIssuedIn refuses a session issued in another organization than the
 // one a WSO2 Cloud context names, before it is stored: commands would
 // otherwise act in an organization nobody chose. A token naming none is let

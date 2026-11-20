@@ -18,6 +18,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"slices"
 	"strings"
@@ -26,6 +27,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/auth/fakeissuer"
 	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/contexts"
+	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
 func signsInWithADeviceCode(login *contexts.Login) { login.Kind = contexts.KindOAuthDevice }
@@ -306,5 +308,27 @@ func TestADeviceCodeSignInThatNamesTheUserAndOrganizationSaysNothingMore(t *test
 
 	if strings.Contains(login.errOut.String(), unnamedSignInNotice) {
 		t.Errorf("a sign-in that named the user and organization printed the notice:\n%s", login.errOut)
+	}
+}
+
+func TestADeviceSecretInAnotherOrganizationOnADeviceCodeContextNamesTheOrganizationToChoose(t *testing.T) {
+	other := fakeissuer.OrganizationUnit{ID: "a1b2c3d4-0000-4000-8000-000000000002", Name: "Other", Handle: "other"}
+	login := newDeviceCodeLogin(t, fakeissuer.Options{DeviceSSO: true,
+		OrganizationUnits: []fakeissuer.OrganizationUnit{deviceHomeUnit, other}})
+	login.run(t, "login", "--only", "first")
+	selected := login.selection(t)
+	selected.Context.Organization = other.ID
+
+	access, _ := selected.Identity.Access("second")
+	err := login.shell.sessionEstablisher(selected, "second", false)(access)
+
+	var refusal problem.Problem
+	if !errors.As(err, &refusal) || refusal.Code != "auth.device_secret_unavailable" {
+		t.Fatalf("error = %v, want auth.device_secret_unavailable", err)
+	}
+	for _, want := range []string{"choose the organization whose id is " + other.ID, "wso2 logout"} {
+		if !strings.Contains(refusal.Recovery, want) {
+			t.Errorf("the recovery does not say %q: %s", want, refusal.Recovery)
+		}
 	}
 }
