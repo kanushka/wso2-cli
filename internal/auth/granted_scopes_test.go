@@ -241,6 +241,11 @@ func TestARequestIsHeldToTheGrantCurrentWhenItRenews(t *testing.T) {
 		acquired <- err
 	}()
 	time.Sleep(100 * time.Millisecond)
+	select {
+	case err := <-acquired:
+		t.Fatalf("acquire returned while the lock was held: %v", err)
+	default:
+	}
 	close(release)
 
 	if err := <-replaced; err != nil {
