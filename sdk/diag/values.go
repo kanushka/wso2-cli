@@ -44,7 +44,8 @@ var (
 	jwtPattern = regexp.MustCompile(`[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]*`)
 )
 
-// maskText masks secret parameters of every URL in text, then every JWT.
+// maskText masks the user info and secret parameters of every URL in text,
+// then every JWT.
 func maskText(text string) string {
 	if strings.Contains(text, "://") {
 		text = urlPattern.ReplaceAllStringFunc(text, maskURL)
@@ -63,6 +64,7 @@ func maskText(text string) string {
 // maskURL rewrites only the values of secret parameters, leaving the rest of
 // the URL byte for byte as it was written.
 func maskURL(target string) string {
+	target = maskUserInfo(target)
 	rest, fragment, hasFragment := strings.Cut(target, "#")
 	base, query, hasQuery := strings.Cut(rest, "?")
 	if hasQuery {
@@ -72,6 +74,21 @@ func maskURL(target string) string {
 		base += "#" + maskParameters(fragment)
 	}
 	return base
+}
+
+// maskUserInfo masks the whole user info, the user name too, since a token is
+// often passed there with no password.
+func maskUserInfo(target string) string {
+	scheme, rest, _ := strings.Cut(target, "://")
+	authority := rest
+	if end := strings.IndexAny(rest, "/?#"); end >= 0 {
+		authority = rest[:end]
+	}
+	at := strings.LastIndex(authority, "@")
+	if at < 0 {
+		return target
+	}
+	return scheme + "://" + Redacted + rest[at:]
 }
 
 func maskParameters(encoded string) string {

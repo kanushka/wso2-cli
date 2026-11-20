@@ -62,6 +62,24 @@ func TestSecretQueryValuesInAURLAreMaskedWhateverTheKey(t *testing.T) {
 	}
 }
 
+func TestTheUserInfoOfAURLIsMasked(t *testing.T) {
+	for name, target := range map[string]string{
+		"user and password": "https://admin:s3cret-must-never-appear@gateway.example.test:9443/api?limit=5",
+		"token as user":     "https://s3cret-must-never-appear@git.example.test/org/repo.git",
+		"inside an error":   `Get "https://admin:s3cret-must-never-appear@gateway.example.test/api": EOF`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := logged(t, "url", target)
+			if strings.Contains(out, "s3cret-must-never-appear") {
+				t.Fatalf("the user info survived:\n%s", out)
+			}
+			if !strings.Contains(out, Redacted+"@") || !strings.Contains(out, ".example.test") {
+				t.Fatalf("the host or the mask was lost:\n%s", out)
+			}
+		})
+	}
+}
+
 func TestSecretFragmentValuesAreMasked(t *testing.T) {
 	const secret = "s3cret-must-never-appear"
 	out := logged(t, "redirect", "http://127.0.0.1:8080/callback#access_token="+secret+"&token_type=Bearer")
@@ -112,6 +130,7 @@ func TestOrdinaryValuesThatLookDottedAreLeftAlone(t *testing.T) {
 	for _, value := range []string{
 		"1.2.3", "v0.5.0", "api.example.test", "a.b.c",
 		"https://issuer.example.test/oauth2/token?client_id=cli&scope=openid",
+		"https://issuer.example.test/users/@me?filter=a@b",
 	} {
 		if out := logged(t, "value", value); !strings.Contains(out, value) {
 			t.Errorf("%q was altered:\n%s", value, out)
