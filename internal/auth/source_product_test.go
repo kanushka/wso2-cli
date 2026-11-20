@@ -528,6 +528,22 @@ func TestAResourceBoundTokenWithNoPermissionsNamesWhatWasAskedFor(t *testing.T) 
 	}
 }
 
+// A module that declares no permissions asks for none, and a token stating
+// none is exactly that: it is granted, still bound to the resource server.
+func TestAResourceBoundTokenWithNoPermissionsIsGrantedWhenNoneWereAskedFor(t *testing.T) {
+	_, broker := thunderBroker(t, fakeissuer.Options{RefreshScopeMode: "ignore"}, nil)
+	withProduct(broker, contexts.Product{Endpoint: "https://reference.example.test", Audience: audience})
+	broker.Capabilities.AuthScopes = nil
+
+	grant, err := broker.Acquire(auth.Request{Audience: audience})
+	if err != nil {
+		t.Fatalf("Acquire returned %v, want a grant", err)
+	}
+	if grant.Token == "" {
+		t.Error("the grant carries no token")
+	}
+}
+
 // A token carrying a subset is reported with both sides, as before, and with
 // the resource-bound way back.
 func TestAResourceBoundTokenWithASubsetNamesBothSides(t *testing.T) {

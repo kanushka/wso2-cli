@@ -219,7 +219,9 @@ func (r tokenResponse) verifyNarrowing(request Request, n narrowing) (bearerFact
 	if len(effective) == 0 {
 		effective = facts.Scopes
 	}
-	if len(effective) == 0 {
+	// A module that asked for no permissions is answered exactly by a token
+	// stating none; only the audience binding below is left to prove.
+	if len(effective) == 0 && len(request.Scopes) > 0 {
 		message := fmt.Sprintf("the deployment did not state which permissions it issued for the %q "+
 			"module, so the shell cannot prove they are the ones it asked for", namespace)
 		if n.resourceBound {
