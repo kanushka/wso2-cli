@@ -406,6 +406,32 @@ func TestOrgUseOnADeviceCodeCloudContextRefusesASignInInAnotherOrganization(t *t
 	}
 }
 
+func TestOrgUseOnADeviceCodeCloudContextRefusesASignInThatNamesNoOrganization(t *testing.T) {
+	login := newSignedInCloudOrgsByDevice(t)
+	login.issuer.ChooseOrganizationUnit(betaUnit.ID)
+	login.run(t, "org", "use", betaUnit.ID)
+	before := cloudContext(t, login.shell).Organization
+	login.issuer.ChooseOrganizationUnit("unlisted")
+	login.errOut.Reset()
+
+	if code := login.shell.Run([]string{"org", "use", cloudOrgs[0].ID}); code != exit.AuthPolicy {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
+	}
+	for _, want := range []string{"auth.organization_unconfirmed", "could not be confirmed",
+		fmt.Sprintf("still names the %q organization", before)} {
+		if !strings.Contains(login.errOut.String(), want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, login.errOut)
+		}
+	}
+	if got := cloudContext(t, login.shell).Organization; got != before {
+		t.Errorf("context organization = %q, want the previous %q kept", got, before)
+	}
+	store := session.Store{StateRoot: login.shell.StateRoot}
+	if _, err := store.Load(cloudContext(t, login.shell).CredentialRef); err == nil {
+		t.Error("the unconfirmed sign-in's session was kept")
+	}
+}
+
 func TestALoginOfADeviceCodeCloudContextInAnotherOrganizationIsRefusedAndRevoked(t *testing.T) {
 	login := newSignedInCloudOrgsByDevice(t)
 	login.issuer.ChooseOrganizationUnit(betaUnit.ID)
