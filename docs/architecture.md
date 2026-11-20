@@ -290,6 +290,9 @@ The `apim` and `iam` product modules are developed on the
 and `modules/iam/`. `main` holds the shell, the SDK, and the example module,
 and the product branch merges `main` to pick up shell and SDK changes.
 
+The `intg` product module, for the WSO2 Cloud Integration Platform, is
+developed on `main` in `modules/intg/`.
+
 A product module tag push runs the release gate, builds one archive per platform,
 publishes them to GitHub Releases, regenerates the catalog from every module
 tag, and deploys it. Generation is deterministic. A release is refused when

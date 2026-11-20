@@ -10,9 +10,9 @@ supporting public-source research.
 
 ## Building and testing
 
-The repository contains three independently buildable Go modules: the shell at
-the repository root, the public SDK in `sdk/`, and the example module in
-`modules/example/`. `go.work` composes them from source for local development.
+The repository contains four independently buildable Go modules: the shell at
+the repository root, the public SDK in `sdk/`, the example module in
+`modules/example/`, and the `intg` product module in `modules/intg/`. `go.work` composes them from source for local development.
 The SDK version required by the example module is published, so the workspace
 currently has no `replace` directive. During an SDK release, one temporary
 workspace replacement may be needed while the example module requires a
@@ -93,6 +93,7 @@ go build ./...                      # shell
 go test ./...                       # shell, including acceptance tests
 (cd sdk && GOWORK=off go test ./...)  # SDK without workspace composition
 (cd modules/example && go test ./...)  # example module
+(cd modules/intg && go test ./...)     # intg product module
 ```
 
 The shell, protocol, SDK, and module versions move independently and are

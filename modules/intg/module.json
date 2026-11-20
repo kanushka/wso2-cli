@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "namespace": "intg",
+  "title": "Integration Platform",
+  "compatibility": {
+    "shell": ">=0.1.0 <2.0.0",
+    "protocolVersions": [3]
+  },
+  "capabilities": {
+    "authAudiences": ["integration-management"],
+    "authScopes": [],
+    "product": {
+      "audience": "resource",
+      "scopes": [],
+      "grant": "exchange",
+      "gateway": {
+        "audience": "resource"
+      }
+    }
+  }
+}
