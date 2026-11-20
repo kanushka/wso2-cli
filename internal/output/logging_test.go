@@ -19,7 +19,6 @@ package output
 import (
 	"bytes"
 	"encoding/json"
-	"log/slog"
 	"strings"
 	"testing"
 )
@@ -79,92 +78,51 @@ func TestJSONOutputModeLogsJSON(t *testing.T) {
 	}
 }
 
-// TestSensitiveAttributesAreMasked walks the spellings a key can arrive in.
-// The point of normalizing is that accessToken and access_token are one entry
-// in the denylist rather than two chances to have missed one.
-func TestSensitiveAttributesAreMasked(t *testing.T) {
-	const secret = "rt-must-never-appear"
-	for _, key := range []string{
-		"access_token", "accessToken", "Access-Token", "refresh_token",
-		"id_token", "token", "client_secret", "code", "device_code",
-		"user_code", "code_verifier", "authorization", "credential",
-		"source_credential", "password", "secret", "api_key",
-	} {
-		var captured bytes.Buffer
-		logger := NewLogger()
-		logger.Enable(&captured, ModeJSON)
-		logger.Debug("a diagnostic", key, secret)
-		if strings.Contains(captured.String(), secret) {
-			t.Errorf("the value logged under %q survived redaction: %s", key, &captured)
-		}
-		if !strings.Contains(captured.String(), redactedValue) {
-			t.Errorf("the value logged under %q was dropped rather than masked: %s", key, &captured)
-		}
-	}
-}
-
-// TestRedactionReachesEveryWayAnAttributeCanArrive is why redaction wraps the
-// handler instead of riding on slog.HandlerOptions.ReplaceAttr. slog never
-// calls ReplaceAttr for a group attribute itself, only for the leaves inside
-// it, so a secret carried as slog.Group("token", ...) or nested under an
-// innocent group name would have reached the stream verbatim.
-func TestRedactionReachesEveryWayAnAttributeCanArrive(t *testing.T) {
-	const secret = "rt-must-never-appear"
-	cases := map[string]func(*Logger){
-		"a plain attribute": func(logger *Logger) {
-			logger.Debug("a diagnostic", "refresh_token", secret)
-		},
-		"an attribute inside an innocent group": func(logger *Logger) {
-			logger.Debug("a diagnostic", slog.Group("session", "refresh_token", secret))
-		},
-		"a group named for the secret itself": func(logger *Logger) {
-			logger.Debug("a diagnostic", slog.Group("token", "value", secret))
-		},
-		"a group nested two deep": func(logger *Logger) {
-			logger.Debug("a diagnostic",
-				slog.Group("outer", slog.Group("inner", "access_token", secret)))
-		},
-		"an attribute preformatted through WithAttrs": func(logger *Logger) {
-			logger.delegate = logger.delegate.With("refresh_token", secret)
-			logger.Debug("a diagnostic")
-		},
-		"an attribute under a group opened by WithGroup": func(logger *Logger) {
-			logger.delegate = logger.delegate.WithGroup("session").With("refresh_token", secret)
-			logger.Debug("a diagnostic")
-		},
-		// The group name is the only thing naming a secret here, so nothing
-		// key-based below it would catch the leaf on its own.
-		"a leaf under a group named for the secret": func(logger *Logger) {
-			logger.delegate = logger.delegate.WithGroup("client_secret")
-			logger.Debug("a diagnostic", "value", secret)
-		},
-	}
-	for name, log := range cases {
-		t.Run(name, func(t *testing.T) {
-			var captured bytes.Buffer
-			logger := NewLogger()
-			logger.Enable(&captured, ModeJSON)
-			log(logger)
-			if strings.Contains(captured.String(), secret) {
-				t.Fatalf("the secret escaped redaction: %s", &captured)
-			}
-			if !strings.Contains(captured.String(), redactedValue) {
-				t.Fatalf("the secret was dropped rather than masked: %s", &captured)
-			}
-		})
-	}
-}
-
-// TestAnUnlistedKeyIsLeftAlone states the limit of key-based redaction out
-// loud. Redaction here is only as complete as the denylist, which is why the
-// shell also greps real captured output for real fixture token values; see
-// TestVerboseLoggingNeverLeaksTokenMaterial in internal/app.
-func TestAnUnlistedKeyIsLeftAlone(t *testing.T) {
-	var captured bytes.Buffer
+func TestAnAttachedFileGetsRecordsButNoDiagnosticsUntilEnabled(t *testing.T) {
+	var file, stream bytes.Buffer
 	logger := NewLogger()
-	logger.Enable(&captured, ModeTable)
-	logger.Debug("a diagnostic", "issuer", "https://issuer.example.test")
-	if !strings.Contains(captured.String(), "https://issuer.example.test") {
-		t.Fatalf("an ordinary attribute was redacted: %s", &captured)
+	logger.AttachFile(&file, "invocation", "inv-1")
+	logger.Record("a run started", "shell_version", "1.0.0")
+	logger.Debug("a diagnostic")
+	logger.FileDebug("a module line")
+	if logger.Enabled() {
+		t.Fatal("attaching a file turned diagnostics on")
 	}
+	if strings.Contains(file.String(), "a diagnostic") || strings.Contains(file.String(), "a module line") {
+		t.Fatalf("a diagnostic reached the file without being asked for:\n%s", &file)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(file.Bytes(), &record); err != nil {
+		t.Fatalf("the file record is not one JSON line %q: %v", &file, err)
+	}
+	if record["msg"] != "a run started" || record["invocation"] != "inv-1" || record["shell_version"] != "1.0.0" {
+		t.Fatalf("the file record is %v", record)
+	}
+
+	logger.Enable(&stream, ModeTable)
+	logger.Debug("a diagnostic", "token", "t-must-never-appear")
+	logger.FileDebug("a module line")
+	logger.Record("a run ended")
+	for _, expected := range []string{"a diagnostic", "a module line", "a run ended", "[redacted]"} {
+		if !strings.Contains(file.String(), expected) {
+			t.Errorf("the file is missing %q:\n%s", expected, &file)
+		}
+	}
+	if strings.Contains(file.String(), "t-must-never-appear") {
+		t.Fatalf("the file carries a token:\n%s", &file)
+	}
+	if !strings.Contains(stream.String(), "a diagnostic") || !strings.Contains(stream.String(), "a run ended") {
+		t.Fatalf("the stream is missing what was logged:\n%s", &stream)
+	}
+	if strings.Contains(stream.String(), "a module line") || strings.Contains(stream.String(), "inv-1") {
+		t.Fatalf("a file-only record or attribute reached the stream:\n%s", &stream)
+	}
+}
+
+func TestRecordWithoutAFileOrStreamWritesNothing(t *testing.T) {
+	NewLogger().Record("a run started")
+	var absent *Logger
+	absent.Record("a run started")
+	absent.FileDebug("a module line")
+	absent.AttachFile(&bytes.Buffer{})
 }

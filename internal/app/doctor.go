@@ -21,8 +21,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -34,6 +36,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/catalog"
 	"github.com/wso2/wso2-cli/internal/contexts"
 	"github.com/wso2/wso2-cli/internal/output"
+	"github.com/wso2/wso2-cli/internal/runlog"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -53,6 +56,8 @@ const (
 	checkSession     = "session"
 	checkIssuer      = "issuer"
 	checkCatalog     = "catalog"
+	checkLastRun     = "last-run"
+	checkRunLog      = "run-log"
 )
 
 // The outcomes a check reports.
@@ -71,6 +76,10 @@ const (
 	// not a failure: a product update changes nothing until a context is
 	// applied again (ADR 0016), and a value set deliberately differs too.
 	statusDiffers = "differs"
+	// statusNotice is the last-run check's word for an earlier run that
+	// failed. It is not this machine's health and never decides doctor's
+	// exit; it points at where that run's record is kept.
+	statusNotice = "notice"
 )
 
 // severityRank orders the checks whose failure can decide the exit status,
@@ -363,6 +372,13 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 		}
 	}
 
+	if finding, failed := s.lastRunFinding(root); failed {
+		findings = append(findings, finding)
+	}
+	if finding, unwritable := s.runLogFinding(root); unwritable {
+		findings = append(findings, finding)
+	}
+
 	if writeErr := renderDoctorReport(s.Streams.Out, mode, findings); writeErr != nil {
 		return writeErr
 	}
@@ -517,4 +533,63 @@ func nameDocument(detail, path string) string {
 		return detail
 	}
 	return fmt.Sprintf("%s (context document: %s)", detail, path)
+}
+
+// lastRunFinding reports the newest earlier run when it failed, pointing at
+// the run log that recorded it. Earlier doctor runs are passed over: a doctor
+// that failed has already said why.
+func (s Shell) lastRunFinding(root string) (doctorFinding, bool) {
+	current := ""
+	if s.invocation != nil {
+		current = s.invocation.runID
+	}
+	run, found := runlog.LastFinished(root, func(run runlog.Run) bool {
+		return run.Invocation == current || run.Command == recordedCommand("doctor")
+	})
+	if !found || run.ExitCode == 0 {
+		return doctorFinding{}, false
+	}
+	detail := fmt.Sprintf("the last run, %s at %s, exited %d", run.Command,
+		run.Time.Local().Format(time.DateTime), run.ExitCode)
+	if run.Problem != "" {
+		detail += " with " + run.Problem
+	}
+	return doctorFinding{
+		Check:  checkLastRun,
+		Status: statusNotice,
+		Detail: detail,
+		Recovery: fmt.Sprintf("Run it again with WSO2_DEBUG=1 to record its diagnostics, then read %s.",
+			runlog.Path(root)),
+	}, true
+}
+
+// runLogFinding reports a run log this run could not open. Every run is
+// silent about it, so a read-only home is not noisy; this is where it is said
+// once. It never decides doctor's exit status.
+func (s Shell) runLogFinding(root string) (doctorFinding, bool) {
+	if s.invocation == nil {
+		return doctorFinding{}, false
+	}
+	err := s.invocation.runLogErr
+	if err == nil && s.invocation.runLog != nil {
+		err = s.invocation.runLog.Err()
+	}
+	if err == nil {
+		return doctorFinding{}, false
+	}
+	reason, target := err.Error(), filepath.Dir(runlog.Path(root))
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		reason, target = pathErr.Err.Error(), pathErr.Path
+	}
+	recovery := fmt.Sprintf("Make %s a directory you can write to, or set WSO2_HOME to a state root you own.", target)
+	if strings.HasPrefix(filepath.Base(target), filepath.Base(runlog.Path(root))) {
+		recovery = fmt.Sprintf("Make %s writable by you, or remove it; the next run creates it again.", target)
+	}
+	return doctorFinding{
+		Check:    checkRunLog,
+		Status:   statusNotice,
+		Detail:   fmt.Sprintf("runs are not recorded, because %s cannot be written (%s)", target, reason),
+		Recovery: recovery,
+	}, true
 }

@@ -29,6 +29,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/parsetree"
 	"github.com/wso2/wso2-cli/internal/rpc"
 	"github.com/wso2/wso2-cli/internal/version"
+	"github.com/wso2/wso2-cli/sdk/diag"
 	"github.com/wso2/wso2-cli/sdk/problem"
 	"github.com/wso2/wso2-cli/sdk/protocol"
 )
@@ -115,6 +116,11 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 		return undeclaredModuleHelp(namespace)
 	}
 	command, arguments := line.command, line.arguments
+	// Only a declared tree tells a command word from an argument; without one
+	// the namespace alone is recorded.
+	if declared.Declared() && s.invocation != nil {
+		s.invocation.commandPath = recordedCommand(append([]string{namespace}, command...)...)
+	}
 	mode, contextName := line.mode, line.contextName
 	selection, err := s.selection(contextName)
 	if err != nil {
@@ -194,7 +200,14 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 	// A standard input that is not a terminal counts too: nobody could answer
 	// whatever the module would have asked.
 	if may, _ := s.mayPrompt(noInput); !may {
-		launcher.Environment = []string{NoInputEnvVar + "=1"}
+		launcher.Environment = append(launcher.Environment, NoInputEnvVar+"=1")
+	}
+	// The module learns that diagnostics are on through the variable the SDK
+	// reads, whichever of --verbose and WSO2_DEBUG asked, and is given room
+	// for them: the ordinary limit is sized for a warning, not a log.
+	if s.log.Enabled() {
+		launcher.Environment = append(launcher.Environment, diag.EnvVar+"=1")
+		launcher.DiagnosticLimit = rpc.DebugDiagnosticLimit
 	}
 	outcome, invokeErr := launcher.Invoke(context.Background(), rpc.Invocation{
 		Namespace:  namespace,
@@ -213,6 +226,9 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 	// Diagnostics are rendered whatever the outcome, because what a module
 	// wrote before failing is usually the only explanation of why.
 	output.ModuleDiagnostics(s.Streams.Err, namespace, outcome.Diagnostics.Lines(), outcome.Diagnostics.Truncated)
+	for _, line := range outcome.Diagnostics.Lines() {
+		s.log.FileDebug("a module wrote a diagnostic", "namespace", namespace, "line", line)
+	}
 
 	if invokeErr != nil {
 		return invokeErr

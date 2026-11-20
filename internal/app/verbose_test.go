@@ -45,6 +45,7 @@ import (
 // where a script's operator looks for real trouble and a log the user did not
 // ask for is noise there.
 func TestWithoutVerboseNothingIsWritten(t *testing.T) {
+	t.Setenv("WSO2_DEBUG", "")
 	shell, out, errOut := newShell(t)
 	if code := shell.Run([]string{"version"}); code != exit.OK {
 		t.Fatalf("version failed: exit %d, stderr %s", code, errOut)
@@ -173,7 +174,7 @@ func TestVerboseRecordsWhatALogoutEstablished(t *testing.T) {
 // actually minted for this run, and greps everything the shell wrote for them.
 // That is deliberate: a denylist can only be as complete as whoever last edited
 // it, so the thing under test is the output, not the list. A later call site
-// that logs a token under an attribute name nobody added to sensitiveKeys is
+// that logs a token under an attribute name nobody added to sdk/diag's list is
 // caught here, because the value it leaks is the value this test is looking
 // for.
 func TestVerboseLoggingNeverLeaksTokenMaterial(t *testing.T) {

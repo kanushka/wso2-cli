@@ -56,6 +56,10 @@ const TerminationGrace = 2 * time.Second
 // shell memory.
 const DefaultDiagnosticLimit = 8 << 10
 
+// DebugDiagnosticLimit is the same bound while diagnostics are on, when a
+// module's standard error carries its log rather than the odd warning.
+const DebugDiagnosticLimit = 256 << 10
+
 // MaxAccessRequests is how many times one invocation may ask the broker for
 // access before the shell treats the module as looping rather than working.
 //
