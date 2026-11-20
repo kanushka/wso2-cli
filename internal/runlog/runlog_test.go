@@ -238,3 +238,47 @@ func TestAFailedWriteIsKept(t *testing.T) {
 		t.Fatal("the failed write was not kept")
 	}
 }
+
+// Two runs append to one file, so a finish can land after a later one.
+func TestLastFinishedTakesTheNewestFinishWithinAFile(t *testing.T) {
+	root := t.TempDir()
+	writeLog(t, Path(root),
+		endedAt("2026-11-19T09:30:00Z", "later", "wso2 apim api list", 75),
+		endedAt("2026-11-19T09:20:00Z", "earlier", "wso2 version", 0))
+	run, found := LastFinished(root, nil)
+	if !found || run.Invocation != "later" {
+		t.Fatalf("LastFinished = %+v, %v; want the later finish written first", run, found)
+	}
+}
+
+// Another run's writes grow the shared file, so the size a run read when it
+// opened the file is stale by the time it writes.
+func TestAWriteRotatesOnTheFileSizeOtherRunsLeft(t *testing.T) {
+	root := t.TempDir()
+	first, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = first.Close() }()
+	second, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = second.Close() }()
+	line := []byte(strings.Repeat("x", 1023) + "\n")
+	for range MaxSize / len(line) {
+		if _, err := first.Write(line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := second.Write(line); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(Path(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > MaxSize {
+		t.Fatalf("the shared file grew to %d bytes, past the %d cap", info.Size(), MaxSize)
+	}
+}

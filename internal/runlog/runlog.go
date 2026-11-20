@@ -129,6 +129,10 @@ func (f *File) write(record []byte) (int, error) {
 	if f.file == nil {
 		return 0, os.ErrClosed
 	}
+	// Other runs append to the same file, so the size read at open is stale.
+	if info, err := f.file.Stat(); err == nil {
+		f.size = info.Size()
+	}
 	if f.size > 0 && f.size+int64(len(record)) > MaxSize {
 		if err := f.rotate(); err != nil {
 			return 0, err
@@ -235,7 +239,11 @@ func lastFinishedIn(path string, skip func(Run) bool) (Run, bool) {
 		if skip(run) {
 			continue
 		}
-		last, found = run, true
+		// Runs finish out of order in a shared file; on a tie the record
+		// written later wins.
+		if !found || !run.Time.Before(last.Time) {
+			last, found = run, true
+		}
 	}
 	return last, found
 }
