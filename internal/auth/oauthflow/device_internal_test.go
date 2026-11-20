@@ -17,9 +17,12 @@
 package oauthflow
 
 import (
+	"bytes"
+	"io"
 	"math"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -96,5 +99,57 @@ func TestLoginAndDeviceClientsRefuseAPlaintextRedirect(t *testing.T) {
 		if client.CheckRedirect == nil || client.CheckRedirect(request, nil) == nil {
 			t.Fatalf("%s: a redirect to plain http was allowed", name)
 		}
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+type countingReader struct {
+	reader io.Reader
+	read   int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.reader.Read(p)
+	c.read += n
+	return n, err
+}
+
+func TestTheSlowDownNoticerReadsABoundedPrefixAndPassesTheWholeBodyOn(t *testing.T) {
+	const tokenURL = "https://issuer.example.test/token"
+	payload := append([]byte(`{"error":"slow_down","error_description":"`),
+		bytes.Repeat([]byte("x"), 4<<20)...)
+	payload = append(payload, `"}`...)
+	counted := &countingReader{reader: bytes.NewReader(payload)}
+	var said bytes.Buffer
+	noticer := &slowDownNoticer{tokenURL: tokenURL, out: &said,
+		base: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusBadRequest, Body: io.NopCloser(counted)}, nil
+		})}
+
+	request, _ := http.NewRequest(http.MethodPost, tokenURL, nil)
+	response, err := noticer.RoundTrip(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counted.read > slowDownInspectLimit+1 {
+		t.Errorf("read %d bytes to inspect the answer, want at most %d", counted.read, slowDownInspectLimit+1)
+	}
+	body, err := io.ReadAll(response.Body)
+	if err != nil || !bytes.Equal(body, payload) {
+		t.Errorf("the body passed on is %d bytes (%v), want the %d sent", len(body), err, len(payload))
+	}
+
+	small := &countingReader{reader: bytes.NewReader([]byte(`{"error":"slow_down"}`))}
+	noticer.base = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusBadRequest, Body: io.NopCloser(small)}, nil
+	})
+	if _, err := noticer.RoundTrip(request); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(said.String(), slowDownNotice); got != 1 {
+		t.Errorf("the notice was said %d times, want once:\n%s", got, said.String())
 	}
 }

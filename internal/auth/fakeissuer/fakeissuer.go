@@ -292,6 +292,9 @@ type Options struct {
 	// name the subject alone: no email, name or organization unit, as
 	// ThunderID's device grant does (thunder-id/thunderid#6991).
 	DeviceWithoutUserAttributes bool
+	// ScopesSupportedNotAList advertises scopes_supported as a single string
+	// instead of a list, which a client must not read as "none offered".
+	ScopesSupportedNotAList bool
 	// OmitDeviceRefreshToken answers the device grant without a refresh token,
 	// modeling an application that was never granted offline access. A session
 	// is a refresh token, so this is the answer that produces a login with
@@ -333,6 +336,8 @@ type OrganizationUnit struct {
 // unless Options.IssuerIdentifier names another.
 type Issuer struct {
 	URL string
+
+	discoveryRequests int
 
 	opts   Options
 	key    *rsa.PrivateKey
@@ -545,6 +550,9 @@ func (i *Issuer) Identifier() string {
 }
 
 func (i *Issuer) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
+	i.mutex.Lock()
+	i.discoveryRequests++
+	i.mutex.Unlock()
 	document := map[string]any{
 		"issuer":                                i.Identifier(),
 		"authorization_endpoint":                i.URL + "/authorize",
@@ -567,6 +575,9 @@ func (i *Issuer) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
 	}
 	if i.opts.DeviceSSO {
 		document["scopes_supported"] = []string{"openid", "offline_access", "profile", "email", deviceSSOScope}
+	}
+	if i.opts.ScopesSupportedNotAList {
+		document["scopes_supported"] = deviceSSOScope
 	}
 	if i.opts.OmitRevocationEndpoint {
 		delete(document, "revocation_endpoint")
@@ -1368,6 +1379,13 @@ func (i *Issuer) DeviceAuthorizations() []url.Values {
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
 	return append([]url.Values(nil), i.deviceAuthorizations...)
+}
+
+// DiscoveryRequests is how many times the discovery document was read.
+func (i *Issuer) DiscoveryRequests() int {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	return i.discoveryRequests
 }
 
 // DevicePolls returns when each poll of the device grant arrived, in order.

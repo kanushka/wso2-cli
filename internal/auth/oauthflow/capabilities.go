@@ -37,6 +37,8 @@ func OffersDeviceSecret(ctx context.Context, issuer, issuerID string) (bool, err
 	var capabilities struct {
 		ScopesSupported []string `json:"scopes_supported"`
 	}
-	_ = provider.Claims(&capabilities)
+	if err := provider.Claims(&capabilities); err != nil {
+		return false, oidcdiscovery.Unreadable()
+	}
 	return slices.Contains(capabilities.ScopesSupported, scopeDeviceSSO), nil
 }

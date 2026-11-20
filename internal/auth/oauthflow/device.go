@@ -161,6 +161,10 @@ func (d DeviceLogin) noticingSlowDown(ctx context.Context, tokenURL string) cont
 	return oidc.ClientContext(ctx, &client)
 }
 
+// slowDownInspectLimit bounds how much of a refused token response is read to
+// tell slow_down apart; the client reading it after has its own limit.
+const slowDownInspectLimit = 64 << 10
+
 type slowDownNoticer struct {
 	base     http.RoundTripper
 	tokenURL string
@@ -173,10 +177,12 @@ func (n *slowDownNoticer) RoundTrip(request *http.Request) (*http.Response, erro
 	if err != nil || response.StatusCode != http.StatusBadRequest || request.URL.String() != n.tokenURL {
 		return response, err
 	}
-	body, readErr := io.ReadAll(response.Body)
-	_ = response.Body.Close()
-	response.Body = io.NopCloser(bytes.NewReader(body))
-	if readErr != nil {
+	body, readErr := io.ReadAll(io.LimitReader(response.Body, slowDownInspectLimit+1))
+	response.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(body), response.Body), response.Body}
+	if readErr != nil || len(body) > slowDownInspectLimit {
 		return response, nil
 	}
 	var answer struct {
