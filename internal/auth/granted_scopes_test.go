@@ -101,6 +101,9 @@ func TestARequestForAScopeTheContextNeverAskedForSaysToSignInAgainAfterRecording
 	if !strings.Contains(reported.Recovery, "wso2 login") || !strings.Contains(reported.Recovery, writeScope) {
 		t.Errorf("recovery = %q, want signing in again once the scope is recorded", reported.Recovery)
 	}
+	if !strings.Contains(reported.Recovery, "--replace --context "+broker.Selection.Context.Name) {
+		t.Errorf("recovery = %q, want the record command to name the context", reported.Recovery)
+	}
 }
 
 func TestAScopeAddedToTheRecordAfterTheSignInIsNotCalledWithheld(t *testing.T) {
@@ -150,5 +153,48 @@ func TestAnUnrecordedScopeOnAnExchangedProductSaysToRetryNotToLogIn(t *testing.T
 	if !strings.Contains(recovery, "--scopes "+readScope+","+writeScope) || !strings.Contains(recovery, "retry the command") ||
 		strings.Contains(recovery, "login --only") {
 		t.Errorf("recovery = %q, want the record command and a retry: an exchanged product has no login of its own", recovery)
+	}
+}
+
+// A token whose claims state no scope says nothing about the grant; one that
+// states an empty scope granted nothing.
+func TestAnAbsentScopeClaimIsNotAnEmptyGrant(t *testing.T) {
+	if granted := auth.GrantedScopes("", unsignedJWT(t, map[string]any{"sub": "user-1"})); granted != nil {
+		t.Errorf("GrantedScopes = %#v for a token stating no scope, want nil", granted)
+	}
+	if granted := auth.GrantedScopes("", unsignedJWT(t, map[string]any{"sub": "user-1", "scope": ""})); granted == nil || len(granted) != 0 {
+		t.Errorf("GrantedScopes = %#v for a token stating an empty scope, want an empty grant", granted)
+	}
+}
+
+// A product authorized again is held to what that authorization granted, not
+// to what the session it replaced was.
+func TestAProductAuthorizedAgainIsHeldToItsNewGrant(t *testing.T) {
+	const otherScope = "other"
+	deployment := seedBrowserSession(t, fakeissuer.Options{RequireResource: true, RefreshScopeMode: "ignore"})
+	broker := siblingBroker(t, deployment)
+	product := broker.Selection.Identity.Products[siblingNamespace]
+	product.Scopes = []string{siblingScope, otherScope}
+	broker.Selection.Identity.Products[siblingNamespace] = product
+	broker.Capabilities.AuthScopes = product.Scopes
+	store := session.Store{StateRoot: deployment.stateRoot}
+	ref := contexts.ProductSessionRef(sessionRef, siblingNamespace)
+	save := func(granted []string) error {
+		return store.Save(ref, session.Session{Issuer: deployment.issuer.URL,
+			RefreshToken: deployment.issuer.SeedSessionFor([]string{siblingScope}, siblingAudience),
+			Strategy:     contexts.StrategySibling, Bound: true, Resource: siblingAudience,
+			Scopes: product.Scopes, Granted: granted})
+	}
+	if err := save(product.Scopes); err != nil {
+		t.Fatal(err)
+	}
+	broker.EstablishSession = func(contexts.ProductAccess) error { return save([]string{siblingScope}) }
+
+	grant, err := broker.Acquire(auth.Request{Audience: siblingAudience})
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	if _, scopes, _ := deployment.issuer.Introspect(t, grant.Token); len(scopes) != 1 || scopes[0] != siblingScope {
+		t.Errorf("access carried %v, want what the new authorization granted, [%s]", scopes, siblingScope)
 	}
 }

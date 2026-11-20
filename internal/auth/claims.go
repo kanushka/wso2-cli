@@ -53,16 +53,16 @@ func bearerClaims(token string) (bearerFacts, error) {
 		return bearerFacts{}, err
 	}
 	var claims struct {
-		Audience any    `json:"aud"`
-		Scope    string `json:"scope"`
-		Expires  int64  `json:"exp"`
+		Audience any     `json:"aud"`
+		Scope    *string `json:"scope"`
+		Expires  int64   `json:"exp"`
 	}
 	if json.Unmarshal(payload, &claims) != nil {
 		return bearerFacts{}, errNotABearerToken
 	}
-	facts := bearerFacts{
-		Audiences: audienceList(claims.Audience),
-		Scopes:    strings.Fields(claims.Scope),
+	facts := bearerFacts{Audiences: audienceList(claims.Audience)}
+	if claims.Scope != nil {
+		facts.Scopes = strings.Fields(*claims.Scope)
 	}
 	if claims.Expires > 0 {
 		facts.ExpiresAt = time.Unix(claims.Expires, 0).UTC()

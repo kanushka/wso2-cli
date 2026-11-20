@@ -117,7 +117,8 @@ func (s sessionSource) mint(request Request, now time.Time) (Grant, error) {
 	if err := s.ensureSession(); err != nil {
 		return Grant{}, err
 	}
-	request, err := s.withinGrant(request)
+	asked := request
+	request, err := s.withinGrant(asked)
 	if err != nil {
 		return Grant{}, err
 	}
@@ -133,6 +134,9 @@ func (s sessionSource) mint(request Request, now time.Time) (Grant, error) {
 	// deployment answers the same way twice is a registration problem.
 	if err := s.establish(); err != nil {
 		return Grant{}, s.orRenewalNeedsBrowser(request, err)
+	}
+	if request, err = s.withinGrant(asked); err != nil {
+		return Grant{}, err
 	}
 	granted, err = s.mintUnderLock(request, now)
 	if errors.As(err, &again) {
@@ -198,7 +202,7 @@ func reestablishCommand(strategy, contextName, product string) string {
 	if strategy == contexts.StrategyDirect {
 		return fmt.Sprintf("run wso2 logout --context %s and wso2 login --context %s", contextName, contextName)
 	}
-	return "run wso2 login --only " + product
+	return fmt.Sprintf("run wso2 login --only %s --context %s", product, contextName)
 }
 
 // scopesOutside are the scopes in requested that held does not carry.

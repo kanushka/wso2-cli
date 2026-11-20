@@ -240,8 +240,9 @@ func (b *Broker) checkProduct(request Request) error {
 // authorizes, log in again so the authorization asks for it.
 func (b *Broker) unrecordedScopeRecovery(scope string) string {
 	product := b.Selection.Identity.Products[b.Namespace]
-	record := fmt.Sprintf("Run wso2 context product add %s --url %s --scopes %s --replace", b.namespace(),
-		product.Endpoint, strings.Join(append(slices.Clone(product.Scopes), scope), ","))
+	record := fmt.Sprintf("Run wso2 context product add %s --url %s --scopes %s --replace --context %s",
+		b.namespace(), product.Endpoint, strings.Join(append(slices.Clone(product.Scopes), scope), ","),
+		b.Selection.Context.Name)
 	access, _ := b.Selection.Identity.Access(b.Namespace)
 	kind := b.Selection.Identity.Auth.Kind
 	if (kind != contexts.KindOAuthBrowser && kind != contexts.KindOAuthDevice) ||
