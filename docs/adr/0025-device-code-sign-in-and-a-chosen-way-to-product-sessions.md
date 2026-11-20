@@ -128,6 +128,12 @@ waiting a little longer between checks.", once per sign-in, and a product
 whose session comes from the device secret gets "Authorized the "<product>"
 product from this sign-in, without the browser."
 
+The shell polls one second later than the interval the provider advertises.
+ThunderID measures the interval between arrivals with no tolerance, so polls
+on the exact interval arrive a few milliseconds early after ordinary network
+jitter and draw `slow_down`, which would print the line above on most
+sign-ins.
+
 ## Organizations and sign-out on a device-code context
 
 ThunderID serves the device grant only at its plain endpoints: there is no
@@ -194,6 +200,23 @@ shell registers there.
   `unauthorized_client`, with or without a resource, since the client is not
   yet registered for the grant. A device-code sign-in on WSO2 Cloud needs
   that registration.
+
+Measured on 2026-11-20 against a local ThunderID built from its main branch
+(3f32a54), with a device-code context whose second product is reached by the
+exchange.
+
+- A device approval issues a device secret and the second product is
+  authorized from it with no browser, once the client's authentication flow
+  keeps an SSO session. ThunderID's default authentication flow keeps none
+  (it has no session step), and then no sign-in, device or browser, returns a
+  device secret; the shell refused the second product with
+  `auth.device_secret_unavailable` and opened nothing. WSO2 Cloud's
+  authentication flow keeps one, and its Device Grant flow must call that
+  flow.
+- Polling on the exact advertised interval drew `slow_down` on both sign-ins
+  tried; with the one-second margin, a sign-in that polled for half a minute
+  drew none. Against the test issuer, a poll on the exact interval arrived
+  0.1 ms short of it.
 
 ## Considered Options
 
