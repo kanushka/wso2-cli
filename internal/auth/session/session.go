@@ -206,7 +206,11 @@ func (s Store) Load(ref string) (Session, error) {
 		}
 		// A save may have moved the entry to a new generation, and retired
 		// the side entries this one names, while they were being read.
-		if again, err := secureStore.Get(Service, name); err == nil && again == value && session.RefreshToken != "" {
+		again, err := secureStore.Get(Service, name)
+		if err != nil && !errors.Is(err, keyring.ErrNotFound) {
+			return Session{}, keyringUnavailable(err)
+		}
+		if err == nil && again == value && session.RefreshToken != "" {
 			return session, nil
 		}
 		previous = value
@@ -354,7 +358,9 @@ func (s Store) Save(ref string, value Session) error {
 	if err != nil {
 		return err
 	}
-	s.retireAbandoned(name, current)
+	if err := s.retireAbandoned(name, current); err != nil {
+		return err
+	}
 	// The generation is named before its side entries are written, so a save
 	// that dies before its entry leaves nothing the next save or delete
 	// cannot find.
@@ -389,15 +395,25 @@ func (s Store) Save(ref string, value Session) error {
 const pendingSuffix = "#pending"
 
 // retireAbandoned removes the side entries of a save that died before its
-// session entry, best effort.
-func (s Store) retireAbandoned(name, current string) {
+// session entry. Until it has, the marker naming them must stay, so a store
+// that cannot answer stops the save or delete before it is replaced.
+func (s Store) retireAbandoned(name, current string) error {
 	pending, err := secureStore.Get(Service, name+pendingSuffix)
-	if err != nil || pending == "" || pending == current {
-		return
+	switch {
+	case errors.Is(err, keyring.ErrNotFound):
+		return nil
+	case err != nil:
+		return keyringUnavailable(err)
+	case pending == "" || pending == current:
+		return nil
 	}
 	for _, suffix := range sideSuffixes {
-		_ = secureStore.Delete(Service, sideKey(name, suffix, pending))
+		err := secureStore.Delete(Service, sideKey(name, suffix, pending))
+		if err != nil && !errors.Is(err, keyring.ErrNotFound) {
+			return keyringUnavailable(err)
+		}
 	}
+	return nil
 }
 
 // entry is what the session entry holds: the session without its large
@@ -498,7 +514,9 @@ func (s Store) Delete(ref string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	s.retireAbandoned(name, current)
+	if err := s.retireAbandoned(name, current); err != nil {
+		return false, err
+	}
 	for _, key := range append(s.sideKeysOf(name, current), name+pendingSuffix) {
 		if err := secureStore.Delete(Service, key); err != nil && !errors.Is(err, keyring.ErrNotFound) {
 			return false, keyringUnavailable(err)

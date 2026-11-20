@@ -1054,3 +1054,67 @@ func TestAnEntryTheStoreCannotReadIsLeftAsItWas(t *testing.T) {
 		})
 	}
 }
+
+func TestASecondReadOfTheEntryTheStoreCannotAnswerIsReportedAsTheStore(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := store.Save("cloud-dev", session.Session{RefreshToken: "rt"}); err != nil {
+		t.Fatal(err)
+	}
+	name := store.EntryName("cloud-dev")
+	reads := 0
+	defer session.UseSecureStore(failingStore{failing: func(user string) bool {
+		if user != name {
+			return false
+		}
+		reads++
+		return reads == 2
+	}})()
+
+	_, err := store.Load("cloud-dev")
+	assertProblemCode(t, err, "auth.keyring_unavailable")
+}
+
+// deleteFailingStore is the OS secure store with deletes of some keys failing.
+type deleteFailingStore struct{ failing func(user string) bool }
+
+func (d deleteFailingStore) Get(service, user string) (string, error) {
+	return keyring.Get(service, user)
+}
+
+func (d deleteFailingStore) Set(service, user, password string) error {
+	return keyring.Set(service, user, password)
+}
+
+func (d deleteFailingStore) Delete(service, user string) error {
+	if d.failing(user) {
+		return errors.New("the secure store did not answer")
+	}
+	return keyring.Delete(service, user)
+}
+
+// A save that cannot remove a dead save's tokens keeps the marker that names
+// them, so a later save still can.
+func TestTokensADeadSaveLeftStayFindableUntilTheyAreRemoved(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := store.Save("cloud-dev", session.Session{RefreshToken: "rt-a"}); err != nil {
+		t.Fatal(err)
+	}
+	var abandoned recorded
+	crashBeforeTheEntry(t, store, "cloud-dev", session.Session{RefreshToken: "rt-b", DeviceSecret: "ds-b"}, &abandoned)
+
+	restore := session.UseSecureStore(deleteFailingStore{failing: func(user string) bool { return strings.Contains(user, "#device.") }})
+	err := store.Save("cloud-dev", session.Session{RefreshToken: "rt-c"})
+	restore()
+	assertProblemCode(t, err, "auth.keyring_unavailable")
+
+	if err := store.Save("cloud-dev", session.Session{RefreshToken: "rt-c"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range abandoned.keys {
+		if value, err := keyring.Get(session.Service, key); err == nil && strings.Contains(value, "-b") {
+			t.Errorf("%s from the save that died survived", key)
+		}
+	}
+}
