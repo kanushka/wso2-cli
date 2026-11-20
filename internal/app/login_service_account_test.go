@@ -36,6 +36,13 @@ import (
 
 const serviceAccountSecret = "s3cret-value"
 
+// ciOrganization is the organization the service account is registered in,
+// and otherOrganization another one it also belongs to.
+var (
+	ciOrganization    = fakeissuer.OrganizationUnit{ID: "6f1c2a9e-0b4d-4c3e-9a51-2d7e8f0a1b2c", Name: "CI", Handle: "ci"}
+	otherOrganization = fakeissuer.OrganizationUnit{ID: "0d9e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a", Name: "Other", Handle: "other"}
+)
+
 type serviceAccountLogin struct {
 	shell  app.Shell
 	out    *bytes.Buffer
@@ -56,11 +63,8 @@ func newServiceAccountLoginWith(t *testing.T, options fakeissuer.Options, apimMa
 	options.Host = "localhost"
 	options.RequireResource = true
 	options.ClientSecret = serviceAccountSecret
-	switch options.OUClaim {
-	case "":
-		options.OUClaim = "ou-ci"
-	case "none":
-		options.OUClaim = ""
+	if options.OrganizationUnits == nil {
+		options.OrganizationUnits = []fakeissuer.OrganizationUnit{ciOrganization, otherOrganization}
 	}
 	issuer := fakeissuer.New(t, options)
 	shell, out, errOut := newLoginShell(t)
@@ -105,7 +109,7 @@ func TestServiceAccountLoginWritesACloudClientCredentialsContext(t *testing.T) {
 		written.CloudEnvironment != "dev" {
 		t.Errorf("context = %+v, want a client-credentials Cloud context naming the secret variable", written)
 	}
-	if written.Organization != "ou-ci" || written.Login.Tenant != "ou-ci" {
+	if written.Organization != ciOrganization.ID || written.Login.Tenant != ciOrganization.ID {
 		t.Errorf("organization = %q, want the token's ouId", written.Organization)
 	}
 	if _, recorded := written.Products["apim"]; !recorded {
@@ -156,7 +160,7 @@ func TestServiceAccountLoginReportsAsOneJSONDocument(t *testing.T) {
 	if err := json.Unmarshal(login.out.Bytes(), &report); err != nil {
 		t.Fatalf("not JSON: %v\n%s", err, login.out)
 	}
-	if report.Context != "cloud-dev-ci" || report.Environment != "dev" || report.Organization != "ou-ci" {
+	if report.Context != "cloud-dev-ci" || report.Environment != "dev" || report.Organization != ciOrganization.ID {
 		t.Errorf("report = %+v", report)
 	}
 	if len(report.Products) != 2 || report.Products[0].Namespace != "apim" ||
@@ -231,7 +235,7 @@ func TestServiceAccountLoginRefusals(t *testing.T) {
 }
 
 func TestServiceAccountLoginRefusesATokenWithNoOrganization(t *testing.T) {
-	login := newServiceAccountLogin(t, fakeissuer.Options{OUClaim: "none"})
+	login := newServiceAccountLogin(t, fakeissuer.Options{OrganizationUnits: []fakeissuer.OrganizationUnit{}})
 	if code := login.run("login", "--service-account", "--no-input"); code != exit.AuthPolicy {
 		t.Fatalf("exit %d, want %d; stderr %s", code, exit.AuthPolicy, login.errOut)
 	}
@@ -335,7 +339,7 @@ func TestTheServiceAccountWizardChecksTypedValuesAndWritesNothing(t *testing.T) 
 	}
 	said := login.out.String()
 	for _, want := range []string{"WSO2_CLOUD_ENV=dev", "WSO2_CLIENT_ID=", "WSO2_CLIENT_SECRET",
-		"login --service-account --no-input", "ou-ci"} {
+		"login --service-account --no-input", ciOrganization.ID} {
 		if !strings.Contains(said, want) {
 			t.Errorf("stdout does not say %q:\n%s", want, said)
 		}

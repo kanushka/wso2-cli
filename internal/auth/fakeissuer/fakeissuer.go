@@ -148,11 +148,9 @@ type Options struct {
 	// Empty, the sign-in stays in the browser session's organization; an id
 	// none of OrganizationUnits carries issues tokens naming no organization.
 	ChosenOrganizationUnit string
-	// OUClaim is the ouId an access token names, as ThunderID stamps the
-	// organization unit a token was issued in. Empty mints none.
-	OUClaim string
-	// OUClaimByResource overrides OUClaim for a token bound to the named
-	// resource; an empty value mints none for it.
+	// OUClaimByResource overrides the ouId of a token bound to the named
+	// resource, as a client registered in another organization would be
+	// issued; an empty value mints no organization claims for it.
 	OUClaimByResource map[string]string
 	// Name, GivenName, and FamilyName are the OIDC standard name claims minted
 	// into the identity token when set, modeling the claims ThunderID's
@@ -727,8 +725,9 @@ func (i *Issuer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 }
 
 // ClientGrants is every client-credentials request this issuer answered or
-// refused, in order, with the presented client id under client_id. The secret
-// is never recorded.
+// refused, in order, with the presented client id under client_id and the
+// organization whose /ou endpoint it reached under ou. The secret is never
+// recorded.
 func (i *Issuer) ClientGrants() []url.Values {
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
@@ -1124,11 +1123,20 @@ func (i *Issuer) clientCredentialsGrant(w http.ResponseWriter, r *http.Request) 
 			recorded.Set(key, r.PostForm.Get(key))
 		}
 	}
+	// The client is issued tokens in the first of OrganizationUnits, as if
+	// registered there; an /ou endpoint issues them in the one it names, and
+	// knows no client in an organization outside them, as WSO2 Cloud answers.
+	ou := i.homeOrganizationUnit()
+	if id := r.PathValue("ou"); id != "" {
+		recorded.Set("ou", id)
+		ou = i.organizationUnit(id)
+	}
 	i.mutex.Lock()
 	i.clientGrants = append(i.clientGrants, recorded)
 	i.mutex.Unlock()
 	if clientID == "" || clientSecret == "" ||
-		(i.opts.ClientSecret != "" && clientSecret != i.opts.ClientSecret) {
+		(i.opts.ClientSecret != "" && clientSecret != i.opts.ClientSecret) ||
+		(r.PathValue("ou") != "" && ou == nil) {
 		oauthError(w, http.StatusUnauthorized, "invalid_client")
 		return
 	}
@@ -1165,7 +1173,7 @@ func (i *Issuer) clientCredentialsGrant(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token": i.mintAccessTokenFor("client-1", issued, resource),
+		"access_token": i.mintAccessTokenIn(ou, "client-1", issued, resource),
 		"token_type":   "Bearer",
 		"expires_in":   300,
 		"scope":        strings.Join(issued, " "),
@@ -1597,12 +1605,13 @@ func (i *Issuer) mintAccessTokenIn(ou *OrganizationUnit, subject string, scopes 
 		claims["org_id"] = i.opts.OrganizationClaim
 	}
 	withOrganizationUnit(claims, ou)
-	unit := i.opts.OUClaim
-	if byResource, found := i.opts.OUClaimByResource[resource]; found {
-		unit = byResource
-	}
-	if unit != "" {
+	if unit, found := i.opts.OUClaimByResource[resource]; found {
+		delete(claims, "ouName")
+		delete(claims, "ouHandle")
 		claims["ouId"] = unit
+		if unit == "" {
+			delete(claims, "ouId")
+		}
 	}
 	token := i.sign(claims)
 	i.mutex.Lock()
