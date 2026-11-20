@@ -59,6 +59,22 @@ The organization the tokens name is recorded as the context's organization
 and as its login's home tenant: the service account is registered in that
 organization and every token it is issued is issued there.
 
+## Picking the organization
+
+`WSO2_ORGANIZATION` names, by id, another organization the service account
+belongs to. The login then asks for every token at that organization's own
+token endpoint, `/ou/<id>/oauth2/token`, as ADR 0024 has `ws org use` sign a
+person in to one, and records it. A token that names another organization is
+refused with `auth.organization_mismatch`; one that names none was still
+issued there. ThunderID answers a client it does not know in that organization
+as it answers a wrong secret, so that refusal names the variable beside the
+credential. A value that is not an organization id is refused before anything
+is sent.
+
+Every later command asks for its tokens at the token endpoint of the
+organization the context records, named or not, so none can be issued in
+another organization unnoticed.
+
 ## A person sets it up with the same command
 
 On a terminal, `ws login --service-account` asks for whatever is not set,
