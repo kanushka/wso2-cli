@@ -216,3 +216,25 @@ func TestStatusSuggestsOnlyWhatTheSessionMayRun(t *testing.T) {
 		})
 	}
 }
+
+// A WSO2 Cloud service account signs in with a client-credentials context,
+// and the shell lets one reach only a product whose descriptor admits it.
+func TestTheManifestAdmitsAServiceAccount(t *testing.T) {
+	data, err := os.ReadFile("../../module.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Capabilities struct {
+			Product struct {
+				Machine []string `json:"machine"`
+			} `json:"product"`
+		} `json:"capabilities"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(manifest.Capabilities.Product.Machine, "inline") {
+		t.Errorf("module.json product.machine = %v, want it to admit inline", manifest.Capabilities.Product.Machine)
+	}
+}
