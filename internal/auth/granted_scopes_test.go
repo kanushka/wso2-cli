@@ -20,6 +20,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wso2/wso2-cli/internal/auth"
 	"github.com/wso2/wso2-cli/internal/auth/fakeissuer"
@@ -196,5 +197,56 @@ func TestAProductAuthorizedAgainIsHeldToItsNewGrant(t *testing.T) {
 	}
 	if _, scopes, _ := deployment.issuer.Introspect(t, grant.Token); len(scopes) != 1 || scopes[0] != siblingScope {
 		t.Errorf("access carried %v, want what the new authorization granted, [%s]", scopes, siblingScope)
+	}
+}
+
+// A sign-in that replaces the session while a request waits for the rotation
+// lock decides what that request is held to.
+func TestARequestIsHeldToTheGrantCurrentWhenItRenews(t *testing.T) {
+	const otherScope = "other"
+	deployment := seedBrowserSession(t, fakeissuer.Options{RequireResource: true, RefreshScopeMode: "ignore"})
+	broker := siblingBroker(t, deployment)
+	product := broker.Selection.Identity.Products[siblingNamespace]
+	product.Scopes = []string{siblingScope, otherScope}
+	broker.Selection.Identity.Products[siblingNamespace] = product
+	broker.Capabilities.AuthScopes = product.Scopes
+	store := session.Store{StateRoot: deployment.stateRoot}
+	ref := contexts.ProductSessionRef(sessionRef, siblingNamespace)
+	save := func(seeded, granted []string) error {
+		return store.Save(ref, session.Session{Issuer: deployment.issuer.URL,
+			RefreshToken: deployment.issuer.SeedSessionFor(seeded, siblingAudience),
+			Strategy:     contexts.StrategySibling, Bound: true, Resource: siblingAudience,
+			Scopes: product.Scopes, Granted: granted})
+	}
+	if err := save(product.Scopes, product.Scopes); err != nil {
+		t.Fatal(err)
+	}
+	broker.EstablishSession = func(contexts.ProductAccess) error {
+		t.Error("the request was authorized again")
+		return save([]string{siblingScope}, []string{siblingScope})
+	}
+	locked, release := make(chan struct{}), make(chan struct{})
+	replaced := make(chan error, 1)
+	go func() {
+		replaced <- store.WithLock(ref, func() error {
+			close(locked)
+			<-release
+			return save([]string{siblingScope}, []string{siblingScope})
+		})
+	}()
+	<-locked
+	acquired := make(chan error, 1)
+	go func() {
+		_, err := broker.Acquire(auth.Request{Audience: siblingAudience})
+		acquired <- err
+	}()
+	time.Sleep(100 * time.Millisecond)
+	close(release)
+
+	if err := <-replaced; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-acquired; err != nil {
+		t.Errorf("acquire: %v", err)
 	}
 }

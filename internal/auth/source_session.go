@@ -118,11 +118,7 @@ func (s sessionSource) mint(request Request, now time.Time) (Grant, error) {
 		return Grant{}, err
 	}
 	asked := request
-	request, err := s.withinGrant(asked)
-	if err != nil {
-		return Grant{}, err
-	}
-	granted, err := s.mintUnderLock(request, now)
+	granted, request, err := s.mintUnderLock(asked, now)
 	var again reauthorize
 	if !errors.As(err, &again) {
 		return granted, err
@@ -135,10 +131,7 @@ func (s sessionSource) mint(request Request, now time.Time) (Grant, error) {
 	if err := s.establish(); err != nil {
 		return Grant{}, s.orRenewalNeedsBrowser(request, err)
 	}
-	if request, err = s.withinGrant(asked); err != nil {
-		return Grant{}, err
-	}
-	granted, err = s.mintUnderLock(request, now)
+	granted, request, err = s.mintUnderLock(asked, now)
 	if errors.As(err, &again) {
 		return Grant{}, s.notAuthorizedForProduct(request)
 	}
@@ -309,9 +302,16 @@ func (s sessionSource) orSessionRequired(err error) error {
 }
 
 // mintUnderLock derives access under the session's rotation lock.
-func (s sessionSource) mintUnderLock(request Request, now time.Time) (Grant, error) {
+func (s sessionSource) mintUnderLock(asked Request, now time.Time) (Grant, Request, error) {
 	var granted Grant
+	request := asked
 	err := s.sessions.WithLock(s.ref, func() error {
+		// The grant is read under the lock, so a sign-in that replaced the
+		// session while this waited decides what the request is held to.
+		var err error
+		if request, err = s.withinGrant(asked); err != nil {
+			return err
+		}
 		issued, err := s.derive(request, now)
 		if err != nil {
 			return err
@@ -320,9 +320,9 @@ func (s sessionSource) mintUnderLock(request Request, now time.Time) (Grant, err
 		return nil
 	})
 	if err != nil {
-		return Grant{}, err
+		return Grant{}, request, err
 	}
-	return granted, nil
+	return granted, request, nil
 }
 
 // ensureSession establishes the product's own session when it is absent,
