@@ -13,6 +13,7 @@
       "audience": "resource",
       "scopes": ["ap:gateway:read", "ap:project:create", "ap:project:delete", "ap:project:read", "ap:rest_api:create", "ap:rest_api:delete", "ap:rest_api:deployment:read", "ap:rest_api:read"],
       "grant": "exchange",
+      "machine": ["inline"],
       "gateway": {
         "audience": "resource"
       },
