@@ -23,8 +23,8 @@
 // docs/adr/0026-debug-logging-from-the-environment-and-a-run-log.md.
 //
 // Redaction masks an attribute by its key, wherever in a record it sits, and
-// inside every string or error value it masks the secret parameters of any
-// URL and any JWT. It does not read the record's message, and it cannot
+// inside every string or error value it masks the user info and secret
+// parameters of any URL and any JWT. It does not read the record's message, and it cannot
 // recognise a secret that has neither a telling name nor one of those shapes,
 // so a call site still owns what free text it logs.
 package diag
@@ -121,7 +121,9 @@ func Discard() *slog.Logger {
 }
 
 // Redacting wraps a handler so every attribute named for a secret is masked
-// before inner sees it.
+// before inner sees it, along with the secrets inside string and error values.
+// Any other value, a map or struct passed to slog.Any, reaches inner as it is,
+// so such a value must not carry a secret: log its fields as attributes.
 //
 // It wraps rather than riding on slog.HandlerOptions.ReplaceAttr because
 // ReplaceAttr does not reach every attribute: slog calls it for the leaves

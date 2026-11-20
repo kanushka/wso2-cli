@@ -337,8 +337,9 @@ anything but empty, `0` or `false`, does the same for every invocation in the
 environment. A `--verbose` written on the line wins over the variable, so
 `--verbose=false` silences one command under `WSO2_DEBUG=1`. Attribute values
 that name a token, code, secret, password, API key or credential are written as
-`[redacted]`, as are the secret query and fragment parameters of any URL and
-anything shaped like a JWT, whatever the attribute is called (ADR 0026).
+`[redacted]`, as are the user info and the secret query and fragment parameters
+of any URL and anything shaped like a JWT, whatever the attribute is called
+(ADR 0026).
 
 When diagnostics are on, a product module is handed `WSO2_DEBUG=1`, and its
 standard error is kept up to 256 KiB instead of 8 KiB. A module built against
