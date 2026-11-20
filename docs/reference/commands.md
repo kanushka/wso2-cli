@@ -157,8 +157,10 @@ On a context whose provider is `thunder`, when the provider's discovery
 document lists `device_sso` in `scopes_supported`, the login authorization
 also asks for `device_sso`. ThunderID answers it with a device secret
 describing the sign-on the sign-in started, but only when the sign-in
-started one: a person already signed in to the provider in their browser gets
-none, and nothing changes for them. The secret is kept in the OS secure store
+started one: a person already signed in to the provider in their browser may
+get none. Under `login.productSessions: exchange` the next product is then
+refused with `auth.device_secret_unavailable`, with the recovery described
+below; under `browser` nothing asks for the secret. The secret is kept in the OS secure store
 with the login session; it is never written to the context file, printed,
 logged, or given to a module.
 
