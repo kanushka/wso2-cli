@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -944,6 +945,111 @@ func TestTheTokensOfASaveThatDiedAreRemovedByTheNextSaveOrDelete(t *testing.T) {
 				if value, err := keyring.Get(session.Service, key); err == nil && strings.Contains(value, "-b") {
 					t.Errorf("%s from the save that died survived", key)
 				}
+			}
+		})
+	}
+}
+
+// hookedStore is the OS secure store that runs a hook after every read.
+type hookedStore struct{ after func(user string) }
+
+func (h hookedStore) Get(service, user string) (string, error) {
+	value, err := keyring.Get(service, user)
+	h.after(user)
+	return value, err
+}
+
+func (h hookedStore) Set(service, user, password string) error {
+	return keyring.Set(service, user, password)
+}
+
+func (h hookedStore) Delete(service, user string) error { return keyring.Delete(service, user) }
+
+// A save that lands while a read is collecting the side entries does not leave
+// that read holding part of the earlier session.
+func TestAReadThatASaveOvertakesFindsOneWholeSession(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	earlier := session.Session{Issuer: "https://is.example", RefreshToken: "rt-a", AccessToken: "at-a", IDToken: "idt-a", DeviceSecret: "ds-a"}
+	later := session.Session{Issuer: "https://is.example", RefreshToken: "rt-b", AccessToken: "at-b", IDToken: "idt-b", DeviceSecret: "ds-b"}
+	if err := store.Save("cloud-dev", earlier); err != nil {
+		t.Fatal(err)
+	}
+	overtaken := false
+	defer session.UseSecureStore(hookedStore{after: func(user string) {
+		if overtaken || !strings.Contains(user, "#refresh.") {
+			return
+		}
+		overtaken = true
+		restore := session.UseSecureStore(hookedStore{after: func(string) {}})
+		defer restore()
+		if err := store.Save("cloud-dev", later); err != nil {
+			t.Error(err)
+		}
+	}})()
+
+	loaded, err := store.Load("cloud-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !overtaken {
+		t.Fatal("no save overtook the read")
+	}
+	if !reflect.DeepEqual(loaded, earlier) && !reflect.DeepEqual(loaded, later) {
+		t.Fatalf("loaded a mix of two sessions: %+v", loaded)
+	}
+}
+
+// failingStore is the OS secure store with reads of one key failing.
+type failingStore struct{ failing func(user string) bool }
+
+func (f failingStore) Get(service, user string) (string, error) {
+	if f.failing(user) {
+		return "", errors.New("the secure store did not answer")
+	}
+	return keyring.Get(service, user)
+}
+
+func (f failingStore) Set(service, user, password string) error {
+	return keyring.Set(service, user, password)
+}
+
+func (f failingStore) Delete(service, user string) error { return keyring.Delete(service, user) }
+
+func TestASideEntryTheStoreCannotReadIsReportedAsTheStore(t *testing.T) {
+	keyring.MockInit()
+	store := session.Store{StateRoot: t.TempDir()}
+	if err := store.Save("cloud-dev", session.Session{RefreshToken: "rt", AccessToken: "at"}); err != nil {
+		t.Fatal(err)
+	}
+	defer session.UseSecureStore(failingStore{failing: func(user string) bool { return strings.Contains(user, "#refresh.") }})()
+
+	_, err := store.Load("cloud-dev")
+	assertProblemCode(t, err, "auth.keyring_unavailable")
+}
+
+// A save or delete that cannot read the entry it replaces changes nothing,
+// rather than leave that entry's side entries behind.
+func TestAnEntryTheStoreCannotReadIsLeftAsItWas(t *testing.T) {
+	for name, change := range map[string]func(store session.Store) error{
+		"delete": func(store session.Store) error { _, err := store.Delete("cloud-dev"); return err },
+		"save":   func(store session.Store) error { return store.Save("cloud-dev", session.Session{RefreshToken: "rt-b"}) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			keyring.MockInit()
+			store := session.Store{StateRoot: t.TempDir()}
+			earlier := session.Session{RefreshToken: "rt-a", AccessToken: "at-a"}
+			if err := store.Save("cloud-dev", earlier); err != nil {
+				t.Fatal(err)
+			}
+			name := store.EntryName("cloud-dev")
+			restore := session.UseSecureStore(failingStore{failing: func(user string) bool { return user == name }})
+
+			err := change(store)
+			restore()
+			assertProblemCode(t, err, "auth.keyring_unavailable")
+			if loaded, err := store.Load("cloud-dev"); err != nil || !reflect.DeepEqual(loaded, earlier) {
+				t.Fatalf("after the refused %s: %+v, %v", name, loaded, err)
 			}
 		})
 	}

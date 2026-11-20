@@ -201,25 +201,14 @@ func (s Store) Load(ref string) (Session, error) {
 			return Session{}, unreadable()
 		}
 		session := stored.Session
-		if stored.Generation == "" {
-			// An entry an earlier shell wrote keeps the refresh token and
-			// device secret inline and the two identity tokens in unmarked
-			// side entries.
-			for _, suffix := range []string{accessTokenSuffix, idTokenSuffix} {
-				if field := session.largeValues()[suffix]; *field == "" {
-					*field = s.sideEntry(name + suffix)
-				}
-			}
-		} else {
-			for suffix, field := range session.largeValues() {
-				*field = s.sideEntry(sideKey(name, suffix, stored.Generation))
-			}
-		}
-		if session.RefreshToken != "" {
-			return session, nil
+		if err := readSideEntries(name, stored.Generation, &session); err != nil {
+			return Session{}, err
 		}
 		// A save may have moved the entry to a new generation, and retired
-		// the side entries this one names, between the two reads.
+		// the side entries this one names, while they were being read.
+		if again, err := secureStore.Get(Service, name); err == nil && again == value && session.RefreshToken != "" {
+			return session, nil
+		}
 		previous = value
 	}
 	return Session{}, unreadable()
@@ -255,14 +244,41 @@ func (v *Session) largeValues() map[string]*string {
 	}
 }
 
-// sideEntry reads one side entry, empty when there is none. A backend that
-// cannot be asked shows up on the session entry itself, which was read first.
-func (s Store) sideEntry(key string) string {
-	value, err := secureStore.Get(Service, key)
-	if err != nil {
-		return ""
+// readSideEntries fills a session's large values from the side entries of
+// the generation its entry names.
+func readSideEntries(name, generation string, session *Session) error {
+	if generation == "" {
+		// An entry an earlier shell wrote keeps the refresh token and device
+		// secret inline and the two identity tokens in unmarked side entries.
+		for _, suffix := range []string{accessTokenSuffix, idTokenSuffix} {
+			if field := session.largeValues()[suffix]; *field == "" {
+				if err := sideEntry(name+suffix, field); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
 	}
-	return value
+	for _, suffix := range sideSuffixes {
+		if err := sideEntry(sideKey(name, suffix, generation), session.largeValues()[suffix]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sideEntry reads one side entry into field, empty when there is none.
+func sideEntry(key string, field *string) error {
+	value, err := secureStore.Get(Service, key)
+	switch {
+	case errors.Is(err, keyring.ErrNotFound):
+		*field = ""
+	case err != nil:
+		return keyringUnavailable(err)
+	default:
+		*field = value
+	}
+	return nil
 }
 
 // Stored reports whether any entry exists for a credential reference, without
@@ -334,7 +350,10 @@ func (s Store) Save(ref string, value Session) error {
 		return keyringUnavailable(err)
 	}
 	name := s.EntryName(ref)
-	current := s.generationOf(name)
+	current, err := s.generationOf(name)
+	if err != nil {
+		return err
+	}
 	s.retireAbandoned(name, current)
 	// The generation is named before its side entries are written, so a save
 	// that dies before its entry leaves nothing the next save or delete
@@ -404,17 +423,21 @@ func sideKey(name, suffix, generation string) string {
 }
 
 // generationOf is the generation the stored entry names, empty when there is
-// none or it cannot be read.
-func (s Store) generationOf(name string) string {
+// no entry or it names none. A backend that cannot read the entry is an
+// error: its side entries could not be found again once it is replaced.
+func (s Store) generationOf(name string) (string, error) {
 	value, err := secureStore.Get(Service, name)
-	if err != nil {
-		return ""
+	switch {
+	case errors.Is(err, keyring.ErrNotFound):
+		return "", nil
+	case err != nil:
+		return "", keyringUnavailable(err)
 	}
 	var stored entry
 	if json.Unmarshal([]byte(value), &stored) != nil {
-		return ""
+		return "", nil
 	}
-	return stored.Generation
+	return stored.Generation, nil
 }
 
 // sideKeysOf are every side entry an entry of that generation may own,
@@ -471,7 +494,10 @@ func (s Store) Delete(ref string) (bool, error) {
 	// ended is the session entry's answer, and a side entry left behind
 	// would be a token on the machine that nothing can reach any more.
 	name := s.EntryName(ref)
-	current := s.generationOf(name)
+	current, err := s.generationOf(name)
+	if err != nil {
+		return false, err
+	}
 	s.retireAbandoned(name, current)
 	for _, key := range append(s.sideKeysOf(name, current), name+pendingSuffix) {
 		if err := secureStore.Delete(Service, key); err != nil && !errors.Is(err, keyring.ErrNotFound) {
@@ -479,7 +505,7 @@ func (s Store) Delete(ref string) (bool, error) {
 		}
 	}
 	retireLegacyEntry(ref)
-	err := secureStore.Delete(Service, name)
+	err = secureStore.Delete(Service, name)
 	switch {
 	case err == nil:
 		return true, nil
