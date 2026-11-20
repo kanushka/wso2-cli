@@ -272,6 +272,23 @@ func TestTheModuleIsToldTheDeadlineItWillBeHeldTo(t *testing.T) {
 	}
 }
 
+// A module declares how long a command needs, and no declaration is trusted
+// past MaxTimeout: the module is told the ceiling it will be held to.
+func TestADeclaredTimeoutIsHeldToTheCeiling(t *testing.T) {
+	var toModule bytes.Buffer
+	invocation := statusInvocation()
+	invocation.Timeout = 2 * time.Hour
+
+	if _, err := testSession().Run(&toModule, moduleStream(t, conformingHello(), statusResult()), invocation); err != nil {
+		t.Fatalf("a conforming exchange failed: %v", err)
+	}
+
+	sent := shellMessages(t, &toModule)
+	if got := sent[1].GetInvoke().GetPolicy().GetDeadlineMillis(); got != uint32(MaxTimeout.Milliseconds()) {
+		t.Errorf("the invocation carries deadline %dms, want the %v ceiling", got, MaxTimeout)
+	}
+}
+
 func TestAModuleThatWillNotAcceptTheHandshakeIsAProcessProblem(t *testing.T) {
 	// A module that closed its protocol input makes the shell's write fail.
 	// That is a module process failure, not an internal shell error.

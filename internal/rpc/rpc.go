@@ -143,13 +143,23 @@ type Invocation struct {
 	Timeout time.Duration
 }
 
-// timeout reports the deadline in force, applying the shell default. The module
-// is told the same value it will actually be held to.
+// MaxTimeout is the longest a module command may declare it needs. A command
+// that waits on the product declares more than DefaultTimeout; none is
+// trusted with an unbounded wait, because the shell holds the terminal and
+// the module's process for as long as it lasts.
+const MaxTimeout = 30 * time.Minute
+
+// timeout reports the deadline in force, applying the shell default and
+// ceiling. The module is told the same value it will actually be held to.
 func (i Invocation) timeout() time.Duration {
-	if i.Timeout <= 0 {
+	switch {
+	case i.Timeout <= 0:
 		return DefaultTimeout
+	case i.Timeout > MaxTimeout:
+		return MaxTimeout
+	default:
+		return i.Timeout
 	}
-	return i.Timeout
 }
 
 // Outcome is the single terminal message a module returned.

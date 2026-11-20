@@ -89,6 +89,13 @@ type Command struct {
 	// Hidden reports whether this command should be offered to a user. It is
 	// what the module marked hidden in its own tree.
 	Hidden bool `json:"hidden,omitempty"`
+	// TimeoutSeconds is how long the shell waits for this command's answer,
+	// in place of its default, for a command that waits on the product (a
+	// build or a deployment finishing). Zero, which is every command that
+	// declares nothing, keeps the shell's default. The shell holds it to a
+	// ceiling of its own, and reads it from the module receipt like the rest
+	// of the tree, never from the catalog.
+	TimeoutSeconds int `json:"timeoutSeconds,omitempty"`
 	// Aliases are the other names this command answers to at its own level.
 	//
 	// They are carried here rather than given paths of their own because Cobra

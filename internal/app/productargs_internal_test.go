@@ -20,6 +20,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/internal/output"
@@ -584,5 +585,31 @@ func TestTheLastNoInputOnAProductLineWins(t *testing.T) {
 			t.Errorf("leading %v, %q: asked %v, invocation %v, err %v; want %v",
 				testCase.leading, testCase.args, asked, shell.invocation.asksNoInput(), err, testCase.want)
 		}
+	}
+}
+
+// A command's declared timeout reaches the invocation through the receipt:
+// the parsed line carries it, and every other command keeps the default.
+func TestADeclaredTimeoutIsReadFromTheReceiptForTheParsedCommand(t *testing.T) {
+	tree := declaring(
+		commandtree.Command{Runnable: true},
+		commandtree.Command{Path: []string{"build"}},
+		commandtree.Command{Path: []string{"build", "run"}, Runnable: true, TimeoutSeconds: 900},
+		commandtree.Command{Path: []string{"build", "list"}, Runnable: true},
+	)
+
+	waiting, err := parseProductArgs("reference", tree, []string{"build", "run", "order-api"}, output.ModeTable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := declaredTimeout(waiting.declared); got != 15*time.Minute {
+		t.Errorf("build run is held to %v, want the 15m it declares", got)
+	}
+	plain, err := parseProductArgs("reference", tree, []string{"build", "list", "order-api"}, output.ModeTable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := declaredTimeout(plain.declared); got != 0 {
+		t.Errorf("build list declares %v, want none, which keeps the shell default", got)
 	}
 }

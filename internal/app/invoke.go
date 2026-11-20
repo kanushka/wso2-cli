@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/wso2/wso2-cli/internal/auth"
 	"github.com/wso2/wso2-cli/internal/contexts"
@@ -29,6 +30,7 @@ import (
 	"github.com/wso2/wso2-cli/internal/parsetree"
 	"github.com/wso2/wso2-cli/internal/rpc"
 	"github.com/wso2/wso2-cli/internal/version"
+	"github.com/wso2/wso2-cli/sdk/commandtree"
 	"github.com/wso2/wso2-cli/sdk/diag"
 	"github.com/wso2/wso2-cli/sdk/problem"
 	"github.com/wso2/wso2-cli/sdk/protocol"
@@ -221,6 +223,10 @@ func (s Shell) invokeModule(namespace string, resolved modules.Resolved, args []
 			GatewayEndpoint: gatewayEndpoint(selection.Identity, namespace),
 		},
 		Interactive: false,
+		// A command that waits on the product declares how long it needs. It
+		// is read from the receipt, which is pinned to the executable about to
+		// run (ADR 0013), and rpc holds it to MaxTimeout.
+		Timeout: declaredTimeout(line.declared),
 	})
 
 	// Diagnostics are rendered whatever the outcome, because what a module
@@ -436,4 +442,11 @@ func credentialVariables(identity contexts.Account) []string {
 		}
 	}
 	return names
+}
+
+// declaredTimeout is the deadline a command declares in its module's tree,
+// zero (the shell default) when it declares none or the module declares no
+// tree at all.
+func declaredTimeout(command commandtree.Command) time.Duration {
+	return time.Duration(command.TimeoutSeconds) * time.Second
 }

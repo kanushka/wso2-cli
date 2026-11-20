@@ -118,6 +118,28 @@ tree, which is a supported state.
 See [ADR 0013](../adr/0013-a-command-tree-is-parsed-only-from-the-local-receipt.md)
 for why the shell parses only from the local receipt and never from the catalog.
 
+#### A command that waits on its product
+
+The shell waits 30 seconds for a command's answer, counting only the module's
+own time, and then stops the module. A command that follows a build or a
+deployment until it finishes declares how long it needs instead:
+
+```go
+cobratree.WithTimeout(buildRunCommand, 15*time.Minute)
+```
+
+The value is rounded up to a whole second and carried in the declared tree as
+the command's `timeoutSeconds`, so it takes effect when the module is
+installed, and the shell reads it from the receipt like the rest of the tree.
+The shell holds every declaration to a ceiling of 30 minutes and tells the
+module the deadline it is held to in the invocation's policy. A command that
+declares nothing keeps the default.
+
+A module should stop waiting on its own before that deadline, with a result or
+a problem of its own, rather than be stopped mid-wait: a module that is stopped
+answers nothing, and the user sees a process failure instead of what the
+command knew.
+
 ## What a handler receives
 
 ```go
