@@ -66,10 +66,10 @@ belongs to. The login then asks for every token at that organization's own
 token endpoint, `/ou/<id>/oauth2/token`, as ADR 0024 has `ws org use` sign a
 person in to one, and records it. A token that names another organization is
 refused with `auth.organization_mismatch`; one that names none was still
-issued there. ThunderID answers a client it does not know in that organization
-as it answers a wrong secret, so that refusal names the variable beside the
-credential. A value that is not an organization id is refused before anything
-is sent.
+issued there. An organization the service account is not shared with, which
+ThunderID answers with `unauthorized_client`, is refused as a credential the
+identity provider will not accept there, naming the variable. A value that is
+not an organization id is refused before anything is sent.
 
 Every later command asks for its tokens at the token endpoint of the
 organization the context records, named or not, so none can be issued in

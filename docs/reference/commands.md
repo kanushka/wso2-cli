@@ -140,7 +140,7 @@ organization's own token endpoint, `/ou/<id>/oauth2/token`, and records it as
 the context's organization; a value that is not an organization id is refused
 with `shell.invalid_argument` (exit 64) before anything is sent. A token
 issued in another organization is refused with `auth.organization_mismatch`,
-and an organization the identity provider knows no such service account in is
+and an organization the service account is not shared with is
 `auth.credential_unavailable`, naming `WSO2_ORGANIZATION`; nothing is written
 either way. On a terminal, the variables printed for CI include it. Every
 later command on the context asks for its tokens at the endpoint of the
