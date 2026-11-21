@@ -28,8 +28,13 @@ import (
 )
 
 // declaredScopes are the WSO2 Cloud permissions the Integration Platform API
-// checks on the calls these commands make, as module.json declares them. The
-// API refuses a token that lacks the one a call needs, naming it.
+// checks on the calls these commands make. The API refuses a token that lacks
+// the one a call needs, naming it.
+//
+// module.json states the same list twice: capabilities.authScopes, which
+// internal/boundaries compares with this list, and
+// capabilities.product.scopes, which a Cloud login records and nothing
+// compares. Change all three together.
 var declaredScopes = []string{
 	"cloud:project:read", "cloud:project:create",
 	"ipaas:environment:read", "ipaas:deployment-pipeline:read",
