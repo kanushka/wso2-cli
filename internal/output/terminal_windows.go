@@ -29,3 +29,19 @@ func isTerminal(fd uintptr) bool {
 	var mode uint32
 	return windows.GetConsoleMode(windows.Handle(fd), &mode) == nil
 }
+
+// rendersColor reports whether the console behind fd renders ANSI escapes,
+// turning its virtual-terminal processing on when it is off. A console that
+// refuses it, as one before Windows 10 does, gets plain output rather than
+// raw escape codes.
+func rendersColor(fd uintptr) bool {
+	handle := windows.Handle(fd)
+	var mode uint32
+	if windows.GetConsoleMode(handle, &mode) != nil {
+		return false
+	}
+	if mode&windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0 {
+		return true
+	}
+	return windows.SetConsoleMode(handle, mode|windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING) == nil
+}
