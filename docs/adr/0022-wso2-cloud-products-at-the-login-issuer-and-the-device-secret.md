@@ -31,8 +31,13 @@ environment it signs in to, and records every installed one on the context
 when it logs in, so nothing has to be typed. API Management, Integration and
 Agent Management share one resource server, `urn:wso2:cloud`, each with a
 scope tree of its own; Identity is its own resource server, named by its API
-URL. A record already on the context, written by a login or by a person, is
-never changed.
+URL. A record already on the context keeps its URL, audience and grant. Its
+scopes follow the installed module only while it is still at the URL and
+audience the environment gives it, the record a login wrote: a login then
+replaces them with what the module asks for now, and says so in one line. A
+record pointed anywhere else was written by a person and is never changed.
+(Amended 2026-11-20: a module that changes its scopes, as `intg` did when it
+first declared any, otherwise reached no context recorded before it.)
 
 ## A ThunderID context may record no product
 

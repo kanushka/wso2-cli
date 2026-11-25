@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/wso2/wso2-cli/internal/contexts"
+	"github.com/wso2/wso2-cli/internal/modules"
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
@@ -109,8 +110,50 @@ func withCloudProducts(target contexts.Context, environment cloudEnvironment, na
 	return target, nil
 }
 
+// cloudProductScopes are the scopes a Cloud login records for a product: the
+// Cloud product table's where it states any, else the installed descriptor's.
+func cloudProductScopes(namespace string, descriptor *modules.ProductDescriptor) []string {
+	if known := cloudProducts[namespace].scopes; known != nil {
+		return known
+	}
+	return descriptor.Scopes
+}
+
+// staleCloudScopes are the recorded WSO2 Cloud products whose scopes differ
+// from what the installed module now asks for, in namespace order, among the
+// records a Cloud login wrote itself: those still at the URL and audience the
+// environment gives them. A record pointed anywhere else was edited by a
+// person and is left as it is.
+func staleCloudScopes(target contexts.Context, environment cloudEnvironment, lookup descriptorLookup) []string {
+	var stale []string
+	for _, namespace := range slices.Sorted(maps.Keys(cloudProducts)) {
+		recorded, found := target.Products[namespace]
+		descriptor := lookup(namespace)
+		if !found || descriptor == nil {
+			continue
+		}
+		known := cloudProducts[namespace]
+		url := known.spec(environment).URL
+		audience := known.audience
+		if audience == "" {
+			audience = url
+		}
+		if recorded.Endpoint != url || recorded.Audience != audience {
+			continue
+		}
+		if !sameScopes(recorded.Scopes, cloudProductScopes(namespace, descriptor)) {
+			stale = append(stale, namespace)
+		}
+	}
+	return stale
+}
+
 // recordCloudProducts records the installed WSO2 Cloud products an existing
-// Cloud context lacks, before a login authorizes them.
+// Cloud context lacks, before a login authorizes them, and brings the scopes
+// of the records it wrote itself up to what the installed modules ask for.
+// The records are the login's own, not a person's, so the exception to a
+// product update never editing a context (ADR 0016) is announced in one line
+// per product.
 //
 // The environment file is read again rather than kept on the context: it is
 // where the environment's values live, and the context document has no member
@@ -119,10 +162,10 @@ func withCloudProducts(target contexts.Context, environment cloudEnvironment, na
 func (s Shell) recordCloudProducts(root, env string, target contexts.Context, lookup descriptorLookup) error {
 	name := target.Name
 	missing := unrecordedCloudProducts(target, lookup)
-	if len(missing) == 0 {
+	environment, err := readCloudEnvironment(root, env)
+	if err != nil && len(missing) == 0 {
 		return nil
 	}
-	environment, err := readCloudEnvironment(root, env)
 	var refused problem.Problem
 	if errors.As(err, &refused) && refused.Code == "shell.cloud_environment_unknown" {
 		_, err := fmt.Fprintf(s.Streams.Err, "Not recorded on the %q context: %s. Place the %s environment "+
@@ -132,6 +175,10 @@ func (s Shell) recordCloudProducts(root, env string, target contexts.Context, lo
 	}
 	if err != nil {
 		return err
+	}
+	stale := staleCloudScopes(target, environment, lookup)
+	if len(missing) == 0 && len(stale) == 0 {
+		return nil
 	}
 	plan, err := s.planChange(root, func(document contexts.Document) (contexts.Document, error) {
 		target, found := document.Find(name)
@@ -145,13 +192,26 @@ func (s Shell) recordCloudProducts(root, env string, target contexts.Context, lo
 		if err != nil {
 			return document, err
 		}
+		for _, namespace := range staleCloudScopes(target, environment, lookup) {
+			product := target.Products[namespace]
+			product.Scopes = slices.Clone(cloudProductScopes(namespace, lookup(namespace)))
+			target.Products[namespace] = product
+		}
 		return document.Put(target), nil
 	})
 	if err != nil {
 		return err
 	}
-	_, err = s.writeChange(root, plan)
-	return err
+	if _, err := s.writeChange(root, plan); err != nil {
+		return err
+	}
+	for _, namespace := range stale {
+		if _, err := fmt.Fprintf(s.Streams.Err, "Updated the %q product's permissions on the %q context to the "+
+			"ones the installed module asks for.\n", namespace, name); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // installCloudProducts installs each WSO2 Cloud product that is not installed,

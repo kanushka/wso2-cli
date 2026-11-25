@@ -27,6 +27,9 @@ const (
 	// color the setup wizard frames its questions in.
 	subtleStyle = "\x1b[90m"
 	resetStyle  = "\x1b[0m"
+	// errorStyle and warningStyle mark a problem's severity label.
+	errorStyle   = "\x1b[1;31m"
+	warningStyle = "\x1b[1;33m"
 )
 
 // Hint marks the wso2 commands inside a next step or a recovery, so a command

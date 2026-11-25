@@ -64,7 +64,9 @@ func StdinIsTerminal() bool {
 //
 // With NO_COLOR absent or empty, the answer falls back to whether w is a
 // terminal: a piped or redirected stream gets no escape codes even without
-// the variable set, because there is nothing there to render them.
+// the variable set, because there is nothing there to render them. On
+// Windows the terminal also has to render the escapes: a console whose
+// virtual-terminal processing cannot be turned on gets no color.
 //
 // FORCE_COLOR turns color on for a stream that is not a terminal but renders
 // ANSI anyway — a Jupyter cell or a CI log — when set to anything but empty
@@ -83,5 +85,9 @@ func ColorEnabled(w io.Writer) bool {
 	if force := os.Getenv("FORCE_COLOR"); force != "" && force != "0" {
 		return true
 	}
-	return IsTerminal(w)
+	descriptor, ok := w.(interface{ Fd() uintptr })
+	if !ok {
+		return false
+	}
+	return rendersColor(descriptor.Fd())
 }

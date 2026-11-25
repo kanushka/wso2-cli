@@ -65,11 +65,11 @@ func TestDiagnosticAndProblemIncludeCodeAndRecovery(t *testing.T) {
 	Diagnostic(&diagnostic, failure)
 	Problem(&terminal, failure)
 
-	wantDiagnostic := "warning: the module has no receipt (modules.receipt_missing)\n  Reinstall the module.\n"
+	wantDiagnostic := "warning: the module has no receipt (modules.receipt_missing)\n\n  Reinstall the module.\n"
 	if got := diagnostic.String(); got != wantDiagnostic {
 		t.Fatalf("Diagnostic produced %q, want %q", got, wantDiagnostic)
 	}
-	wantProblem := "error: the module has no receipt (modules.receipt_missing)\n  Reinstall the module.\n"
+	wantProblem := "error: the module has no receipt (modules.receipt_missing)\n\n  Reinstall the module.\n"
 	if got := terminal.String(); got != wantProblem {
 		t.Fatalf("Problem produced %q, want %q", got, wantProblem)
 	}

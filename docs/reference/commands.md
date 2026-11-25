@@ -121,8 +121,13 @@ is reported on standard error as `Skipped <product>: <reason>` and left out.
 Either way the sign-in goes on with the rest, and the next login tries it
 again. A product installed any other way is
 recorded on the next login too. A
-record already on the context is never changed, whether the login wrote it or
-a person did; to take the derived values again, remove the record with
+record still at the URL and audience the environment gives it has its scopes
+brought up to what the installed module asks for on each login, which prints
+`Updated the "<product>" product's permissions on the "<context>" context to
+the ones the installed module asks for.` on standard error. Any other change to
+a record already on the context is never made, whether the login wrote it or a
+person did, and a record pointed elsewhere keeps its scopes too; to take the
+derived values again, remove the record with
 `ws context product remove <product>` and log in. A removal is not remembered:
 while the product's module is installed, the next login records it again. When
 the environment file is

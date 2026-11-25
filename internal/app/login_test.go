@@ -637,8 +637,8 @@ func requireRefusal(t *testing.T, rendered, code string) {
 	if !strings.Contains(rendered, "("+code+")") {
 		t.Fatalf("expected the problem %q in:\n%s", code, rendered)
 	}
-	lines := strings.Split(strings.TrimRight(rendered, "\n"), "\n")
-	if len(lines) < 2 || strings.TrimSpace(lines[1]) == "" {
+	lines := strings.Fields(strings.SplitN(rendered, "\n", 2)[0])
+	if rest := strings.SplitN(rendered, "\n", 2); len(lines) == 0 || len(rest) < 2 || strings.TrimSpace(rest[1]) == "" {
 		t.Fatalf("the problem %q states no recovery:\n%s", code, rendered)
 	}
 }

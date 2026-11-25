@@ -39,3 +39,9 @@ func isTerminal(fd uintptr) bool {
 	_, err := unix.IoctlGetTermios(int(fd), ioctlGetTermios)
 	return err == nil
 }
+
+// rendersColor reports whether the terminal behind fd renders ANSI escapes,
+// which every terminal device on these platforms does.
+func rendersColor(fd uintptr) bool {
+	return isTerminal(fd)
+}
