@@ -18,9 +18,11 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 
+	"github.com/wso2/wso2-cli/internal/auth/session"
 	"github.com/wso2/wso2-cli/internal/output"
 	"github.com/wso2/wso2-cli/internal/wizard"
 	"github.com/wso2/wso2-cli/sdk/problem"
@@ -152,6 +154,56 @@ func (s Shell) choose(question string, options []wizard.Option, fallback int) (i
 func (s Shell) ask(title, fallback string, validate func(string) error) (string, error) {
 	answer, err := s.prompter().Input(title, fallback, validate)
 	return answer, cancelled(err)
+}
+
+// confirmDestructive asks before a change that cannot be undone, unless
+// --yes answered the question in advance. Where nothing may be asked it
+// refuses with shell.non_interactive naming --yes, and a no at the prompt is
+// shell.cancelled, the same outcomes a module's confirmation has (ADR 0021).
+func (s Shell) confirmDestructive(yes bool, subject, question string) error {
+	if yes {
+		return nil
+	}
+	if may, reason := s.mayPrompt(false); !may {
+		return nonInteractiveConfirmation(subject, reason)
+	}
+	confirmed, err := s.confirm(question)
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		return declinedConfirmation()
+	}
+	return nil
+}
+
+// storedSessions counts the sessions a planned change would end that are
+// held in the secure store. The plan names every record whose binding changes,
+// signed in or not, and only a stored session is lost.
+func storedSessions(root string, plan plannedChange) (int, error) {
+	store := session.Store{StateRoot: root}
+	stored := 0
+	for _, access := range plan.ending {
+		present, err := store.Stored(access.SessionRef)
+		if err != nil {
+			return 0, err
+		}
+		if present {
+			stored++
+		}
+	}
+	return stored, nil
+}
+
+// sessionsClause says how many sessions a change ends, for its question.
+func sessionsClause(ending int) string {
+	switch ending {
+	case 0:
+		return ""
+	case 1:
+		return " It ends 1 session."
+	}
+	return fmt.Sprintf(" It ends %d sessions.", ending)
 }
 
 // cancelled turns a question the person cancelled into the shell's refusal

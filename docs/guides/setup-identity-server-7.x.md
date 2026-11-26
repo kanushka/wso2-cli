@@ -88,11 +88,9 @@ assign the user to it. Console changes apply at the next login.
 
 ## 6. Create the context
 
-The `ws context create` wizard lists **WSO2 Identity Server (coming soon)**
-and refuses it: no WSO2 product the CLI installs signs in at an Identity
-Server, so the wizard offers no path that ends anywhere. The `example`
-product here is reached by its own grant rather than by being an Identity
-Server product, which is why the flags still work:
+The `ws context create` wizard sets up self-hosted Thunder contexts only, so
+an Identity Server context is created with flags. The `example` product here
+is reached by its own grant rather than by being an Identity Server product:
 
 ```sh
 ws context create is-local \

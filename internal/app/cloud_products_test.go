@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -394,12 +395,73 @@ func TestACloudContextKeepsAStatedGrant(t *testing.T) {
 	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	login.run(t, "context", "apply", "-f", file)
+	login.run(t, "context", "apply", "-f", file, "--yes")
 
 	apim := cloudContext(t, login.shell).Products["apim"]
 	if apim.Grant == nil || apim.Grant.Kind != contexts.GrantExchange || apim.Audience != cloudShared {
 		t.Errorf("apim = %+v, want the stated exchange grant under the Cloud resource server", apim)
 	}
+}
+
+// TestProductAddAsksNothingOnACloudContext proves the product add wizard is
+// for a context set up by hand: a WSO2 Cloud context's products come from its
+// login, so a bare add there is the refusal, with nothing read.
+func TestProductAddAsksNothingOnACloudContext(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudAPIM(t, login.shell)
+	login.run(t, "login")
+	login.shell.Reader = failIfReadReader{t}
+	login.errOut.Reset()
+	if code := login.shell.Run([]string{"context", "product", "add"}); code != exit.Usage ||
+		!strings.Contains(login.errOut.String(), "shell.missing_argument") {
+		t.Fatalf("exit %d, want shell.missing_argument: %s", code, login.errOut)
+	}
+}
+
+// TestApplyingAFileThatEndsSessionsAsksFirst proves context apply confirms
+// only when applying would end a session: it is refused under --no-input
+// naming --yes, and a no at the prompt changes nothing.
+func TestApplyingAFileThatEndsSessionsAsksFirst(t *testing.T) {
+	login := newCloudLogin(t)
+	installCloudAPIM(t, login.shell)
+	login.run(t, "login")
+	file := filepath.Join(t.TempDir(), "cloud.yaml")
+	body := "contexts:\n  - name: cloud-dev\n    type: cloud\n    login:\n      issuer: " + login.issuer.URL +
+		"\n      clientId: WSO2_CLI\n      provider: thunder\n    products:\n      apim:\n        url: " + cloudAPIMURL +
+		"\n        grant:\n          kind: exchange\n"
+	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := loadDocument(t, login.shell)
+
+	login.shell.Reader = failIfReadReader{t}
+	login.errOut.Reset()
+	if code := login.shell.Run([]string{"context", "apply", "-f", file, "--no-input"}); code != exit.Usage ||
+		!strings.Contains(login.errOut.String(), "shell.non_interactive") ||
+		!strings.Contains(login.errOut.String(), "--yes") {
+		t.Fatalf("exit %d, want shell.non_interactive naming --yes: %s", code, login.errOut)
+	}
+
+	login.shell.Reader = strings.NewReader("n\n")
+	login.errOut.Reset()
+	if code := login.shell.Run([]string{"context", "apply", "-f", file}); code != exit.Usage ||
+		!strings.Contains(login.errOut.String(), "shell.cancelled") {
+		t.Fatalf("exit %d, want shell.cancelled: %s", code, login.errOut)
+	}
+	if after := loadDocument(t, login.shell); !reflect.DeepEqual(after, before) {
+		t.Error("a refused apply changed the document")
+	}
+
+	login.shell.Reader = strings.NewReader(body)
+	login.errOut.Reset()
+	if code := login.shell.Run([]string{"context", "apply", "-f", "-"}); code != exit.Usage ||
+		!strings.Contains(login.errOut.String(), "shell.non_interactive") {
+		t.Fatalf("exit %d, want a file read from standard input refused naming --yes: %s", code, login.errOut)
+	}
+
+	login.shell.Reader = failIfReadReader{t}
+	login.run(t, "context", "apply", "-f", file, "--yes")
+	login.run(t, "context", "apply", "-f", file, "--no-input")
 }
 
 func TestAFirstCloudLoginSkipsAProductTheCatalogCannotSupply(t *testing.T) {

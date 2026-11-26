@@ -81,7 +81,7 @@ func TestContextDeleteWithoutSelectionDoesNotClaimOne(t *testing.T) {
 	seeded := twoContextDocument()
 	seeded.DefaultContext = "acme"
 	installLogin(t, shell, seeded)
-	out := mustRun(t, shell, "context", "delete", "beta")
+	out := mustRun(t, shell, "context", "delete", "beta", "--yes")
 	if strings.Contains(out, "No context is selected now.") {
 		t.Errorf("deleting an unselected context claimed the selection was cleared:\n%s", out)
 	}

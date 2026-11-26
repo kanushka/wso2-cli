@@ -28,22 +28,23 @@ import (
 
 // The way back from delete's and rename's usage refusals.
 const (
-	contextDeleteUsage = "Run wso2 context delete <name> [--dry-run]."
+	contextDeleteUsage = "Run wso2 context delete <name> [--yes] [--dry-run]."
 	contextRenameUsage = "Run wso2 context rename <name> <new-name>."
 )
 
 func (s Shell) contextDeleteCommand() *cobra.Command {
-	var dryRun bool
+	var dryRun, yes bool
 	command := &cobra.Command{
 		Use:               "delete <name>",
 		ValidArgsFunction: s.completeFirstContextName,
 		Short:             "Delete a context, ending every session it holds first.",
 		Args:              exactlyOneArgument("the name of the context to delete", contextDeleteUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			return s.contextDelete(command, args[0], dryRun)
+			return s.contextDelete(command, args[0], dryRun, yes)
 		},
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be deleted and ended, and change nothing.")
+	command.Flags().BoolVar(&yes, "yes", false, "Delete without asking for confirmation.")
 	return command
 }
 
@@ -65,7 +66,7 @@ func (s Shell) contextRenameCommand() *cobra.Command {
 // The sessions go first. If the write then fails, the context is still there
 // without a session, which a login fixes; the reverse order would leave
 // secrets in the secure store that no document names and no command can find.
-func (s Shell) contextDelete(command *cobra.Command, name string, dryRun bool) error {
+func (s Shell) contextDelete(command *cobra.Command, name string, dryRun, yes bool) error {
 	mode, err := s.shellOutputMode(command)
 	if err != nil {
 		return err
@@ -88,6 +89,15 @@ func (s Shell) contextDelete(command *cobra.Command, name string, dryRun bool) e
 	report := contextDeleted{Context: name, WasSelected: selected, DryRun: dryRun,
 		Ending: endingLines(plan.before, plan.ending), Sessions: []endedSession{}}
 	if !dryRun {
+		stored, err := storedSessions(root, plan)
+		if err != nil {
+			return err
+		}
+		if err := s.confirmDestructive(yes, fmt.Sprintf("deleting the %q context", name),
+			fmt.Sprintf("Delete the %q context? This cannot be undone.%s", name,
+				sessionsClause(stored))); err != nil {
+			return err
+		}
 		ended, err := s.writeChange(root, plan)
 		if err != nil {
 			return err

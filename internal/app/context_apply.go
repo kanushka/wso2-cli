@@ -39,7 +39,7 @@ import (
 
 // The way back from apply's and export's usage refusals.
 const (
-	contextApplyUsage = "Run wso2 context apply -f <file> [--use <name>] [--dry-run] [--no-install] " +
+	contextApplyUsage = "Run wso2 context apply -f <file> [--use <name>] [--yes] [--dry-run] [--no-install] " +
 		"[--update-products]."
 	contextExportUsage = "Run wso2 context export [<name>] > <file>."
 )
@@ -78,8 +78,8 @@ type inputProduct struct {
 
 // applyFlags are what wso2 context apply takes.
 type applyFlags struct {
-	file, use                         string
-	dryRun, noInstall, updateProducts bool
+	file, use                              string
+	dryRun, noInstall, updateProducts, yes bool
 }
 
 func (s Shell) contextApplyCommand() *cobra.Command {
@@ -106,6 +106,7 @@ func (s Shell) contextApplyCommand() *cobra.Command {
 		"Install nothing: every product must be installed already, or stated in full in the file.")
 	f.BoolVar(&flags.updateProducts, "update-products", false,
 		"Install the version the file pins for a product installed at another version.")
+	f.BoolVar(&flags.yes, "yes", false, "Apply without asking, when applying would end sessions.")
 	return command
 }
 
@@ -476,6 +477,19 @@ func (s Shell) contextApply(command *cobra.Command, flags applyFlags) error {
 	report.Ending = endingLines(plan.before, plan.ending)
 	report.Selected = plan.after.DefaultContext
 	if !flags.dryRun {
+		// Only a stored session is lost by applying: the rest is what the
+		// file says, and applying it again restores it.
+		stored, err := storedSessions(root, plan)
+		if err != nil {
+			return err
+		}
+		if stored > 0 {
+			if err := s.confirmApply(flags, stored); err != nil {
+				return err
+			}
+		}
+	}
+	if !flags.dryRun {
 		ended, err := s.writeChange(root, plan)
 		if err != nil {
 			return err
@@ -485,6 +499,18 @@ func (s Shell) contextApply(command *cobra.Command, flags applyFlags) error {
 		}
 	}
 	return s.reportApply(mode, report, flags)
+}
+
+// confirmApply asks before an apply that ends stored sessions. A file read
+// from standard input has used up what a person would answer on, so that is
+// refused the way a run with no terminal is.
+func (s Shell) confirmApply(flags applyFlags, stored int) error {
+	subject := "applying a file that ends sessions"
+	if flags.file == "-" && !flags.yes {
+		return nonInteractiveConfirmation(subject, "the file was read from standard input")
+	}
+	return s.confirmDestructive(flags.yes, subject,
+		fmt.Sprintf("Apply %s?%s", flags.file, sessionsClause(stored)))
 }
 
 // contextChanges lists, one line per member, how a replaced context differs

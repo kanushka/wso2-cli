@@ -68,7 +68,10 @@ func (s Shell) contextCreateCommand() *cobra.Command {
 			if len(args) == 1 {
 				name = args[0]
 			}
-			if flags.loginProduct == "" && flags.issuer == "" && flags.url == "" {
+			// The wizard sets up a Thunder context, so a provider named
+			// otherwise is created from its flags.
+			wizardProvider := flags.provider == "" || flags.provider == contexts.ProviderThunder
+			if flags.loginProduct == "" && flags.issuer == "" && flags.url == "" && wizardProvider {
 				if may, _ := s.mayPrompt(flags.noInput); may {
 					return s.contextCreateWizard(command, name, flags)
 				}

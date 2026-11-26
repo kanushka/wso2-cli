@@ -28,14 +28,14 @@ import (
 
 // The setup wizard's tests (#189). newContextShell installs iam (a thunder
 // login provider), api (with a gateway), apim and reference (no descriptor),
-// so "Sign in with:" Thunder uses iam, and the products offered are 1. api,
+// so the wizard signs in through iam, and the products offered are 1. api,
 // 2. apim and 3. Skip.
 
 // localWizardAnswers answer the create wizard the way localSetup's command
 // lines state the same setup.
 const localWizardAnswers = "" +
-	"1\n" + // Sign in with: Thunder, through iam
 	thunderURL + "/\n" + // Thunder URL, trailing slash and all
+	"\n" + // Client ID: the one iam's descriptor names
 	"\n" + // Sign in using: browser
 	"\n" + // Add a product: the default, api
 	apiURL + "\n" + // api URL
@@ -63,8 +63,7 @@ func TestContextCreateWizardWritesWhatTheCommandLinesWrite(t *testing.T) {
 		gotJSON, _ := json.MarshalIndent(got, "", "  ")
 		t.Fatalf("the wizard wrote\n%s\nthe command lines wrote\n%s", gotJSON, wantJSON)
 	}
-	for _, question := range []string{"Sign in with:", "1. Thunder", "2. Asgardeo", "3. WSO2 Identity Server (coming soon)",
-		"4. WSO2 Cloud (coming soon)", "Thunder URL: ", "Sign in using:",
+	for _, question := range []string{"Thunder URL: ", "Client ID of the registered OAuth application [", "Sign in using:",
 		"2. Device code\n", "Add a product this context reaches:",
 		"1. api", "2. apim", "3. Skip", "api URL: ", "api gateway URL (empty for none): ", "Add another product:", "Context name [context-1]: ",
 		`Create the "local" context? [Y/n]`, `Select "local" as the current context? [Y/n]`, "Log in now? [Y/n]"} {
@@ -72,12 +71,15 @@ func TestContextCreateWizardWritesWhatTheCommandLinesWrite(t *testing.T) {
 			t.Errorf("stderr lacks %q:\n%s", question, errOut)
 		}
 	}
+	if strings.Contains(errOut, "Sign in with:") {
+		t.Errorf("asked which provider to sign in with, which the wizard no longer offers:\n%s", errOut)
+	}
 	for _, line := range []string{"Login provider   Thunder", "Login product", "Product api"} {
 		if !strings.Contains(errOut, line) {
 			t.Errorf("the summary lacks %q:\n%s", line, errOut)
 		}
 	}
-	if strings.Contains(out, "Sign in with:") {
+	if strings.Contains(out, "Thunder URL") {
 		t.Errorf("a question reached standard output:\n%s", out)
 	}
 	if !strings.Contains(out, `Created the "local" context.`) || !strings.Contains(out, `Added the "api" product`) {
@@ -88,8 +90,8 @@ func TestContextCreateWizardWritesWhatTheCommandLinesWrite(t *testing.T) {
 func TestContextCreateWizardAsksOnlyWhatTheFlagsLeaveOut(t *testing.T) {
 	shell, _, _ := newContextShell(t)
 	// The name comes from the argument and the sign-in from --device.
-	// Thunder, its URL, skip products, create, and no login now.
-	shell.Reader = strings.NewReader("1\n" + thunderURL + "\n3\n\nn\n")
+	// Its URL, the descriptor's client ID, skip products, create, and no login now.
+	shell.Reader = strings.NewReader(thunderURL + "\n\n3\n\nn\n")
 	code, out, errOut := run(t, shell, "context", "create", "edge", "--device", "--use")
 	if code != exit.OK {
 		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, errOut)
@@ -106,51 +108,9 @@ func TestContextCreateWizardAsksOnlyWhatTheFlagsLeaveOut(t *testing.T) {
 	}
 }
 
-// The two identity products the wizard lists but cannot sign in with yet are
-// refused where they are picked, so the question comes back rather than the
-// wizard walking a path that has nowhere to end. What the person then picks
-// is Asgardeo, which is a login this shell does serve.
-func TestContextCreateWizardRefusesTheProductsThatAreComingSoon(t *testing.T) {
-	shell, _, _ := newContextShell(t)
-	shell.Reader = strings.NewReader("" +
-		"4\n" + // Sign in with: WSO2 Cloud, refused
-		"3\n" + // Sign in with: WSO2 Identity Server, refused
-		"2\n" + // Sign in with: Asgardeo
-		"acme\n" + // its organization
-		"cli\n" + // client ID
-		"3\n" + // Sign in using: client credentials
-		"not a name\n" + // refused
-		"CI_SECRET\n" +
-		"3\n" + // Skip products
-		"corp\n" + "\n" + "n\n") // name, create, do not select
-	code, out, errOut := run(t, shell, "context", "create")
-	if code != exit.OK {
-		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, errOut)
-	}
-	for _, want := range []string{"3. WSO2 Identity Server (coming soon)", "WSO2 Cloud login is coming soon.",
-		"WSO2 Identity Server login is coming soon.", "Asgardeo organization name: ", "not the secret"} {
-		if !strings.Contains(errOut, want) {
-			t.Errorf("stderr lacks %q:\n%s", want, errOut)
-		}
-	}
-	if strings.Contains(errOut, "Identity Server URL") {
-		t.Errorf("asked for an Identity Server URL after refusing it:\n%s", errOut)
-	}
-	if strings.Contains(errOut, "Log in now?") {
-		t.Errorf("offered a login to a client-credentials context:\n%s", errOut)
-	}
-	document := loadDocument(t, shell)
-	corp := contextNamed(t, document, "corp")
-	want := contexts.Login{Kind: contexts.KindClientCredentials, Issuer: "https://api.asgardeo.io/t/acme/oauth2/token",
-		ClientID: "cli", Tenant: "acme", Provider: contexts.ProviderAsgardeo, ClientSecretVariable: "CI_SECRET"}
-	if corp.Login != want || len(corp.Products) != 0 || document.DefaultContext != "" {
-		t.Errorf("context = %+v, selected %q", corp, document.DefaultContext)
-	}
-}
-
 func TestContextCreateWizardDeclinedWritesNothing(t *testing.T) {
 	shell, _, _ := newContextShell(t)
-	shell.Reader = strings.NewReader("1\n" + thunderURL + "\n\n3\nlocal\nn\n")
+	shell.Reader = strings.NewReader(thunderURL + "\n\n\n3\nlocal\nn\n")
 	code, _, errOut := run(t, shell, "context", "create")
 	if code != exit.Usage || !strings.Contains(errOut, "shell.cancelled") ||
 		!strings.Contains(errOut, "Nothing was written.") {
@@ -190,7 +150,7 @@ func TestContextCreateWizardEndOfInputIsARefusal(t *testing.T) {
 
 func TestContextCreateWizardWithJSONOutputOffersNothingAfter(t *testing.T) {
 	shell, _, _ := newContextShell(t)
-	shell.Reader = strings.NewReader("1\n" + thunderURL + "\n\nlocal\n\n\n")
+	shell.Reader = strings.NewReader(thunderURL + "\n\n\nlocal\n\n\n")
 	code, out, errOut := run(t, shell, "context", "create", "--output", "json")
 	if code != exit.OK {
 		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, errOut)
@@ -289,25 +249,37 @@ func TestContextProductAddWizardForANamedProductDeclined(t *testing.T) {
 	}
 }
 
-func TestContextCreateWizardThroughAsgardeo(t *testing.T) {
-	shell, _, _ := newContextShell(t)
-	// Asgardeo, a refused organization name, its name, the client, a browser,
-	// skip products, the name, create, select, and no login now.
-	shell.Reader = strings.NewReader("2\nacme corp\nacme\ncli\n\n3\nacme\n\n\nn\n")
-	code, out, errOut := run(t, shell, "context", "create")
+// TestContextCreateWizardPrintsTheCommandLinesItRan proves the wizard ends
+// with the command lines that do the same with no question, by running them
+// in another shell and finding the same document.
+func TestContextCreateWizardPrintsTheCommandLinesItRan(t *testing.T) {
+	byWizard, _, _ := newContextShell(t)
+	byWizard.Reader = strings.NewReader(localWizardAnswers)
+	// A flag the wizard does not ask about is part of the line it prints.
+	code, out, errOut := run(t, byWizard, "context", "create", "--organization", "o1", "--project", "p1")
 	if code != exit.OK {
 		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, errOut)
 	}
-	if !strings.Contains(errOut, "Asgardeo organization name: ") {
-		t.Errorf("stderr lacks the organization question:\n%s", errOut)
+	_, printed, found := strings.Cut(errOut, "The same without questions:\n")
+	if !found {
+		t.Fatalf("the wizard printed no command lines:\n%s", errOut)
 	}
-	if !strings.Contains(errOut, "2. Device code\n") {
-		t.Errorf("Asgardeo should offer device code without \"(coming soon)\":\n%s", errOut)
+
+	byLines, _, _ := newContextShell(t)
+	byLines.Reader = failIfReadReader{t}
+	ran := 0
+	for _, line := range strings.Split(strings.TrimSpace(printed), "\n") {
+		words := strings.Fields(line)
+		if len(words) == 0 || words[0] != "wso2" {
+			break
+		}
+		mustRun(t, byLines, append(words[1:], "--no-input")...)
+		ran++
 	}
-	acme := contextNamed(t, loadDocument(t, shell), "acme")
-	want := contexts.Login{Kind: contexts.KindOAuthBrowser, Issuer: "https://api.asgardeo.io/t/acme/oauth2/token",
-		ClientID: "cli", Tenant: "acme", Provider: contexts.ProviderAsgardeo}
-	if acme.Login != want || acme.Type != contexts.TypeCloud || acme.Organization != "acme" {
-		t.Errorf("context = %+v", acme)
+	if ran != 2 {
+		t.Errorf("ran %d printed lines, want the create and one product add:\n%s", ran, printed)
+	}
+	if want, got := loadDocument(t, byWizard), loadDocument(t, byLines); !reflect.DeepEqual(want, got) {
+		t.Errorf("the printed lines wrote\n%+v\nthe wizard wrote\n%+v", got, want)
 	}
 }

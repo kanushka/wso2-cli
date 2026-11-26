@@ -19,7 +19,6 @@ package app
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"slices"
 	"strings"
 
@@ -60,8 +59,6 @@ type contextAnswers struct {
 	products []productAnswer
 	// login is whether to log in to the context once it is written.
 	login bool
-	// provider is the login provider picked, as the question named it.
-	provider string
 }
 
 // productAnswer is one product the wizard was told the context reaches.
@@ -101,8 +98,7 @@ func (s Shell) askContextCreate(document contexts.Document, name string, flags c
 	offerMore, offerLogin bool) (contextAnswers, error) {
 	answers := contextAnswers{name: name, flags: flags}
 	installed, lookup := s.wizardProducts()
-	descriptor, provider, err := s.askLogin(&answers.flags, installed, lookup)
-	answers.provider = provider
+	descriptor, err := s.askLogin(&answers.flags, installed, lookup)
 	if err != nil {
 		return answers, err
 	}
@@ -149,53 +145,11 @@ func (s Shell) askContextCreate(document contexts.Document, name string, flags c
 	return answers, nil
 }
 
-// The identity products a context can sign in with, in the order the
-// wizard lists them: the two a login can be finished with first, then the
-// two that are coming soon, so the list a person reads down is the list of
-// answers before it is the list of products.
-const (
-	identityThunder = iota
-	identityAsgardeo
-	identityServer
-	identityCloud
-)
-
-// issuerSuffix is where Identity Server and Asgardeo name their issuer below
-// the server or organization URL.
-const issuerSuffix = "/oauth2/token"
-
-// askLogin asks which WSO2 identity product the context signs in with, and
-// fills in the flags that form needs. It returns the login product's
-// descriptor, or nil for a context that logs in through an issuer.
+// askLogin fills in the login a new context signs in with. The wizard sets up
+// a self-hosted Thunder context, the one provider beside WSO2 Cloud, whose
+// login needs no questions; Asgardeo and Identity Server contexts are created
+// with their flags. It returns the login product's descriptor.
 func (s Shell) askLogin(flags *contextCreateFlags, installed []string,
-	lookup descriptorLookup) (*modules.ProductDescriptor, string, error) {
-	options := []wizard.Option{
-		identityThunder:  {Label: "Thunder"},
-		identityAsgardeo: {Label: "Asgardeo"},
-		identityServer:   {Label: "WSO2 Identity Server (coming soon)", Unavailable: identityServerComingSoon},
-		identityCloud:    {Label: "WSO2 Cloud (coming soon)", Unavailable: cloudComingSoon},
-	}
-	picked, err := s.choose("Sign in with:", options, identityThunder)
-	if err != nil {
-		return nil, "", err
-	}
-	name := options[picked].Label
-	switch picked {
-	case identityServer:
-		return nil, name, s.askIssuerLogin(flags, contexts.ProviderIdentityServer,
-			"Identity Server URL (e.g. https://localhost:9443)", serverURL)
-	case identityAsgardeo:
-		return nil, name, s.askIssuerLogin(flags, contexts.ProviderAsgardeo,
-			"Asgardeo organization name", asgardeoOrganization)
-	}
-	descriptor, err := s.askThunderLogin(flags, installed, lookup)
-	return descriptor, name, err
-}
-
-// askThunderLogin fills in a context that logs in through the product
-// fronting Thunder: an installed one whose descriptor names Thunder, or the
-// identity product, installed first.
-func (s Shell) askThunderLogin(flags *contextCreateFlags, installed []string,
 	lookup descriptorLookup) (*modules.ProductDescriptor, error) {
 	namespace := suggestedLoginProduct
 	for _, candidate := range installed {
@@ -223,18 +177,18 @@ func (s Shell) askThunderLogin(flags *contextCreateFlags, installed []string,
 	if err != nil {
 		return nil, err
 	}
-	if descriptor.ClientID == "" && flags.clientID == "" {
-		flags.clientID, err = s.askRequired("Client ID of the registered OAuth application",
-			"the client ID")
+	// Every Thunder deployment registers its own application, so the
+	// client ID is always asked, offering the one the descriptor names.
+	if flags.clientID == "" {
+		flags.clientID, err = s.ask("Client ID of the registered OAuth application", descriptor.ClientID, nil)
+		if errors.Is(err, wizard.ErrNoAnswer) {
+			return nil, noAnswer("the client ID")
+		}
 		if err != nil {
 			return nil, err
 		}
 	}
-	clientID := flags.clientID
-	if clientID == "" {
-		clientID = descriptor.ClientID
-	}
-	if flags.audience == "" && descriptor.AudienceFor(clientID) == "" {
+	if flags.audience == "" && descriptor.AudienceFor(flags.clientID) == "" {
 		flags.audience, err = s.askRequired("Audience (the resource server access is bound to)",
 			"the audience")
 		if err != nil {
@@ -244,88 +198,6 @@ func (s Shell) askThunderLogin(flags *contextCreateFlags, installed []string,
 	return descriptor, nil
 }
 
-// askIssuerLogin fills in a context that logs in at an Identity Server or
-// Asgardeo issuer: what the person knows of it, which base turns into the
-// server's URL, with the issuer path added, and the client registered there.
-func (s Shell) askIssuerLogin(flags *contextCreateFlags, provider, title string,
-	base func(answer string) (string, error)) error {
-	answer, err := s.ask(title, "", func(typed string) error {
-		_, err := base(typed)
-		return err
-	})
-	if errors.Is(err, wizard.ErrNoAnswer) {
-		return noAnswer(strings.ToLower(title[:1]) + title[1:])
-	}
-	if err != nil {
-		return err
-	}
-	server, err := base(answer)
-	if err != nil {
-		return err
-	}
-	flags.issuer = strings.TrimSuffix(strings.TrimRight(server, "/"), issuerSuffix) + issuerSuffix
-	flags.provider = provider
-	if flags.clientID == "" {
-		flags.clientID, err = s.askRequired("Client ID of the registered OAuth application", "the client ID")
-	}
-	return err
-}
-
-// serverURL is an Identity Server URL as typed, when it is one.
-func serverURL(answer string) (string, error) {
-	if urlRefusal(answer) != nil {
-		return "", wizard.Hint("Enter an absolute https URL with no user name or password, " +
-			"as in https://localhost:9443.")
-	}
-	return answer, nil
-}
-
-// asgardeoHost is where every Asgardeo organization's issuer lives, below
-// /t/<organization>.
-const asgardeoHost = "https://api.asgardeo.io/t/"
-
-// asgardeoOrganization is the URL of the Asgardeo organization answer names.
-// A name is the usual answer. A URL is taken too, for an organization in
-// another region or one pasted from the console.
-func asgardeoOrganization(answer string) (string, error) {
-	if strings.Contains(answer, "://") {
-		if urlRefusal(answer) != nil {
-			return "", wizard.Hint("Enter the organization's name, such as acme, " +
-				"or an absolute https URL such as " + asgardeoHost + "acme.")
-		}
-		return asgardeoAPI(answer), nil
-	}
-	if !validOrganization(answer) {
-		return "", wizard.Hint("Enter the organization's name as the Asgardeo console shows it, such as acme: " +
-			"letters, digits, hyphens and underscores.")
-	}
-	return asgardeoHost + answer, nil
-}
-
-// validOrganization reports whether name can be an Asgardeo organization's
-// name, which sits in a URL path as it is.
-func validOrganization(name string) bool {
-	return name != "" && strings.Trim(name,
-		"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") == ""
-}
-
-// asgardeoAPI is an Asgardeo organization URL on the API host. The console
-// URL a person copies from the browser (console.asgardeo.io, or
-// console.<region>.asgardeo.io) serves the console's page, not the issuer,
-// which lives at the same path on api.<the rest>.
-func asgardeoAPI(organization string) string {
-	parsed, err := url.Parse(organization)
-	if err != nil {
-		return organization
-	}
-	host := parsed.Hostname()
-	if rest, ok := strings.CutPrefix(host, "console."); ok &&
-		(rest == "asgardeo.io" || strings.HasSuffix(rest, ".asgardeo.io")) {
-		parsed.Host = strings.Replace(parsed.Host, host, "api."+rest, 1)
-	}
-	return parsed.String()
-}
-
 // askSignIn asks how a person or a job signs in to the context, unless the
 // flags already said.
 func (s Shell) askSignIn(flags *contextCreateFlags, descriptor *modules.ProductDescriptor) error {
@@ -333,7 +205,7 @@ func (s Shell) askSignIn(flags *contextCreateFlags, descriptor *modules.ProductD
 		return nil
 	}
 	machine := wizard.Option{Label: "Client credentials (CI)"}
-	if descriptor != nil && !descriptor.AllowsMachine(modules.MachineInline) {
+	if !descriptor.AllowsMachine(modules.MachineInline) {
 		machine.Unavailable = fmt.Sprintf("The %s product does not accept a machine client at its own "+
 			"issuer. Choose a browser or device sign-in.", flags.loginProduct)
 	}
@@ -514,12 +386,8 @@ func notCreated() problem.Problem {
 // with the questions.
 func (s Shell) summarize(answers contextAnswers) error {
 	flags := answers.flags
-	pairs := [][2]string{{"Context", answers.name}, {"Login provider", answers.provider}}
-	if flags.loginProduct != "" {
-		pairs = append(pairs, [2]string{"Login product", flags.loginProduct}, [2]string{"URL", flags.url})
-	} else {
-		pairs = append(pairs, [2]string{"Issuer", flags.issuer})
-	}
+	pairs := [][2]string{{"Context", answers.name}, {"Login provider", "Thunder"},
+		{"Login product", flags.loginProduct}, {"URL", flags.url}}
 	if flags.clientID != "" {
 		pairs = append(pairs, [2]string{"Client ID", flags.clientID})
 	}
@@ -600,15 +468,16 @@ func (s Shell) setUpContext(command *cobra.Command, name string, flags contextCr
 	if err := s.contextCreate(command, answers.name, answers.flags); err != nil {
 		return answers, err
 	}
+	lines := []string{contextCreateLine(answers.name, answers.flags)}
 	for _, product := range answers.products {
-		err := s.contextProductAdd(command, product.namespace, contextProductFlags{
-			url: product.url, gateway: product.gateway, clientID: product.clientID, context: answers.name,
-			noInstall: flags.noInstall})
-		if err != nil {
+		productFlags := contextProductFlags{url: product.url, gateway: product.gateway, clientID: product.clientID,
+			context: answers.name, noInstall: flags.noInstall}
+		if err := s.contextProductAdd(command, product.namespace, productFlags); err != nil {
 			return answers, err
 		}
+		lines = append(lines, productAddLine(product.namespace, answers.name, productFlags))
 	}
-	return answers, nil
+	return answers, s.printFlagForm(lines...)
 }
 
 // askProductAdd asks which product to add, and where it runs, for a
@@ -680,25 +549,45 @@ func (s Shell) contextProductAddWizard(command *cobra.Command, namespace string,
 		return problem.New(problem.CategoryUsage, "shell.cancelled", "the product was not added").
 			WithRecovery("Nothing was written. Run wso2 context product add again to start over.")
 	}
-	return s.contextProductAdd(command, answer.namespace, flags)
+	target, err := s.productTarget(command, flags)
+	if err != nil {
+		return err
+	}
+	if err := s.contextProductAdd(command, answer.namespace, flags); err != nil {
+		return err
+	}
+	return s.printFlagForm(productAddLine(answer.namespace, target.Name, flags))
 }
 
 // recordedProducts is what the context product add targets records already.
 func (s Shell) recordedProducts(command *cobra.Command, flags contextProductFlags) (map[string]contexts.Product, error) {
+	target, err := s.productTarget(command, flags)
+	return target.Products, err
+}
+
+// targetsWSO2Cloud reports whether a product subcommand acts on a WSO2 Cloud
+// context. A context it cannot find is not one; the command refuses it later.
+func (s Shell) targetsWSO2Cloud(command *cobra.Command, flags contextProductFlags) bool {
+	target, err := s.productTarget(command, flags)
+	return err == nil && target.WSO2Cloud()
+}
+
+// productTarget is the context a product subcommand acts on, as written.
+func (s Shell) productTarget(command *cobra.Command, flags contextProductFlags) (contexts.Context, error) {
 	root, err := s.stateRoot()
 	if err != nil {
-		return nil, err
+		return contexts.Context{}, err
 	}
 	document, err := contexts.Load(root)
 	if err != nil {
-		return nil, err
+		return contexts.Context{}, err
 	}
 	name := flags.context
 	if name == "" {
 		if name, err = targetContextName(command, document); err != nil {
-			return nil, err
+			return contexts.Context{}, err
 		}
 	}
 	target, _ := document.Find(name)
-	return target.Products, nil
+	return target, nil
 }

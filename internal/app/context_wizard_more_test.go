@@ -56,8 +56,8 @@ func TestContextCreateWizardLogsInAfterCreate(t *testing.T) {
 		return nil
 	}
 	shell.Reader = strings.NewReader("" +
-		"1\n" + // Sign in with: Thunder, through iam
 		issuer.URL + "\n" + // Thunder URL
+		"\n" + // Client ID: the descriptor's
 		"\n" + // Sign in using: browser
 		"3\n" + // Skip products
 		"\n" + // Create: yes
@@ -100,7 +100,7 @@ func TestAskThunderLoginRefusesAProductThatDoesNotLoginProvide(t *testing.T) {
 			shell, _, _ := newShell(t)
 			module := fixture.Module{Namespace: "iam", Version: "0.1.0", Product: descriptor}
 			installFixture(t, shell, module)
-			shell.Reader = strings.NewReader("1\n") // Sign in with: Thunder
+			shell.Reader = failIfReadReader{t}
 			code, _, errOut := run(t, shell, "context", "create", "local")
 			if code != exit.Usage {
 				t.Fatalf("exit %d, want usage: %s", code, errOut)
@@ -131,7 +131,6 @@ func TestAskThunderLoginPromptsForAMissingClientIDAndAudience(t *testing.T) {
 			Provider: contexts.ProviderThunder, Audience: modules.AudienceResource, Scopes: []string{"system"},
 		}})
 	shell.Reader = strings.NewReader("" +
-		"1\n" + // Sign in with: Thunder, through iam
 		"https://thunder.example\n" + // Thunder URL
 		"cli-manual\n" + // Client ID, which the descriptor names none of
 		"https://aud.example\n" + // Audience, which the descriptor names none of
@@ -204,6 +203,9 @@ func TestContextProductAddWizardAcceptsAnEmptyGatewayAnswer(t *testing.T) {
 	api := contextNamed(t, loadDocument(t, shell), "local").Products["api"]
 	if api.Gateway != nil {
 		t.Errorf("an empty answer recorded a gateway: %+v", api.Gateway)
+	}
+	if want := "The same without questions:\n  wso2 context product add api --url " + apiURL + " --context local\n"; !strings.Contains(errOut, want) {
+		t.Errorf("stderr lacks %q:\n%s", want, errOut)
 	}
 }
 

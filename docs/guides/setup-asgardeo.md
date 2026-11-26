@@ -67,10 +67,8 @@ Console changes apply at the next login.
 
 ## 4. Create the context
 
-Run `ws context create` with no flags to answer prompts: choose **Asgardeo**,
-then enter the organization name and client ID.
-
-Or pass flags:
+The `ws context create` wizard sets up self-hosted Thunder contexts only, so
+pass flags:
 
 ```sh
 ws context create acme \

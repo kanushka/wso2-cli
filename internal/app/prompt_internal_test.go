@@ -89,33 +89,3 @@ func TestConfirmTreatsNoAnswerAtAllAsNo(t *testing.T) {
 type emptyReader struct{}
 
 func (emptyReader) Read([]byte) (int, error) { return 0, io.EOF }
-
-func TestAsgardeoConsoleURLNamesTheAPIHost(t *testing.T) {
-	for given, want := range map[string]string{
-		"https://console.asgardeo.io/t/acme":    "https://api.asgardeo.io/t/acme",
-		"https://console.eu.asgardeo.io/t/acme": "https://api.eu.asgardeo.io/t/acme",
-		"https://api.asgardeo.io/t/acme":        "https://api.asgardeo.io/t/acme",
-		"https://console.example.com/t/acme":    "https://console.example.com/t/acme",
-	} {
-		if got := asgardeoAPI(given); got != want {
-			t.Errorf("asgardeoAPI(%q) = %q, want %q", given, got, want)
-		}
-	}
-}
-
-func TestAsgardeoOrganizationIsANameOrAURL(t *testing.T) {
-	for given, want := range map[string]string{
-		"acme":                                "https://api.asgardeo.io/t/acme",
-		"https://console.asgardeo.io/t/acme/": "https://api.asgardeo.io/t/acme/",
-		"https://api.eu.asgardeo.io/t/acme":   "https://api.eu.asgardeo.io/t/acme",
-	} {
-		if got, err := asgardeoOrganization(given); err != nil || got != want {
-			t.Errorf("asgardeoOrganization(%q) = %q, %v, want %q", given, got, err, want)
-		}
-	}
-	for _, refused := range []string{"acme corp", "t/acme", "https://user:pw@api.asgardeo.io/t/acme", ""} {
-		if _, err := asgardeoOrganization(refused); err == nil {
-			t.Errorf("asgardeoOrganization(%q) was accepted", refused)
-		}
-	}
-}

@@ -18,8 +18,11 @@ package app_test
 
 import (
 	"bytes"
+	"net/http"
 	"strings"
 	"testing"
+
+	keyring "github.com/zalando/go-keyring"
 
 	"github.com/wso2/wso2-cli/internal/app"
 	"github.com/wso2/wso2-cli/internal/auth/fakeissuer"
@@ -27,85 +30,74 @@ import (
 )
 
 // The prompt tests below hand the shell a scripted reader, one answer per
-// line, in the order the setup wizard (#189) asks a new context's questions
-// when Asgardeo is picked: where the organization is, the client ID, how to
-// sign in, the name, then whether to create and select it. No product is
-// installed, so no product is offered.
+// line, in the order the setup wizard asks a new context's questions: the
+// Thunder URL, the client ID, how to sign in, the products, the name, then
+// whether to create and select it. The context modules are installed, so the
+// login goes through iam to a local fake issuer, and api and apim are offered.
 
-// newServerLogin is newCreatingLogin against an issuer named below
-// /oauth2/token, with the server URL the wizard asks for. The organization
-// question takes an absolute URL as readily as a name, which is what lets
-// these tests point Asgardeo's branch at a local fake issuer.
-func newServerLogin(t *testing.T) (app.Shell, *bytes.Buffer, *bytes.Buffer, *fakeissuer.Issuer, string) {
+// newWizardLogin is a shell with the context modules installed whose browser
+// completes every authorization at a fake Thunder.
+func newWizardLogin(t *testing.T) (app.Shell, *bytes.Buffer, *bytes.Buffer, *fakeissuer.Issuer) {
 	t.Helper()
-	shell, out, errOut, _ := newCreatingLogin(t)
-	issuer := fakeissuer.New(t, fakeissuer.Options{Host: "localhost", IssuerPath: "/oauth2/token"})
-	return shell, out, errOut, issuer, strings.TrimSuffix(issuer.URL, "/oauth2/token")
+	keyring.MockInit()
+	issuer := fakeissuer.New(t, fakeissuer.Options{Audience: "https://localhost:8090/mcp"})
+	shell, out, errOut := newContextShell(t)
+	shell.OpenBrowser = func(authURL string) error {
+		go func() {
+			response, err := http.Get(authURL)
+			if err == nil {
+				_ = response.Body.Close()
+			}
+		}()
+		return nil
+	}
+	return shell, out, errOut, issuer
 }
 
-// serverAnswers picks Asgardeo at server and takes every default but the name.
-func serverAnswers(server, name string) string {
-	return "2\n" + server + "\nwso2-cli\n\n" + name + "\n\n\n"
+// wizardAnswers set up a browser context at issuer with no products, taking
+// the descriptor's client ID and every default but the name.
+func wizardAnswers(issuer, name string) string {
+	return issuer + "\n\n\n3\n" + name + "\n\n\n"
 }
 
 func TestLoginAsksForANewContextWhenNoneExist(t *testing.T) {
-	shell, out, errOut, issuer, server := newServerLogin(t)
-	shell.Reader = strings.NewReader(serverAnswers(server, "local-is"))
+	shell, out, errOut, issuer := newWizardLogin(t)
+	shell.Reader = strings.NewReader(wizardAnswers(issuer.URL, "local"))
 
 	if code := shell.Run([]string{"login"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
-	for _, want := range []string{"No contexts yet.", "Sign in with:", "WSO2 Cloud (coming soon)",
-		"Asgardeo organization name: ", "Client ID of the registered OAuth application: ",
-		"Sign in using:", "Context name [context-1]: ", `Create the "local-is" context? [Y/n]`} {
+	for _, want := range []string{"No contexts yet.", "Thunder URL: ",
+		"Client ID of the registered OAuth application [wso2-cli]: ",
+		"Sign in using:", "Context name [context-1]: ", `Create the "local" context? [Y/n]`} {
 		if !strings.Contains(errOut.String(), want) {
 			t.Errorf("stderr lacks %q:\n%s", want, errOut)
 		}
 	}
-	if strings.Contains(errOut.String(), "Log in to:") {
-		t.Errorf("asked existing or new with no contexts to pick from:\n%s", errOut)
+	for _, unwanted := range []string{"Log in to:", "Sign in with:"} {
+		if strings.Contains(errOut.String(), unwanted) {
+			t.Errorf("asked %q:\n%s", unwanted, errOut)
+		}
 	}
 	document := loadDocument(t, shell)
-	if len(document.Contexts) != 1 || document.Contexts[0].Name != "local-is" ||
+	if len(document.Contexts) != 1 || document.Contexts[0].Name != "local" ||
 		document.Contexts[0].Login.Issuer != issuer.URL || document.Contexts[0].Login.ClientID != "wso2-cli" {
-		t.Fatalf("document = %+v, want one local-is context on the issuer", document)
+		t.Fatalf("document = %+v, want one local context on the issuer", document)
 	}
-	if !strings.Contains(out.String(), "local-is") {
+	if !strings.Contains(out.String(), "local") {
 		t.Errorf("stdout does not report the login:\n%s", out)
 	}
 }
 
-func TestLoginAsksAgainWhenCloudIsPicked(t *testing.T) {
-	shell, _, errOut, _, server := newServerLogin(t)
-	shell.Reader = strings.NewReader("4\n9\n" + serverAnswers(server, ""))
-
-	if code := shell.Run([]string{"login"}); code != exit.OK {
-		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
-	}
-	if !strings.Contains(errOut.String(), "WSO2 Cloud login is coming soon.") {
-		t.Errorf("picking cloud did not say it is coming soon:\n%s", errOut)
-	}
-	if !strings.Contains(errOut.String(), "Enter a number from 1 to 4.") {
-		t.Errorf("an out-of-range answer was not asked again:\n%s", errOut)
-	}
-	// The product is asked three times, and how to sign in once.
-	if got := strings.Count(errOut.String(), "Choose [1]: "); got != 4 {
-		t.Errorf("asked %d times, want 4:\n%s", got, errOut)
-	}
-	if name := loadDocument(t, shell).Contexts[0].Name; name != "context-1" {
-		t.Errorf("context = %q, want the default context-1", name)
-	}
-}
-
 func TestLoginAsksAgainForAnIssuerThatIsNotAURL(t *testing.T) {
-	shell, _, errOut, _, server := newServerLogin(t)
-	shell.Reader = strings.NewReader("2\nidp.example\n" + server + "\nwso2-cli\n\n\n\n\n")
+	shell, _, errOut, issuer := newWizardLogin(t)
+	shell.Reader = strings.NewReader("idp.example\n" + wizardAnswers(issuer.URL, ""))
 
 	if code := shell.Run([]string{"login"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
 	}
-	if got := strings.Count(errOut.String(), "Asgardeo organization name: "); got != 2 {
-		t.Errorf("the organization was asked %d times, want 2:\n%s", got, errOut)
+	if got := strings.Count(errOut.String(), "Thunder URL: "); got != 2 {
+		t.Errorf("the URL was asked %d times, want 2:\n%s", got, errOut)
 	}
 	if strings.Contains(errOut.String(), "idp.example\n") {
 		t.Errorf("the rejected answer was echoed:\n%s", errOut)
@@ -145,9 +137,9 @@ func TestLoginOffersTheExistingContexts(t *testing.T) {
 }
 
 func TestLoginAsksWhereANamedNewContextAuthenticates(t *testing.T) {
-	shell, _, errOut, _, server := newServerLogin(t)
+	shell, _, errOut, issuer := newWizardLogin(t)
 	// No name is asked: --context gave it.
-	shell.Reader = strings.NewReader("2\n" + server + "\nwso2-cli\n\n\n\n")
+	shell.Reader = strings.NewReader(issuer.URL + "\n\n\n3\n\n\n")
 
 	if code := shell.Run([]string{"login", "--context", "staging"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)
@@ -193,10 +185,10 @@ func TestLoginWithNoInputAsksNothing(t *testing.T) {
 }
 
 func TestLoginSettingUpAMachineContextEndsWithoutALogin(t *testing.T) {
-	shell, out, errOut, _, server := newServerLogin(t)
-	// Asgardeo, where it is, its client, client credentials and the
-	// variable, then the defaults.
-	shell.Reader = strings.NewReader("2\n" + server + "\nci-client\n3\nCI_SECRET\nci\n\n\n")
+	shell, out, errOut, issuer := newWizardLogin(t)
+	// Where it is, its client, client credentials and the variable, no
+	// products, the name, then the defaults.
+	shell.Reader = strings.NewReader(issuer.URL + "\nci-client\n3\nCI_SECRET\n3\nci\n\n\n")
 
 	if code := shell.Run([]string{"login"}); code != exit.OK {
 		t.Fatalf("login failed: exit %d, stderr %s", code, errOut)

@@ -26,17 +26,6 @@ import (
 	"github.com/wso2/wso2-cli/sdk/problem"
 )
 
-// cloudComingSoon is what picking WSO2 Cloud says until the shell ships the
-// WSO2-published public client that lets a cloud login ask nothing (#186).
-const cloudComingSoon = "WSO2 Cloud login is coming soon. Choose another product for now."
-
-// identityServerComingSoon is what picking WSO2 Identity Server says. The
-// login itself works — it is an issuer like any other, and --issuer reaches
-// it — but no module serves an Identity Server deployment, so a context
-// created through the wizard would have nothing to reach. The wizard offers
-// what a person can finish, and says why for what it does not.
-const identityServerComingSoon = "WSO2 Identity Server login is coming soon. Choose another product for now."
-
 // resolveLoginTarget decides which context a login without --url is about,
 // asking when the flags leave it open and something may ask (#186).
 //
@@ -103,6 +92,13 @@ func (s Shell) resolveLoginTarget(flags loginFlags) (loginFlags, error) {
 		return s.askNewLoginTarget(flags)
 	}
 
+	flags.contextName, err = s.chooseContext(document)
+	return flags, err
+}
+
+// chooseContext asks which of the document's contexts to act on, offering
+// the selected one first.
+func (s Shell) chooseContext(document contexts.Document) (string, error) {
 	options := make([]wizard.Option, len(document.Contexts))
 	fallback := 0
 	for index, candidate := range document.Contexts {
@@ -112,12 +108,11 @@ func (s Shell) resolveLoginTarget(flags loginFlags) (loginFlags, error) {
 			fallback = index
 		}
 	}
-	choice, err = s.choose("Context:", options, fallback)
+	picked, err := s.choose("Context:", options, fallback)
 	if err != nil {
-		return flags, err
+		return "", err
 	}
-	flags.contextName = document.Contexts[choice].Name
-	return flags, nil
+	return document.Contexts[picked].Name, nil
 }
 
 // askNewLoginTarget sets up a new context with the create wizard and returns

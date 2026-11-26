@@ -96,12 +96,19 @@ func (s Shell) contextCommand() *cobra.Command {
 
 func (s Shell) contextUseCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:               "use <name>",
+		Use:               "use [<name>]",
 		ValidArgsFunction: s.completeFirstContextName,
-		Short:             "Select the context commands run against.",
-		Args:              exactlyOneArgument("the name of a configured context", contextUseUsage),
+		Short:             "Select the context commands run against, or pick one at a terminal.",
+		Args:              atMostOneArgument(contextUseUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			return s.contextUse(command, args[0])
+			if len(args) == 1 {
+				return s.contextUse(command, args[0])
+			}
+			name, err := s.pickContext(command)
+			if err != nil {
+				return err
+			}
+			return s.contextUse(command, name)
 		},
 	}
 }
@@ -217,6 +224,31 @@ func helpForBareFamily(command *cobra.Command) error {
 }
 
 // contextUse writes the selection and nothing else.
+// pickContext asks which context to select, for a wso2 context use that named
+// none. Where nothing may be asked it is the refusal a missing argument
+// always was.
+func (s Shell) pickContext(command *cobra.Command) (string, error) {
+	if may, _ := s.mayPrompt(false); !may {
+		return "", problem.New(problem.CategoryUsage, "shell.missing_argument",
+			fmt.Sprintf("%s needs the name of a configured context", command.CommandPath())).
+			WithRecovery(contextUseUsage)
+	}
+	root, err := s.stateRoot()
+	if err != nil {
+		return "", err
+	}
+	document, err := contexts.Load(root)
+	if err != nil {
+		return "", err
+	}
+	if len(document.Contexts) == 0 {
+		return "", problem.New(problem.CategoryUsage, "shell.no_context_configured",
+			"no context is configured to select").
+			WithRecovery(noContextRecovery)
+	}
+	return s.chooseContext(document)
+}
+
 func (s Shell) contextUse(command *cobra.Command, name string) error {
 	mode, err := s.shellOutputMode(command)
 	if err != nil {

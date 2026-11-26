@@ -403,7 +403,7 @@ func TestProductRemoveEndsTheProductsOwnSessionFirst(t *testing.T) {
 	if err := store.Save(sibling, session.Session{Issuer: thunderURL, RefreshToken: "sibling-token"}); err != nil {
 		t.Fatal(err)
 	}
-	mustRun(t, shell, "context", "product", "remove", "reference")
+	mustRun(t, shell, "context", "product", "remove", "reference", "--yes")
 	if present, _ := store.Stored(sibling); present {
 		t.Error("the removed product's session was kept")
 	}
@@ -424,7 +424,7 @@ func TestProductRemoveRefusesTheLoginProduct(t *testing.T) {
 func TestProductRemoveTakesAGatewayAlone(t *testing.T) {
 	shell, _, _ := newContextShell(t)
 	localSetup(t, shell)
-	mustRun(t, shell, "context", "product", "remove", "api/gateway")
+	mustRun(t, shell, "context", "product", "remove", "api/gateway", "--yes")
 	api := contextNamed(t, loadDocument(t, shell), "local").Products["api"]
 	if api.Gateway != nil || api.Endpoint != apiURL {
 		t.Fatalf("api = %+v", api)
@@ -442,7 +442,7 @@ func TestContextDeleteEndsEverySessionAndClearsTheSelection(t *testing.T) {
 	if present, _ := store.Stored("local"); !present || len(loadDocument(t, shell).Contexts) != 1 {
 		t.Fatalf("the dry run changed something:\n%s", out)
 	}
-	mustRun(t, shell, "context", "delete", "local")
+	mustRun(t, shell, "context", "delete", "local", "--yes")
 	if present, _ := store.Stored("local"); present {
 		t.Error("the deleted context's login session was kept")
 	}
@@ -819,9 +819,9 @@ func TestEveryContextSubcommandRendersJSON(t *testing.T) {
 		"current":        {"context", "current", "--output", "json"},
 		"show":           {"context", "show", "--output", "json"},
 		"rename":         {"context", "rename", "beta", "gamma", "--output", "json"},
-		"delete":         {"context", "delete", "beta", "--output", "json"},
+		"delete":         {"context", "delete", "beta", "--yes", "--output", "json"},
 		"product add":    {"context", "product", "add", "reference", "--url", "https://r.example", "--output", "json"},
-		"product remove": {"context", "product", "remove", "orders", "--output", "json"},
+		"product remove": {"context", "product", "remove", "orders", "--yes", "--output", "json"},
 		"export":         {"context", "export", "--output", "json"},
 	} {
 		t.Run(name, func(t *testing.T) {

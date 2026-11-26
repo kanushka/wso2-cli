@@ -35,7 +35,7 @@ const (
 	contextProductAddUsage = "Run wso2 context product add <product> --url <url> [--gateway <url>] " +
 		"[--audience <uri>] [--scopes <list>] [--gateway-audience <uri>] [--gateway-scopes <list>] " +
 		"[--replace] [--dry-run] [--context <name>]."
-	contextProductRemoveUsage = "Run wso2 context product remove <product> [--dry-run] [--context <name>], " +
+	contextProductRemoveUsage = "Run wso2 context product remove <product> [--yes] [--dry-run] [--context <name>], " +
 		"where <product> is a product or <product>/gateway for its gateway record alone."
 )
 
@@ -92,7 +92,9 @@ func (s Shell) contextProductAddCommand() *cobra.Command {
 			if len(args) == 1 {
 				namespace = args[0]
 			}
-			if flags.url == "" {
+			// A WSO2 Cloud context's products come from its login, so the
+			// questions are for a context a person sets up by hand.
+			if flags.url == "" && !s.targetsWSO2Cloud(command, flags) {
 				if may, _ := s.mayPrompt(flags.noInput); may {
 					return s.contextProductAddWizard(command, namespace, flags)
 				}
@@ -129,16 +131,17 @@ func (s Shell) contextProductAddCommand() *cobra.Command {
 }
 
 func (s Shell) contextProductRemoveCommand() *cobra.Command {
-	var dryRun bool
+	var dryRun, yes bool
 	command := &cobra.Command{
 		Use:   "remove <product>",
 		Short: "Stop the selected context reaching a product, ending the product's own sessions first.",
 		Args:  exactlyOneArgument("the product to remove", contextProductRemoveUsage),
 		RunE: func(command *cobra.Command, args []string) error {
-			return s.contextProductRemove(command, args[0], dryRun)
+			return s.contextProductRemove(command, args[0], dryRun, yes)
 		},
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be removed and ended, and change nothing.")
+	command.Flags().BoolVar(&yes, "yes", false, "Remove without asking for confirmation.")
 	declareContextFlag(command.Flags())
 	return command
 }
@@ -404,7 +407,7 @@ func productExists(context, namespace string) problem.Problem {
 
 // contextProductRemove drops one record from a context, ending every session
 // the removal leaves nothing to reach before the record goes.
-func (s Shell) contextProductRemove(command *cobra.Command, key string, dryRun bool) error {
+func (s Shell) contextProductRemove(command *cobra.Command, key string, dryRun, yes bool) error {
 	mode, err := s.shellOutputMode(command)
 	if err != nil {
 		return err
@@ -449,6 +452,14 @@ func (s Shell) contextProductRemove(command *cobra.Command, key string, dryRun b
 	report := productRemoved{Context: name, Product: key, Records: records, DryRun: dryRun,
 		Ending: endingLines(plan.before, plan.ending), Sessions: []endedSession{}}
 	if !dryRun {
+		stored, err := storedSessions(root, plan)
+		if err != nil {
+			return err
+		}
+		if err := s.confirmDestructive(yes, fmt.Sprintf("removing %s from the %q context", key, name),
+			fmt.Sprintf("Remove %s from the %q context?%s", key, name, sessionsClause(stored))); err != nil {
+			return err
+		}
 		ended, err := s.writeChange(root, plan)
 		if err != nil {
 			return err
