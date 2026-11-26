@@ -55,6 +55,7 @@ var commandScopes = []struct {
 	{[]string{"api", "get-token"}, []string{"hello-api-v1"}, []string{"ap:rest_api:read"}},
 	{[]string{"gateway", "register"}, []string{"g", "--display-name", "G", "--endpoint", "https://g.example"}, nil},
 	{[]string{"gateway", "token", "create"}, []string{"g"}, nil},
+	{[]string{"gateway", "list"}, nil, []string{"ap:gateway:read"}},
 }
 
 func TestEachCommandAsksForTheRecordedPermissionsAndNamesItsOwnWhenRefused(t *testing.T) {

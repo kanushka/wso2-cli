@@ -143,3 +143,20 @@ func TestDeletingAnUnknownResourceServerIsRefusedAfterOneRead(t *testing.T) {
 		t.Fatalf("an unknown resource server still led to calls: %v", calls)
 	}
 }
+
+// TestDeletingWithNoResourceServerNamesTheListFirst proves a refusal for a
+// left-out resource server leads with the command that lists them, so the
+// shell's next does too.
+func TestDeletingWithNoResourceServerNamesTheListFirst(t *testing.T) {
+	outcome, calls := deleteResourceServer(t, "--yes")
+
+	if outcome.Problem == nil {
+		t.Fatalf("a delete naming nothing was not refused: %+v", outcome)
+	}
+	if want := "Run ws iam resource-server list to see the ids, then ws iam resource-server delete "; !strings.HasPrefix(outcome.Problem.Recovery, want) {
+		t.Errorf("recovery = %q, want it to start %q", outcome.Problem.Recovery, want)
+	}
+	if len(calls) != 0 {
+		t.Errorf("a refused command line reached the deployment: %v", calls)
+	}
+}

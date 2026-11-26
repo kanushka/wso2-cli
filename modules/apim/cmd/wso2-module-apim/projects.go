@@ -46,7 +46,7 @@ type projectsCreateFlags struct {
 func projectsCreate(command *cobra.Command, flags *projectsCreateFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		name, err := exactlyOneArgument(command.Flags().Args(),
-			"ws apim project create needs the project's display name",
+			"ws apim project create needs the project's display name", "",
 			"Run ws apim project create <name>.")
 		if err != nil {
 			return result.Result{}, err

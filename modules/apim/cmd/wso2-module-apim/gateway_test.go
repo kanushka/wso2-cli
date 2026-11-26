@@ -411,3 +411,44 @@ func TestGatewayTokenCreateMentionsTheTwoTokenLimitInRecoveryOnFailure(t *testin
 		t.Fatalf("the recovery does not mention the token limit: %q", outcome.Problem.Recovery)
 	}
 }
+
+// TestGatewayListShowsTheRegisteredGatewaysWithTheirIDs proves the ids
+// --gateway-id and gateway token create take have a command that lists them.
+func TestGatewayListShowsTheRegisteredGatewaysWithTheirIDs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v0.9/gateways" {
+			http.Error(w, `{"code":"NOT_FOUND"}`, http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"count":2,"list":[
+			{"id":"prod-gw","displayName":"Production","functionalityType":"regular",
+			 "endpoints":["https://a.example","https://b.example"]},
+			{"id":"ai-gw","displayName":"AI","functionalityType":"ai","endpoints":[]}]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	outcome := testkit.Run(context.Background(), moduleOptions(), commands().Commands(), testkit.Invocation{
+		Command: []string{"gateway", "list"},
+		Context: module.Context{Name: "c1", Endpoint: server.URL},
+		Access:  &testkit.Access{Token: "control-plane-token"},
+	})
+	if outcome.Err != nil || outcome.Problem != nil {
+		t.Fatalf("gateway list failed: err=%v problem=%v", outcome.Err, outcome.Problem)
+	}
+	if got := fieldValue(outcome, "count"); got != "2" {
+		t.Errorf("count = %q, want 2", got)
+	}
+	if len(outcome.Result.Rows) != 2 {
+		t.Fatalf("gateway list returned %d rows, want 2", len(outcome.Result.Rows))
+	}
+	page := rendered(outcome)
+	for _, want := range []string{"Production", "prod-gw", "regular", "https://a.example https://b.example", "ai-gw"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the listing does not contain %q:\n%s", want, page)
+		}
+	}
+	if next := fieldValue(outcome, NextField); !strings.Contains(next, "ws apim api deploy <api-id> --gateway-id prod-gw") {
+		t.Errorf("next = %q, want it to name a deploy to the first gateway", next)
+	}
+}

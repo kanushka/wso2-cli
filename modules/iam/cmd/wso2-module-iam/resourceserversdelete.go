@@ -59,8 +59,13 @@ func resourceServersDelete(command *cobra.Command, flags *resourceServerDeleteFl
 			"ws iam resource-server list shows both."
 		positional := command.Flags().Args()
 		if len(positional) != 1 {
+			recovery := usage
+			if len(positional) == 0 {
+				recovery = "Run ws iam resource-server list to see the ids, " +
+					"then ws iam resource-server delete <id-or-identifier>."
+			}
 			return result.Result{}, deleteUsageProblem(
-				"ws iam resource-server delete needs the one resource server to delete", usage)
+				"ws iam resource-server delete needs the one resource server to delete", recovery)
 		}
 		// Asked before anything is read, so a run where nothing may be
 		// asked is refused with nothing called; the shell's refusal is

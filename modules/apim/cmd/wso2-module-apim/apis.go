@@ -484,16 +484,15 @@ type deployment struct {
 func apisDeploy(command *cobra.Command, flags *apisDeployFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		apiID, err := exactlyOneArgument(command.Flags().Args(),
-			"ws apim api deploy needs the id of the API to deploy",
-			"Run ws apim api deploy <api-id> --gateway-id <gateway-id>. ws apim api list "+
-				"--project <id> shows the ids.")
+			"ws apim api deploy needs the id of the API to deploy", "ws apim api list",
+			"Run ws apim api deploy <api-id> --gateway-id <gateway-id>.")
 		if err != nil {
 			return result.Result{}, err
 		}
 		if flags.gatewayID == "" {
 			return result.Result{}, usageProblem(
 				"ws apim api deploy needs the gateway to deploy to",
-				"Run ws apim api deploy "+apiID+" --gateway-id <gateway-id>.")
+				listThen("ws apim gateway list", "Run ws apim api deploy "+apiID+" --gateway-id <gateway-id>."))
 		}
 
 		client, err := controlPlane(ctx, request)

@@ -107,8 +107,8 @@ func undeployActive(ctx context.Context, client platform.Client, endpoint, apiID
 func apisUndeploy(command *cobra.Command, flags *apisUndeployFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		apiID, err := exactlyOneArgument(command.Flags().Args(),
-			"ws apim api undeploy needs the id of the API to undeploy",
-			"Run ws apim api undeploy <api-id>. ws apim api list shows the ids.")
+			"ws apim api undeploy needs the id of the API to undeploy", "ws apim api list",
+			"Run ws apim api undeploy <api-id>.")
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -143,8 +143,8 @@ func apisUndeploy(command *cobra.Command, flags *apisUndeployFlags) module.Handl
 func apisDelete(command *cobra.Command, flags *removalFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		apiID, err := exactlyOneArgument(command.Flags().Args(),
-			"ws apim api delete needs the id of the API to delete",
-			"Run ws apim api delete <api-id>. ws apim api list shows the ids.")
+			"ws apim api delete needs the id of the API to delete", "ws apim api list",
+			"Run ws apim api delete <api-id>.")
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -174,8 +174,8 @@ func apisDelete(command *cobra.Command, flags *removalFlags) module.Handler {
 func projectsDelete(command *cobra.Command, flags *removalFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		projectID, err := exactlyOneArgument(command.Flags().Args(),
-			"ws apim project delete needs the id of the project to delete",
-			"Run ws apim project delete <project-id>. ws apim project list shows the ids.")
+			"ws apim project delete needs the id of the project to delete", "ws apim project list",
+			"Run ws apim project delete <project-id>.")
 		if err != nil {
 			return result.Result{}, err
 		}

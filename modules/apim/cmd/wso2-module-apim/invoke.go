@@ -102,8 +102,8 @@ type gatewayRecord struct {
 func apisToken(command *cobra.Command, flags *apisTokenFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		apiID, err := exactlyOneArgument(command.Flags().Args(),
-			"ws apim api get-token needs the id of the API to mint a token for",
-			"Run ws apim api get-token <api-id>. ws apim api list --project <id> shows the ids.")
+			"ws apim api get-token needs the id of the API to mint a token for", "ws apim api list",
+			"Run ws apim api get-token <api-id>.")
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -227,7 +227,8 @@ func invocationArguments(positional []string) (apiID, path string, err error) {
 	recovery := "Run ws apim api invoke <api-id> [path] [-X <method>] [-H <name: value>] [-d <body>]."
 	switch len(positional) {
 	case 0:
-		return "", "", usageProblem("ws apim api invoke needs the id of the API to call", recovery)
+		return "", "", usageProblem("ws apim api invoke needs the id of the API to call",
+			listThen("ws apim api list", recovery))
 	case 1:
 		return positional[0], "", nil
 	case 2:

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -36,6 +37,7 @@ import (
 const (
 	GatewaySchema      = "apim.gateway/v1"
 	GatewayTokenSchema = "apim.gatewayToken/v1"
+	GatewaysSchema     = "apim.gateways/v1"
 )
 
 // tokenNotShownAgainWarning is printed to standard error, never standard
@@ -94,7 +96,7 @@ type gatewayToken struct {
 func gatewayRegister(command *cobra.Command, flags *gatewayRegisterFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		handle, err := exactlyOneArgument(command.Flags().Args(),
-			"ws apim gateway register needs the gateway's handle",
+			"ws apim gateway register needs the gateway's handle", "",
 			"Run ws apim gateway register <handle> --display-name <name> --endpoint <url>.")
 		if err != nil {
 			return result.Result{}, err
@@ -160,13 +162,49 @@ func gatewayRegister(command *cobra.Command, flags *gatewayRegisterFlags) module
 	}
 }
 
+// listedGateway is one entry of platform-api's gateway listing.
+type listedGateway struct {
+	ID                string   `json:"id"`
+	DisplayName       string   `json:"displayName"`
+	FunctionalityType string   `json:"functionalityType"`
+	Endpoints         []string `json:"endpoints"`
+}
+
+// gatewayList answers "ws apim gateway list": the gateways registered with
+// the control plane, whose ids --gateway-id and gateway token create take.
+func gatewayList(ctx context.Context, request module.Request) (result.Result, error) {
+	client, err := controlPlane(ctx, request, scopeGatewayRead)
+	if err != nil {
+		return result.Result{}, err
+	}
+	var listing page[listedGateway]
+	if err := client.Get(ctx, controlPlanePath+"/gateways", &listing); err != nil {
+		return result.Result{}, callFailed(err, "read the gateways", request.Context.Endpoint)
+	}
+	report := result.New(GatewaysSchema).
+		With("count", "Gateways", strconv.Itoa(len(listing.List))).
+		WithColumn("displayName", "Name").
+		WithColumn("id", "ID").
+		WithColumn("functionalityType", "Type").
+		WithColumn("endpoints", "Endpoints")
+	for _, gateway := range listing.List {
+		report = report.WithRow(gateway.DisplayName, gateway.ID, gateway.FunctionalityType,
+			strings.Join(gateway.Endpoints, " "))
+	}
+	next := "Register one with ws apim gateway register <handle> --display-name <name> --endpoint <url>."
+	if len(listing.List) > 0 {
+		next = "Run ws apim api deploy <api-id> --gateway-id " + listing.List[0].ID + " to deploy an API to it."
+	}
+	return report.With(NextField, "Next", next), nil
+}
+
 // gatewayTokenCreate answers "ws apim gateway token create <gateway-id>": it
 // mints a new registration token for a gateway that already exists, the way
 // out of a gateway left registered without one, or a way to rotate one later.
 func gatewayTokenCreate(command *cobra.Command) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		gatewayID, err := exactlyOneArgument(command.Flags().Args(),
-			"ws apim gateway token create needs the gateway's id",
+			"ws apim gateway token create needs the gateway's id", "ws apim gateway list",
 			"Run ws apim gateway token create <gateway-id>.")
 		if err != nil {
 			return result.Result{}, err

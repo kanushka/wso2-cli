@@ -205,7 +205,7 @@ func commands() *cobratree.Tree {
 	// URL, and ADR 0015 keeps one word to one meaning across the surface.
 	// This flag names a gateway's handle instead.
 	apisDeployCommand.Flags().StringVar(&deployFlags.gatewayID, "gateway-id", "",
-		"The handle of the gateway to deploy the API to, as ws apim gateway register named it.")
+		"The handle of the gateway to deploy the API to; ws apim gateway list shows the ids.")
 	markRequired(apisDeployCommand, "gateway-id")
 	apisCommand.AddCommand(apisDeployCommand)
 
@@ -216,7 +216,8 @@ func commands() *cobratree.Tree {
 	}
 	undeployFlags := &apisUndeployFlags{}
 	apisUndeployCommand.Flags().StringVar(&undeployFlags.gatewayID, "gateway-id", "",
-		"The handle of the one gateway to undeploy from; every gateway by default.")
+		"The handle of the one gateway to undeploy from; every gateway by default. "+
+			"ws apim gateway list shows the ids.")
 	apisCommand.AddCommand(apisUndeployCommand)
 
 	apisDeleteCommand := &cobra.Command{
@@ -240,7 +241,8 @@ func commands() *cobratree.Tree {
 		"A header to send, as name: value; repeat for more than one.")
 	apisInvokeCommand.Flags().StringVarP(&invokeFlags.data, "data", "d", "", "The request body to send.")
 	apisInvokeCommand.Flags().StringVar(&invokeFlags.gatewayID, "gateway-id", "",
-		"The handle of the gateway to call, when the API is deployed on more than one.")
+		"The handle of the gateway to call, when the API is deployed on more than one; "+
+			"ws apim gateway list shows the ids.")
 	apisInvokeCommand.Flags().BoolVar(&invokeFlags.noToken, "no-token", false,
 		"Send no token, to see what the gateway answers an anonymous caller.")
 	apisCommand.AddCommand(apisInvokeCommand)
@@ -255,10 +257,16 @@ func commands() *cobratree.Tree {
 
 	gatewayCommand := &cobra.Command{
 		Use:   "gateway",
-		Short: "Register a gateway and read what it is actually serving.",
-		Example: "  ws apim gateway register <handle> --display-name <name> --endpoint <url>\n" +
-			"  ws apim gateway api list",
+		Short: "List and register gateways, and read what one is actually serving.",
+		Example: "  ws apim gateway list\n" +
+			"  ws apim gateway register <handle> --display-name <name> --endpoint <url>",
 	}
+	gatewayListCommand := &cobra.Command{
+		Use:     "list",
+		Short:   "List the gateways registered with the control plane.",
+		Example: "  ws apim gateway list",
+	}
+	gatewayCommand.AddCommand(gatewayListCommand)
 	gatewayRegisterCommand := &cobra.Command{
 		Use: "register <handle> --display-name <name> --endpoint <url> " +
 			"[--endpoint <url> ...] [--type regular|ai|event]",
@@ -315,9 +323,11 @@ func commands() *cobratree.Tree {
 	cobratree.ResultFields(gatewayRegisterCommand, "id", "displayName", "functionalityType", "endpoints", "token", NextField)
 	cobratree.ResultFields(gatewayTokenCreateCommand, "gatewayId", "token", NextField)
 	cobratree.ResultFields(gatewayApisListCommand, "count", "rows", NextField)
+	cobratree.ResultFields(gatewayListCommand, "count", "rows", NextField)
 
 	return cobratree.New(root).
 		Handle(statusCommand, status).
+		Handle(gatewayListCommand, gatewayList).
 		Handle(projectsListCommand, projectsList).
 		Handle(projectsCreateCommand, projectsCreate(projectsCreateCommand, projectsCreateFlagsValue)).
 		Handle(apisListCommand, apisList(apisListCommand, &project)).

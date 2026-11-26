@@ -182,17 +182,29 @@ func refusalMessage(refusal platform.Failure) string {
 
 // exactlyOneArgument proves a command line names exactly one positional
 // argument, refusing zero with message and recovery, and more than one by
-// naming how many were given.
-func exactlyOneArgument(positional []string, message, recovery string) (string, error) {
+// naming how many were given. lister is the command that lists the ids the
+// argument takes, which a refusal for a left-out one names first; empty for a
+// value the user makes up, a new name or handle.
+func exactlyOneArgument(positional []string, message, lister, recovery string) (string, error) {
 	switch len(positional) {
 	case 0:
-		return "", usageProblem(message, recovery)
+		return "", usageProblem(message, listThen(lister, recovery))
 	case 1:
 		return positional[0], nil
 	default:
 		return "", usageProblem(
 			"this command takes one argument, and was given "+fmt.Sprint(len(positional)), recovery)
 	}
+}
+
+// listThen puts the command that lists an argument's ids ahead of the
+// recovery that runs the refused command, so next leads with where the id
+// comes from.
+func listThen(lister, recovery string) string {
+	if lister == "" {
+		return recovery
+	}
+	return "Run " + lister + " to see the ids, then " + strings.TrimPrefix(recovery, "Run ")
 }
 
 // usageProblem refuses a command line this module cannot carry out.
