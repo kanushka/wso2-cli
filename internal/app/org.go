@@ -377,7 +377,7 @@ func (s Shell) orgChoose(command *cobra.Command, args []string) error {
 		return err
 	}
 	if err != nil || !selected.Context.WSO2Cloud() {
-		return exactlyOneArgument("the name of an organization", orgUseUsage)(command, args)
+		return exactlyOneArgument("the name of an organization", orgUseUsage, orgUseUsage)(command, args)
 	}
 	mode, err := s.shellOutputMode(command)
 	if err != nil {

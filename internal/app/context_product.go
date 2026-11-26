@@ -37,6 +37,12 @@ const (
 		"[--replace] [--dry-run] [--context <name>]."
 	contextProductRemoveUsage = "Run wso2 context product remove <product> [--dry-run] [--context <name>], " +
 		"where <product> is a product or <product>/gateway for its gateway record alone."
+
+	contextProductAddMissing = "Run wso2 product list to see the products, " +
+		"then wso2 context product add <product> --url <url>."
+	contextProductRemoveMissing = "Run wso2 context show to see the selected context's products, " +
+		"then wso2 context product remove <product> [--dry-run] [--context <name>], " +
+		"where <product> is a product or <product>/gateway for its gateway record alone."
 )
 
 // contextProductFlags are what wso2 context product add takes beyond the
@@ -100,7 +106,7 @@ func (s Shell) contextProductAddCommand() *cobra.Command {
 			if namespace == "" {
 				return problem.New(problem.CategoryUsage, "shell.missing_argument",
 					fmt.Sprintf("%s needs the product to add", command.CommandPath())).
-					WithRecovery(contextProductAddUsage)
+					WithRecovery(contextProductAddMissing)
 			}
 			return s.contextProductAdd(command, namespace, flags)
 		},
@@ -133,7 +139,7 @@ func (s Shell) contextProductRemoveCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "remove <product>",
 		Short: "Stop the selected context reaching a product, ending the product's own sessions first.",
-		Args:  exactlyOneArgument("the product to remove", contextProductRemoveUsage),
+		Args:  exactlyOneArgument("the product to remove", contextProductRemoveMissing, contextProductRemoveUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.contextProductRemove(command, args[0], dryRun)
 		},

@@ -38,7 +38,14 @@ const catalogTimeout = 10 * time.Minute
 
 // The way back from each subcommand's usage refusals.
 const (
-	moduleListUsage    = "Run wso2 product list."
+	moduleListUsage = "Run wso2 product list."
+
+	moduleInstallMissing = "Run wso2 product list to see the products, " +
+		"then wso2 product install <product> [--channel <channel>]."
+	moduleRemoveMissing = "Run wso2 product list to see the installed products, " +
+		"then wso2 product remove <product> [--yes] [--dry-run]."
+	moduleUpdateMissing = "Run wso2 product list to see the installed products, " +
+		"then wso2 product update <product>, or wso2 product update --all."
 	moduleInstallUsage = "Run wso2 product install <product> [--channel <channel>], " +
 		"or wso2 product install <product>@<version> to pin an exact version."
 	moduleRemoveUsage = "Run wso2 product remove <product> [--yes] [--dry-run] [--no-input]."
@@ -152,7 +159,7 @@ func (s Shell) moduleInstallCommand() *cobra.Command {
 			"shell can launch is installed. Naming the product as <product>@<version> installs " +
 			"that exact version and pins it: wso2 product update passes a pinned module over " +
 			"until a plain wso2 product install <product> clears the pin.",
-		Args: exactlyOneArgument("a product to install", moduleInstallUsage),
+		Args: exactlyOneArgument("a product to install", moduleInstallMissing, moduleInstallUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			// The module may be named as "<module>@<version>" to pin an exact
 			// version; Cut on an absent "@" leaves version empty, which is
@@ -183,7 +190,7 @@ func (s Shell) moduleRemoveCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "remove <product>",
 		Short: "Take one installed product off this machine.",
-		Args:  exactlyOneArgument("the product to remove", moduleRemoveUsage),
+		Args:  exactlyOneArgument("the product to remove", moduleRemoveMissing, moduleRemoveUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			opts.namespace = args[0]
 			return s.moduleRemove(opts)
@@ -202,7 +209,7 @@ func (s Shell) moduleUpdateCommand() *cobra.Command {
 	var opts updateOptions
 	var all bool
 	command := &cobra.Command{
-		Use:   "update <product> | update --all",
+		Use:   "update (<product> | --all)",
 		Short: "Bring installed products to the newest version their channel publishes.",
 		// Not exactlyOneArgument or noArguments: this command takes zero or one
 		// product name, and which count is valid depends on --all, so the
@@ -223,7 +230,7 @@ func (s Shell) moduleUpdateCommand() *cobra.Command {
 			if !all && len(opts.namespaces) == 0 {
 				return problem.New(problem.CategoryUsage, "shell.missing_argument",
 					"wso2 product update needs a product, or --all").
-					WithRecovery("Run wso2 product update <product>, or wso2 product update --all.")
+					WithRecovery(moduleUpdateMissing)
 			}
 			if len(opts.namespaces) > 1 {
 				return problem.New(problem.CategoryUsage, "shell.unexpected_argument",

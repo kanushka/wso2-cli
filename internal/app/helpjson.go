@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -83,8 +84,11 @@ type helpProductDocument struct {
 // helpCommand is one command, shell or product.
 type helpCommand struct {
 	// Path is the words after the shell's name that reach the command.
-	Path        []string `json:"path"`
-	Description string   `json:"description,omitempty"`
+	Path []string `json:"path"`
+	// Arguments is what the usage line names after the path: positional
+	// arguments in angle brackets, and any flag spelled out beside them.
+	Arguments   string `json:"arguments,omitempty"`
+	Description string `json:"description,omitempty"`
 	// Examples are runnable command lines, placeholders in angle brackets.
 	Examples []string `json:"examples,omitempty"`
 	// Runnable is false for a command that only groups the ones beneath it.
@@ -211,6 +215,7 @@ func productCommandSubtree(namespace string, declared parsetree.Tree, found comm
 		}
 		entry := helpCommand{
 			Path:         append([]string{namespace}, command.Path...),
+			Arguments:    command.Arguments,
 			Description:  output.Rename(command.Short, name),
 			Runnable:     command.Runnable,
 			Aliases:      command.Aliases,
@@ -238,6 +243,7 @@ func productCommandSubtree(namespace string, declared parsetree.Tree, found comm
 func shellCommandSubtree(command *cobra.Command, name string) []helpCommand {
 	entry := helpCommand{
 		Path:        shellCommandPath(command),
+		Arguments:   shellCommandArguments(command),
 		Description: output.Rename(command.Short, name),
 		Runnable:    command.Runnable(),
 		Aliases:     command.Aliases,
@@ -262,6 +268,11 @@ func shellCommandSubtree(command *cobra.Command, name string) []helpCommand {
 		commands = append(commands, shellCommandSubtree(child, name)...)
 	}
 	return commands
+}
+
+func shellCommandArguments(command *cobra.Command) string {
+	_, arguments, _ := strings.Cut(strings.TrimSpace(command.Use), " ")
+	return strings.TrimSpace(arguments)
 }
 
 // listedCommands are the commands a help page lists beneath one: the

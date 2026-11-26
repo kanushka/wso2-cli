@@ -63,6 +63,9 @@ func (s Shell) renderProductHelp(namespace string, declared parsetree.Tree,
 		fmt.Fprintf(&page, "%s\n\n", found.Short)
 	}
 	fmt.Fprintf(&page, "Usage:\n  %s", path)
+	if found.Arguments != "" {
+		fmt.Fprintf(&page, " %s", found.Arguments)
+	}
 	if len(children) > 0 {
 		fmt.Fprint(&page, " <command>")
 	}

@@ -289,6 +289,29 @@ func TestDeclareCarriesACommandsExampleAndItsRequiredFlags(t *testing.T) {
 	}
 }
 
+// TestDeclareCarriesTheArgumentsAUsageLineNames proves what follows a
+// command's name in its Cobra Use reaches the declaration, so the shell's help
+// shows a command's positional arguments without launching the module.
+func TestDeclareCarriesTheArgumentsAUsageLineNames(t *testing.T) {
+	root := &cobra.Command{Use: "reference"}
+	deploy := &cobra.Command{Use: "deploy  <api> --gateway <gateway> "}
+	list := &cobra.Command{Use: "list"}
+	root.AddCommand(deploy, list)
+
+	declared := cobratree.New(root).Handle(deploy, noop).Handle(list, noop).Declare()
+
+	leaf, ok := findDeclared(declared, "deploy")
+	if !ok {
+		t.Fatal("the deploy command is absent")
+	}
+	if leaf.Arguments != "<api> --gateway <gateway>" {
+		t.Errorf("Arguments = %q, want the usage line after the name", leaf.Arguments)
+	}
+	if bare, _ := findDeclared(declared, "list"); bare.Arguments != "" {
+		t.Errorf("a command whose Use is only its name declares Arguments %q", bare.Arguments)
+	}
+}
+
 // TestDeclareCarriesAFlagsDefaultAndTheResultFieldsACommandDeclares proves
 // the two things machine-readable help shows beyond a flag's spelling: the
 // value a flag has when it is not written, with pflag's "false", "0", "[]"

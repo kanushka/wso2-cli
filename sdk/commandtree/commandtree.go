@@ -72,6 +72,12 @@ type Command struct {
 	Path []string `json:"path,omitempty"`
 	// Short is the one-line description, as the module's own help renders it.
 	Short string `json:"short,omitempty"`
+	// Arguments is what the command's usage line names after its name: its
+	// positional arguments, such as "<api>", and any flag the module chose to
+	// spell out beside them. Help shows it so that a reader sees what to type
+	// without a run that refuses. Empty for a command that names nothing, and
+	// for a tree from an SDK that did not carry it.
+	Arguments string `json:"arguments,omitempty"`
 	// Example is what help shows as the command's examples: one runnable
 	// command line per line, placeholders in angle brackets, naming the
 	// default shell. A leaf declares the one line that runs it; a group

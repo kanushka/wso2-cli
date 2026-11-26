@@ -101,6 +101,37 @@ func TestProductHelpRendersALeafsOwnFlagsWithAndWithoutAShorthand(t *testing.T) 
 	}
 }
 
+// TestProductHelpShowsTheArgumentsALeafDeclares proves a leaf's usage line
+// names the arguments its declaration carries, so a reader sees what to type
+// before a run that refuses, and that machine-readable help carries them too.
+func TestProductHelpShowsTheArgumentsALeafDeclares(t *testing.T) {
+	shell, out, errOut := newShell(t)
+	installFixture(t, shell, fixture.Module{Namespace: "widget", Version: "0.1.0", CommandTree: guidedTree()})
+
+	if code := shell.Run([]string{"widget", "api", "deploy", "--help"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if want := "Usage:\n  wso2 widget api deploy <api> --gateway-id <gateway> [flags]\n"; !strings.Contains(out.String(), want) {
+		t.Errorf("the deploy page does not contain %q:\n%s", want, out)
+	}
+
+	out.Reset()
+	if code := shell.Run([]string{"help", "widget", "api", "deploy", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if want := `"arguments": "<api> --gateway-id <gateway>"`; !strings.Contains(out.String(), want) {
+		t.Errorf("the JSON help does not contain %s:\n%s", want, out)
+	}
+
+	out.Reset()
+	if code := shell.Run([]string{"help", "context", "use", "--output", "json"}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", code, exit.OK, errOut)
+	}
+	if want := `"arguments": "<name>"`; !strings.Contains(out.String(), want) {
+		t.Errorf("the shell's JSON help does not contain %s:\n%s", want, out)
+	}
+}
+
 // guidedTree declares a namespace the way the command guideline asks a module
 // to: a root example naming the first thing to run once set up, a group whose
 // own examples name its two common actions, a group that declares none and
@@ -128,7 +159,8 @@ func guidedTree() commandtree.Tree {
 				{Name: "dry-run", Type: "bool", Usage: "Show what would be created."},
 			}},
 		{Path: []string{"api", "deploy"}, Runnable: true, Short: "Deploy an API.",
-			Example: "  wso2 widget api deploy <id> --gateway-id <gateway>"},
+			Arguments: "<api> --gateway-id <gateway>",
+			Example:   "  wso2 widget api deploy <id> --gateway-id <gateway>"},
 		{Path: []string{"api", "list"}, Runnable: true, Short: "List APIs."},
 	})
 }

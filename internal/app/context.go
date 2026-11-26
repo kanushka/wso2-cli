@@ -39,6 +39,7 @@ const (
 		"[--client-id <id>] [--provider <name>] [--use], or wso2 context create <name> " +
 		"--issuer <url> --client-id <id> [--issuer-id <id>] [--provider <name>] [--use]."
 	contextUseUsage     = "Run wso2 context use <name>."
+	contextUseMissing   = "Run wso2 context list to see the configured contexts, then wso2 context use <name>."
 	contextListUsage    = "Run wso2 context list [--output table|json]."
 	contextCurrentUsage = "Run wso2 context current [--output table|json]."
 	contextShowUsage    = "Run wso2 context show [--output table|json]."
@@ -99,7 +100,7 @@ func (s Shell) contextUseCommand() *cobra.Command {
 		Use:               "use <name>",
 		ValidArgsFunction: s.completeFirstContextName,
 		Short:             "Select the context commands run against.",
-		Args:              exactlyOneArgument("the name of a configured context", contextUseUsage),
+		Args:              exactlyOneArgument("the name of a configured context", contextUseMissing, contextUseUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.contextUse(command, args[0])
 		},
@@ -147,13 +148,16 @@ func (s Shell) contextShowCommand() *cobra.Command {
 // class, which the command reference documents as a module that crashed. An
 // argument count a user got wrong is theirs to fix, and the class a script
 // branches on has to say so.
-func exactlyOneArgument(what, usage string) cobra.PositionalArgs {
+//
+// missing is the recovery when the argument is left out, which names the
+// command that lists the values it takes before the command itself.
+func exactlyOneArgument(what, missing, usage string) cobra.PositionalArgs {
 	return func(command *cobra.Command, args []string) error {
 		switch {
 		case len(args) == 0:
 			return problem.New(problem.CategoryUsage, "shell.missing_argument",
 				fmt.Sprintf("%s needs %s", command.CommandPath(), what)).
-				WithRecovery(usage)
+				WithRecovery(missing)
 		case len(args) > 1:
 			return problem.New(problem.CategoryUsage, "shell.unexpected_argument",
 				fmt.Sprintf("%s takes one argument, got %d", command.CommandPath(), len(args))).
@@ -164,13 +168,13 @@ func exactlyOneArgument(what, usage string) cobra.PositionalArgs {
 }
 
 // exactlyTwoArguments is exactlyOneArgument for a command that takes two.
-func exactlyTwoArguments(what, usage string) cobra.PositionalArgs {
+func exactlyTwoArguments(what, missing, usage string) cobra.PositionalArgs {
 	return func(command *cobra.Command, args []string) error {
 		switch {
 		case len(args) < 2:
 			return problem.New(problem.CategoryUsage, "shell.missing_argument",
 				fmt.Sprintf("%s needs %s", command.CommandPath(), what)).
-				WithRecovery(usage)
+				WithRecovery(missing)
 		case len(args) > 2:
 			return problem.New(problem.CategoryUsage, "shell.unexpected_argument",
 				fmt.Sprintf("%s takes two arguments, got %d", command.CommandPath(), len(args))).

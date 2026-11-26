@@ -30,6 +30,11 @@ import (
 const (
 	contextDeleteUsage = "Run wso2 context delete <name> [--dry-run]."
 	contextRenameUsage = "Run wso2 context rename <name> <new-name>."
+
+	contextDeleteMissing = "Run wso2 context list to see the configured contexts, " +
+		"then wso2 context delete <name> [--dry-run]."
+	contextRenameMissing = "Run wso2 context list to see the configured contexts, " +
+		"then wso2 context rename <name> <new-name>."
 )
 
 func (s Shell) contextDeleteCommand() *cobra.Command {
@@ -38,7 +43,7 @@ func (s Shell) contextDeleteCommand() *cobra.Command {
 		Use:               "delete <name>",
 		ValidArgsFunction: s.completeFirstContextName,
 		Short:             "Delete a context, ending every session it holds first.",
-		Args:              exactlyOneArgument("the name of the context to delete", contextDeleteUsage),
+		Args:              exactlyOneArgument("the name of the context to delete", contextDeleteMissing, contextDeleteUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.contextDelete(command, args[0], dryRun)
 		},
@@ -52,7 +57,7 @@ func (s Shell) contextRenameCommand() *cobra.Command {
 		Use:               "rename <name> <new-name>",
 		ValidArgsFunction: s.completeFirstContextName,
 		Short:             "Rename a context. Its sessions stay where they are.",
-		Args:              exactlyTwoArguments("the context's name and its new name", contextRenameUsage),
+		Args:              exactlyTwoArguments("the context's name and its new name", contextRenameMissing, contextRenameUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.contextRename(command, args[0], args[1])
 		},

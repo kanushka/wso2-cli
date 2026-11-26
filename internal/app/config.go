@@ -35,6 +35,10 @@ const (
 	configGetUsage   = "Run wso2 config get <key> [--output table|json]."
 	configSetUsage   = "Run wso2 config set <key> <value> [--output table|json]."
 	configUnsetUsage = "Run wso2 config unset <key> [--output table|json]."
+
+	configGetMissing   = "Run wso2 config list to see the preference keys, then wso2 config get <key>."
+	configSetMissing   = "Run wso2 config list to see the preference keys, then wso2 config set <key> <value>."
+	configUnsetMissing = "Run wso2 config list to see the preference keys, then wso2 config unset <key>."
 )
 
 // configRecovery is what a refusal from the config command itself, rather
@@ -98,7 +102,7 @@ func (s Shell) configGetCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get <key>",
 		Short: "Show one shell preference.",
-		Args:  exactlyOneArgument("a preference key", configGetUsage),
+		Args:  exactlyOneArgument("a preference key", configGetMissing, configGetUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.configGet(command, args[0])
 		},
@@ -109,7 +113,7 @@ func (s Shell) configSetCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "set <key> <value>",
 		Short: "Change one shell preference.",
-		Args:  exactlyTwoArguments("a preference key and a value", configSetUsage),
+		Args:  exactlyTwoArguments("a preference key and a value", configSetMissing, configSetUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.configSet(command, args[0], args[1])
 		},
@@ -120,7 +124,7 @@ func (s Shell) configUnsetCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "unset <key>",
 		Short: "Remove one shell preference, so its built-in default governs again.",
-		Args:  exactlyOneArgument("a preference key", configUnsetUsage),
+		Args:  exactlyOneArgument("a preference key", configUnsetMissing, configUnsetUsage),
 		RunE: func(command *cobra.Command, args []string) error {
 			return s.configUnset(command, args[0])
 		},

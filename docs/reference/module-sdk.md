@@ -87,7 +87,10 @@ value. Groups that bind no handler are declared too, because the shell has to
 parse a path through them. Nothing is hand-written and there is no second schema.
 
 Two more things reach the declaration from the same tree, because the shell's
-help pages show them with no module launched. A command's `Example` is carried
+help pages show them with no module launched. What follows the name in a
+command's `Use` is declared as its `arguments` and shown on its usage line:
+write the positional arguments in angle brackets (`Use: "deploy <api-id>"`),
+so a reader sees what to type before a run refuses. A command's `Example` is carried
 verbatim: write one runnable line per command, placeholders in angle brackets
 (`wso2 apim api create -f <file> --project <id>`); on a group, the two or
 three lines a user most often wants beneath it; on the root, the line to run
@@ -96,7 +99,10 @@ marked with `cobra.MarkFlagRequired` is declared `required`: the shell marks
 it on the command's page, and `cobratree` refuses an invocation without it
 with `module.flag_required`, naming the flag and the command's example, before
 the handler runs. For a flag that takes an id, say in its usage which command
-lists the ids. A flag's default (pflag's `DefValue`, with `false`, `0`, `[]`
+lists the ids, and when a handler refuses a left-out positional id, name that
+list command first in the recovery (`Run wso2 apim api list to see the ids,
+then wso2 apim api deploy <api-id> --gateway-id <gateway-id>.`), so `next`
+leads with it. A flag's default (pflag's `DefValue`, with `false`, `0`, `[]`
 and the empty string left out) is declared too.
 
 `cobratree.ResultFields(command, names...)` declares the JSON members a

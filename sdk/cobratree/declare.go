@@ -19,6 +19,7 @@ package cobratree
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -56,6 +57,7 @@ func (t *Tree) declare(command *cobra.Command, path []string, into *[]commandtre
 	*into = append(*into, commandtree.Command{
 		Path:         path,
 		Short:        command.Short,
+		Arguments:    declaredArguments(command),
 		Example:      command.Example,
 		Runnable:     runnable,
 		Hidden:       command.Hidden,
@@ -69,6 +71,13 @@ func (t *Tree) declare(command *cobra.Command, path []string, into *[]commandtre
 	for _, child := range command.Commands() {
 		t.declare(child, append(append([]string(nil), path...), child.Name()), into)
 	}
+}
+
+// declaredArguments reports what follows the name in the command's Use, the
+// part Cobra itself shows after the command path on a usage line.
+func declaredArguments(command *cobra.Command) string {
+	_, arguments, _ := strings.Cut(strings.TrimSpace(command.Use), " ")
+	return strings.TrimSpace(arguments)
 }
 
 // declareFlags reports every flag a command accepts, its own and the ones it
