@@ -35,6 +35,9 @@ import (
 	"github.com/wso2/wso2-cli/sdk/result"
 )
 
+// buildLister lists one integration's builds, the ids a build argument takes.
+const buildLister = "wso2 intg integration build list"
+
 // BuildStartSchema identifies an accepted build request.
 const BuildStartSchema = "intg.buildStart/v1"
 
@@ -115,7 +118,7 @@ type buildRunFlags struct {
 // name that was not there before, and it is followed until it finishes.
 func buildRun(command *cobra.Command, flags *buildRunFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
-		integrationID, err := exactlyOneArgument(command.Flags().Args(), "name the integration to build",
+		integrationID, err := exactlyOneArgument(command.Flags().Args(), "name the integration to build", "wso2 intg integration list",
 			"Run wso2 intg integration build run <integration> [--commit <sha>].")
 		if err != nil {
 			return result.Result{}, err
@@ -179,7 +182,7 @@ func buildRun(command *cobra.Command, flags *buildRunFlags) module.Handler {
 // cursor.
 func buildList(command *cobra.Command) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
-		integrationID, err := exactlyOneArgument(command.Flags().Args(), "name the integration whose builds to list",
+		integrationID, err := exactlyOneArgument(command.Flags().Args(), "name the integration whose builds to list", "wso2 intg integration list",
 			"Run wso2 intg integration build list <integration>.")
 		if err != nil {
 			return result.Result{}, err
@@ -217,7 +220,7 @@ func buildList(command *cobra.Command) module.Handler {
 func buildShow(command *cobra.Command) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		integrationID, buildName, err := exactlyTwoArguments(command.Flags().Args(),
-			"name the integration and the build to show", "Run wso2 intg integration build show <integration> <build>.")
+			"name the integration and the build to show", "wso2 intg integration list", buildLister, "Run wso2 intg integration build show <integration> <build>.")
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -481,7 +484,7 @@ func lineCount(shown, total int) string {
 func buildLogs(command *cobra.Command, flags *buildLogsFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		integrationID, buildName, err := exactlyTwoArguments(command.Flags().Args(),
-			"name the integration and the build whose log to show", "Run wso2 intg integration build logs <integration> <build>.")
+			"name the integration and the build whose log to show", "wso2 intg integration list", buildLister, "Run wso2 intg integration build logs <integration> <build>.")
 		if err != nil {
 			return result.Result{}, err
 		}

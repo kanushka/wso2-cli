@@ -52,7 +52,7 @@ type integrationLogsFlags struct {
 func integrationLogs(command *cobra.Command, flags *integrationLogsFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		recovery := "Run wso2 intg integration logs <integration> --env <environment> [--since <duration>] [--tail <n>]."
-		integrationID, err := exactlyOneArgument(command.Flags().Args(), "name the integration whose logs to show",
+		integrationID, err := exactlyOneArgument(command.Flags().Args(), "name the integration whose logs to show", "wso2 intg integration list",
 			recovery)
 		if err != nil {
 			return result.Result{}, err

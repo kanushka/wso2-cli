@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/wso2/wso2-cli/modules/intg/internal/platform"
 	"github.com/wso2/wso2-cli/sdk/module"
@@ -131,11 +132,13 @@ func refusal(err error, status int) (platform.Failure, bool) {
 }
 
 // exactlyOneArgument proves a command line names exactly one positional
-// argument, refusing none with message and more than one by count.
-func exactlyOneArgument(positional []string, message, recovery string) (string, error) {
+// argument, refusing none with message and more than one by count. lister is
+// the command that lists the ids the argument takes, which a refusal for a
+// left-out one names first; empty for a value the user makes up, a new name.
+func exactlyOneArgument(positional []string, message, lister, recovery string) (string, error) {
 	switch len(positional) {
 	case 0:
-		return "", usageProblem(message, recovery)
+		return "", usageProblem(message, listThen(lister, recovery))
 	case 1:
 		return positional[0], nil
 	default:
@@ -145,13 +148,31 @@ func exactlyOneArgument(positional []string, message, recovery string) (string, 
 }
 
 // exactlyTwoArguments proves a command line names exactly two positional
-// arguments, refusing any other count with message.
-func exactlyTwoArguments(positional []string, message, recovery string) (string, string, error) {
+// arguments, refusing any other count with message. A refusal for none names
+// lister first, and one for only the first names childLister followed by it,
+// so the list it points to is the one the given id narrows.
+func exactlyTwoArguments(positional []string, message, lister, childLister, recovery string) (string, string, error) {
 	if len(positional) != 2 {
+		switch len(positional) {
+		case 0:
+			recovery = listThen(lister, recovery)
+		case 1:
+			recovery = listThen(childLister+" "+positional[0], recovery)
+		}
 		return "", "", usageProblem(fmt.Sprintf("%s: this command takes two arguments, and was given %d",
 			message, len(positional)), recovery)
 	}
 	return positional[0], positional[1], nil
+}
+
+// listThen puts the command that lists an argument's ids ahead of the
+// recovery that runs the refused command, so next leads with where the id
+// comes from.
+func listThen(lister, recovery string) string {
+	if lister == "" {
+		return recovery
+	}
+	return "Run " + lister + " to see the ids, then " + strings.TrimPrefix(recovery, "Run ")
 }
 
 // projectOf is the project a command acts within: the one --project names, or

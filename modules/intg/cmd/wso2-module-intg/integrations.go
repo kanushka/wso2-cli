@@ -316,7 +316,7 @@ func findIntegration(found []integration, ref, projectID string) (integration, e
 // repository is read beside it.
 func integrationShow(command *cobra.Command, flags *projectFlag) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
-		ref, err := exactlyOneArgument(command.Flags().Args(), "name the integration to show",
+		ref, err := exactlyOneArgument(command.Flags().Args(), "name the integration to show", "wso2 intg integration list",
 			"Run wso2 intg integration show <integration> [--project <project>].")
 		if err != nil {
 			return result.Result{}, err
@@ -458,7 +458,7 @@ func (f *integrationCreateFlags) createRequest(name, project string) (map[string
 // integrationCreate answers "wso2 intg integration create <name> ...".
 func integrationCreate(command *cobra.Command, flags *integrationCreateFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
-		name, err := exactlyOneArgument(command.Flags().Args(), "name the integration to create",
+		name, err := exactlyOneArgument(command.Flags().Args(), "name the integration to create", "",
 			"Run wso2 intg integration create <name> --project <project> --type <type> --runtime <runtime> "+
 				"--repo <url> --branch <branch>.")
 		if err != nil {
@@ -530,7 +530,7 @@ type integrationDeleteFlags struct {
 // name is unique across the organization.
 func integrationDelete(command *cobra.Command, flags *integrationDeleteFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
-		id, err := exactlyOneArgument(command.Flags().Args(), "name the integration to delete",
+		id, err := exactlyOneArgument(command.Flags().Args(), "name the integration to delete", "wso2 intg integration list",
 			"Run wso2 intg integration delete <integration>.")
 		if err != nil {
 			return result.Result{}, err

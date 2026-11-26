@@ -223,10 +223,11 @@ func pipelineOf(ctx context.Context, client platform.Client, project, endpoint s
 	return p.Pipeline, pipeline.Paths[0].Source, nil
 }
 
-// requireFlag refuses a command line that leaves out a required flag.
+// requireFlag refuses a command line that leaves out one of the environment
+// flags, naming the command that lists the environments first.
 func requireFlag(value, flag, recovery string) error {
 	if value == "" {
-		return usageProblem(flag+" is required", recovery)
+		return usageProblem(flag+" is required", listThen("wso2 intg environment list", recovery))
 	}
 	return nil
 }
@@ -266,7 +267,7 @@ func environmentList(command *cobra.Command) module.Handler {
 // integration runs in every environment, one read per environment.
 func deploymentList(command *cobra.Command) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
-		integrationID, err := exactlyOneArgument(command.Flags().Args(), "name the integration whose deployments to list",
+		integrationID, err := exactlyOneArgument(command.Flags().Args(), "name the integration whose deployments to list", "wso2 intg integration list",
 			"Run wso2 intg integration deployment list <integration>.")
 		if err != nil {
 			return result.Result{}, err
@@ -308,7 +309,7 @@ type environmentFlag struct {
 func deploymentShow(command *cobra.Command, flags *environmentFlag) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		recovery := "Run wso2 intg integration deployment show <integration> --env <environment>."
-		integrationID, err := exactlyOneArgument(command.Flags().Args(), "name the integration whose deployment to show",
+		integrationID, err := exactlyOneArgument(command.Flags().Args(), "name the integration whose deployment to show", "wso2 intg integration list",
 			recovery)
 		if err != nil {
 			return result.Result{}, err
@@ -367,7 +368,7 @@ type integrationDeployFlags struct {
 func integrationDeploy(command *cobra.Command, flags *integrationDeployFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		recovery := "Run wso2 intg integration deploy <integration> --env <environment> [--build <build>]."
-		integrationID, err := exactlyOneArgument(command.Flags().Args(), "name the integration to deploy", recovery)
+		integrationID, err := exactlyOneArgument(command.Flags().Args(), "name the integration to deploy", "wso2 intg integration list", recovery)
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -478,7 +479,7 @@ type integrationPromoteFlags struct {
 func integrationPromote(command *cobra.Command, flags *integrationPromoteFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
 		recovery := "Run wso2 intg integration promote <integration> --from <environment> --to <environment>."
-		integrationID, err := exactlyOneArgument(command.Flags().Args(), "name the integration to promote", recovery)
+		integrationID, err := exactlyOneArgument(command.Flags().Args(), "name the integration to promote", "wso2 intg integration list", recovery)
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -586,7 +587,7 @@ func integrationPromote(command *cobra.Command, flags *integrationPromoteFlags) 
 func resolvedEnvironment(ctx context.Context, command *cobra.Command, request module.Request, flags *environmentFlag,
 	verb string) (string, platform.Client, environment, error) {
 	recovery := "Run wso2 intg integration " + verb + " <integration> --env <environment>."
-	integrationID, err := exactlyOneArgument(command.Flags().Args(), "name the integration to "+verb, recovery)
+	integrationID, err := exactlyOneArgument(command.Flags().Args(), "name the integration to "+verb, "wso2 intg integration list", recovery)
 	if err != nil {
 		return "", platform.Client{}, environment{}, err
 	}

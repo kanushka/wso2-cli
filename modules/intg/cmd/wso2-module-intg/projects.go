@@ -163,8 +163,8 @@ func projectList(command *cobra.Command) module.Handler {
 // projectShow answers "wso2 intg project show <project>".
 func projectShow(command *cobra.Command) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
-		name, err := exactlyOneArgument(command.Flags().Args(), "name the project to show",
-			"Run wso2 intg project show <project>, with an ID from wso2 intg project list.")
+		name, err := exactlyOneArgument(command.Flags().Args(), "name the project to show", "wso2 intg project list",
+			"Run wso2 intg project show <project>.")
 		if err != nil {
 			return result.Result{}, err
 		}
@@ -270,7 +270,7 @@ func parseRepository(raw string) (provider, organization, repository string, err
 // projectCreate answers "wso2 intg project create <name>".
 func projectCreate(command *cobra.Command, flags *projectCreateFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
-		name, err := exactlyOneArgument(command.Flags().Args(), "name the project to create",
+		name, err := exactlyOneArgument(command.Flags().Args(), "name the project to create", "",
 			"Run wso2 intg project create <name>.")
 		if err != nil {
 			return result.Result{}, err
@@ -343,7 +343,7 @@ func confirmRemoval(ctx context.Context, request module.Request, flags *removalF
 // unless --yes is given. Nothing is called until the deletion is confirmed.
 func projectDelete(command *cobra.Command, flags *removalFlags) module.Handler {
 	return func(ctx context.Context, request module.Request) (result.Result, error) {
-		name, err := exactlyOneArgument(command.Flags().Args(), "name the project to delete",
+		name, err := exactlyOneArgument(command.Flags().Args(), "name the project to delete", "wso2 intg project list",
 			"Run wso2 intg project delete <project>.")
 		if err != nil {
 			return result.Result{}, err
