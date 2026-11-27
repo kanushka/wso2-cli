@@ -274,6 +274,9 @@ func (s Shell) establishAndStore(selected contexts.Selection, flags loginFlags) 
 	if err != nil {
 		return loginOutcome{}, err
 	}
+	if err := s.endPlatformSession(selected, flags); err != nil {
+		return loginOutcome{}, err
+	}
 	// One tab serves every authorization this login opens in the browser.
 	tab := oauthflow.NewTab()
 	if flags.chooseOrganization {
@@ -500,8 +503,33 @@ func (s Shell) loginAccesses(selected contexts.Selection, flags loginFlags) ([]c
 		if err := checkLoginAccessBinds(selected.Identity); err != nil {
 			return nil, err
 		}
-		return selected.Identity.Accesses(), nil
+		return withoutPlatform(selected.Identity.Accesses()), nil
 	}
+}
+
+// withoutPlatform drops a WSO2 Cloud context's platform access, which the
+// first project command establishes instead, so a login authorizes nothing a
+// user who never touches projects would need.
+func withoutPlatform(accesses []contexts.ProductAccess) []contexts.ProductAccess {
+	return slices.DeleteFunc(accesses, func(access contexts.ProductAccess) bool {
+		return access.Namespace == contexts.PlatformKey
+	})
+}
+
+// endPlatformSession ends the platform session a full login leaves behind:
+// the next project command establishes it again from this sign-in, for the
+// user and the role it carries now.
+func (s Shell) endPlatformSession(selected contexts.Selection, flags loginFlags) error {
+	platform, found := selected.Identity.PlatformAccess()
+	if !found || flags.only != "" {
+		return nil
+	}
+	root, err := s.stateRoot()
+	if err != nil {
+		return err
+	}
+	_, err = s.endSession(session.Store{StateRoot: root}, platform)
+	return err
 }
 
 // withoutExchanged drops the records a login has no authorization to run.

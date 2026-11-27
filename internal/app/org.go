@@ -415,7 +415,7 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 	}
 	name := selected.Context.Name
 	if id != "" && id == current.ID {
-		if err := s.recordOrganization(root, name, id); err != nil {
+		if _, err := s.recordOrganization(root, name, id, false); err != nil {
 			return err
 		}
 		if _, err := fmt.Fprintln(s.Streams.Err, "Already signed in to this organization, so no new sign-in was needed."); err != nil {
@@ -506,7 +506,17 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 		switching.Context.Organization = id
 	}
 	if err == nil {
-		err = s.recordOrganization(root, name, id)
+		// The project was selected in the organization the context records,
+		// or, when it records none, the one its sign-in was issued in.
+		previous := selected.Context.Organization
+		if previous == "" {
+			previous = current.ID
+		}
+		var cleared string
+		cleared, err = s.recordOrganization(root, name, id, previous != "" && id != previous)
+		if err == nil {
+			s.reportClearedProject(name, cleared)
+		}
 	}
 	if err != nil {
 		// Whatever this login established is in an organization the context
@@ -532,8 +542,10 @@ func (s Shell) orgUseCloud(mode output.Mode, root string, selected contexts.Sele
 
 // recordOrganization writes a context's organization, selecting the context
 // again under the document lock, as orgUse does, so the write lands on the
-// context the sessions were established for.
-func (s Shell) recordOrganization(root, name, organization string) error {
+// context the sessions were established for. With clearProject it also clears
+// the project the context selects, and returns the one it cleared.
+func (s Shell) recordOrganization(root, name, organization string, clearProject bool) (string, error) {
+	var cleared string
 	err := contexts.Update(root, func(document contexts.Document) (contexts.Document, error) {
 		if still, err := document.Select(""); err != nil || still.Context.Name != name {
 			return document, problem.New(problem.CategoryUsage, "contexts.document_busy",
@@ -543,14 +555,28 @@ func (s Shell) recordOrganization(root, name, organization string) error {
 		for i := range document.Contexts {
 			if document.Contexts[i].Name == name {
 				document.Contexts[i].Organization = organization
+				if clearProject {
+					cleared = document.Contexts[i].Project
+					document.Contexts[i].Project = ""
+				}
 			}
 		}
 		return document, nil
 	})
 	if err != nil {
-		return s.explainWriteRefusal(root, err)
+		return "", s.explainWriteRefusal(root, err)
 	}
-	return nil
+	return cleared, nil
+}
+
+// reportClearedProject says that switching organization cleared the project
+// a context selected: a project belongs to one organization.
+func (s Shell) reportClearedProject(name, project string) {
+	if project == "" {
+		return
+	}
+	_, _ = fmt.Fprintf(s.Streams.Err, "Cleared the %q context's project %q, which belongs to the previous "+
+		"organization. Run wso2 project use <project> to select one in this organization.\n", name, project)
 }
 
 // orgUseUnfinished says, on a switch whose login failed, where the context

@@ -149,6 +149,19 @@ one that establishes the sign-on every other product session is obtained
 through.
 _Avoid_: Master session, primary session, parent session
 
+**Project**:
+A WSO2 Cloud grouping of one organization's work across products, owned by
+WSO2 Cloud's platform service; products only read it. A context selects one
+by its id, which the shell passes to every module (ADR 0028).
+_Avoid_: Workspace, apim project, intg project
+
+**Platform session**:
+The product session a WSO2 Cloud context holds for the platform service, under
+the reserved key `cloud`, which `ws project` commands are reached through. It
+is derived from the context rather than recorded in it, and ends with the
+context's other sessions.
+_Avoid_: Cloud product, console session
+
 **API access**:
 The access a module is granted, for one command, to call one API its product
 serves the way a consumer would: exchanged from the login session for the

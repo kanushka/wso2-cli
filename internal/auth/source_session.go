@@ -192,6 +192,11 @@ func (s sessionSource) reestablish() string {
 // afresh: the product's own login, or, for the session the login product
 // shares with the login, a logout and a login.
 func reestablishCommand(strategy, contextName, product string) string {
+	// The platform session is established by the first project command after
+	// a login, which ends it.
+	if product == contexts.PlatformKey {
+		return fmt.Sprintf("run wso2 login --context %s, then the project command again", contextName)
+	}
 	if strategy == contexts.StrategyDirect {
 		return fmt.Sprintf("run wso2 logout --context %s and wso2 login --context %s", contextName, contextName)
 	}

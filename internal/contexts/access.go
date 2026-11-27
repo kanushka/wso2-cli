@@ -97,7 +97,9 @@ func (i Account) loginAccess() ProductAccess {
 	}
 	for _, namespace := range candidates {
 		product := i.Products[namespace]
-		if !product.Direct() {
+		// The platform access is never the login: a context's sign-in is its
+		// products', and the platform's session sits beside them.
+		if !product.Direct() || namespace == PlatformKey {
 			continue
 		}
 		access.Namespace = namespace
@@ -252,8 +254,8 @@ func (i Account) inlineAccess(namespace string, product Product) ProductAccess {
 
 // Accesses is every authorization the identity needs, the login one first
 // and then one per further session, in namespace order, a product's gateway
-// record right after the product's own. A client-credentials identity lists
-// every record, each inline.
+// record right after the product's own, and a WSO2 Cloud context's platform
+// access last. A client-credentials identity lists every record, each inline.
 func (i Account) Accesses() []ProductAccess {
 	if i.Auth.Kind == KindClientCredentials {
 		var all []ProductAccess
@@ -274,6 +276,11 @@ func (i Account) Accesses() []ProductAccess {
 		}
 		if access.SessionRef != all[0].SessionRef {
 			all = append(all, access)
+		}
+	}
+	if _, recorded := i.Products[PlatformKey]; !recorded {
+		if platform, found := i.PlatformAccess(); found {
+			all = append(all, platform)
 		}
 	}
 	return all

@@ -33,7 +33,7 @@ import (
 )
 
 func TestCommandNamesAreDerivedFromTheShellCommandTree(t *testing.T) {
-	if got, want := app.CommandNames(), []string{"completion", "config", "context", "doctor", "help", "login", "logout", "module", "org", "product", "version", "whoami"}; !slices.Equal(got, want) {
+	if got, want := app.CommandNames(), []string{"completion", "config", "context", "doctor", "help", "login", "logout", "module", "org", "product", "project", "version", "whoami"}; !slices.Equal(got, want) {
 		t.Errorf("CommandNames() = %v, want %v", got, want)
 	}
 }
@@ -51,7 +51,7 @@ func TestHelpListsEveryShellCommand(t *testing.T) {
 	// product, and a help page that advertised it would teach the word the
 	// deprecation exists to retire. It still resolves, which
 	// TestTheProductCommandReplacesModuleAndModuleStaysAsAnAlias proves.
-	for _, command := range []string{"completion", "config", "context", "doctor", "help", "login", "logout", "org", "product", "version", "whoami"} {
+	for _, command := range []string{"completion", "config", "context", "doctor", "help", "login", "logout", "org", "product", "project", "version", "whoami"} {
 		if !strings.Contains(out.String(), command) {
 			t.Errorf("help does not list the %q command:\n%s", command, out)
 		}
@@ -647,6 +647,7 @@ Core commands
    logout        End the selected context's session.
    org           Show and change the organization the selected context runs within.
    product       Install, list, and update the WSO2 product CLIs from the catalog.
+   project       Select, create, and delete WSO2 Cloud projects.
    whoami        Show who is signed in, to which context, and with what session.
 
 Product commands

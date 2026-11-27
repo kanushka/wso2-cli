@@ -298,6 +298,11 @@ func (s Shell) doctor(command *cobra.Command, online bool) error {
 		default:
 			var missing []string
 			for _, access := range selected.Identity.Accesses() {
+				// The platform session is established by the first project
+				// command, not by a login, so its absence is no finding.
+				if access.Namespace == contexts.PlatformKey {
+					continue
+				}
 				name := access.Namespace
 				if name == "" {
 					name = "the login session"

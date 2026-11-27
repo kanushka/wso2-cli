@@ -415,6 +415,10 @@ func (i Account) validate() error {
 		if !namePattern.MatchString(namespace) {
 			return malformed(fmt.Sprintf("declares an invalid product namespace on the %s", i.label()))
 		}
+		if namespace == PlatformKey && i.Type == TypeCloud {
+			return malformed(fmt.Sprintf("records a %q product on the %s; on a WSO2 Cloud context that "+
+				"name is the platform's, which the shell reaches by itself", PlatformKey, i.label()))
+		}
 		if err := i.Products[namespace].validate(i.label()); err != nil {
 			return err
 		}

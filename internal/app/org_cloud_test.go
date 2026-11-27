@@ -506,3 +506,21 @@ func TestOrgUseWithNoArgumentOnADeviceCodeCloudContextRecordsWhatTheSignInChose(
 		t.Errorf("opened the browser %d times", login.opened)
 	}
 }
+
+func TestOrgUseOnCloudClearsTheProjectOnlyWhenTheOrganizationChanges(t *testing.T) {
+	login := newSignedInCloudOrgs(t)
+	setProject(t, login.shell, "retail")
+
+	login.run(t, "org", "use", "acme")
+	if got := cloudContext(t, login.shell).Project; got != "retail" {
+		t.Errorf("project = %q after staying in the same organization, want retail kept", got)
+	}
+
+	login.run(t, "org", "use", betaUnit.ID)
+	if got := cloudContext(t, login.shell).Project; got != "" {
+		t.Errorf("project = %q after switching organization, want it cleared", got)
+	}
+	if !strings.Contains(login.errOut.String(), `Cleared the "cloud-dev" context's project "retail"`) {
+		t.Errorf("clearing the project was not said:\n%s", login.errOut)
+	}
+}

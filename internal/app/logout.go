@@ -161,6 +161,11 @@ func (s Shell) logout(flags logoutFlags) error {
 		if outcome.sessionEnded {
 			state = "ended"
 		}
+		// The platform session exists only once a project command ran, so it
+		// is named only when there was one to end.
+		if access.Namespace == contexts.PlatformKey && !outcome.sessionEnded {
+			continue
+		}
 		products = append(products, access.Namespace+" "+state)
 	}
 	ended.productSessions = products

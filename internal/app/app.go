@@ -94,6 +94,11 @@ type Shell struct {
 	// (catalog.ReleasedIndex); a test sets it to stand in for what a release knew.
 	ReleasedIndex *catalog.Index
 
+	// PlatformURL overrides where WSO2 Cloud's platform service answers. It is
+	// empty in production, where the context's environment gives it; a test
+	// points it at a local server.
+	PlatformURL string
+
 	// log is this invocation's diagnostic log. It is a pointer because the
 	// flag that turns it on is parsed after the command tree that the call
 	// sites hang off has been built, and because every Shell method takes its

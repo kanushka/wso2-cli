@@ -33,7 +33,7 @@ import (
 // a command added without being named here is still listed, under Other.
 var coreCommands = map[string]bool{
 	"context": true, "login": true, "logout": true,
-	"org": true, "product": true, "whoami": true,
+	"org": true, "product": true, "project": true, "whoami": true,
 }
 
 // minimumNamePadding is the narrowest name column the root page renders, the
